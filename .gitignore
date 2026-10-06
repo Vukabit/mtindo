@@ -1,0 +1,17 @@
+target/
+**/*.rs.bk
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+scripts/logs/
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~

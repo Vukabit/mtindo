@@ -15,3 +15,6 @@ scripts/logs/
 .idea/
 *.swp
 *~
+
+# Internal planning docs (not published)
+docs/internal/

@@ -70,15 +70,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "lofmt"
+name = "mtindo"
 version = "0.1.0"
 
 [[package]]
-name = "lofmt-fuzz"
+name = "mtindo-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
- "lofmt",
+ "mtindo",
 ]
 
 [[package]]

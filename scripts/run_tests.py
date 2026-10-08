@@ -194,7 +194,16 @@ def discover_standard_tasks():
             if file_path.suffix == ".rs":
                 file_list.append(file_path)
                 
-        file_list.sort()
+        def sort_key(path_obj):
+            name = path_obj.stem
+            if name.startswith("domain_"):
+                parts = name.split("_")
+                if len(parts) > 1:
+                    if parts[1].isdigit() == True:
+                        return int(parts[1])
+            return 999
+            
+        file_list.sort(key=sort_key)
         
         for file_path in file_list:
             target_name = file_path.stem
@@ -213,7 +222,7 @@ def discover_standard_tasks():
     benches_dir = pathlib.Path("benches")
     if benches_dir.exists() == True:
         bench_command = ["cargo", "bench", "--quiet"]
-        tasks.append(("Benchmarks", "lofmt_bench", bench_command))
+        tasks.append(("Benchmarks", "mtindo_bench", bench_command))
         
     return tasks
 
@@ -278,7 +287,7 @@ def print_failure_diff(last_good_hash):
     logger.error("Failure Diff against " + hash_short + ":\n" + output)
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="lofmt test orchestrator")
+    parser = argparse.ArgumentParser(description="mtindo test orchestrator")
     
     parser.add_argument(
         "--target",
@@ -312,7 +321,7 @@ def main():
         sys.stderr.write("FATAL: Execute this script from the project root directory.\n")
         sys.exit(1)
         
-    logger.info("Starting lofmt 110% Coverage Pipeline")
+    logger.info("Starting mtindo 110% Coverage Pipeline")
     
     arg_msg = "Arguments passed: target=" + args.target + ", group=" + args.group + ", fuzz-time=" + str(args.fuzz_time)
     logger.info(arg_msg)
@@ -328,7 +337,7 @@ def main():
                 tasks_to_run.append(task)
                 
     sys.stdout.write(COLOR_BOLD)
-    sys.stdout.write("Executing lofmt 110% Coverage Pipeline\n")
+    sys.stdout.write("Executing mtindo 110% Coverage Pipeline\n")
     sys.stdout.write(COLOR_RESET)
     sys.stdout.write("========================================\n")
     

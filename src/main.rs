@@ -1,16 +1,17 @@
 use std::env;
 use std::io::IsTerminal;
 use std::path::PathBuf;
-use lofmt::{
-  c_cyan, c_green, c_red, c_reset, c_yellow, parse_toml_config, process_file,
-    process_init,
-  process_stdin, resolve_config_path, restore_backup, walk_directory,
-    LayoutConfig,
+
+use mtindo::{
+    c_cyan, c_green, c_red, c_reset, c_yellow, parse_toml_config, process_file,
+        process_init,
+    process_stdin, resolve_config_path, restore_backup, walk_directory,
+        LayoutConfig,
 };
 
-const MAN_PAGE: &str = r#"# lofmt (Layout Formatter)
-`lofmt` is a dependency-free structural reorganizer for Rust source files.
-While `rustfmt` handles internal spacing and line wrapping, `lofmt` operates at
+const MAN_PAGE: &str = r#"# mtindo (mto)
+`mtindo` is a dependency-free structural reorganizer for Rust source files.
+While `rustfmt` handles internal spacing and line wrapping, `mtindo` operates at
 the block level. It physically reorders your source code—moving structs,
 enums, impls, and functions into a predictable, strictly organized top-down
 layout.
@@ -36,7 +37,7 @@ cargo install --path .
 ```
 ## Command Line Interface
 ```text
-lofmt [OPTIONS] [TARGET_PATH]
+mto [OPTIONS] [TARGET_PATH]
 ```
 *   `[TARGET_PATH]`: Can be a single `.rs` file or a directory. Directories are
 traversed recursively (skipping `target/`, `.git/`, and `node_modules/`).
@@ -51,166 +52,166 @@ if drift is detected.
 the specified backup payload.
 *   `--man`: Print this manual.
 *   `-h, --help`: Print the short help menu.
-## Configuration (.lofmt.toml)
-You control the sorting logic via a `.lofmt.toml` file. `lofmt` resolves
+## Configuration (.mto.toml)
+You control the sorting logic via a `.mto.toml` file. `mtindo` resolves
 configuration paths in the following priority order:
 1. Explicit path passed via `--config`.
-2. `.lofmt.toml` in the current working directory.
-3. `~/.config/lofmt/.lofmt.toml` (Global XDG-style).
-4. `~/.lofmt.toml` (Global fallback).
+2. `.mto.toml` in the current working directory.
+3. `~/.config/mtindo/.mto.toml` (Global XDG-style).
+4. `~/.mto.toml` (Global fallback).
 5. Internal defaults.
 ```toml
 # Enable or disable alphabetical sorting within matching categories and
-  visibilities.
+    visibilities.
 sort_alphabetically = true
 # Keep `impl` blocks directly below the struct/enum they implement.
 group_impls = true
 # Define the absolute top-down ordering of your source files.
 # Valid tokens: ModDecl, UseDecl, MacroDecl, ConstDecl, StaticDecl, TraitDecl,
-  EnumDecl, StructDecl, ImplBlock, FnDecl, Unknown
+    EnumDecl, StructDecl, ImplBlock, FnDecl, Unknown
 type_order = [
-  "ModDecl",
-  "UseDecl",
-  "MacroDecl",
-  "ConstDecl",
-  "StaticDecl",
-  "TraitDecl",
-  "EnumDecl",
-  "StructDecl",
-  "ImplBlock",
-  "FnDecl",
-  "Unknown"
+    "ModDecl",
+    "UseDecl",
+    "MacroDecl",
+    "ConstDecl",
+    "StaticDecl",
+    "TraitDecl",
+    "EnumDecl",
+    "StructDecl",
+    "ImplBlock",
+    "FnDecl",
+    "Unknown"
 ]
 ```
 ## Safety and Backups
 Data loss is impossible by design.
-1. Before any file is modified, an exact copy is saved to `/tmp/lofmt_backups/`
+1. Before any file is modified, an exact copy is saved to `/tmp/mtindo_backups/`
 (or your OS equivalent) using a millisecond-precision UNIX timestamp.
 2. The reordered source is written to a temporary sidecar file.
 3. An atomic file system rename overwrites the original file.
 4. `cargo +nightly fmt` is executed to align interior spacing.
-5. If `rustfmt` fails (indicating a generated syntax error), `lofmt`
+5. If `rustfmt` fails (indicating a generated syntax error), `mtindo`
 automatically restores the backup snapshot.
 If you need to manually revert a file, run:
 ```bash
-lofmt --restore /tmp/lofmt_backups/170000000_src_main.bak src/main.rs
+mto --restore /tmp/mtindo_backups/170000000_src_main.bak src/main.rs
 ```
 "#;
 
 enum CliAction {
-  Format {
-    target_path: PathBuf,
-    config_path: Option<PathBuf>,
-    dry_run: bool,
-    dbg: bool,
-    check: bool,
-  },
-  Stdin {
-    config_path: Option<PathBuf>,
-    check: bool,
-  },
-  Restore {
-    backup_path: PathBuf,
-    target_path: PathBuf,
-  },
-  Init {
-    target_path: Option<PathBuf>,
-  },
-  Man,
+    Format {
+        target_path: PathBuf,
+        config_path: Option<PathBuf>,
+        dry_run: bool,
+        dbg: bool,
+        check: bool,
+    },
+    Stdin {
+        config_path: Option<PathBuf>,
+        check: bool,
+    },
+    Restore {
+        backup_path: PathBuf,
+        target_path: PathBuf,
+    },
+    Init {
+        target_path: Option<PathBuf>,
+    },
+    Man,
 }
 
 fn main() {
-  let action = match parse_args() {
-    Some(a) => a,
-    None => std::process::exit(1),
-  };
-  match action {
-    CliAction::Man => {
-      print_man_page();
-    }
-    CliAction::Stdin { config_path, check } => {
-      process_stdin(config_path, check);
-    }
-    CliAction::Init { target_path } => {
-      process_init(target_path);
-    }
-    CliAction::Restore {
-      backup_path,
-      target_path,
-    } => {
-      if !backup_path.exists() {
-        eprintln!(
-          "{}Error: Backup file {} does not exist.{}",
-          c_red(),
-          backup_path.display(),
-          c_reset(true)
-        );
-        std::process::exit(1);
-      }
-      match restore_backup(&backup_path, &target_path) {
-        Ok(_) => println!(
-          "{}Successfully restored {} from backup.{}",
-          c_green(),
-          target_path.display(),
-          c_reset(false)
-        ),
-        Err(e) => {
-          eprintln!("{}Failed to restore file: {}{}", c_red(), e, c_reset(true));
-          std::process::exit(1);
+    let action = match parse_args() {
+        Some(a) => a,
+        None => std::process::exit(1),
+    };
+    match action {
+        CliAction::Man => {
+            print_man_page();
         }
-      }
-    }
-    CliAction::Format {
-      target_path,
-      config_path,
-      dry_run,
-      dbg,
-      check,
-    } => {
-      let resolved_config =
-        resolve_config_path(config_path, Some(&target_path));
-      let config = match resolved_config {
-        Some(path) => {
-          println!(
-            "{}Using configuration:{} {}",
-            c_cyan(),
-            c_reset(false),
-            path.display()
-          );
-          parse_toml_config(&path)
+        CliAction::Stdin { config_path, check } => {
+            process_stdin(config_path, check);
         }
-        None => {
-          println!(
-            "{}Using configuration:{} Internal Defaults",
-            c_cyan(),
-            c_reset(false)
-          );
-          LayoutConfig::default()
+        CliAction::Init { target_path } => {
+            process_init(target_path);
         }
-      };
-      if !target_path.exists() {
-        eprintln!(
-          "{}Error: Target path '{}' does not exist.{}",
-          c_red(),
-          target_path.display(),
-          c_reset(true)
-        );
-        std::process::exit(1);
-      }
-      if target_path.is_file() {
-        process_file(&target_path, &config, dry_run, dbg, check);
-      } else if target_path.is_dir() {
-        walk_directory(&target_path, &config, dry_run, dbg, check);
-      }
-      if check {
-        println!(
-          "{}Check passed successfully: no formatting drift detected.{}",
-          c_green(),
-          c_reset(false)
-        );
-      }
+        CliAction::Restore {
+            backup_path,
+            target_path,
+        } => {
+            if !backup_path.exists() {
+                eprintln!(
+                    "{}Error: Backup file {} does not exist.{}",
+                    c_red(),
+                    backup_path.display(),
+                    c_reset(true)
+                );
+                std::process::exit(1);
+            }
+            match restore_backup(&backup_path, &target_path) {
+                Ok(_) => println!(
+                    "{}Successfully restored {} from backup.{}",
+                    c_green(),
+                    target_path.display(),
+                    c_reset(false)
+                ),
+                Err(e) => {
+                    eprintln!("{}Failed to restore file: {}{}", c_red(), e, c_reset(true));
+                    std::process::exit(1);
+                }
+            }
+        }
+        CliAction::Format {
+            target_path,
+            config_path,
+            dry_run,
+            dbg,
+            check,
+        } => {
+            let resolved_config =
+                resolve_config_path(config_path, Some(&target_path));
+            let config = match resolved_config {
+                Some(path) => {
+                    println!(
+                        "{}Using configuration:{} {}",
+                        c_cyan(),
+                        c_reset(false),
+                        path.display()
+                    );
+                    parse_toml_config(&path)
+                }
+                None => {
+                    println!(
+                        "{}Using configuration:{} Internal Defaults",
+                        c_cyan(),
+                        c_reset(false)
+                    );
+                    LayoutConfig::default()
+                }
+            };
+            if !target_path.exists() {
+                eprintln!(
+                    "{}Error: Target path '{}' does not exist.{}",
+                    c_red(),
+                    target_path.display(),
+                    c_reset(true)
+                );
+                std::process::exit(1);
+            }
+            if target_path.is_file() {
+                process_file(&target_path, &config, dry_run, dbg, check);
+            } else if target_path.is_dir() {
+                walk_directory(&target_path, &config, dry_run, dbg, check);
+            }
+            if check {
+                println!(
+                    "{}Check passed successfully: no formatting drift detected.{}",
+                    c_green(),
+                    c_reset(false)
+                );
+            }
+        }
     }
-  }
 }
 
 fn parse_args() -> Option<CliAction> {
@@ -218,7 +219,7 @@ fn parse_args() -> Option<CliAction> {
     if args.len() < 2 {
         if !std::io::stdin().is_terminal() {
             return Some(
-  CliAction::Stdin {
+    CliAction::Stdin {
                 config_path: None,
                 check: false,
             },
@@ -269,7 +270,7 @@ fn parse_args() -> Option<CliAction> {
             "-r" | "--restore" => {
                 if i + 2 < args.len() {
                     return Some(
-  CliAction::Restore {
+    CliAction::Restore {
                         backup_path: PathBuf::from(&args[i + 1]),
                         target_path: PathBuf::from(&args[i + 2]),
                     },
@@ -298,7 +299,7 @@ fn parse_args() -> Option<CliAction> {
     }
     match target_path {
         Some(path) => Some(
-  CliAction::Format {
+    CliAction::Format {
             target_path: path,
             config_path,
             dry_run,
@@ -322,105 +323,105 @@ fn parse_args() -> Option<CliAction> {
 }
 
 fn print_help() {
-  println!("{}lofmt - Rust Source Reorganizer{}", c_cyan(), c_reset(false));
-  println!("Safely and atomically restructures Rust code blocks.\n");
-  println!("{}USAGE:{}", c_yellow(false), c_reset(false));
-  println!("    lofmt [OPTIONS] [TARGET_PATH]");
-  println!("    lofmt --restore <BACKUP_FILE> <TARGET_PATH>");
-  println!("    cat file.rs | lofmt\n");
-  println!("{}OPTIONS:{}", c_yellow(false), c_reset(false));
-  println!("    -c, --config <FILE>     Specify custom .toml config path");
-  println!("    -d, --dry-run           Process files without saving changes");
-  println!("    -R, --recursive         Format all .rs files from current directory");
-  println!("    --check                 Verify formatting without writing changes (exit 1 on drift)");
-  println!("    -r, --restore           Restore a file from a backup safely");
-  println!("        --man               Print the full manual page");
-  println!("    -h, --help              Print this help information\n");
-  println!("{}EXAMPLES:{}", c_yellow(false), c_reset(false));
-  println!("    lofmt src/main.rs");
-  println!("    lofmt -R --check");
-  println!("    cat src/main.rs | lofmt");
-  println!("    lofmt --restore /tmp/lofmt_backups/123.bak src/main.rs");
+    println!("{}mtindo (mto) - Rust Source Reorganizer{}", c_cyan(), c_reset(false));
+    println!("Safely and atomically restructures Rust code blocks.\n");
+    println!("{}USAGE:{}", c_yellow(false), c_reset(false));
+    println!("    mto [OPTIONS] [TARGET_PATH]");
+    println!("    mto --restore <BACKUP_FILE> <TARGET_PATH>");
+    println!("    cat file.rs | mto\n");
+    println!("{}OPTIONS:{}", c_yellow(false), c_reset(false));
+    println!("    -c, --config <FILE>     Specify custom .toml config path");
+    println!("    -d, --dry-run           Process files without saving changes");
+    println!("    -R, --recursive         Format all .rs files from current directory");
+    println!("    --check                 Verify formatting without writing changes (exit 1 on drift)");
+    println!("    -r, --restore           Restore a file from a backup safely");
+    println!("        --man               Print the full manual page");
+    println!("    -h, --help              Print this help information\n");
+    println!("{}EXAMPLES:{}", c_yellow(false), c_reset(false));
+    println!("    mto src/main.rs");
+    println!("    mto -R --check");
+    println!("    cat src/main.rs | mto");
+    println!("    mto --restore /tmp/mtindo_backups/123.bak src/main.rs");
 }
 
 fn print_man_page() {
-  if !std::io::stdout().is_terminal() {
-    println!("{}", MAN_PAGE);
-    return;
-  }
-  let mut in_code_block = false;
-  let mut lang = String::new();
-  for line in MAN_PAGE.lines() {
-    if line.starts_with("```") {
-      if in_code_block {
-        println!("\x1b[90m```\x1b[0m");
-        in_code_block = false;
-      } else {
-        in_code_block = true;
-        lang = line[3..].trim().to_string();
-        println!("\x1b[90m{}\x1b[0m", line);
-      }
-      continue;
+    if !std::io::stdout().is_terminal() {
+        println!("{}", MAN_PAGE);
+        return;
     }
-    if in_code_block {
-      let trimmed = line.trim_start();
-      if trimmed.starts_with('#') {
-        println!("\x1b[90m{}\x1b[0m", line);
-      } else if lang == "toml" {
-        if let Some(idx) = line.find('=') {
-          println!(
-            "\x1b[36m{}\x1b[0m=\x1b[32m{}\x1b[0m",
-            &line[..idx],
-            &line[idx + 1..]
-          );
-        } else if line.contains('"') {
-          println!("\x1b[32m{}\x1b[0m", line);
-        } else {
-          println!("\x1b[35m{}\x1b[0m", line);
+    let mut in_code_block = false;
+    let mut lang = String::new();
+    for line in MAN_PAGE.lines() {
+        if line.starts_with("```") {
+            if in_code_block {
+                println!("\x1b[90m```\x1b[0m");
+                in_code_block = false;
+            } else {
+                in_code_block = true;
+                lang = line[3..].trim().to_string();
+                println!("\x1b[90m{}\x1b[0m", line);
+            }
+            continue;
         }
-      } else if lang == "bash" || lang == "text" {
-        let colored = line
-          .replace("lofmt", "\x1b[32mlofmt\x1b[0m")
-          .replace("cargo install", "\x1b[32mcargo install\x1b[0m")
-          .replace("[OPTIONS]", "\x1b[36m[OPTIONS]\x1b[0m")
-          .replace("[TARGET_PATH]", "\x1b[36m[TARGET_PATH]\x1b[0m")
-          .replace("--path .", "\x1b[33m--path .\x1b[0m")
-          .replace("--restore", "\x1b[33m--restore\x1b[0m");
-        println!("{}", colored);
-      } else {
-        println!("{}", line);
-      }
-      continue;
-    }
-    if line.starts_with("# ") || line.starts_with("## ") {
-      println!("\x1b[1;36m{}\x1b[0m", line);
-    } else {
-      let mut out = String::new();
-      let mut in_backtick = false;
-      let mut in_bold = false;
-      let mut chars = line.chars().peekable();
-      while let Some(c) = chars.next() {
-        if c == '`' {
-          in_backtick = !in_backtick;
-          if in_backtick {
-            out.push_str("\x1b[33m");
-          } else {
-            out.push_str("\x1b[0m");
-          }
-        } else if c == '*' && chars.peek() == Some(&'*') {
-          chars.next();
-          in_bold = !in_bold;
-          if in_bold {
-            out.push_str("\x1b[1m");
-          } else {
-            out.push_str("\x1b[0m");
-          }
-        } else {
-          out.push(c);
+        if in_code_block {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') {
+                println!("\x1b[90m{}\x1b[0m", line);
+            } else if lang == "toml" {
+                if let Some(idx) = line.find('=') {
+                    println!(
+                        "\x1b[36m{}\x1b[0m=\x1b[32m{}\x1b[0m",
+                        &line[..idx],
+                        &line[idx + 1..]
+                    );
+                } else if line.contains('"') {
+                    println!("\x1b[32m{}\x1b[0m", line);
+                } else {
+                    println!("\x1b[35m{}\x1b[0m", line);
+                }
+            } else if lang == "bash" || lang == "text" {
+                let colored = line
+                    .replace("mto", "\x1b[32mmto\x1b[0m")
+                    .replace("cargo install", "\x1b[32mcargo install\x1b[0m")
+                    .replace("[OPTIONS]", "\x1b[36m[OPTIONS]\x1b[0m")
+                    .replace("[TARGET_PATH]", "\x1b[36m[TARGET_PATH]\x1b[0m")
+                    .replace("--path .", "\x1b[33m--path .\x1b[0m")
+                    .replace("--restore", "\x1b[33m--restore\x1b[0m");
+                println!("{}", colored);
+            } else {
+                println!("{}", line);
+            }
+            continue;
         }
-      }
-      out.push_str("\x1b[0m");
-      println!("{}", out);
+        if line.starts_with("# ") || line.starts_with("## ") {
+            println!("\x1b[1;36m{}\x1b[0m", line);
+        } else {
+            let mut out = String::new();
+            let mut in_backtick = false;
+            let mut in_bold = false;
+            let mut chars = line.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '`' {
+                    in_backtick = !in_backtick;
+                    if in_backtick {
+                        out.push_str("\x1b[33m");
+                    } else {
+                        out.push_str("\x1b[0m");
+                    }
+                } else if c == '*' && chars.peek() == Some(&'*') {
+                    chars.next();
+                    in_bold = !in_bold;
+                    if in_bold {
+                        out.push_str("\x1b[1m");
+                    } else {
+                        out.push_str("\x1b[0m");
+                    }
+                } else {
+                    out.push(c);
+                }
+            }
+            out.push_str("\x1b[0m");
+            println!("{}", out);
+        }
     }
-  }
 }

@@ -1,0 +1,30 @@
+# mto configuration file
+sort_alphabetically = true
+group_impls = true
+sort_imports = true
+import_grouping = true
+blank_lines_between_blocks = 1
+max_width = 100
+tab_width = 4
+type_order = [
+  "ModDecl",
+  "UseDecl",
+  "MacroDecl",
+  "ConstDecl",
+  "StaticDecl",
+  "TraitDecl",
+  "EnumDecl",
+  "StructDecl",
+  "ImplBlock",
+  "FnDecl",
+  "Unknown"
+]
+
+ignore_dirs = [
+    ".git",
+    "target",
+    "node_modules",
+    "vendor",
+    "dist",
+    ".venv"
+]

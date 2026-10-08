@@ -212,7 +212,7 @@ pub fn classify_import(content: &str) -> ImportGroup {
 
 pub fn create_backup(file_path: &Path, content: &str) -> Result<PathBuf, std::io::Error> {
     let mut backup_dir = env::temp_dir();
-    backup_dir.push("lofmt_backups");
+    backup_dir.push("mtindo_backups");
     fs::create_dir_all(&backup_dir)?;
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
     let safe_name = file_path.to_string_lossy().replace('/', "_").replace('\\', "_");
@@ -401,21 +401,61 @@ pub fn walk_directory(
 
 pub fn parse_toml_config(path: &std::path::Path) -> LayoutConfig {
     let mut config = LayoutConfig::default();
+    
     if let Ok(content) = std::fs::read_to_string(path) {
+        let mut in_array_key: Option<String> = None;
+        let mut array_accumulator = String::new();
+
         for line in content.lines() {
             let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") || (trimmed.starts_with('[') && trimmed.ends_with(']') && !trimmed.contains('=')) {
+            
+            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
                 continue;
             }
+
+            if let Some(ref key) = in_array_key {
+                array_accumulator.push_str(" ");
+                array_accumulator.push_str(trimmed);
+                
+                if trimmed.ends_with(']') {
+                    if !apply_config_value(&mut config, key, &array_accumulator) {
+                        eprintln!("Error: Invalid configuration syntax for {}", key);
+                        std::process::exit(1);
+                    }
+                    in_array_key = None;
+                    array_accumulator.clear();
+                }
+                continue;
+            }
+
+            if trimmed.starts_with('[') && trimmed.ends_with(']') && !trimmed.contains('=') {
+                continue;
+            }
+
             let parts: Vec<&str> = trimmed.splitn(2, '=').collect();
             if parts.len() == 2 {
-                if !apply_config_value(&mut config, parts[0].trim(), parts[1].trim()) {
-                    eprintln!("Error: Invalid configuration syntax for {}", parts[0].trim());
+                let key = parts[0].trim();
+                let value = parts[1].trim();
+
+                if value.starts_with('[') && !value.ends_with(']') {
+                    in_array_key = Some(key.to_string());
+                    array_accumulator.push_str(value);
+                    continue;
+                }
+
+                if !apply_config_value(&mut config, key, value) {
+                    eprintln!("Error: Invalid configuration syntax for {}", key);
                     std::process::exit(1);
                 }
             }
         }
+        
+        if let Some(key) = in_array_key {
+            eprintln!("Error: Unterminated array in configuration for {}", key);
+            std::process::exit(1);
+        }
     }
+    
     config
 }
 
@@ -545,7 +585,7 @@ pub fn process_file(file_path: &Path, config: &LayoutConfig, dry_run: bool, dbg:
         return;
     }
     println!("{}Formatted:{} {}", c_green(), c_reset(false), file_path.display());
-    println!("  {}Undo:{} lofmt --restore {} {}", c_cyan(), c_reset(false), backup_path.display(), file_path.display());
+    println!("  {}Undo:{} mto --restore {} {}", c_cyan(), c_reset(false), backup_path.display(), file_path.display());
 }
 
 pub fn process_init(target_dir: Option<PathBuf>) {
@@ -556,12 +596,12 @@ pub fn process_init(target_dir: Option<PathBuf>) {
             std::process::exit(1);
         }
     }
-    let config_file_path = dir.join("lofmt.toml");
+    let config_file_path = dir.join("mto.toml");
     if config_file_path.exists() {
         eprintln!("{}Error: Configuration file already exists at {}{}", c_yellow(true), config_file_path.display(), c_reset(true));
         std::process::exit(1);
     }
-    let default_config_template = r#"# lofmt configuration file
+    let default_config_template = r#"# mto configuration file
 sort_alphabetically = true
 group_impls = true
 sort_imports = true
@@ -824,11 +864,11 @@ pub fn resolve_config_path(cli_path: Option<PathBuf>, target_path: Option<&Path>
     };
     let mut current = Some(start_dir.as_path());
     while let Some(dir) = current {
-        let candidate1 = dir.join("lofmt.toml");
+        let candidate1 = dir.join("mto.toml");
         if candidate1.exists() {
             return Some(candidate1);
         }
-        let candidate2 = dir.join(".lofmt.toml");
+        let candidate2 = dir.join(".mto.toml");
         if candidate2.exists() {
             return Some(candidate2);
         }
@@ -837,19 +877,19 @@ pub fn resolve_config_path(cli_path: Option<PathBuf>, target_path: Option<&Path>
     let home_env = env::var("HOME").or_else(|_| env::var("USERPROFILE")).ok();
     if let Some(home_str) = home_env {
         let home_path = PathBuf::from(home_str);
-        let xdg_config = home_path.join(".config").join("lofmt").join("lofmt.toml");
+        let xdg_config = home_path.join(".config").join("mtindo").join("mto.toml");
         if xdg_config.exists() {
             return Some(xdg_config);
         }
-        let xdg_config_old = home_path.join(".config").join("lofmt").join(".lofmt.toml");
+        let xdg_config_old = home_path.join(".config").join("mtindo").join(".mto.toml");
         if xdg_config_old.exists() {
             return Some(xdg_config_old);
         }
-        let global_config = home_path.join("lofmt.toml");
+        let global_config = home_path.join("mto.toml");
         if global_config.exists() {
             return Some(global_config);
         }
-        let global_config_old = home_path.join(".lofmt.toml");
+        let global_config_old = home_path.join(".mto.toml");
         if global_config_old.exists() {
             return Some(global_config_old);
         }
@@ -874,8 +914,10 @@ pub fn extract_blocks(source: &str) -> Vec<CodeBlock> {
     let mut in_line_comment = false;
     let mut in_block_comment = false;
     let mut escape_next = false;
-    let mut in_lofmt_off = false;
+    let mut in_mto_off = false;
 
+    // Determine if a closing brace '}' should NOT flush the block 
+    // because it is conceptually a semicolon-terminated statement.
     let is_semicolon_prefix = |block: &str| -> bool {
         let first_line = block
             .lines()
@@ -888,6 +930,8 @@ pub fn extract_blocks(source: &str) -> Vec<CodeBlock> {
             })
             .unwrap_or("");
         let t = first_line;
+        
+        // Notice: ALL `mod` prefixes have been permanently removed.
         t.starts_with("use")
             || (t.starts_with("const") && !t.contains("fn"))
             || t.starts_with("static")
@@ -898,25 +942,22 @@ pub fn extract_blocks(source: &str) -> Vec<CodeBlock> {
             || t.starts_with("pub static")
             || t.starts_with("pub type")
             || t.starts_with("pub extern")
-            || t.starts_with("pub mod")
             || t.starts_with("pub(crate) use")
             || t.starts_with("pub(crate) const")
             || t.starts_with("pub(crate) static")
             || t.starts_with("pub(crate) type")
-            || t.starts_with("pub(crate) mod")
             || t.starts_with("pub(super) use")
             || t.starts_with("pub(super) const")
             || t.starts_with("pub(super) static")
             || t.starts_with("pub(super) type")
-            || t.starts_with("pub(super) mod")
-            || (t.starts_with("mod") && t.ends_with(';'))
     };
 
     while let Some(c) = chars.next() {
         current_block.push(c);
-        if in_lofmt_off {
-            if current_block.trim_end().ends_with("// lofmt: on") {
-                in_lofmt_off = false;
+        
+        if in_mto_off {
+            if current_block.trim_end().ends_with("// mto: on") {
+                in_mto_off = false;
                 let trimmed = current_block.trim();
                 if !trimmed.is_empty() {
                     let idx = blocks.len();
@@ -926,22 +967,26 @@ pub fn extract_blocks(source: &str) -> Vec<CodeBlock> {
             }
             continue;
         }
+        
         if escape_next {
             escape_next = false;
             continue;
         }
-        if current_block.trim_end().ends_with("// lofmt: off") {
-            let prefix = current_block.trim_end_matches("// lofmt: off").trim();
+        
+        if current_block.trim_end().ends_with("// mto: off") {
+            let prefix = current_block.trim_end_matches("// mto: off").trim();
             if !prefix.is_empty() {
                 let idx = blocks.len();
                 blocks.push(parse_block_metadata(prefix, false, idx));
             }
             current_block.clear();
-            current_block.push_str("// lofmt: off\n");
-            in_lofmt_off = true;
+            current_block.push_str("// mto: off\n");
+            in_mto_off = true;
             continue;
         }
+        
         let semicolon_stmt = is_semicolon_prefix(&current_block);
+        
         match c {
             '\\' if in_string || in_char => {
                 escape_next = true;
@@ -1012,22 +1057,20 @@ pub fn extract_blocks(source: &str) -> Vec<CodeBlock> {
                     in_block_comment = false;
                 }
             }
+            // UNIVERSAL BRACE COUNTING
             '{' if !in_string && !in_char && !in_line_comment && !in_block_comment && !in_raw_string => {
-                if !semicolon_stmt {
-                    brace_depth += 1;
-                }
+                brace_depth += 1;
             }
             '}' if !in_string && !in_char && !in_line_comment && !in_block_comment && !in_raw_string => {
-                if !semicolon_stmt {
-                    brace_depth -= 1;
-                    if brace_depth == 0 {
-                        let trimmed = current_block.trim();
-                        if !trimmed.is_empty() {
-                            let idx = blocks.len();
-                            blocks.push(parse_block_metadata(trimmed, false, idx));
-                        }
-                        current_block.clear();
+                brace_depth -= 1;
+                // Only flush if brace hits 0 AND it's not waiting for a semicolon.
+                if brace_depth == 0 && !semicolon_stmt {
+                    let trimmed = current_block.trim();
+                    if !trimmed.is_empty() {
+                        let idx = blocks.len();
+                        blocks.push(parse_block_metadata(trimmed, false, idx));
                     }
+                    current_block.clear();
                 }
             }
             ';' if brace_depth == 0 && !in_string && !in_char && !in_line_comment && !in_block_comment && !in_raw_string => {
@@ -1041,11 +1084,13 @@ pub fn extract_blocks(source: &str) -> Vec<CodeBlock> {
             _ => {}
         }
     }
+    
     let trailing = current_block.trim();
     if !trailing.is_empty() {
         let idx = blocks.len();
-        blocks.push(parse_block_metadata(trailing, in_lofmt_off, idx));
+        blocks.push(parse_block_metadata(trailing, in_mto_off, idx));
     }
+    
     blocks
 }
 
@@ -1507,7 +1552,7 @@ pub fn wrap_line(line: &str, max_width: usize, tab_width: usize) -> String {
 }
 
 pub fn write_atomic(target: &Path, content: &str) -> Result<(), std::io::Error> {
-    let tmp_path = target.with_extension("tmp_lofmt");
+    let tmp_path = target.with_extension("tmp_mtindo");
     fs::write(&tmp_path, content)?;
     match fs::rename(&tmp_path, target) {
         Ok(_) => Ok(()),

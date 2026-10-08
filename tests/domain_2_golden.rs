@@ -1,4 +1,4 @@
-use lofmt::{reorganize_file, LayoutConfig};
+use mtindo::{reorganize_file, LayoutConfig};
 
 #[test]
 fn test_golden_idempotency_and_visibility() {
@@ -106,20 +106,20 @@ use serde::Deserialize;
 }
 
 #[test]
-fn test_golden_lofmt_off_preservation() {
+fn test_golden_mto_off_preservation() {
     let input = "
 pub fn b() {}
 
-// lofmt: off
+// mto: off
 pub fn a() {
     let x = 1;
 }
-// lofmt: on
+// mto: on
 
 pub fn c() {}
 ";
 
-    let expected = "pub fn b() {}\n\n// lofmt: off\npub fn a() {\n    let x = 1;\n}\n// lofmt: on\n\npub fn c() {}\n";
+    let expected = "pub fn b() {}\n\n// mto: off\npub fn a() {\n    let x = 1;\n}\n// mto: on\n\npub fn c() {}\n";
 
     let config = LayoutConfig::default();
 

@@ -1,7 +1,11 @@
 [package]
-name = "lofmt"
+name = "mtindo"
 version = "0.1.0"
 edition = "2024"
+
+[[bin]]
+name = "mto"
+path = "src/main.rs"
 
 [dependencies]
 
@@ -13,5 +17,5 @@ predicates = "3.1"
 criterion = "0.5"
 
 [[bench]]
-name = "lofmt_bench"
+name = "mtindo_bench"
 harness = false

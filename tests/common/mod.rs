@@ -3,6 +3,7 @@
 use assert_cmd::Command;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command as StdCommand;
 use tempfile::{tempdir, TempDir};
 
 pub struct TestEnvironment {
@@ -17,6 +18,9 @@ impl TestEnvironment {
 
     pub fn write_file(&self, name: &str, content: &str) -> PathBuf {
         let path = self.dir.path().join(name);
+        if let Some(parent_dir) = path.parent() {
+            fs::create_dir_all(parent_dir).unwrap();
+        }
         fs::write(&path, content).unwrap();
         path
     }
@@ -32,9 +36,32 @@ impl TestEnvironment {
         path
     }
 
-    pub fn lofmt_cmd(&self) -> Command {
-        let mut cmd = Command::cargo_bin("lofmt").unwrap();
+    pub fn mto_cmd(&self) -> Command {
+        let mut cmd = Command::cargo_bin("mto").unwrap();
         cmd.current_dir(self.dir.path());
         cmd
+    }
+
+    pub fn git_init(&self, sub_dir: &str) {
+        let target_path = self.dir.path().join(sub_dir);
+        fs::create_dir_all(&target_path).unwrap();
+        
+        let mut cmd = StdCommand::new("git");
+        cmd.arg("init");
+        cmd.current_dir(&target_path);
+        
+        let status = cmd.status().unwrap();
+        assert!(status.success());
+    }
+
+    pub fn create_symlink(&self, original: &str, link: &str) {
+        let original_path = self.dir.path().join(original);
+        let link_path = self.dir.path().join(link);
+        
+        if let Some(parent_dir) = link_path.parent() {
+            fs::create_dir_all(parent_dir).unwrap();
+        }
+        
+        std::os::unix::fs::symlink(original_path, link_path).unwrap();
     }
 }

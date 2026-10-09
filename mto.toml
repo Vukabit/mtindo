@@ -25,5 +25,6 @@ ignore_dirs = [
     "vendor",
     "dist",
     ".venv",
-    "fixtures"
+    "fixtures",
+    "cache"
 ]

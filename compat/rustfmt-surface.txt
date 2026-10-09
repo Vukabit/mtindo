@@ -1,0 +1,199 @@
+# rustfmt's options, option values and command-line flags, written by
+# `cargo xtask capabilities refresh`; do not edit. `in` lists the sources that have
+# an item and `stable` the sources that call it stable. Only release sources know
+# whether a value is stable. `hidden` marks options rustfmt leaves out of its own
+# listings (deprecated or internal).
+
+source  local          rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18), installed binary
+source  local-nightly  rustfmt 1.11.0-nightly (2822155926 2026-10-04), installed binary
+source  stable         rustfmt 1.10.0, rust-lang/rust b940084d7eb6a299eb4bfeb8e34901bc051e7ac4, released 2026-10-01
+source  nightly        rustfmt 1.11.0-nightly, rust-lang/rust a30aa9064df6a504b6a323c6884a2f4cfbfff666, released 2026-10-09
+
+option  array_width                                      in=all stable=all
+option  attr_fn_like_width                               in=all stable=all
+option  binop_separator                                  in=all stable=none
+option  blank_lines_lower_bound                          in=all stable=none
+option  blank_lines_upper_bound                          in=all stable=none
+option  brace_style                                      in=all stable=none
+option  chain_width                                      in=all stable=all
+option  color                                            in=all stable=none
+option  combine_control_expr                             in=all stable=none
+option  comment_width                                    in=all stable=none
+option  condense_wildcard_suffixes                       in=all stable=none
+option  control_brace_style                              in=all stable=none
+option  disable_all_formatting                           in=all stable=all
+option  doc_comment_code_block_small_heuristics          in=local-nightly,stable,nightly stable=none
+option  doc_comment_code_block_width                     in=all stable=none
+option  edition                                          in=all stable=all
+option  emit_mode                                        in=all stable=none
+option  empty_item_single_line                           in=all stable=none
+option  enum_discrim_align_threshold                     in=all stable=none
+option  error_on_line_overflow                           in=all stable=none
+option  error_on_unformatted                             in=all stable=none
+option  file_lines                                       in=stable,nightly stable=none hidden
+option  float_literal_trailing_zero                      in=all stable=none
+option  fn_args_layout                                   in=stable,nightly stable=stable,nightly hidden
+option  fn_call_width                                    in=all stable=all
+option  fn_params_layout                                 in=all stable=all
+option  fn_single_line                                   in=all stable=none
+option  force_explicit_abi                               in=all stable=all
+option  force_multiline_blocks                           in=all stable=none
+option  format_code_in_doc_comments                      in=all stable=none
+option  format_generated_files                           in=all stable=none
+option  format_macro_bodies                              in=all stable=none
+option  format_macro_matchers                            in=all stable=none
+option  format_strings                                   in=all stable=none
+option  generated_marker_line_search_limit               in=all stable=none
+option  group_imports                                    in=all stable=none
+option  hard_tabs                                        in=all stable=all
+option  hex_literal_case                                 in=all stable=local-nightly,stable,nightly
+option  hide_parse_errors                                in=stable,nightly stable=none hidden
+option  ignore                                           in=all stable=none
+option  imports_granularity                              in=all stable=none
+option  imports_indent                                   in=all stable=none
+option  imports_layout                                   in=all stable=none
+option  indent_style                                     in=all stable=none
+option  inline_attribute_width                           in=all stable=none
+option  make_backup                                      in=all stable=none
+option  match_arm_blocks                                 in=all stable=none
+option  match_arm_indent                                 in=all stable=none
+option  match_arm_leading_pipes                          in=all stable=all
+option  match_block_trailing_comma                       in=all stable=all
+option  max_width                                        in=all stable=all
+option  merge_derives                                    in=all stable=all
+option  merge_imports                                    in=stable,nightly stable=none hidden
+option  newline_style                                    in=all stable=all
+option  normalize_comments                               in=all stable=none
+option  normalize_doc_attributes                         in=all stable=none
+option  overflow_delimited_expr                          in=all stable=none
+option  print_misformatted_file_names                    in=stable,nightly stable=stable,nightly hidden
+option  remove_nested_parens                             in=all stable=all
+option  reorder_impl_items                               in=all stable=none
+option  reorder_imports                                  in=all stable=all
+option  reorder_modules                                  in=all stable=all
+option  required_version                                 in=all stable=none
+option  short_array_element_width_threshold              in=all stable=all
+option  show_parse_errors                                in=all stable=none
+option  single_line_if_else_max_width                    in=all stable=all
+option  single_line_let_else_max_width                   in=all stable=all
+option  skip_children                                    in=all stable=none
+option  skip_macro_invocations                           in=all stable=none
+option  space_after_colon                                in=all stable=none
+option  space_before_colon                               in=all stable=none
+option  spaces_around_ranges                             in=all stable=none
+option  struct_field_align_threshold                     in=all stable=none
+option  struct_lit_single_line                           in=all stable=none
+option  struct_lit_width                                 in=all stable=all
+option  struct_variant_width                             in=all stable=all
+option  style_edition                                    in=all stable=all
+option  tab_spaces                                       in=all stable=all
+option  trailing_comma                                   in=all stable=none
+option  trailing_semicolon                               in=all stable=none
+option  type_punctuation_density                         in=all stable=none
+option  unstable_features                                in=all stable=none
+option  use_field_init_shorthand                         in=all stable=all
+option  use_small_heuristics                             in=all stable=all
+option  use_try_shorthand                                in=all stable=all
+option  verbose                                          in=stable,nightly stable=none hidden
+option  version                                          in=all stable=none
+option  where_single_line                                in=all stable=none
+option  width_heuristics                                 in=stable,nightly stable=none hidden
+option  wrap_comments                                    in=all stable=none
+
+value   binop_separator=Back                             in=stable,nightly stable=none
+value   binop_separator=Front                            in=stable,nightly stable=none
+value   brace_style=AlwaysNextLine                       in=stable,nightly stable=none
+value   brace_style=PreferSameLine                       in=stable,nightly stable=none
+value   brace_style=SameLineWhere                        in=stable,nightly stable=none
+value   color=Always                                     in=stable,nightly stable=none
+value   color=Auto                                       in=stable,nightly stable=none
+value   color=Never                                      in=stable,nightly stable=none
+value   control_brace_style=AlwaysNextLine               in=stable,nightly stable=none
+value   control_brace_style=AlwaysSameLine               in=stable,nightly stable=none
+value   control_brace_style=ClosingNextLine              in=stable,nightly stable=none
+value   doc_comment_code_block_small_heuristics=Default  in=stable,nightly stable=none
+value   doc_comment_code_block_small_heuristics=Max      in=stable,nightly stable=none
+value   doc_comment_code_block_small_heuristics=Off      in=stable,nightly stable=none
+value   edition=2015                                     in=all stable=stable,nightly
+value   edition=2018                                     in=all stable=stable,nightly
+value   edition=2021                                     in=all stable=stable,nightly
+value   edition=2024                                     in=all stable=stable,nightly
+value   float_literal_trailing_zero=Always               in=stable,nightly stable=none
+value   float_literal_trailing_zero=IfNoPostfix          in=stable,nightly stable=none
+value   float_literal_trailing_zero=Never                in=stable,nightly stable=none
+value   float_literal_trailing_zero=Preserve             in=stable,nightly stable=none
+value   fn_args_layout=Compressed                        in=stable,nightly stable=stable,nightly
+value   fn_args_layout=Tall                              in=stable,nightly stable=stable,nightly
+value   fn_args_layout=Vertical                          in=stable,nightly stable=stable,nightly
+value   fn_params_layout=Compressed                      in=all stable=stable,nightly
+value   fn_params_layout=Tall                            in=all stable=stable,nightly
+value   fn_params_layout=Vertical                        in=all stable=stable,nightly
+value   group_imports=One                                in=stable,nightly stable=none
+value   group_imports=Preserve                           in=stable,nightly stable=none
+value   group_imports=StdExternalCrate                   in=stable,nightly stable=none
+value   hex_literal_case=Lower                           in=local-nightly,stable,nightly stable=stable,nightly
+value   hex_literal_case=Preserve                        in=local-nightly,stable,nightly stable=stable,nightly
+value   hex_literal_case=Upper                           in=local-nightly,stable,nightly stable=stable,nightly
+value   imports_granularity=Crate                        in=stable,nightly stable=none
+value   imports_granularity=Item                         in=stable,nightly stable=none
+value   imports_granularity=Module                       in=stable,nightly stable=none
+value   imports_granularity=One                          in=stable,nightly stable=none
+value   imports_granularity=Preserve                     in=stable,nightly stable=none
+value   imports_indent=Block                             in=stable,nightly stable=none
+value   imports_indent=Visual                            in=stable,nightly stable=none
+value   imports_layout=Horizontal                        in=stable,nightly stable=none
+value   imports_layout=HorizontalVertical                in=stable,nightly stable=none
+value   imports_layout=Mixed                             in=stable,nightly stable=none
+value   imports_layout=Vertical                          in=stable,nightly stable=none
+value   indent_style=Block                               in=stable,nightly stable=none
+value   indent_style=Visual                              in=stable,nightly stable=none
+value   match_arm_leading_pipes=Always                   in=all stable=stable,nightly
+value   match_arm_leading_pipes=Never                    in=all stable=stable,nightly
+value   match_arm_leading_pipes=Preserve                 in=all stable=stable,nightly
+value   newline_style=Auto                               in=all stable=stable,nightly
+value   newline_style=Native                             in=all stable=stable,nightly
+value   newline_style=Unix                               in=all stable=stable,nightly
+value   newline_style=Windows                            in=all stable=stable,nightly
+value   style_edition=2015                               in=stable,nightly stable=stable,nightly
+value   style_edition=2018                               in=stable,nightly stable=stable,nightly
+value   style_edition=2021                               in=stable,nightly stable=stable,nightly
+value   style_edition=2024                               in=stable,nightly stable=stable,nightly
+value   style_edition=2027                               in=stable,nightly stable=none
+value   trailing_comma=Always                            in=stable,nightly stable=none
+value   trailing_comma=Never                             in=stable,nightly stable=none
+value   trailing_comma=Vertical                          in=stable,nightly stable=none
+value   type_punctuation_density=Compressed              in=stable,nightly stable=none
+value   type_punctuation_density=Wide                    in=stable,nightly stable=none
+value   use_small_heuristics=Default                     in=all stable=stable,nightly
+value   use_small_heuristics=Max                         in=all stable=stable,nightly
+value   use_small_heuristics=Off                         in=all stable=stable,nightly
+value   version=One                                      in=stable,nightly stable=none
+value   version=Two                                      in=stable,nightly stable=none
+
+flag    cargo-fmt:--all                                  in=all stable=local,stable,nightly
+flag    cargo-fmt:--check                                in=all stable=local,stable,nightly
+flag    cargo-fmt:--help                                 in=all stable=local,stable,nightly
+flag    cargo-fmt:--manifest-path                        in=all stable=local,stable,nightly
+flag    cargo-fmt:--message-format                       in=all stable=local,stable,nightly
+flag    cargo-fmt:--package                              in=all stable=local,stable,nightly
+flag    cargo-fmt:--quiet                                in=all stable=local,stable,nightly
+flag    cargo-fmt:--verbose                              in=all stable=local,stable,nightly
+flag    cargo-fmt:--version                              in=all stable=local,stable,nightly
+flag    rustfmt:--backup                                 in=all stable=local,stable,nightly
+flag    rustfmt:--check                                  in=all stable=local,stable,nightly
+flag    rustfmt:--color                                  in=all stable=local,stable,nightly
+flag    rustfmt:--config                                 in=all stable=local,stable,nightly
+flag    rustfmt:--config-path                            in=all stable=local,stable,nightly
+flag    rustfmt:--edition                                in=all stable=local,stable,nightly
+flag    rustfmt:--emit                                   in=all stable=local,stable,nightly
+flag    rustfmt:--error-on-unformatted                   in=local-nightly,stable,nightly stable=none
+flag    rustfmt:--file-lines                             in=local-nightly,stable,nightly stable=none
+flag    rustfmt:--files-with-diff                        in=all stable=local,stable,nightly
+flag    rustfmt:--help                                   in=all stable=local,stable,nightly
+flag    rustfmt:--print-config                           in=all stable=local,stable,nightly
+flag    rustfmt:--quiet                                  in=all stable=local,stable,nightly
+flag    rustfmt:--skip-children                          in=local-nightly,stable,nightly stable=none
+flag    rustfmt:--style-edition                          in=all stable=local,stable,nightly
+flag    rustfmt:--unstable-features                      in=local-nightly,stable,nightly stable=none
+flag    rustfmt:--verbose                                in=all stable=local,stable,nightly
+flag    rustfmt:--version                                in=all stable=local,stable,nightly

@@ -4,8 +4,13 @@ use std::process::{Command, ExitCode};
 
 pub const GATES: &[Gate] = &[
     (
+        "capabilities",
+        "every rustfmt option, value and flag, and mto feature, has a status",
+        crate::capabilities::check,
+    ),
+    (
         "deps",
-        "mtindo has no runtime dependencies; xtask uses only allowed ones",
+        "mtindo and xtask have no runtime dependencies; xtask/tools only allowed ones",
         check_dependencies,
     ),
     (
@@ -18,6 +23,14 @@ pub const GATES: &[Gate] = &[
         "modules under src/ only use layers below them",
         check_layering,
     ),
+];
+
+/// Each manifest and the dependencies it may declare. mtindo is std-only; xtask (the test
+/// runner) must build even when mtindo does not, so it may not depend on it either.
+const ALLOWED_DEPENDENCIES: &[(&str, &[&str])] = &[
+    ("Cargo.toml", &[]),
+    ("xtask/Cargo.toml", &[]),
+    ("xtask/tools/Cargo.toml", &["mtindo", "ra-ap-rustc_lexer"]),
 ];
 
 /// The widest a line of public Markdown may be, in characters.
@@ -36,31 +49,23 @@ const LAYERS: &[(&str, u8)] = &[
     ("cli", 5),
 ];
 
-/// Dependencies xtask itself may use. mtindo may use none.
-const XTASK_ALLOWED_DEPENDENCIES: &[&str] = &["mtindo", "ra-ap-rustc_lexer"];
-
-/// mtindo must declare no runtime dependencies; xtask may only use the allowed list.
+/// Every manifest may only declare the runtime dependencies allowed for it.
 pub fn check_dependencies(root: &Path) -> Vec<String> {
     let mut problems = Vec::new();
-    match fs::read_to_string(root.join("Cargo.toml")) {
-        Ok(text) => {
-            for entry in runtime_dependencies(&text) {
-                problems.push(format!(
-                    "Cargo.toml: runtime dependency `{}` is not allowed (mtindo is std-only)",
-                    entry
-                ));
+    for (manifest, allowed) in ALLOWED_DEPENDENCIES {
+        let text = match fs::read_to_string(root.join(manifest)) {
+            Ok(text) => text,
+            Err(e) => {
+                problems.push(format!("{}: cannot read: {}", manifest, e));
+                continue;
             }
-        }
-        Err(e) => problems.push(format!("Cargo.toml: cannot read: {}", e)),
-    }
-    let xtask_manifest = root.join("xtask").join("Cargo.toml");
-    if let Ok(text) = fs::read_to_string(&xtask_manifest) {
+        };
         for entry in runtime_dependencies(&text) {
             let name = entry.rsplit(' ').next().unwrap_or("");
-            if !XTASK_ALLOWED_DEPENDENCIES.contains(&name) {
+            if !allowed.contains(&name) {
                 problems.push(format!(
-                    "xtask/Cargo.toml: dependency `{}` is not on the allowed list",
-                    entry
+                    "{}: runtime dependency `{}` is not allowed",
+                    manifest, entry
                 ));
             }
         }

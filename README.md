@@ -217,26 +217,27 @@ running `rustfmt` after `mto` is expected to leave the layout alone.
 
 ## Development
 
-`scripts/run_tests.py` runs every gate and test suite and reports each as
-passed, failed or skipped (with the reason). `scripts/run_tests.py -h` lists
-every group, task, flag and environment variable.
+`cargo xtask test` runs every gate and test suite and reports each as passed,
+failed or skipped (with the reason). `cargo xtask test -h` lists every group,
+task, flag and environment variable. Each run is logged, with every task's full
+output, to `logs/test.log` (not tracked by git).
 
 ```bash
 # Gates and all tests (the default)
-scripts/run_tests.py
+cargo xtask test
 # Also the real-crate check (network), fuzzing (nightly) and benchmarks
-scripts/run_tests.py --full
+cargo xtask test --full
 # Show the plan without running it
-scripts/run_tests.py --list
+cargo xtask test --list
 # Regenerate tests/fixtures expected outputs; review the diff before committing
-scripts/run_tests.py --bless
+cargo xtask test --bless
 ```
 
-Repository rules are also available directly through `xtask`, a development-only
-crate in this workspace:
+The other development commands are also in `xtask`, a development-only crate in
+this workspace written in Rust like the rest, with no dependencies:
 
 ```bash
-# mtindo has no runtime dependencies; modules only use lower layers
+# No runtime dependencies, layering, docs width, capability statuses
 cargo xtask gates
 # Regenerate src/text/unicode tables from the Unicode Character Database
 cargo xtask unicode
@@ -244,6 +245,13 @@ cargo xtask unicode
 cargo xtask lexdiff [PATH...]
 # Parse .rs files with their crate's edition and report syntax errors
 cargo xtask parsecheck [PATH...]
+# Re-read rustfmt's options and flags (local binaries; latest stable and
+# nightly when online) into compat/rustfmt-surface.txt
+cargo xtask capabilities refresh
+# Add new items to compat/capabilities.txt as missing; drop stale ones
+cargo xtask capabilities sync
+# How much of rustfmt mto supports, and how rustfmt's own tests fare
+cargo xtask capabilities report [--markdown]
 # Every command, gate and exit code
 cargo xtask help
 ```

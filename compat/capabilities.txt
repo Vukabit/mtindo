@@ -1,0 +1,221 @@
+# What mto supports of rustfmt's surface (compat/rustfmt-surface.txt), plus mto's
+# own features. One line per item: KIND NAME STATUS [# NOTE]. Checked by
+# `cargo xtask gates capabilities`; `cargo xtask capabilities sync` adds new items
+# as missing, drops stale ones and restores the canonical layout.
+#
+# supported    works as in rustfmt; the note names the test that shows it
+# partial      works in part; the note says which part
+# missing      not done yet
+# not-planned  deliberately left out; the note says why
+
+option  array_width                                      missing
+option  attr_fn_like_width                               missing
+option  binop_separator                                  missing
+option  blank_lines_lower_bound                          missing
+option  blank_lines_upper_bound                          missing
+option  brace_style                                      missing
+option  chain_width                                      missing
+option  color                                            missing
+option  combine_control_expr                             missing
+option  comment_width                                    missing
+option  condense_wildcard_suffixes                       missing
+option  control_brace_style                              missing
+option  disable_all_formatting                           missing
+option  doc_comment_code_block_small_heuristics          missing
+option  doc_comment_code_block_width                     missing
+option  edition                                          partial      # the parser reads every edition (tests/fixtures/syntax/ok/editions-2024.rs); mto.toml cannot set it yet
+option  emit_mode                                        missing
+option  empty_item_single_line                           missing
+option  enum_discrim_align_threshold                     missing
+option  error_on_line_overflow                           missing
+option  error_on_unformatted                             missing
+option  file_lines                                       missing
+option  float_literal_trailing_zero                      missing
+option  fn_args_layout                                   not-planned  # deprecated in rustfmt in favour of fn_params_layout
+option  fn_call_width                                    missing
+option  fn_params_layout                                 missing
+option  fn_single_line                                   missing
+option  force_explicit_abi                               missing
+option  force_multiline_blocks                           missing
+option  format_code_in_doc_comments                      missing
+option  format_generated_files                           missing
+option  format_macro_bodies                              missing
+option  format_macro_matchers                            missing
+option  format_strings                                   missing
+option  generated_marker_line_search_limit               missing
+option  group_imports                                    partial      # mto.toml's import_grouping groups use items (tests/domain_2_golden.rs); not rustfmt's StdExternalCrate
+option  hard_tabs                                        missing
+option  hex_literal_case                                 missing
+option  hide_parse_errors                                not-planned  # deprecated in rustfmt in favour of show_parse_errors
+option  ignore                                           partial      # mto.toml's ignore_dirs skips directories by name (tests/domain_9_config_hierarchy.rs); no paths or globs
+option  imports_granularity                              missing
+option  imports_indent                                   missing
+option  imports_layout                                   missing
+option  indent_style                                     missing
+option  inline_attribute_width                           missing
+option  make_backup                                      missing
+option  match_arm_blocks                                 missing
+option  match_arm_indent                                 missing
+option  match_arm_leading_pipes                          missing
+option  match_block_trailing_comma                       missing
+option  max_width                                        missing      # mto.toml accepts max_width but nothing uses it until the formatter
+option  merge_derives                                    missing
+option  merge_imports                                    not-planned  # deprecated in rustfmt in favour of imports_granularity
+option  newline_style                                    missing
+option  normalize_comments                               missing
+option  normalize_doc_attributes                         missing
+option  overflow_delimited_expr                          missing
+option  print_misformatted_file_names                    missing
+option  remove_nested_parens                             missing
+option  reorder_impl_items                               missing
+option  reorder_imports                                  partial      # mto.toml's sort_imports reorders use items (tests/domain_2_golden.rs); rustfmt's order rules not matched yet
+option  reorder_modules                                  missing
+option  required_version                                 missing
+option  short_array_element_width_threshold              missing
+option  show_parse_errors                                missing
+option  single_line_if_else_max_width                    missing
+option  single_line_let_else_max_width                   missing
+option  skip_children                                    missing
+option  skip_macro_invocations                           missing
+option  space_after_colon                                missing
+option  space_before_colon                               missing
+option  spaces_around_ranges                             missing
+option  struct_field_align_threshold                     missing
+option  struct_lit_single_line                           missing
+option  struct_lit_width                                 missing
+option  struct_variant_width                             missing
+option  style_edition                                    missing
+option  tab_spaces                                       missing      # mto.toml's tab_width is reserved for the formatter
+option  trailing_comma                                   missing
+option  trailing_semicolon                               missing
+option  type_punctuation_density                         missing
+option  unstable_features                                missing
+option  use_field_init_shorthand                         missing
+option  use_small_heuristics                             missing
+option  use_try_shorthand                                missing
+option  verbose                                          missing
+option  version                                          not-planned  # deprecated in rustfmt in favour of style_edition
+option  where_single_line                                missing
+option  width_heuristics                                 missing
+option  wrap_comments                                    missing
+
+value   binop_separator=Back                             missing
+value   binop_separator=Front                            missing
+value   brace_style=AlwaysNextLine                       missing
+value   brace_style=PreferSameLine                       missing
+value   brace_style=SameLineWhere                        missing
+value   color=Always                                     missing
+value   color=Auto                                       missing
+value   color=Never                                      missing
+value   control_brace_style=AlwaysNextLine               missing
+value   control_brace_style=AlwaysSameLine               missing
+value   control_brace_style=ClosingNextLine              missing
+value   doc_comment_code_block_small_heuristics=Default  missing
+value   doc_comment_code_block_small_heuristics=Max      missing
+value   doc_comment_code_block_small_heuristics=Off      missing
+value   edition=2015                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
+value   edition=2018                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
+value   edition=2021                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
+value   edition=2024                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
+value   float_literal_trailing_zero=Always               missing
+value   float_literal_trailing_zero=IfNoPostfix          missing
+value   float_literal_trailing_zero=Never                missing
+value   float_literal_trailing_zero=Preserve             missing
+value   fn_args_layout=Compressed                        not-planned  # fn_args_layout is deprecated
+value   fn_args_layout=Tall                              not-planned  # fn_args_layout is deprecated
+value   fn_args_layout=Vertical                          not-planned  # fn_args_layout is deprecated
+value   fn_params_layout=Compressed                      missing
+value   fn_params_layout=Tall                            missing
+value   fn_params_layout=Vertical                        missing
+value   group_imports=One                                missing
+value   group_imports=Preserve                           missing
+value   group_imports=StdExternalCrate                   missing
+value   hex_literal_case=Lower                           missing
+value   hex_literal_case=Preserve                        missing
+value   hex_literal_case=Upper                           missing
+value   imports_granularity=Crate                        missing
+value   imports_granularity=Item                         missing
+value   imports_granularity=Module                       missing
+value   imports_granularity=One                          missing
+value   imports_granularity=Preserve                     missing
+value   imports_indent=Block                             missing
+value   imports_indent=Visual                            missing
+value   imports_layout=Horizontal                        missing
+value   imports_layout=HorizontalVertical                missing
+value   imports_layout=Mixed                             missing
+value   imports_layout=Vertical                          missing
+value   indent_style=Block                               missing
+value   indent_style=Visual                              missing
+value   match_arm_leading_pipes=Always                   missing
+value   match_arm_leading_pipes=Never                    missing
+value   match_arm_leading_pipes=Preserve                 missing
+value   newline_style=Auto                               missing
+value   newline_style=Native                             missing
+value   newline_style=Unix                               missing
+value   newline_style=Windows                            missing
+value   style_edition=2015                               missing
+value   style_edition=2018                               missing
+value   style_edition=2021                               missing
+value   style_edition=2024                               missing
+value   style_edition=2027                               missing
+value   trailing_comma=Always                            missing
+value   trailing_comma=Never                             missing
+value   trailing_comma=Vertical                          missing
+value   type_punctuation_density=Compressed              missing
+value   type_punctuation_density=Wide                    missing
+value   use_small_heuristics=Default                     missing
+value   use_small_heuristics=Max                         missing
+value   use_small_heuristics=Off                         missing
+value   version=One                                      not-planned  # the version option is deprecated
+value   version=Two                                      not-planned  # the version option is deprecated
+
+flag    cargo-fmt:--all                                  missing
+flag    cargo-fmt:--check                                missing
+flag    cargo-fmt:--help                                 missing
+flag    cargo-fmt:--manifest-path                        missing
+flag    cargo-fmt:--message-format                       missing
+flag    cargo-fmt:--package                              missing
+flag    cargo-fmt:--quiet                                missing
+flag    cargo-fmt:--verbose                              missing
+flag    cargo-fmt:--version                              missing
+flag    rustfmt:--backup                                 partial      # mto always backs up until the stage 2 verifier exists (tests/domain_6_io.rs); no flag yet
+flag    rustfmt:--check                                  partial      # mto --check exits 1 and prints a unified diff (tests/domain_8_cli.rs); rustfmt's diff layout differs
+flag    rustfmt:--color                                  missing
+flag    rustfmt:--config                                 missing
+flag    rustfmt:--config-path                            partial      # mto --config reads an mto.toml (tests/domain_8_cli.rs), not rustfmt.toml
+flag    rustfmt:--edition                                missing
+flag    rustfmt:--emit                                   missing
+flag    rustfmt:--error-on-unformatted                   missing
+flag    rustfmt:--file-lines                             missing
+flag    rustfmt:--files-with-diff                        partial      # mto --dry-run lists files that would change without writing (tests/domain_8_cli.rs)
+flag    rustfmt:--help                                   partial      # mto -h and --help (tests/domain_8_cli.rs); no help topics such as --help=config
+flag    rustfmt:--print-config                           missing
+flag    rustfmt:--quiet                                  missing
+flag    rustfmt:--skip-children                          missing
+flag    rustfmt:--style-edition                          missing
+flag    rustfmt:--unstable-features                      missing
+flag    rustfmt:--verbose                                missing
+flag    rustfmt:--version                                supported    # tests/domain_8_cli.rs
+
+mto     command:-                                        supported    # tests/domain_8_cli.rs
+mto     command:debug                                    supported    # tests/domain_8_cli.rs
+mto     command:init                                     supported    # tests/domain_8_cli.rs
+mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
+mto     config:group_impls                               supported    # tests/domain_2_golden.rs
+mto     config:ignore_dirs                               supported    # tests/domain_9_config_hierarchy.rs
+mto     config:import_grouping                           supported    # tests/domain_2_golden.rs
+mto     config:max_width                                 partial      # accepted (tests/domain_1_unit.rs) but unused until the formatter
+mto     config:sort_alphabetically                       supported    # tests/domain_11_matrix.rs
+mto     config:sort_imports                              supported    # tests/domain_2_golden.rs
+mto     config:tab_width                                 partial      # accepted (tests/domain_1_unit.rs) but unused until the formatter
+mto     config:type_order                                supported    # tests/domain_1_unit.rs
+mto     flag:--check                                     supported    # tests/domain_8_cli.rs
+mto     flag:--config                                    supported    # tests/domain_8_cli.rs
+mto     flag:--dbg                                       supported    # tests/domain_8_cli.rs
+mto     flag:--dry-run                                   supported    # tests/domain_8_cli.rs
+mto     flag:--follow-links                              supported    # tests/domain_10_polyrepo.rs
+mto     flag:--help                                      supported    # tests/domain_8_cli.rs
+mto     flag:--man                                       supported    # tests/domain_8_cli.rs
+mto     flag:--recursive                                 supported    # tests/domain_12_scale.rs
+mto     flag:--restore                                   supported    # tests/domain_8_cli.rs
+mto     flag:--version                                   supported    # tests/domain_8_cli.rs

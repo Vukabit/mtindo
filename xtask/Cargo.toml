@@ -4,6 +4,6 @@ version = "0.0.0"
 publish = false
 edition = "2024"
 
+# No dependencies, not even mtindo: the test runner must build when the library does not.
+# Commands that need mtindo live in xtask/tools and are run as a separate binary.
 [dependencies]
-ra-ap-rustc_lexer = "=0.176.0"
-mtindo = { path = ".." }

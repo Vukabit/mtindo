@@ -105,6 +105,43 @@ fn test_cli_check_reports_every_drifted_file() {
 }
 
 #[test]
+fn test_cli_config_flag_uses_the_given_file() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
+    env.write_file("custom.toml", "sort_alphabetically = false\n");
+
+    let output = env
+        .mto_cmd()
+        .args(["--config", "custom.toml", "--check", "main.rs"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    // Unsorted, so `b` stays first and only a blank line is added.
+    assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
+}
+
+#[test]
+fn test_cli_dbg_prints_the_split() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
+
+    let output = env
+        .mto_cmd()
+        .args(["--dbg", "--check", "main.rs"])
+        .output()
+        .unwrap();
+    let all = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(all.contains("Extracted 2 blocks"), "{}", all);
+    assert!(
+        all.contains("[Sorted #0] Kind: FnDecl, Identifier: 'a'"),
+        "{}",
+        all
+    );
+}
+
+#[test]
 fn test_cli_debug_tree_and_tokens() {
     let env = TestEnvironment::new();
     let source = "// about a\nfn a() {}\n";
@@ -215,6 +252,14 @@ fn test_cli_invalid_config_exits_two() {
 }
 
 #[test]
+fn test_cli_man_prints_the_manual() {
+    let env = TestEnvironment::new();
+    let (code, out) = help_output(&env, &["--man"], &[]);
+    assert_eq!(code, Some(0));
+    assert!(out.starts_with("# mtindo (mto)\n"), "{}", out);
+}
+
+#[test]
 fn test_cli_options_without_a_path_are_an_error() {
     let env = TestEnvironment::new();
     let output = env
@@ -296,7 +341,9 @@ fn test_cli_unknown_argument_exits_two() {
 #[test]
 fn test_cli_version() {
     let env = TestEnvironment::new();
-    let (code, out) = help_output(&env, &["-V"], &[]);
-    assert_eq!(code, Some(0));
-    assert_eq!(out, format!("mto {}\n", env!("CARGO_PKG_VERSION")));
+    for flag in ["-V", "--version"] {
+        let (code, out) = help_output(&env, &[flag], &[]);
+        assert_eq!(code, Some(0));
+        assert_eq!(out, format!("mto {}\n", env!("CARGO_PKG_VERSION")));
+    }
 }

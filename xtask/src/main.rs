@@ -1,20 +1,36 @@
 //! Development tasks for mtindo, run with `cargo xtask <command>`.
 //!
-//! This crate is never published and is not part of the `mto` binary.
+//! This crate is never published and is not part of the `mto` binary. It has no
+//! dependencies, not even mtindo, so the test runner builds when the library does not;
+//! commands that need mtindo are forwarded to `xtask-tools` (`xtask/tools`). Every
+//! command that keeps a record logs to `logs/NAME.log`.
 
+mod capabilities;
+mod common;
 mod gates;
-mod lexdiff;
-mod parsecheck;
 mod sha256;
+mod test;
 mod unicode;
 
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use mtindo::HelpPalette;
+use common::color::{HelpPalette, color_enabled};
 
 const COMMANDS: &[Command] = &[
+    (
+        "test",
+        "[-h] [OPTIONS]",
+        "Run the gates and test suites (see cargo xtask test -h)",
+        test::run,
+    ),
+    (
+        "capabilities",
+        "refresh|check|sync|report",
+        "Track rustfmt's options and flags against mto (compat/); report takes --markdown",
+        capabilities::run,
+    ),
     (
         "gates",
         "[all|GATE]",
@@ -25,13 +41,13 @@ const COMMANDS: &[Command] = &[
         "lexdiff",
         "[--edition YEAR] [PATH...]",
         "Compare mto's lexer with rustc's (default: this repo, edition 2021)",
-        lexdiff::run,
+        |root, args| forward(root, "lexdiff", args),
     ),
     (
         "parsecheck",
         "[PATH...]",
         "Parse with each crate's edition; report syntax errors",
-        parsecheck::run,
+        |root, args| forward(root, "parsecheck", args),
     ),
     (
         "unicode",
@@ -50,12 +66,19 @@ const EXIT_CODES: &[(&str, &str)] = &[
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 34;
 
+/// Runs a command of `xtask-tools`, the binary that links mtindo.
+fn forward(root: &Path, command: &str, args: &[String]) -> ExitCode {
+    let mut all = vec![command.to_string()];
+    all.extend_from_slice(args);
+    common::process::forward_to_tools(root, &all)
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     let root = project_root();
     match args.first().map(String::as_str) {
         None | Some("help") | Some("-h") | Some("--help") => {
-            print!("{}", render_help(mtindo::color_enabled(false)));
+            print!("{}", render_help(color_enabled(false)));
             ExitCode::SUCCESS
         }
         Some(name) => match COMMANDS.iter().find(|command| command.0 == name) {

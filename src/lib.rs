@@ -1320,6 +1320,11 @@ fn arrange_blocks(blocks: &mut Vec<CodeBlock>, config: &LayoutConfig, macros_fir
             if use_a {
                 return a.original_index.cmp(&b.original_index);
             }
+            // Modules are ordered by name alone, ignoring visibility, as rustfmt orders them.
+            if config.sort_alphabetically {
+                return a.identifier.cmp(&b.identifier);
+            }
+            return std::cmp::Ordering::Equal;
         }
         if a.visibility != b.visibility {
             return a.visibility.cmp(&b.visibility);

@@ -12,7 +12,7 @@ No more scrolling past 800 lines of helper functions just to find the main `stru
 * **Refuses When Unsure:** If a file cannot be split cleanly (unbalanced delimiters, an unterminated string or comment, mixed line endings), it is left untouched and reported as skipped.
 * **Item Bodies Are Never Touched:** Each item is moved byte-for-byte. Only the order of items and the blank lines between them change. Line endings (LF or CRLF) and a leading byte-order mark are preserved.
 * **Sticky Impl Grouping:** `impl Target` and `impl Trait for Target` blocks stay directly beneath the type they implement.
-* **Visibility Hierarchy:** Items of the same kind are ordered by visibility (`pub` -> `pub(super)` -> `pub(crate)` -> private).
+* **Visibility Hierarchy:** Items of the same kind are ordered by visibility (`pub` -> `pub(super)` -> `pub(crate)` -> private). Modules are the exception: like rustfmt, mto orders them by name alone.
 * **Comments Travel With Their Item:** A comment directly above an item, or at the end of its last line, moves with it.
 * **Order-Sensitive Items Stay Put:** See [What mto never moves](#what-mto-never-moves).
 * **Atomic Writes:** Files are replaced by an OS-level rename of a fully written, synced sibling temp file. Permissions are kept, and a symlinked file stays a symlink.

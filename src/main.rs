@@ -2,6 +2,9 @@ use std::env;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
+use mtindo::syntax::lexer::tokenize;
+use mtindo::syntax::tree::debug_dump;
+use mtindo::syntax::{Edition, parse};
 use mtindo::{
     LayoutConfig, MtoError, Outcome, RunOptions, c_cyan, c_green, c_red, c_reset, c_yellow,
     parse_toml_config, process_file, process_init, process_stdin, resolve_config_path,
@@ -24,7 +27,8 @@ left untouched and reported as skipped.
 *   **Sticky Impl Grouping:** `impl Type` and `impl Trait for Type` blocks are
 kept directly beneath the type they implement.
 *   **Visibility Hierarchy:** Items of the same kind are ordered by visibility
-(`pub` -> `pub(super)` -> `pub(crate)` -> private).
+(`pub` -> `pub(super)` -> `pub(crate)` -> private); modules are ordered by name
+alone, as rustfmt does.
 *   **Order-Sensitive Items Stay Put:** The file header (shebang, `//!`,
 `#![...]`), `macro_rules!` order, `#[macro_use]` modules, `extern crate`, and
 item-position macro calls are never moved past each other; a macro never ends
@@ -58,6 +62,8 @@ path is still visited once).
 the specified backup.
 *   `--man`: Print this manual.
 *   `-h, --help`: Print the short help menu.
+*   `mto debug tokens|tree <FILE> [--edition YEAR]`: Print the tokens or the
+syntax tree mto sees in a file, for bug reports. The output format is unstable.
 ## Exit Codes
 *   `0`: success.
 *   `1`: `--check` found files that would change.
@@ -129,7 +135,18 @@ enum CliAction {
     Init {
         target_path: Option<PathBuf>,
     },
+    Debug {
+        view: DebugView,
+        path: PathBuf,
+        edition: Edition,
+    },
     Man,
+}
+
+#[derive(Clone, Copy)]
+enum DebugView {
+    Tokens,
+    Tree,
 }
 
 fn main() {
@@ -143,6 +160,11 @@ fn main() {
             print_man_page();
             0
         }
+        CliAction::Debug {
+            view,
+            path,
+            edition,
+        } => run_debug(view, &path, edition),
         CliAction::Stdin { config_path, check } => match process_stdin(config_path, check) {
             Ok(Outcome::Changed) if check => 1,
             Ok(_) => 0,
@@ -208,6 +230,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     if args[1] == "init" {
         let target_path = args.get(2).map(PathBuf::from);
         return Ok(Some(CliAction::Init { target_path }));
+    }
+    if args[1] == "debug" {
+        return parse_debug_args(&args[2..]).map(Some);
     }
     let mut i = 1;
     let mut target_path = None;
@@ -306,6 +331,63 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     }
 }
 
+fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
+    let usage = || {
+        eprintln!(
+            "{}Error: usage: mto debug tokens|tree <FILE> [--edition YEAR]{}",
+            c_red(),
+            c_reset(true)
+        );
+    };
+    let view = match args.first().map(String::as_str) {
+        Some("tokens") => DebugView::Tokens,
+        Some("tree") => DebugView::Tree,
+        _ => {
+            usage();
+            return Err(());
+        }
+    };
+    let mut path = None;
+    let mut edition = Edition::DEFAULT;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--edition" if i + 1 < args.len() => {
+                edition = match Edition::from_year(&args[i + 1]) {
+                    Some(edition) => edition,
+                    None => {
+                        eprintln!(
+                            "{}Error: unknown edition '{}'{}",
+                            c_red(),
+                            args[i + 1],
+                            c_reset(true)
+                        );
+                        return Err(());
+                    }
+                };
+                i += 1;
+            }
+            other if path.is_none() && !other.starts_with('-') => path = Some(PathBuf::from(other)),
+            _ => {
+                usage();
+                return Err(());
+            }
+        }
+        i += 1;
+    }
+    match path {
+        Some(path) => Ok(CliAction::Debug {
+            view,
+            path,
+            edition,
+        }),
+        None => {
+            usage();
+            Err(())
+        }
+    }
+}
+
 fn print_help() {
     println!(
         "{}mtindo (mto) - Rust Source Reorganizer{}",
@@ -317,6 +399,9 @@ fn print_help() {
     println!("    mto [OPTIONS] [TARGET_PATH]");
     println!("    mto --restore <BACKUP_FILE> <TARGET_PATH>");
     println!("    mto init [DIR]");
+    println!(
+        "    mto debug tokens|tree <FILE> [--edition YEAR]   (unstable output, for bug reports)"
+    );
     println!("    cat file.rs | mto\n");
     println!("{}OPTIONS:{}", c_yellow(false), c_reset(false));
     println!("    -c, --config <FILE>     Specify custom .toml config path");
@@ -425,6 +510,47 @@ fn print_man_page() {
 fn report_error(error: &MtoError) -> i32 {
     eprintln!("{}Error: {}{}", c_red(), error, c_reset(true));
     error.exit_code()
+}
+
+fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) => {
+            return report_error(&MtoError::Io(format!(
+                "cannot read {}: {}",
+                path.display(),
+                e
+            )));
+        }
+    };
+    match view {
+        DebugView::Tokens => {
+            let mut offset = 0;
+            for token in tokenize(&text, edition) {
+                let end = offset + token.len as usize;
+                let mut line = format!(
+                    "{}@{}..{} {:?}",
+                    token.kind.name(),
+                    offset,
+                    end,
+                    &text[offset..end]
+                );
+                if let Some(error) = token.error {
+                    line.push_str(&format!("  error: {}", error.message()));
+                }
+                println!("{}", line);
+                offset = end;
+            }
+        }
+        DebugView::Tree => {
+            let parse = parse(&text, edition);
+            print!("{}", debug_dump(&parse.syntax_node()));
+            for error in parse.errors() {
+                println!("error@{}: {}", error.range, error.message);
+            }
+        }
+    }
+    0
 }
 
 fn run_format(target_path: PathBuf, config_path: Option<PathBuf>, opts: &RunOptions) -> i32 {

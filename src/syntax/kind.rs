@@ -78,9 +78,50 @@ syntax_kinds! {
     Percent => "PERCENT",
     // A character that cannot start any token.
     Unknown => "UNKNOWN",
+    // Nodes. The parser (stage 1 M4 on) adds the rest.
+    SourceFile => "SOURCE_FILE",
+    Error => "ERROR",
+    Fn => "FN",
+    Struct => "STRUCT",
+    Enum => "ENUM",
+    Union => "UNION",
+    Trait => "TRAIT",
+    Impl => "IMPL",
+    TypeAlias => "TYPE_ALIAS",
+    Const => "CONST",
+    Static => "STATIC",
+    Use => "USE",
+    Module => "MODULE",
+    ExternCrate => "EXTERN_CRATE",
+    ExternBlock => "EXTERN_BLOCK",
+    MacroRules => "MACRO_RULES",
+    MacroCall => "MACRO_CALL",
 }
 
 impl SyntaxKind {
+    /// Nodes that own the comments directly above them and the comment at the end of their last
+    /// line. See `docs/design/comment-attachment.md`.
+    pub fn is_attachable(self) -> bool {
+        matches!(
+            self,
+            SyntaxKind::Fn
+                | SyntaxKind::Struct
+                | SyntaxKind::Enum
+                | SyntaxKind::Union
+                | SyntaxKind::Trait
+                | SyntaxKind::Impl
+                | SyntaxKind::TypeAlias
+                | SyntaxKind::Const
+                | SyntaxKind::Static
+                | SyntaxKind::Use
+                | SyntaxKind::Module
+                | SyntaxKind::ExternCrate
+                | SyntaxKind::ExternBlock
+                | SyntaxKind::MacroRules
+                | SyntaxKind::MacroCall
+        )
+    }
+
     /// Whitespace, comments, the byte-order mark and the shebang: tokens the parser skips.
     /// Doc comments are not trivia; they become attributes.
     pub fn is_trivia(self) -> bool {

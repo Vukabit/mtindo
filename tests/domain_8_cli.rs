@@ -50,6 +50,50 @@ fn test_cli_check_reports_every_drifted_file() {
 }
 
 #[test]
+fn test_cli_debug_tree_and_tokens() {
+    let env = TestEnvironment::new();
+    let source = "// about a\nfn a() {}\n";
+    env.write_file("main.rs", source);
+
+    let tree = env
+        .mto_cmd()
+        .args(["debug", "tree", "main.rs", "--edition", "2021"])
+        .output()
+        .unwrap();
+    assert!(tree.status.success());
+    let dump = String::from_utf8(tree.stdout).unwrap();
+    assert!(dump.starts_with("SOURCE_FILE@0..21\n"), "{}", dump);
+    assert!(
+        dump.contains("LINE_COMMENT@0..10 \"// about a\""),
+        "{}",
+        dump
+    );
+
+    let tokens = env
+        .mto_cmd()
+        .args(["debug", "tokens", "main.rs"])
+        .output()
+        .unwrap();
+    assert!(tokens.status.success());
+    assert!(
+        String::from_utf8(tokens.stdout)
+            .unwrap()
+            .contains("IDENT@11..13 \"fn\"")
+    );
+
+    env.mto_cmd()
+        .args(["debug", "tree"])
+        .assert()
+        .failure()
+        .code(2);
+    env.mto_cmd()
+        .args(["debug", "tree", "missing.rs"])
+        .assert()
+        .failure()
+        .code(3);
+}
+
+#[test]
 fn test_cli_dry_run_contract() {
     let env = TestEnvironment::new();
     let initial_content = "fn b() {}\nfn a() {}";

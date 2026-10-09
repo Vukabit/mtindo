@@ -1,0 +1,135 @@
+SOURCE_FILE@0..152
+  FN@0..37
+    VISIBILITY@0..3
+      PUB_KW@0..3 "pub"
+    WHITESPACE@3..4 " "
+    CONST_KW@4..9 "const"
+    WHITESPACE@9..10 " "
+    UNSAFE_KW@10..16 "unsafe"
+    WHITESPACE@16..17 " "
+    ABI@17..27
+      EXTERN_KW@17..23 "extern"
+      WHITESPACE@23..24 " "
+      STRING@24..27 "\"C\""
+    WHITESPACE@27..28 " "
+    FN_KW@28..30 "fn"
+    WHITESPACE@30..31 " "
+    NAME@31..32
+      IDENT@31..32 "a"
+    PARAM_LIST@32..34
+      L_PAREN@32..33 "("
+      R_PAREN@33..34 ")"
+    WHITESPACE@34..35 " "
+    OPAQUE_BLOCK@35..37
+      TOKEN_TREE@35..37
+        L_BRACE@35..36 "{"
+        R_BRACE@36..37 "}"
+  WHITESPACE@37..38 "\n"
+  FN@38..66
+    ASYNC_KW@38..43 "async"
+    WHITESPACE@43..44 " "
+    FN_KW@44..46 "fn"
+    WHITESPACE@46..47 " "
+    NAME@47..48
+      IDENT@47..48 "b"
+    PARAM_LIST@48..50
+      L_PAREN@48..49 "("
+      R_PAREN@49..50 ")"
+    WHITESPACE@50..51 " "
+    RET_TYPE@51..56
+      THIN_ARROW@51..53 "->"
+      WHITESPACE@53..54 " "
+      PATH_TYPE@54..56
+        PATH@54..56
+          PATH_SEGMENT@54..56
+            NAME_REF@54..56
+              IDENT@54..56 "u8"
+    WHITESPACE@56..57 " "
+    OPAQUE_BLOCK@57..66
+      TOKEN_TREE@57..66
+        L_BRACE@57..58 "{"
+        WHITESPACE@58..63 "\n    "
+        INT_NUMBER@63..64 "0"
+        WHITESPACE@64..65 "\n"
+        R_BRACE@65..66 "}"
+  WHITESPACE@66..67 "\n"
+  FN@67..82
+    CONST_KW@67..72 "const"
+    WHITESPACE@72..73 " "
+    FN_KW@73..75 "fn"
+    WHITESPACE@75..76 " "
+    NAME@76..77
+      IDENT@76..77 "c"
+    PARAM_LIST@77..79
+      L_PAREN@77..78 "("
+      R_PAREN@78..79 ")"
+    WHITESPACE@79..80 " "
+    OPAQUE_BLOCK@80..82
+      TOKEN_TREE@80..82
+        L_BRACE@80..81 "{"
+        R_BRACE@81..82 "}"
+  WHITESPACE@82..83 "\n"
+  FN@83..110
+    VISIBILITY@83..93
+      PUB_KW@83..86 "pub"
+      L_PAREN@86..87 "("
+      NAME_REF@87..92
+        CRATE_KW@87..92 "crate"
+      R_PAREN@92..93 ")"
+    WHITESPACE@93..94 " "
+    UNSAFE_KW@94..100 "unsafe"
+    WHITESPACE@100..101 " "
+    FN_KW@101..103 "fn"
+    WHITESPACE@103..104 " "
+    NAME@104..105
+      IDENT@104..105 "d"
+    PARAM_LIST@105..107
+      L_PAREN@105..106 "("
+      R_PAREN@106..107 ")"
+    WHITESPACE@107..108 " "
+    OPAQUE_BLOCK@108..110
+      TOKEN_TREE@108..110
+        L_BRACE@108..109 "{"
+        R_BRACE@109..110 "}"
+  WHITESPACE@110..111 "\n"
+  FN@111..151
+    ABI@111..121
+      EXTERN_KW@111..117 "extern"
+      WHITESPACE@117..118 " "
+      STRING@118..121 "\"C\""
+    WHITESPACE@121..122 " "
+    FN_KW@122..124 "fn"
+    WHITESPACE@124..125 " "
+    NAME@125..126
+      IDENT@125..126 "e"
+    PARAM_LIST@126..134
+      L_PAREN@126..127 "("
+      PARAM@127..133
+        OPAQUE@127..128
+          IDENT@127..128 "x"
+        COLON@128..129 ":"
+        WHITESPACE@129..130 " "
+        PATH_TYPE@130..133
+          PATH@130..133
+            PATH_SEGMENT@130..133
+              NAME_REF@130..133
+                IDENT@130..133 "i32"
+      R_PAREN@133..134 ")"
+    WHITESPACE@134..135 " "
+    RET_TYPE@135..141
+      THIN_ARROW@135..137 "->"
+      WHITESPACE@137..138 " "
+      PATH_TYPE@138..141
+        PATH@138..141
+          PATH_SEGMENT@138..141
+            NAME_REF@138..141
+              IDENT@138..141 "i32"
+    WHITESPACE@141..142 " "
+    OPAQUE_BLOCK@142..151
+      TOKEN_TREE@142..151
+        L_BRACE@142..143 "{"
+        WHITESPACE@143..148 "\n    "
+        IDENT@148..149 "x"
+        WHITESPACE@149..150 "\n"
+        R_BRACE@150..151 "}"
+  WHITESPACE@151..152 "\n"

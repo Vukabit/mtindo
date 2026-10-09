@@ -1,0 +1,233 @@
+SOURCE_FILE@0..219
+  IMPL@0..9
+    IMPL_KW@0..4 "impl"
+    WHITESPACE@4..5 " "
+    PATH_TYPE@5..6
+      PATH@5..6
+        PATH_SEGMENT@5..6
+          NAME_REF@5..6
+            IDENT@5..6 "S"
+    WHITESPACE@6..7 " "
+    ASSOC_ITEM_LIST@7..9
+      L_BRACE@7..8 "{"
+      R_BRACE@8..9 "}"
+  WHITESPACE@9..10 "\n"
+  IMPL@10..61
+    IMPL_KW@10..14 "impl"
+    GENERIC_PARAM_LIST@14..24
+      L_ANGLE@14..15 "<"
+      TYPE_PARAM@15..23
+        NAME@15..16
+          IDENT@15..16 "T"
+        COLON@16..17 ":"
+        WHITESPACE@17..18 " "
+        TYPE_BOUND_LIST@18..23
+          TYPE_BOUND@18..23
+            PATH_TYPE@18..23
+              PATH@18..23
+                PATH_SEGMENT@18..23
+                  NAME_REF@18..23
+                    IDENT@18..23 "Clone"
+      R_ANGLE@23..24 ">"
+    WHITESPACE@24..25 " "
+    PATH_TYPE@25..30
+      PATH@25..30
+        PATH_SEGMENT@25..30
+          NAME_REF@25..30
+            IDENT@25..30 "Trait"
+    WHITESPACE@30..31 " "
+    FOR_KW@31..34 "for"
+    WHITESPACE@34..35 " "
+    PATH_TYPE@35..41
+      PATH@35..41
+        PATH_SEGMENT@35..41
+          NAME_REF@35..38
+            IDENT@35..38 "Vec"
+          GENERIC_ARG_LIST@38..41
+            L_ANGLE@38..39 "<"
+            TYPE_ARG@39..40
+              PATH_TYPE@39..40
+                PATH@39..40
+                  PATH_SEGMENT@39..40
+                    NAME_REF@39..40
+                      IDENT@39..40 "T"
+            R_ANGLE@40..41 ">"
+    WHITESPACE@41..42 " "
+    WHERE_CLAUSE@42..58
+      WHERE_KW@42..47 "where"
+      WHITESPACE@47..48 " "
+      WHERE_PRED@48..58
+        PATH_TYPE@48..49
+          PATH@48..49
+            PATH_SEGMENT@48..49
+              NAME_REF@48..49
+                IDENT@48..49 "T"
+        COLON@49..50 ":"
+        WHITESPACE@50..51 " "
+        TYPE_BOUND_LIST@51..58
+          TYPE_BOUND@51..58
+            PATH_TYPE@51..58
+              PATH@51..58
+                PATH_SEGMENT@51..58
+                  NAME_REF@51..58
+                    IDENT@51..58 "Default"
+    WHITESPACE@58..59 " "
+    ASSOC_ITEM_LIST@59..61
+      L_BRACE@59..60 "{"
+      R_BRACE@60..61 "}"
+  WHITESPACE@61..62 "\n"
+  IMPL@62..87
+    UNSAFE_KW@62..68 "unsafe"
+    WHITESPACE@68..69 " "
+    IMPL_KW@69..73 "impl"
+    WHITESPACE@73..74 " "
+    PATH_TYPE@74..78
+      PATH@74..78
+        PATH_SEGMENT@74..78
+          NAME_REF@74..78
+            IDENT@74..78 "Send"
+    WHITESPACE@78..79 " "
+    FOR_KW@79..82 "for"
+    WHITESPACE@82..83 " "
+    PATH_TYPE@83..84
+      PATH@83..84
+        PATH_SEGMENT@83..84
+          NAME_REF@83..84
+            IDENT@83..84 "S"
+    WHITESPACE@84..85 " "
+    ASSOC_ITEM_LIST@85..87
+      L_BRACE@85..86 "{"
+      R_BRACE@86..87 "}"
+  WHITESPACE@87..88 "\n"
+  IMPL@88..107
+    IMPL_KW@88..92 "impl"
+    WHITESPACE@92..93 " "
+    BANG@93..94 "!"
+    PATH_TYPE@94..98
+      PATH@94..98
+        PATH_SEGMENT@94..98
+          NAME_REF@94..98
+            IDENT@94..98 "Sync"
+    WHITESPACE@98..99 " "
+    FOR_KW@99..102 "for"
+    WHITESPACE@102..103 " "
+    PATH_TYPE@103..104
+      PATH@103..104
+        PATH_SEGMENT@103..104
+          NAME_REF@103..104
+            IDENT@103..104 "S"
+    WHITESPACE@104..105 " "
+    ASSOC_ITEM_LIST@105..107
+      L_BRACE@105..106 "{"
+      R_BRACE@106..107 "}"
+  WHITESPACE@107..108 "\n"
+  IMPL@108..190
+    IMPL_KW@108..112 "impl"
+    GENERIC_PARAM_LIST@112..116
+      L_ANGLE@112..113 "<"
+      LIFETIME_PARAM@113..115
+        LIFETIME@113..115 "'a"
+      R_ANGLE@115..116 ">"
+    WHITESPACE@116..117 " "
+    PATH_TYPE@117..130
+      PATH@117..130
+        PATH_SEGMENT@117..130
+          NAME_REF@117..121
+            IDENT@117..121 "From"
+          GENERIC_ARG_LIST@121..130
+            L_ANGLE@121..122 "<"
+            TYPE_ARG@122..129
+              REF_TYPE@122..129
+                AMP@122..123 "&"
+                LIFETIME@123..125 "'a"
+                WHITESPACE@125..126 " "
+                PATH_TYPE@126..129
+                  PATH@126..129
+                    PATH_SEGMENT@126..129
+                      NAME_REF@126..129
+                        IDENT@126..129 "str"
+            R_ANGLE@129..130 ">"
+    WHITESPACE@130..131 " "
+    FOR_KW@131..134 "for"
+    WHITESPACE@134..135 " "
+    PATH_TYPE@135..136
+      PATH@135..136
+        PATH_SEGMENT@135..136
+          NAME_REF@135..136
+            IDENT@135..136 "S"
+    WHITESPACE@136..137 " "
+    ASSOC_ITEM_LIST@137..190
+      L_BRACE@137..138 "{"
+      WHITESPACE@138..143 "\n    "
+      FN@143..188
+        FN_KW@143..145 "fn"
+        WHITESPACE@145..146 " "
+        NAME@146..150
+          IDENT@146..150 "from"
+        PARAM_LIST@150..162
+          L_PAREN@150..151 "("
+          PARAM@151..161
+            OPAQUE@151..152
+              IDENT@151..152 "s"
+            COLON@152..153 ":"
+            WHITESPACE@153..154 " "
+            REF_TYPE@154..161
+              AMP@154..155 "&"
+              LIFETIME@155..157 "'a"
+              WHITESPACE@157..158 " "
+              PATH_TYPE@158..161
+                PATH@158..161
+                  PATH_SEGMENT@158..161
+                    NAME_REF@158..161
+                      IDENT@158..161 "str"
+          R_PAREN@161..162 ")"
+        WHITESPACE@162..163 " "
+        RET_TYPE@163..170
+          THIN_ARROW@163..165 "->"
+          WHITESPACE@165..166 " "
+          PATH_TYPE@166..170
+            PATH@166..170
+              PATH_SEGMENT@166..170
+                NAME_REF@166..170
+                  SELF_TYPE_KW@166..170 "Self"
+        WHITESPACE@170..171 " "
+        OPAQUE_BLOCK@171..188
+          TOKEN_TREE@171..188
+            L_BRACE@171..172 "{"
+            WHITESPACE@172..181 "\n        "
+            IDENT@181..182 "S"
+            WHITESPACE@182..187 "\n    "
+            R_BRACE@187..188 "}"
+      WHITESPACE@188..189 "\n"
+      R_BRACE@189..190 "}"
+  WHITESPACE@190..191 "\n"
+  IMPL@191..218
+    IMPL_KW@191..195 "impl"
+    WHITESPACE@195..196 " "
+    PATH_TYPE@196..215
+      PATH@196..215
+        PATH_SEGMENT@196..208
+          L_ANGLE@196..197 "<"
+          PATH_TYPE@197..198
+            PATH@197..198
+              PATH_SEGMENT@197..198
+                NAME_REF@197..198
+                  IDENT@197..198 "T"
+          WHITESPACE@198..199 " "
+          AS_KW@199..201 "as"
+          WHITESPACE@201..202 " "
+          PATH_TYPE@202..207
+            PATH@202..207
+              PATH_SEGMENT@202..207
+                NAME_REF@202..207
+                  IDENT@202..207 "Trait"
+          R_ANGLE@207..208 ">"
+        COLON2@208..210 "::"
+        PATH_SEGMENT@210..215
+          NAME_REF@210..215
+            IDENT@210..215 "Assoc"
+    WHITESPACE@215..216 " "
+    ASSOC_ITEM_LIST@216..218
+      L_BRACE@216..217 "{"
+      R_BRACE@217..218 "}"
+  WHITESPACE@218..219 "\n"

@@ -1,0 +1,65 @@
+SOURCE_FILE@0..98
+  MODULE@0..9
+    MOD_KW@0..3 "mod"
+    WHITESPACE@3..4 " "
+    NAME@4..8
+      IDENT@4..8 "decl"
+    SEMICOLON@8..9 ";"
+  WHITESPACE@9..10 "\n"
+  MODULE@10..97
+    VISIBILITY@10..26
+      PUB_KW@10..13 "pub"
+      L_PAREN@13..14 "("
+      IN_KW@14..16 "in"
+      WHITESPACE@16..17 " "
+      PATH@17..25
+        PATH_SEGMENT@17..22
+          NAME_REF@17..22
+            CRATE_KW@17..22 "crate"
+        COLON2@22..24 "::"
+        PATH_SEGMENT@24..25
+          NAME_REF@24..25
+            IDENT@24..25 "a"
+      R_PAREN@25..26 ")"
+    WHITESPACE@26..27 " "
+    MOD_KW@27..30 "mod"
+    WHITESPACE@30..31 " "
+    NAME@31..37
+      IDENT@31..37 "inline"
+    WHITESPACE@37..38 " "
+    ITEM_LIST@38..97
+      L_BRACE@38..39 "{"
+      WHITESPACE@39..44 "\n    "
+      INNER_LINE_DOC@44..59 "//! Inner docs."
+      WHITESPACE@59..64 "\n    "
+      ATTR@64..81
+        POUND@64..65 "#"
+        BANG@65..66 "!"
+        L_BRACK@66..67 "["
+        META@67..80
+          PATH@67..72
+            PATH_SEGMENT@67..72
+              NAME_REF@67..72
+                IDENT@67..72 "allow"
+          TOKEN_TREE@72..80
+            L_PAREN@72..73 "("
+            IDENT@73..79 "unused"
+            R_PAREN@79..80 ")"
+        R_BRACK@80..81 "]"
+      WHITESPACE@81..86 "\n    "
+      FN@86..95
+        FN_KW@86..88 "fn"
+        WHITESPACE@88..89 " "
+        NAME@89..90
+          IDENT@89..90 "f"
+        PARAM_LIST@90..92
+          L_PAREN@90..91 "("
+          R_PAREN@91..92 ")"
+        WHITESPACE@92..93 " "
+        OPAQUE_BLOCK@93..95
+          TOKEN_TREE@93..95
+            L_BRACE@93..94 "{"
+            R_BRACE@94..95 "}"
+      WHITESPACE@95..96 "\n"
+      R_BRACE@96..97 "}"
+  WHITESPACE@97..98 "\n"

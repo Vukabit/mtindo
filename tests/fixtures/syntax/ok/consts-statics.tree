@@ -1,0 +1,120 @@
+SOURCE_FILE@0..135
+  CONST@0..28
+    CONST_KW@0..5 "const"
+    WHITESPACE@5..6 " "
+    NAME@6..7
+      IDENT@6..7 "_"
+    COLON@7..8 ":"
+    WHITESPACE@8..9 " "
+    TUPLE_TYPE@9..11
+      L_PAREN@9..10 "("
+      R_PAREN@10..11 ")"
+    WHITESPACE@11..12 " "
+    EQ@12..13 "="
+    WHITESPACE@13..14 " "
+    OPAQUE@14..27
+      IDENT@14..20 "assert"
+      BANG@20..21 "!"
+      TOKEN_TREE@21..27
+        L_PAREN@21..22 "("
+        IDENT@22..26 "true"
+        R_PAREN@26..27 ")"
+    SEMICOLON@27..28 ";"
+  WHITESPACE@28..29 "\n"
+  CONST@29..75
+    VISIBILITY@29..32
+      PUB_KW@29..32 "pub"
+    WHITESPACE@32..33 " "
+    CONST_KW@33..38 "const"
+    WHITESPACE@38..39 " "
+    NAME@39..44
+      IDENT@39..44 "LIMIT"
+    COLON@44..45 ":"
+    WHITESPACE@45..46 " "
+    PATH_TYPE@46..51
+      PATH@46..51
+        PATH_SEGMENT@46..51
+          NAME_REF@46..51
+            IDENT@46..51 "usize"
+    WHITESPACE@51..52 " "
+    EQ@52..53 "="
+    WHITESPACE@53..54 " "
+    OPAQUE@54..74
+      TOKEN_TREE@54..74
+        L_BRACE@54..55 "{"
+        WHITESPACE@55..56 " "
+        IDENT@56..59 "let"
+        WHITESPACE@59..60 " "
+        IDENT@60..61 "x"
+        WHITESPACE@61..62 " "
+        EQ@62..63 "="
+        WHITESPACE@63..64 " "
+        INT_NUMBER@64..65 "1"
+        SEMICOLON@65..66 ";"
+        WHITESPACE@66..67 " "
+        IDENT@67..68 "x"
+        WHITESPACE@68..69 " "
+        PLUS@69..70 "+"
+        WHITESPACE@70..71 " "
+        INT_NUMBER@71..72 "1"
+        WHITESPACE@72..73 " "
+        R_BRACE@73..74 "}"
+    SEMICOLON@74..75 ";"
+  WHITESPACE@75..76 "\n"
+  STATIC@76..102
+    STATIC_KW@76..82 "static"
+    WHITESPACE@82..83 " "
+    MUT_KW@83..86 "mut"
+    WHITESPACE@86..87 " "
+    NAME@87..92
+      IDENT@87..92 "COUNT"
+    COLON@92..93 ":"
+    WHITESPACE@93..94 " "
+    PATH_TYPE@94..97
+      PATH@94..97
+        PATH_SEGMENT@94..97
+          NAME_REF@94..97
+            IDENT@94..97 "u32"
+    WHITESPACE@97..98 " "
+    EQ@98..99 "="
+    WHITESPACE@99..100 " "
+    OPAQUE@100..101
+      INT_NUMBER@100..101 "0"
+    SEMICOLON@101..102 ";"
+  WHITESPACE@102..103 "\n"
+  CONST@103..134
+    CONST_KW@103..108 "const"
+    WHITESPACE@108..109 " "
+    NAME@109..110
+      IDENT@109..110 "F"
+    COLON@110..111 ":"
+    WHITESPACE@111..112 " "
+    FN_PTR_TYPE@112..122
+      FN_KW@112..114 "fn"
+      PARAM_LIST@114..116
+        L_PAREN@114..115 "("
+        R_PAREN@115..116 ")"
+      WHITESPACE@116..117 " "
+      RET_TYPE@117..122
+        THIN_ARROW@117..119 "->"
+        WHITESPACE@119..120 " "
+        PATH_TYPE@120..122
+          PATH@120..122
+            PATH_SEGMENT@120..122
+              NAME_REF@120..122
+                IDENT@120..122 "u8"
+    WHITESPACE@122..123 " "
+    EQ@123..124 "="
+    WHITESPACE@124..125 " "
+    OPAQUE@125..133
+      PIPE@125..126 "|"
+      PIPE@126..127 "|"
+      WHITESPACE@127..128 " "
+      TOKEN_TREE@128..133
+        L_BRACE@128..129 "{"
+        WHITESPACE@129..130 " "
+        INT_NUMBER@130..131 "1"
+        WHITESPACE@131..132 " "
+        R_BRACE@132..133 "}"
+    SEMICOLON@133..134 ";"
+  WHITESPACE@134..135 "\n"

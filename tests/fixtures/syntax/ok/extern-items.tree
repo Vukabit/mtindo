@@ -1,0 +1,157 @@
+SOURCE_FILE@0..241
+  EXTERN_CRATE@0..36
+    LINE_COMMENT@0..16 "// edition: 2024"
+    WHITESPACE@16..17 "\n"
+    EXTERN_KW@17..23 "extern"
+    WHITESPACE@23..24 " "
+    CRATE_KW@24..29 "crate"
+    WHITESPACE@29..30 " "
+    NAME_REF@30..35
+      IDENT@30..35 "alloc"
+    SEMICOLON@35..36 ";"
+  WHITESPACE@36..37 "\n"
+  EXTERN_CRATE@37..61
+    EXTERN_KW@37..43 "extern"
+    WHITESPACE@43..44 " "
+    CRATE_KW@44..49 "crate"
+    WHITESPACE@49..50 " "
+    NAME_REF@50..54
+      SELF_KW@50..54 "self"
+    WHITESPACE@54..55 " "
+    RENAME@55..60
+      AS_KW@55..57 "as"
+      WHITESPACE@57..58 " "
+      NAME@58..60
+        IDENT@58..60 "me"
+    SEMICOLON@60..61 ";"
+  WHITESPACE@61..62 "\n"
+  EXTERN_BLOCK@62..142
+    ABI@62..72
+      EXTERN_KW@62..68 "extern"
+      WHITESPACE@68..69 " "
+      STRING@69..72 "\"C\""
+    WHITESPACE@72..73 " "
+    EXTERN_ITEM_LIST@73..142
+      L_BRACE@73..74 "{"
+      WHITESPACE@74..79 "\n    "
+      FN@79..117
+        FN_KW@79..81 "fn"
+        WHITESPACE@81..82 " "
+        NAME@82..88
+          IDENT@82..88 "printf"
+        PARAM_LIST@88..109
+          L_PAREN@88..89 "("
+          PARAM@89..103
+            OPAQUE@89..92
+              IDENT@89..92 "fmt"
+            COLON@92..93 ":"
+            WHITESPACE@93..94 " "
+            PTR_TYPE@94..103
+              STAR@94..95 "*"
+              CONST_KW@95..100 "const"
+              WHITESPACE@100..101 " "
+              PATH_TYPE@101..103
+                PATH@101..103
+                  PATH_SEGMENT@101..103
+                    NAME_REF@101..103
+                      IDENT@101..103 "u8"
+          COMMA@103..104 ","
+          WHITESPACE@104..105 " "
+          PARAM@105..108
+            DOT3@105..108 "..."
+          R_PAREN@108..109 ")"
+        WHITESPACE@109..110 " "
+        RET_TYPE@110..116
+          THIN_ARROW@110..112 "->"
+          WHITESPACE@112..113 " "
+          PATH_TYPE@113..116
+            PATH@113..116
+              PATH_SEGMENT@113..116
+                NAME_REF@113..116
+                  IDENT@113..116 "i32"
+        SEMICOLON@116..117 ";"
+      WHITESPACE@117..122 "\n    "
+      STATIC@122..140
+        STATIC_KW@122..128 "static"
+        WHITESPACE@128..129 " "
+        NAME@129..134
+          IDENT@129..134 "ERRNO"
+        COLON@134..135 ":"
+        WHITESPACE@135..136 " "
+        PATH_TYPE@136..139
+          PATH@136..139
+            PATH_SEGMENT@136..139
+              NAME_REF@136..139
+                IDENT@136..139 "i32"
+        SEMICOLON@139..140 ";"
+      WHITESPACE@140..141 "\n"
+      R_BRACE@141..142 "}"
+  WHITESPACE@142..143 "\n"
+  EXTERN_BLOCK@143..240
+    UNSAFE_KW@143..149 "unsafe"
+    WHITESPACE@149..150 " "
+    ABI@150..160
+      EXTERN_KW@150..156 "extern"
+      WHITESPACE@156..157 " "
+      STRING@157..160 "\"C\""
+    WHITESPACE@160..161 " "
+    EXTERN_ITEM_LIST@161..240
+      L_BRACE@161..162 "{"
+      WHITESPACE@162..167 "\n    "
+      FN@167..198
+        VISIBILITY@167..170
+          PUB_KW@167..170 "pub"
+        WHITESPACE@170..171 " "
+        SAFE_KW@171..175 "safe"
+        WHITESPACE@175..176 " "
+        FN_KW@176..178 "fn"
+        WHITESPACE@178..179 " "
+        NAME@179..182
+          IDENT@179..182 "abs"
+        PARAM_LIST@182..190
+          L_PAREN@182..183 "("
+          PARAM@183..189
+            OPAQUE@183..184
+              IDENT@183..184 "x"
+            COLON@184..185 ":"
+            WHITESPACE@185..186 " "
+            PATH_TYPE@186..189
+              PATH@186..189
+                PATH_SEGMENT@186..189
+                  NAME_REF@186..189
+                    IDENT@186..189 "i32"
+          R_PAREN@189..190 ")"
+        WHITESPACE@190..191 " "
+        RET_TYPE@191..197
+          THIN_ARROW@191..193 "->"
+          WHITESPACE@193..194 " "
+          PATH_TYPE@194..197
+            PATH@194..197
+              PATH_SEGMENT@194..197
+                NAME_REF@194..197
+                  IDENT@194..197 "i32"
+        SEMICOLON@197..198 ";"
+      WHITESPACE@198..203 "\n    "
+      STATIC@203..238
+        VISIBILITY@203..206
+          PUB_KW@203..206 "pub"
+        WHITESPACE@206..207 " "
+        UNSAFE_KW@207..213 "unsafe"
+        WHITESPACE@213..214 " "
+        STATIC_KW@214..220 "static"
+        WHITESPACE@220..221 " "
+        MUT_KW@221..224 "mut"
+        WHITESPACE@224..225 " "
+        NAME@225..232
+          IDENT@225..232 "COUNTER"
+        COLON@232..233 ":"
+        WHITESPACE@233..234 " "
+        PATH_TYPE@234..237
+          PATH@234..237
+            PATH_SEGMENT@234..237
+              NAME_REF@234..237
+                IDENT@234..237 "u32"
+        SEMICOLON@237..238 ";"
+      WHITESPACE@238..239 "\n"
+      R_BRACE@239..240 "}"
+  WHITESPACE@240..241 "\n"

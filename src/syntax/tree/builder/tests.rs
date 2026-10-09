@@ -112,7 +112,8 @@ fn test_errors_are_positioned() {
     let (_, errors) = build(text, &ops);
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].message, "expected item");
-    assert_eq!(errors[0].range, TextRange::new(1, 1));
+    // Positioned at the next significant token, `b`, not before the whitespace.
+    assert_eq!(errors[0].range, TextRange::new(2, 2));
 }
 
 #[test]

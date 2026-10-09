@@ -54,7 +54,7 @@ DEFAULT_GROUPS = ["gates", "tests"]
 
 # Shown by -h. Every group must have an entry; the help gate checks it.
 GROUP_INFO = {
-    "gates": "Repository rules: clippy, dependencies, layering, rustfmt, mto on itself, help text",
+    "gates": "Repository rules: clippy, dependencies, layering, docs, rustfmt, mto on itself, help text",
     "tests": "Every test suite in tests/, plus library, binary and xtask unit tests",
     "heavy": "Real-world crates still compile after formatting, and the Unicode tables match the generator; needs network access",
     "fuzz": "Each fuzz target for --fuzz-time seconds; needs nightly Rust and cargo-fuzz",
@@ -81,6 +81,7 @@ TEST_REGISTRY = [
     ("domain_1_unit", "Unit: config values, imports, item metadata", "tests"),
     ("domain_2_golden", "Golden layouts", "tests"),
     ("snapshots", "Regression fixtures", "tests"),
+    ("syntax_fixtures", "Parser fixtures: exact trees and error recovery", "tests"),
     ("integration", "Block extraction", "tests"),
     ("domain_3_proptest", "Property tests: no panics, no lost lines, idempotence", "tests"),
     ("domain_6_io", "File I/O: backups, atomic writes, permissions, symlinks", "tests"),
@@ -221,6 +222,8 @@ def build_tasks(args, announce=True):
                       ["cargo", "xtask", "gates", "deps"]))
     tasks.append(Task("layering", "Modules only use lower layers", "gates",
                       ["cargo", "xtask", "gates", "layering"]))
+    tasks.append(Task("docs", "Public Markdown stays within 80 columns", "gates",
+                      ["cargo", "xtask", "gates", "docs"]))
     tasks.append(Task("rustfmt", "rustfmt agrees with the repo layout", "gates",
                       ["cargo", "fmt", "--all", "--check"], requires=["rustfmt"]))
     tasks.append(Task("self-format", "mto formats itself", "gates",
@@ -273,6 +276,8 @@ def build_tasks(args, announce=True):
 
     tasks.append(Task("lexdiff", "Lexer agrees with rustc's lexer on the repo's sources", "tests",
                       ["cargo", "xtask", "lexdiff"]))
+    tasks.append(Task("parsecheck", "The repo's own sources parse without errors", "tests",
+                      ["cargo", "xtask", "parsecheck"]))
     tasks.append(Task("unicode", "Unicode tables match the generator", "heavy",
                       ["cargo", "xtask", "unicode", "--check"], requires=["curl"]))
 

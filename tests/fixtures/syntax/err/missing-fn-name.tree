@@ -1,0 +1,28 @@
+SOURCE_FILE@0..20
+  FN@0..8
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    PARAM_LIST@3..5
+      L_PAREN@3..4 "("
+      R_PAREN@4..5 ")"
+    WHITESPACE@5..6 " "
+    OPAQUE_BLOCK@6..8
+      TOKEN_TREE@6..8
+        L_BRACE@6..7 "{"
+        R_BRACE@7..8 "}"
+  WHITESPACE@8..9 "\n"
+  FN@9..19
+    FN_KW@9..11 "fn"
+    WHITESPACE@11..12 " "
+    NAME@12..14
+      IDENT@12..14 "ok"
+    PARAM_LIST@14..16
+      L_PAREN@14..15 "("
+      R_PAREN@15..16 ")"
+    WHITESPACE@16..17 " "
+    OPAQUE_BLOCK@17..19
+      TOKEN_TREE@17..19
+        L_BRACE@17..18 "{"
+        R_BRACE@18..19 "}"
+  WHITESPACE@19..20 "\n"
+error@3..3: expected a name

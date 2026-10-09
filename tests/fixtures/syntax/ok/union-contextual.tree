@@ -1,0 +1,62 @@
+SOURCE_FILE@0..71
+  UNION@0..35
+    UNION_KW@0..5 "union"
+    WHITESPACE@5..6 " "
+    NAME@6..7
+      IDENT@6..7 "U"
+    WHITESPACE@7..8 " "
+    RECORD_FIELD_LIST@8..35
+      L_BRACE@8..9 "{"
+      WHITESPACE@9..14 "\n    "
+      RECORD_FIELD@14..20
+        NAME@14..15
+          IDENT@14..15 "a"
+        COLON@15..16 ":"
+        WHITESPACE@16..17 " "
+        PATH_TYPE@17..20
+          PATH@17..20
+            PATH_SEGMENT@17..20
+              NAME_REF@17..20
+                IDENT@17..20 "u32"
+      COMMA@20..21 ","
+      WHITESPACE@21..26 "\n    "
+      RECORD_FIELD@26..32
+        NAME@26..27
+          IDENT@26..27 "b"
+        COLON@27..28 ":"
+        WHITESPACE@28..29 " "
+        PATH_TYPE@29..32
+          PATH@29..32
+            PATH_SEGMENT@29..32
+              NAME_REF@29..32
+                IDENT@29..32 "f32"
+      COMMA@32..33 ","
+      WHITESPACE@33..34 "\n"
+      R_BRACE@34..35 "}"
+  WHITESPACE@35..36 "\n"
+  FN@36..49
+    FN_KW@36..38 "fn"
+    WHITESPACE@38..39 " "
+    NAME@39..44
+      IDENT@39..44 "union"
+    PARAM_LIST@44..46
+      L_PAREN@44..45 "("
+      R_PAREN@45..46 ")"
+    WHITESPACE@46..47 " "
+    OPAQUE_BLOCK@47..49
+      TOKEN_TREE@47..49
+        L_BRACE@47..48 "{"
+        R_BRACE@48..49 "}"
+  WHITESPACE@49..50 "\n"
+  MACRO_CALL@50..70
+    PATH@50..55
+      PATH_SEGMENT@50..55
+        NAME_REF@50..55
+          IDENT@50..55 "union"
+    BANG@55..56 "!"
+    TOKEN_TREE@56..69
+      L_PAREN@56..57 "("
+      IDENT@57..68 "not_an_item"
+      R_PAREN@68..69 ")"
+    SEMICOLON@69..70 ";"
+  WHITESPACE@70..71 "\n"

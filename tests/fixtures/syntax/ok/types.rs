@@ -1,0 +1,12 @@
+type A = &'a mut [u8];
+type B = *const [u8; 4];
+type C = (u8,);
+type D = ((u8), (), !, _);
+type E = unsafe extern "C" fn(i32, x: u8) -> i32;
+type F = for<'a> fn(&'a u8) -> &'a u8;
+type G = Box<dyn Fn(&str) -> bool + Send + 'static>;
+type H = impl Iterator<Item = u8> + Clone;
+type I = <Vec<u8> as IntoIterator>::Item;
+type J = Vec::<u8>;
+type K = HashMap<String, Vec<(u8, &'static str)>>;
+type L = (dyn Trait) + Send;

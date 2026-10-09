@@ -1,0 +1,22 @@
+SOURCE_FILE@0..21
+  CONST@0..21
+    CONST_KW@0..5 "const"
+    WHITESPACE@5..6 " "
+    NAME@6..7
+      IDENT@6..7 "S"
+    COLON@7..8 ":"
+    WHITESPACE@8..9 " "
+    REF_TYPE@9..13
+      AMP@9..10 "&"
+      PATH_TYPE@10..13
+        PATH@10..13
+          PATH_SEGMENT@10..13
+            NAME_REF@10..13
+              IDENT@10..13 "str"
+    WHITESPACE@13..14 " "
+    EQ@14..15 "="
+    WHITESPACE@15..16 " "
+    OPAQUE@16..21
+      STRING@16..21 "\"abc\n"
+error@16..21: string is not closed
+error@21..21: expected `;`

@@ -1,0 +1,30 @@
+SOURCE_FILE@0..83
+  LINE_COMMENT@0..19 "// Section heading."
+  WHITESPACE@19..21 "\n\n"
+  FN@21..60
+    LINE_COMMENT@21..32 "// About a."
+    WHITESPACE@32..33 "\n"
+    FN_KW@33..35 "fn"
+    WHITESPACE@35..36 " "
+    NAME@36..37
+      IDENT@36..37 "a"
+    PARAM_LIST@37..39
+      L_PAREN@37..38 "("
+      R_PAREN@38..39 ")"
+    WHITESPACE@39..40 " "
+    OPAQUE_BLOCK@40..42
+      TOKEN_TREE@40..42
+        L_BRACE@40..41 "{"
+        R_BRACE@41..42 "}"
+    WHITESPACE@42..43 " "
+    LINE_COMMENT@43..60 "// trailing for a"
+  WHITESPACE@60..61 "\n"
+  STRUCT@61..82
+    LINE_COMMENT@61..72 "// About b."
+    WHITESPACE@72..73 "\n"
+    STRUCT_KW@73..79 "struct"
+    WHITESPACE@79..80 " "
+    NAME@80..81
+      IDENT@80..81 "B"
+    SEMICOLON@81..82 ";"
+  WHITESPACE@82..83 "\n"

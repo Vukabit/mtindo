@@ -5,8 +5,8 @@ use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::tree::debug_dump;
 use mtindo::syntax::{Edition, parse};
 use mtindo::{
-    LayoutConfig, MtoError, Outcome, RunOptions, c_cyan, c_green, c_red, c_reset, c_yellow,
-    parse_toml_config, process_file, process_init, process_stdin, resolve_config_path,
+    HelpPalette, LayoutConfig, MtoError, Outcome, RunOptions, c_cyan, c_green, c_red, c_reset,
+    c_yellow, parse_toml_config, process_file, process_init, process_stdin, resolve_config_path,
     restore_backup, walk_directory,
 };
 
@@ -293,74 +293,6 @@ struct FlagSpec {
     long: &'static str,
     value: &'static str,
     help: &'static str,
-}
-
-/// Colors matching Python's argparse, so mto's help looks like the test runner's.
-struct Palette {
-    on: bool,
-}
-
-impl Palette {
-    fn paint(&self, code: &str, text: &str) -> String {
-        if self.on && !text.is_empty() {
-            format!("\x1b[{}m{}\x1b[0m", code, text)
-        } else {
-            text.to_string()
-        }
-    }
-
-    fn heading(&self, text: &str) -> String {
-        self.paint("1;34", text)
-    }
-
-    fn long(&self, text: &str) -> String {
-        self.paint("1;36", text)
-    }
-
-    fn program(&self, text: &str) -> String {
-        self.paint("1;35", text)
-    }
-
-    fn short(&self, text: &str) -> String {
-        self.paint("1;32", text)
-    }
-
-    fn value(&self, text: &str) -> String {
-        self.paint("1;33", text)
-    }
-
-    /// A usage line: the program name, then flags and placeholders in their colors.
-    fn usage_line(&self, line: &str) -> String {
-        line.split(' ')
-            .map(|word| {
-                if word == "mto" {
-                    self.program(word)
-                } else if word.starts_with("--") {
-                    self.paint("36", word)
-                } else if word.starts_with('-') {
-                    self.paint("32", word)
-                } else if word.starts_with('<')
-                    || word.starts_with('[')
-                    || (word.contains('|') && word.len() > 1)
-                    || word.ends_with(']')
-                {
-                    self.paint("33", word)
-                } else {
-                    word.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-}
-
-/// Pads `label` (whose visible width is `width`) to the help column, or breaks the line.
-fn help_row(label: &str, width: usize, help: &str) -> String {
-    if width + 2 <= HELP_COLUMN {
-        format!("{}{}{}\n", label, " ".repeat(HELP_COLUMN - width), help)
-    } else {
-        format!("{}\n{}{}\n", label, " ".repeat(HELP_COLUMN), help)
-    }
 }
 
 fn main() {
@@ -663,7 +595,7 @@ fn print_man_page() {
 
 /// The short help. The text is fixed; only the colors depend on `color`.
 fn render_help(color: bool) -> String {
-    let p = Palette { on: color };
+    let p = HelpPalette::new(color, "mto");
     let mut out = String::new();
     for (idx, line) in USAGE_LINES.iter().enumerate() {
         let lead = if idx == 0 {
@@ -694,7 +626,7 @@ fn render_help(color: bool) -> String {
             } else {
                 1 + spec.value.len()
             };
-        out.push_str(&help_row(&label, width, spec.help));
+        out.push_str(&p.row(&label, width, HELP_COLUMN, spec.help));
     }
     out.push_str(&format!("\n{}\n", p.heading("commands:")));
     for (name, value, help) in COMMANDS {
@@ -710,7 +642,7 @@ fn render_help(color: bool) -> String {
         };
         let label = format!("  {}{}", painted_name, painted_value);
         let width = 2 + name.len() + if value.is_empty() { 0 } else { 1 + value.len() };
-        out.push_str(&help_row(&label, width, help));
+        out.push_str(&p.row(&label, width, HELP_COLUMN, help));
     }
     out.push_str(&format!("\n{}\n", p.heading("exit codes:")));
     for (code, meaning) in EXIT_CODES {

@@ -1,0 +1,25 @@
+SOURCE_FILE@0..22
+  MODULE@0..21
+    MOD_KW@0..3 "mod"
+    WHITESPACE@3..4 " "
+    NAME@4..5
+      IDENT@4..5 "m"
+    WHITESPACE@5..6 " "
+    ITEM_LIST@6..21
+      L_BRACE@6..7 "{"
+      WHITESPACE@7..12 "\n    "
+      FN@12..21
+        FN_KW@12..14 "fn"
+        WHITESPACE@14..15 " "
+        NAME@15..16
+          IDENT@15..16 "a"
+        PARAM_LIST@16..18
+          L_PAREN@16..17 "("
+          R_PAREN@17..18 ")"
+        WHITESPACE@18..19 " "
+        OPAQUE_BLOCK@19..21
+          TOKEN_TREE@19..21
+            L_BRACE@19..20 "{"
+            R_BRACE@20..21 "}"
+  WHITESPACE@21..22 "\n"
+error@22..22: expected `}`

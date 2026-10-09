@@ -1,6 +1,27 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
+
+pub const GATES: &[Gate] = &[
+    (
+        "deps",
+        "mtindo has no runtime dependencies; xtask uses only allowed ones",
+        check_dependencies,
+    ),
+    (
+        "docs",
+        "public Markdown lines are at most 80 columns",
+        check_docs,
+    ),
+    (
+        "layering",
+        "modules under src/ only use layers below them",
+        check_layering,
+    ),
+];
+
+/// The widest a line of public Markdown may be, in characters.
+const DOC_LINE_LIMIT: usize = 80;
 
 /// The layers of `src/`, lowest first. A module may only use modules of a lower layer.
 /// Modules sharing a layer may not use each other.
@@ -47,6 +68,37 @@ pub fn check_dependencies(root: &Path) -> Vec<String> {
     problems
 }
 
+/// Public Markdown (tracked or new, not git-ignored) keeps lines within the column limit.
+pub fn check_docs(root: &Path) -> Vec<String> {
+    let output = Command::new("git")
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "*.md",
+        ])
+        .current_dir(root)
+        .output();
+    let listing = match output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
+        _ => return vec!["docs: cannot list Markdown files with git".to_string()],
+    };
+    let mut files: Vec<&str> = listing.lines().filter(|line| !line.is_empty()).collect();
+    files.sort();
+    files.dedup();
+    let mut problems = Vec::new();
+    for file in files {
+        if let Ok(text) = fs::read_to_string(root.join(file)) {
+            problems.extend(long_lines(file, &text));
+        }
+    }
+    problems
+}
+
 /// Every module under `src/` that belongs to a layer may only reference lower layers.
 pub fn check_layering(root: &Path) -> Vec<String> {
     let src = root.join("src");
@@ -77,16 +129,22 @@ pub fn check_layering(root: &Path) -> Vec<String> {
 pub fn run(root: &Path, args: &[String]) -> ExitCode {
     let which = args.first().map(String::as_str).unwrap_or("all");
     let mut problems = Vec::new();
-    match which {
-        "deps" => problems.extend(check_dependencies(root)),
-        "layering" => problems.extend(check_layering(root)),
-        "all" => {
-            problems.extend(check_dependencies(root));
-            problems.extend(check_layering(root));
+    if which == "all" {
+        for (_, _, check) in GATES {
+            problems.extend(check(root));
         }
-        other => {
-            eprintln!("Unknown gate `{}`. Expected all, deps or layering.", other);
-            return ExitCode::from(2);
+    } else {
+        match GATES.iter().find(|(name, _, _)| *name == which) {
+            Some((_, _, check)) => problems.extend(check(root)),
+            None => {
+                let names: Vec<&str> = GATES.iter().map(|(name, _, _)| *name).collect();
+                eprintln!(
+                    "Unknown gate `{}`. Expected all, {}.",
+                    which,
+                    names.join(", ")
+                );
+                return ExitCode::from(2);
+            }
         }
     }
     if problems.is_empty() {
@@ -186,6 +244,23 @@ fn leading_ident(text: &str) -> &str {
     &text[..end]
 }
 
+/// Lines of `text` wider than the documentation limit.
+fn long_lines(file: &str, text: &str) -> Vec<String> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| line.chars().count() > DOC_LINE_LIMIT)
+        .map(|(idx, line)| {
+            format!(
+                "{}:{}: {} columns (limit {})",
+                file,
+                idx + 1,
+                line.chars().count(),
+                DOC_LINE_LIMIT
+            )
+        })
+        .collect()
+}
+
 /// Runtime dependency entries in a manifest, as "<section> <name>".
 fn runtime_dependencies(manifest: &str) -> Vec<String> {
     let mut entries = Vec::new();
@@ -232,6 +307,10 @@ fn top_module(src: &Path, file: &Path) -> Option<String> {
         Some(stem.to_string())
     }
 }
+
+/// Every gate: (name, what it checks, check). `all` runs them in this order.
+/// A gate: (name, what it checks, check returning the problems found).
+type Gate = (&'static str, &'static str, fn(&Path) -> Vec<String>);
 
 #[cfg(test)]
 mod tests {
@@ -295,6 +374,17 @@ mod tests {
     fn test_comments_and_own_module_are_ignored() {
         let content = "// see crate::cli for the caller\nuse crate::syntax::kind::SyntaxKind;\n";
         assert!(layer_violations("syntax", "src/syntax/parser/mod.rs", content).is_empty());
+    }
+
+    #[test]
+    fn test_long_lines_counts_characters_not_bytes() {
+        let exactly = "é".repeat(DOC_LINE_LIMIT);
+        let over = "x".repeat(DOC_LINE_LIMIT + 1);
+        let text = format!("short\n{}\n{}\n", exactly, over);
+        assert_eq!(
+            long_lines("README.md", &text),
+            vec!["README.md:3: 81 columns (limit 80)"]
+        );
     }
 
     #[test]

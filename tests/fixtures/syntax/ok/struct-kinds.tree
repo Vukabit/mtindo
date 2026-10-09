@@ -1,0 +1,186 @@
+SOURCE_FILE@0..194
+  STRUCT@0..71
+    STRUCT_KW@0..6 "struct"
+    WHITESPACE@6..7 " "
+    NAME@7..13
+      IDENT@7..13 "Record"
+    GENERIC_PARAM_LIST@13..16
+      L_ANGLE@13..14 "<"
+      TYPE_PARAM@14..15
+        NAME@14..15
+          IDENT@14..15 "T"
+      R_ANGLE@15..16 ">"
+    WHITESPACE@16..17 " "
+    RECORD_FIELD_LIST@17..71
+      L_BRACE@17..18 "{"
+      WHITESPACE@18..23 "\n    "
+      RECORD_FIELD@23..31
+        VISIBILITY@23..26
+          PUB_KW@23..26 "pub"
+        WHITESPACE@26..27 " "
+        NAME@27..28
+          IDENT@27..28 "x"
+        COLON@28..29 ":"
+        WHITESPACE@29..30 " "
+        PATH_TYPE@30..31
+          PATH@30..31
+            PATH_SEGMENT@30..31
+              NAME_REF@30..31
+                IDENT@30..31 "T"
+      COMMA@31..32 ","
+      WHITESPACE@32..37 "\n    "
+      RECORD_FIELD@37..57
+        VISIBILITY@37..47
+          PUB_KW@37..40 "pub"
+          L_PAREN@40..41 "("
+          NAME_REF@41..46
+            CRATE_KW@41..46 "crate"
+          R_PAREN@46..47 ")"
+        WHITESPACE@47..48 " "
+        NAME@48..49
+          IDENT@48..49 "y"
+        COLON@49..50 ":"
+        WHITESPACE@50..51 " "
+        PATH_TYPE@51..57
+          PATH@51..57
+            PATH_SEGMENT@51..57
+              NAME_REF@51..54
+                IDENT@51..54 "Vec"
+              GENERIC_ARG_LIST@54..57
+                L_ANGLE@54..55 "<"
+                TYPE_ARG@55..56
+                  PATH_TYPE@55..56
+                    PATH@55..56
+                      PATH_SEGMENT@55..56
+                        NAME_REF@55..56
+                          IDENT@55..56 "T"
+                R_ANGLE@56..57 ">"
+      COMMA@57..58 ","
+      WHITESPACE@58..63 "\n    "
+      RECORD_FIELD@63..68
+        NAME@63..64
+          IDENT@63..64 "z"
+        COLON@64..65 ":"
+        WHITESPACE@65..66 " "
+        TUPLE_TYPE@66..68
+          L_PAREN@66..67 "("
+          R_PAREN@67..68 ")"
+      COMMA@68..69 ","
+      WHITESPACE@69..70 "\n"
+      R_BRACE@70..71 "}"
+  WHITESPACE@71..72 "\n"
+  STRUCT@72..128
+    STRUCT_KW@72..78 "struct"
+    WHITESPACE@78..79 " "
+    NAME@79..84
+      IDENT@79..84 "Tuple"
+    GENERIC_PARAM_LIST@84..87
+      L_ANGLE@84..85 "<"
+      TYPE_PARAM@85..86
+        NAME@85..86
+          IDENT@85..86 "T"
+      R_ANGLE@86..87 ">"
+    TUPLE_FIELD_LIST@87..109
+      L_PAREN@87..88 "("
+      TUPLE_FIELD@88..93
+        VISIBILITY@88..91
+          PUB_KW@88..91 "pub"
+        WHITESPACE@91..92 " "
+        PATH_TYPE@92..93
+          PATH@92..93
+            PATH_SEGMENT@92..93
+              NAME_REF@92..93
+                IDENT@92..93 "T"
+      COMMA@93..94 ","
+      WHITESPACE@94..95 " "
+      TUPLE_FIELD@95..108
+        VISIBILITY@95..105
+          PUB_KW@95..98 "pub"
+          L_PAREN@98..99 "("
+          NAME_REF@99..104
+            SUPER_KW@99..104 "super"
+          R_PAREN@104..105 ")"
+        WHITESPACE@105..106 " "
+        PATH_TYPE@106..108
+          PATH@106..108
+            PATH_SEGMENT@106..108
+              NAME_REF@106..108
+                IDENT@106..108 "u8"
+      R_PAREN@108..109 ")"
+    WHITESPACE@109..110 "\n"
+    WHERE_CLAUSE@110..127
+      WHERE_KW@110..115 "where"
+      WHITESPACE@115..120 "\n    "
+      WHERE_PRED@120..127
+        PATH_TYPE@120..121
+          PATH@120..121
+            PATH_SEGMENT@120..121
+              NAME_REF@120..121
+                IDENT@120..121 "T"
+        COLON@121..122 ":"
+        WHITESPACE@122..123 " "
+        TYPE_BOUND_LIST@123..127
+          TYPE_BOUND@123..127
+            PATH_TYPE@123..127
+              PATH@123..127
+                PATH_SEGMENT@123..127
+                  NAME_REF@123..127
+                    IDENT@123..127 "Copy"
+    SEMICOLON@127..128 ";"
+  WHITESPACE@128..129 "\n"
+  STRUCT@129..141
+    STRUCT_KW@129..135 "struct"
+    WHITESPACE@135..136 " "
+    NAME@136..140
+      IDENT@136..140 "Unit"
+    SEMICOLON@140..141 ";"
+  WHITESPACE@141..142 "\n"
+  STRUCT@142..193
+    STRUCT_KW@142..148 "struct"
+    WHITESPACE@148..149 " "
+    NAME@149..154
+      IDENT@149..154 "Where"
+    GENERIC_PARAM_LIST@154..157
+      L_ANGLE@154..155 "<"
+      TYPE_PARAM@155..156
+        NAME@155..156
+          IDENT@155..156 "T"
+      R_ANGLE@156..157 ">"
+    WHITESPACE@157..158 "\n"
+    WHERE_CLAUSE@158..179
+      WHERE_KW@158..163 "where"
+      WHITESPACE@163..168 "\n    "
+      WHERE_PRED@168..178
+        PATH_TYPE@168..169
+          PATH@168..169
+            PATH_SEGMENT@168..169
+              NAME_REF@168..169
+                IDENT@168..169 "T"
+        COLON@169..170 ":"
+        WHITESPACE@170..171 " "
+        TYPE_BOUND_LIST@171..178
+          TYPE_BOUND@171..178
+            PATH_TYPE@171..178
+              PATH@171..178
+                PATH_SEGMENT@171..178
+                  NAME_REF@171..178
+                    IDENT@171..178 "Default"
+      COMMA@178..179 ","
+    WHITESPACE@179..180 "\n"
+    RECORD_FIELD_LIST@180..193
+      L_BRACE@180..181 "{"
+      WHITESPACE@181..186 "\n    "
+      RECORD_FIELD@186..190
+        NAME@186..187
+          IDENT@186..187 "t"
+        COLON@187..188 ":"
+        WHITESPACE@188..189 " "
+        PATH_TYPE@189..190
+          PATH@189..190
+            PATH_SEGMENT@189..190
+              NAME_REF@189..190
+                IDENT@189..190 "T"
+      COMMA@190..191 ","
+      WHITESPACE@191..192 "\n"
+      R_BRACE@192..193 "}"
+  WHITESPACE@193..194 "\n"

@@ -1,0 +1,17 @@
+SOURCE_FILE@0..17
+  ERROR@0..16
+    ATTR@0..16
+      POUND@0..1 "#"
+      L_BRACK@1..2 "["
+      META@2..15
+        PATH@2..8
+          PATH_SEGMENT@2..8
+            NAME_REF@2..8
+              IDENT@2..8 "derive"
+        TOKEN_TREE@8..15
+          L_PAREN@8..9 "("
+          IDENT@9..14 "Debug"
+          R_PAREN@14..15 ")"
+      R_BRACK@15..16 "]"
+  WHITESPACE@16..17 "\n"
+error@17..17: expected an item

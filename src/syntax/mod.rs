@@ -34,7 +34,7 @@ impl Parse {
 /// Parses a whole source file.
 pub fn parse(text: &str, edition: Edition) -> Parse {
     let tokens = lexer::tokenize(text, edition);
-    let events = parser::parse_events(&tokens);
+    let events = parser::parse_events(text, &tokens, edition);
     let (green, errors) = tree::builder::build_tree(text, &tokens, events);
     Parse {
         green: Rc::new(green),
@@ -50,9 +50,12 @@ mod tests {
     #[test]
     fn test_parse_reports_lex_errors_with_ranges() {
         let parse = parse("fn a() { \"open", Edition::E2021);
-        assert_eq!(parse.errors().len(), 1);
-        assert_eq!(parse.errors()[0].message, "string is not closed");
-        assert_eq!(parse.errors()[0].range, TextRange::new(9, 14));
+        let lex_error = parse
+            .errors()
+            .iter()
+            .find(|e| e.message == "string is not closed")
+            .expect("the lexer error is reported");
+        assert_eq!(lex_error.range, TextRange::new(9, 14));
     }
 
     proptest! {

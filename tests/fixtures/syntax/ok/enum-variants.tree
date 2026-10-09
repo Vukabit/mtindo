@@ -1,0 +1,129 @@
+SOURCE_FILE@0..136
+  ENUM@0..135
+    ATTR@0..16
+      POUND@0..1 "#"
+      L_BRACK@1..2 "["
+      META@2..15
+        PATH@2..8
+          PATH_SEGMENT@2..8
+            NAME_REF@2..8
+              IDENT@2..8 "derive"
+        TOKEN_TREE@8..15
+          L_PAREN@8..9 "("
+          IDENT@9..14 "Debug"
+          R_PAREN@14..15 ")"
+      R_BRACK@15..16 "]"
+    WHITESPACE@16..17 "\n"
+    VISIBILITY@17..20
+      PUB_KW@17..20 "pub"
+    WHITESPACE@20..21 " "
+    ENUM_KW@21..25 "enum"
+    WHITESPACE@25..26 " "
+    NAME@26..27
+      IDENT@26..27 "E"
+    GENERIC_PARAM_LIST@27..30
+      L_ANGLE@27..28 "<"
+      TYPE_PARAM@28..29
+        NAME@28..29
+          IDENT@28..29 "T"
+      R_ANGLE@29..30 ">"
+    WHITESPACE@30..31 " "
+    VARIANT_LIST@31..135
+      L_BRACE@31..32 "{"
+      WHITESPACE@32..37 "\n    "
+      VARIANT@37..41
+        NAME@37..41
+          IDENT@37..41 "Unit"
+      COMMA@41..42 ","
+      WHITESPACE@42..47 "\n    "
+      VARIANT@47..74
+        ATTR@47..57
+          POUND@47..48 "#"
+          L_BRACK@48..49 "["
+          META@49..56
+            PATH@49..56
+              PATH_SEGMENT@49..56
+                NAME_REF@49..56
+                  IDENT@49..56 "default"
+          R_BRACK@56..57 "]"
+        WHITESPACE@57..62 "\n    "
+        NAME@62..67
+          IDENT@62..67 "Tuple"
+        TUPLE_FIELD_LIST@67..74
+          L_PAREN@67..68 "("
+          TUPLE_FIELD@68..69
+            PATH_TYPE@68..69
+              PATH@68..69
+                PATH_SEGMENT@68..69
+                  NAME_REF@68..69
+                    IDENT@68..69 "T"
+          COMMA@69..70 ","
+          WHITESPACE@70..71 " "
+          TUPLE_FIELD@71..73
+            PATH_TYPE@71..73
+              PATH@71..73
+                PATH_SEGMENT@71..73
+                  NAME_REF@71..73
+                    IDENT@71..73 "u8"
+          R_PAREN@73..74 ")"
+      COMMA@74..75 ","
+      WHITESPACE@75..80 "\n    "
+      VARIANT@80..109
+        NAME@80..86
+          IDENT@80..86 "Record"
+        WHITESPACE@86..87 " "
+        RECORD_FIELD_LIST@87..109
+          L_BRACE@87..88 "{"
+          WHITESPACE@88..89 " "
+          RECORD_FIELD@89..93
+            NAME@89..90
+              IDENT@89..90 "a"
+            COLON@90..91 ":"
+            WHITESPACE@91..92 " "
+            PATH_TYPE@92..93
+              PATH@92..93
+                PATH_SEGMENT@92..93
+                  NAME_REF@92..93
+                    IDENT@92..93 "T"
+          COMMA@93..94 ","
+          WHITESPACE@94..95 " "
+          RECORD_FIELD@95..107
+            NAME@95..96
+              IDENT@95..96 "b"
+            COLON@96..97 ":"
+            WHITESPACE@97..98 " "
+            PATH_TYPE@98..107
+              PATH@98..107
+                PATH_SEGMENT@98..107
+                  NAME_REF@98..104
+                    IDENT@98..104 "Option"
+                  GENERIC_ARG_LIST@104..107
+                    L_ANGLE@104..105 "<"
+                    TYPE_ARG@105..106
+                      PATH_TYPE@105..106
+                        PATH@105..106
+                          PATH_SEGMENT@105..106
+                            NAME_REF@105..106
+                              IDENT@105..106 "T"
+                    R_ANGLE@106..107 ">"
+          WHITESPACE@107..108 " "
+          R_BRACE@108..109 "}"
+      COMMA@109..110 ","
+      WHITESPACE@110..115 "\n    "
+      VARIANT@115..132
+        NAME@115..123
+          IDENT@115..123 "Explicit"
+        WHITESPACE@123..124 " "
+        EQ@124..125 "="
+        WHITESPACE@125..126 " "
+        OPAQUE@126..132
+          INT_NUMBER@126..127 "1"
+          WHITESPACE@127..128 " "
+          L_ANGLE@128..129 "<"
+          L_ANGLE@129..130 "<"
+          WHITESPACE@130..131 " "
+          INT_NUMBER@131..132 "2"
+      COMMA@132..133 ","
+      WHITESPACE@133..134 "\n"
+      R_BRACE@134..135 "}"
+  WHITESPACE@135..136 "\n"

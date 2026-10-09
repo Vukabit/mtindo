@@ -1,0 +1,19 @@
+SOURCE_FILE@0..12
+  ERROR@0..1
+    R_BRACE@0..1 "}"
+  WHITESPACE@1..2 "\n"
+  FN@2..11
+    FN_KW@2..4 "fn"
+    WHITESPACE@4..5 " "
+    NAME@5..6
+      IDENT@5..6 "a"
+    PARAM_LIST@6..8
+      L_PAREN@6..7 "("
+      R_PAREN@7..8 ")"
+    WHITESPACE@8..9 " "
+    OPAQUE_BLOCK@9..11
+      TOKEN_TREE@9..11
+        L_BRACE@9..10 "{"
+        R_BRACE@10..11 "}"
+  WHITESPACE@11..12 "\n"
+error@0..0: unmatched `}`

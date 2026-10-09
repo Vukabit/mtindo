@@ -99,8 +99,13 @@ impl<'a> Sink<'a> {
         }
     }
 
+    /// Records a parser error at the start of the next significant token.
     fn error(&mut self, message: String) {
-        let offset = self.starts[self.pos] as u32;
+        let mut idx = self.pos;
+        while idx < self.tokens.len() && self.tokens[idx].kind.is_trivia() {
+            idx += 1;
+        }
+        let offset = self.starts[idx] as u32;
         self.errors.push(SyntaxError {
             message,
             range: TextRange::new(offset, offset),

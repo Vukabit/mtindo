@@ -1,0 +1,151 @@
+SOURCE_FILE@0..179
+  USE@0..57
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    USE_TREE@4..56
+      PATH@4..20
+        PATH_SEGMENT@4..7
+          NAME_REF@4..7
+            IDENT@4..7 "std"
+        COLON2@7..9 "::"
+        PATH_SEGMENT@9..20
+          NAME_REF@9..20
+            IDENT@9..20 "collections"
+      COLON2@20..22 "::"
+      USE_TREE_LIST@22..56
+        L_BRACE@22..23 "{"
+        USE_TREE@23..30
+          PATH@23..30
+            PATH_SEGMENT@23..30
+              NAME_REF@23..30
+                IDENT@23..30 "HashMap"
+        COMMA@30..31 ","
+        WHITESPACE@31..32 " "
+        USE_TREE@32..55
+          PATH@32..40
+            PATH_SEGMENT@32..40
+              NAME_REF@32..40
+                IDENT@32..40 "hash_map"
+          COLON2@40..42 "::"
+          USE_TREE_LIST@42..55
+            L_BRACE@42..43 "{"
+            USE_TREE@43..47
+              PATH@43..47
+                PATH_SEGMENT@43..47
+                  NAME_REF@43..47
+                    SELF_KW@43..47 "self"
+            COMMA@47..48 ","
+            WHITESPACE@48..49 " "
+            USE_TREE@49..54
+              PATH@49..54
+                PATH_SEGMENT@49..54
+                  NAME_REF@49..54
+                    IDENT@49..54 "Entry"
+            R_BRACE@54..55 "}"
+        R_BRACE@55..56 "}"
+    SEMICOLON@56..57 ";"
+  WHITESPACE@57..58 "\n"
+  USE@58..91
+    USE_KW@58..61 "use"
+    WHITESPACE@61..62 " "
+    USE_TREE@62..90
+      PATH@62..67
+        PATH_SEGMENT@62..67
+          NAME_REF@62..67
+            CRATE_KW@62..67 "crate"
+      COLON2@67..69 "::"
+      USE_TREE_LIST@69..90
+        L_BRACE@69..70 "{"
+        USE_TREE@70..83
+          PATH@70..74
+            PATH_SEGMENT@70..74
+              NAME_REF@70..74
+                SELF_KW@70..74 "self"
+          WHITESPACE@74..75 " "
+          RENAME@75..83
+            AS_KW@75..77 "as"
+            WHITESPACE@77..78 " "
+            NAME@78..83
+              IDENT@78..83 "krate"
+        COMMA@83..84 ","
+        WHITESPACE@84..85 " "
+        USE_TREE@85..89
+          PATH@85..86
+            PATH_SEGMENT@85..86
+              NAME_REF@85..86
+                IDENT@85..86 "a"
+          COLON2@86..88 "::"
+          STAR@88..89 "*"
+        R_BRACE@89..90 "}"
+    SEMICOLON@90..91 ";"
+  WHITESPACE@91..92 "\n"
+  USE@92..108
+    USE_KW@92..95 "use"
+    WHITESPACE@95..96 " "
+    USE_TREE@96..107
+      PATH@96..107
+        COLON2@96..98 "::"
+        PATH_SEGMENT@98..102
+          NAME_REF@98..102
+            IDENT@98..102 "core"
+        COLON2@102..104 "::"
+        PATH_SEGMENT@104..107
+          NAME_REF@104..107
+            IDENT@104..107 "fmt"
+    SEMICOLON@107..108 ";"
+  WHITESPACE@108..109 "\n"
+  USE@109..131
+    USE_KW@109..112 "use"
+    WHITESPACE@112..113 " "
+    USE_TREE@113..130
+      PATH@113..125
+        PATH_SEGMENT@113..118
+          NAME_REF@113..118
+            SUPER_KW@113..118 "super"
+        COLON2@118..120 "::"
+        PATH_SEGMENT@120..125
+          NAME_REF@120..125
+            IDENT@120..125 "Thing"
+      WHITESPACE@125..126 " "
+      RENAME@126..130
+        AS_KW@126..128 "as"
+        WHITESPACE@128..129 " "
+        NAME@129..130
+          IDENT@129..130 "_"
+    SEMICOLON@130..131 ";"
+  WHITESPACE@131..132 "\n"
+  USE@132..152
+    USE_KW@132..135 "use"
+    WHITESPACE@135..136 " "
+    USE_TREE@136..151
+      PATH@136..147
+        PATH_SEGMENT@136..140
+          NAME_REF@136..140
+            SELF_KW@136..140 "self"
+        COLON2@140..142 "::"
+        PATH_SEGMENT@142..147
+          NAME_REF@142..147
+            IDENT@142..147 "inner"
+      COLON2@147..149 "::"
+      USE_TREE_LIST@149..151
+        L_BRACE@149..150 "{"
+        R_BRACE@150..151 "}"
+    SEMICOLON@151..152 ";"
+  WHITESPACE@152..153 "\n"
+  USE@153..178
+    VISIBILITY@153..156
+      PUB_KW@153..156 "pub"
+    WHITESPACE@156..157 " "
+    USE_KW@157..160 "use"
+    WHITESPACE@160..161 " "
+    USE_TREE@161..177
+      PATH@161..177
+        PATH_SEGMENT@161..167
+          NAME_REF@161..167
+            RAW_IDENT@161..167 "r#type"
+        COLON2@167..169 "::"
+        PATH_SEGMENT@169..177
+          NAME_REF@169..177
+            RAW_IDENT@169..177 "r#struct"
+    SEMICOLON@177..178 ";"
+  WHITESPACE@178..179 "\n"

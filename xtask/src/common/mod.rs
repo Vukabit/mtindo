@@ -1,5 +1,6 @@
 //! Pieces every xtask command shares.
 
+pub mod awake;
 // mto's own color code, compiled from its source file so xtask needs no dependency on
 // mtindo; not every item is used here.
 #[allow(dead_code)]

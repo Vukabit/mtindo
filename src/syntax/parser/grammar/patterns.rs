@@ -2,7 +2,7 @@
 
 use super::attributes::outer_attrs;
 use super::expressions::block_expr;
-use super::{error_bump, name, name_ref, nth_at_name, paths, token_tree};
+use super::{at_builtin, builtin, error_bump, name, name_ref, nth_at_name, paths, token_tree};
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::{CompletedMarker, Parser};
 
@@ -124,6 +124,10 @@ fn path_pattern(p: &mut Parser) -> CompletedMarker {
 }
 
 fn pattern_atom(p: &mut Parser) -> Option<CompletedMarker> {
+    if at_builtin(p) {
+        // `builtin # deref(pat)` (nightly).
+        return Some(builtin(p));
+    }
     let kind = p.current();
     if kind.is_literal()
         || p.at_kw("true")

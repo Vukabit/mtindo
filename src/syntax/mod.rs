@@ -1,5 +1,7 @@
 //! Layer 1: Rust syntax. Built alongside the stage 0 engine; layout does not use it yet.
+//! [`ast`] gives typed views over the tree for the parts layout needs.
 
+pub mod ast;
 pub mod edition;
 pub mod kind;
 pub mod lexer;

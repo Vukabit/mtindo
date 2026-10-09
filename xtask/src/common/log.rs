@@ -5,12 +5,12 @@
 //! a multi-line message after the first are indented by four spaces. A log rotates when it
 //! reaches 5 MiB, keeping three older files (`NAME.log.1` is the newest). Logging never fails
 //! a command: if the file cannot be written, that is reported once on stderr and later
-//! entries are dropped.
+//! entries are dropped. A logger can be shared between threads; writes never interleave.
 
-use std::cell::Cell;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const BACKUP_COUNT: u32 = 3;
@@ -20,7 +20,9 @@ const MAX_BYTES: u64 = 5 * 1024 * 1024;
 pub struct Logger {
     dir: PathBuf,
     name: String,
-    broken: Cell<bool>,
+    /// Held while writing, so threads sharing a logger never interleave or rotate twice;
+    /// true once writing has failed.
+    broken: Mutex<bool>,
 }
 
 impl Logger {
@@ -29,7 +31,7 @@ impl Logger {
         let logger = Logger {
             dir: root.join("logs"),
             name: name.to_string(),
-            broken: Cell::new(false),
+            broken: Mutex::new(false),
         };
         logger.info(&format!("=== started {} ===", name));
         logger
@@ -78,7 +80,10 @@ impl Logger {
     }
 
     fn write(&self, level: &str, message: &str) {
-        if self.broken.get() {
+        let Ok(mut broken) = self.broken.lock() else {
+            return;
+        };
+        if *broken {
             return;
         }
         let entry = format_entry(
@@ -97,7 +102,7 @@ impl Logger {
                     .write_all(entry.as_bytes())
             });
         if let Err(e) = result {
-            self.broken.set(true);
+            *broken = true;
             eprintln!(
                 "warning: cannot write {}: {}; logging stopped",
                 self.path().display(),
@@ -181,7 +186,7 @@ mod tests {
         assert!(newest.ends_with("entry 5\n"), "{}", newest);
         assert!(dir.join("rotation.log.3").exists());
         assert!(!dir.join("rotation.log.4").exists());
-        assert!(!logger.broken.get());
+        assert!(!*logger.broken.lock().unwrap());
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -203,7 +208,7 @@ mod tests {
         fs::write(root.join("logs"), "").unwrap();
         let logger = Logger::new(&root, "broken");
         logger.error("dropped");
-        assert!(logger.broken.get());
+        assert!(*logger.broken.lock().unwrap());
         fs::remove_dir_all(&root).unwrap();
     }
 }

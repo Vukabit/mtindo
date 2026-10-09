@@ -2,7 +2,13 @@
 //! so the runner itself never depends on mtindo and still builds when the library does not.
 
 mod cases;
+mod common;
+mod corpus;
 mod lexdiff;
+// The same logger as xtask, compiled from its file: logs/NAME.log at the repository root.
+#[allow(dead_code)]
+#[path = "../../src/common/log.rs"]
+mod log;
 mod parsecheck;
 
 use std::env;
@@ -15,6 +21,7 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("lexdiff") => lexdiff::run(&root, &args[1..]),
         Some("parsecheck") => parsecheck::run(&root, &args[1..]),
+        Some("corpus-check") => corpus::run(&root, &args[1..]),
         Some("cases") if args.len() == 2 => {
             let summary = cases::run(Path::new(&args[1]));
             println!(

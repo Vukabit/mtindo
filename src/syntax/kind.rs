@@ -269,6 +269,7 @@ syntax_kinds! {
     ContinueExpr => "CONTINUE_EXPR",
     YieldExpr => "YIELD_EXPR",
     BecomeExpr => "BECOME_EXPR",
+    YeetExpr => "YEET_EXPR",
     RecordExpr => "RECORD_EXPR",
     RecordExprFieldList => "RECORD_EXPR_FIELD_LIST",
     RecordExprField => "RECORD_EXPR_FIELD",

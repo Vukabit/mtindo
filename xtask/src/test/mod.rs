@@ -8,6 +8,10 @@
 //!
 //! The runner does not depend on mtindo, so it builds and reports even when the library
 //! does not compile. Ctrl-C stops the runner and the running task together.
+//!
+//! For the whole run the machine is kept awake ([`KeepAwake`]), and every task's time asleep
+//! is measured. Fuzz tasks fail if the machine slept more than a minute: their time limit
+//! is wall-clock time, so sleep would cut the fuzzing short while still passing.
 
 mod tasks;
 
@@ -25,6 +29,7 @@ use tasks::{
     Action, DEFAULT_FUZZ_TIME, DEFAULT_GROUPS, ENV_VARS, GROUPS, State, TEST_REGISTRY, Task,
 };
 
+use crate::common::awake::{self, KeepAwake, Stamp};
 use crate::common::color::{HelpPalette, color_enabled};
 use crate::common::log::Logger;
 use crate::common::process;
@@ -66,6 +71,9 @@ const FLAGS: &[(&str, &str, &str)] = &[
         "Show which tasks would run, without running them.",
     ),
 ];
+
+/// More sleep than this during a fuzz task fails it.
+const FUZZ_SLEEP_ALLOWED_SECONDS: u64 = 60;
 
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 28;
@@ -246,6 +254,11 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     );
     println!("========================================");
 
+    let keep_awake = KeepAwake::start();
+    log.info(&format!(
+        "Keeping the machine awake with {}",
+        keep_awake.how()
+    ));
     let started = Instant::now();
     let mut tools = HashMap::new();
     for task in tasks.iter_mut() {
@@ -257,6 +270,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         print_task_line(task, &colors);
     }
     let elapsed = started.elapsed().as_secs_f64();
+    drop(keep_awake);
 
     if options.bless {
         print_blessed_changes(root, &colors);
@@ -643,6 +657,7 @@ fn run_task(
     }
     log.info(&format!("Running [{}]: {}", task.id, describe(task)));
     let spinner = Spinner::start(&task.title, colors);
+    let stamp = Stamp::now();
     let started = Instant::now();
     let (code, output) = match &task.action {
         Action::Command(program, args) => process::capture(root, program, args, &task.env),
@@ -659,6 +674,24 @@ fn run_task(
     spinner.stop();
     log.debug(&format!("Output of [{}]:\n{}", task.id, output));
     task.output = output;
+    let asleep = awake::asleep_seconds(stamp);
+    let mut code = code;
+    if asleep > 0 {
+        log.warning(&format!(
+            "The machine slept {} during [{}]",
+            awake::duration(asleep),
+            task.id
+        ));
+    }
+    if asleep > FUZZ_SLEEP_ALLOWED_SECONDS && task.group == "fuzz" {
+        code = 1;
+        task.output.push_str(&format!(
+            "\nThe machine slept for {} of this task, so it fuzzed for only about {}. \
+             The time limit counts sleep; keep the machine awake (a laptop's lid open) and run again.\n",
+            awake::duration(asleep),
+            awake::duration(task.seconds as u64)
+        ));
+    }
     if code == 0 {
         task.state = State::Pass;
         log.info(&format!(
@@ -690,7 +723,9 @@ fn select(tasks: &mut [Task], options: &Options) -> Vec<String> {
         explicit = true;
     }
     for task in tasks.iter_mut() {
-        if !options.target.is_empty() {
+        if task.target_only && task.id != options.target {
+            task.state = State::Excluded;
+        } else if !options.target.is_empty() {
             task.state = if task.id == options.target {
                 State::Pending
             } else {
@@ -814,6 +849,12 @@ mod tests {
         assert_eq!(state(&tasks, "clippy"), State::Pending);
         assert_eq!(state(&tasks, "unicode"), State::Skip);
 
+        assert_eq!(state(&tasks, "fuzz-24h"), State::Excluded);
+        let full = parse_args(&args(&["--full"])).unwrap();
+        select(&mut tasks, &full);
+        assert_eq!(state(&tasks, "fuzz-24h"), State::Excluded);
+        assert_eq!(state(&tasks, "corpus"), State::Pending);
+
         let heavy = parse_args(&args(&["--group", "heavy"])).unwrap();
         select(&mut tasks, &heavy);
         assert_eq!(state(&tasks, "clippy"), State::Excluded);
@@ -825,6 +866,9 @@ mod tests {
             tasks.iter().filter(|t| t.state == State::Pending).count(),
             1
         );
+        let soak = parse_args(&args(&["--target", "fuzz-24h"])).unwrap();
+        select(&mut tasks, &soak);
+        assert_eq!(state(&tasks, "fuzz-24h"), State::Pending);
     }
 
     #[test]

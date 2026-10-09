@@ -7,6 +7,7 @@
 
 mod capabilities;
 mod common;
+mod corpus;
 mod gates;
 mod sha256;
 mod test;
@@ -30,6 +31,12 @@ const COMMANDS: &[Command] = &[
         "refresh|check|sync|report",
         "Track rustfmt's options and flags against mto (compat/); report takes --markdown",
         capabilities::run,
+    ),
+    (
+        "corpus",
+        "update|fetch|check",
+        "Pinned real-world corpus (compat/corpus.txt); --with-rust, check --baseline",
+        corpus::run,
     ),
     (
         "gates",

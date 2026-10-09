@@ -23,6 +23,15 @@ struct Span {
     class: String,
 }
 
+/// The unexplained and the expected differences between the two lexers on one file, and
+/// how many tokens mto produced.
+pub fn differences(text: &str, edition: Edition) -> (Vec<String>, Vec<String>, usize) {
+    let ours = mto_spans(text, edition);
+    let theirs = rustc_spans(text);
+    let (unexplained, expected) = compare(&ours, &theirs, text, edition);
+    (unexplained, expected, ours.len())
+}
+
 pub fn run(root: &Path, args: &[String]) -> ExitCode {
     let mut edition = Edition::E2021;
     let mut paths = Vec::new();

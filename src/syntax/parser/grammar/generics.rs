@@ -109,21 +109,23 @@ fn at_assoc_arg(p: &Parser) -> bool {
     if !nth_at_name(p, 0) {
         return false;
     }
+    // The name may carry generic arguments, with or without a turbofish: `Item<T>`,
+    // `Item::<T>`, `Item(T)`, `Item::(T)` and, for return type notation, `method(..)`.
     let mut n = 1;
-    // `method(..): Bound` (nightly return type notation).
-    if p.nth(1) == SyntaxKind::LParen
-        && p.nth(2) == SyntaxKind::Dot
-        && p.nth(3) == SyntaxKind::Dot
-        && p.nth(4) == SyntaxKind::RParen
-    {
-        return p.nth(5) == SyntaxKind::Colon && !p.nth_at(5, SyntaxKind::Colon2);
+    if p.nth_at(1, SyntaxKind::Colon2) && matches!(p.nth(3), SyntaxKind::Lt | SyntaxKind::LParen) {
+        n = 3;
     }
-    if p.nth(1) == SyntaxKind::Lt {
+    let (open, close) = match p.nth(n) {
+        SyntaxKind::Lt => (SyntaxKind::Lt, SyntaxKind::Gt),
+        SyntaxKind::LParen => (SyntaxKind::LParen, SyntaxKind::RParen),
+        _ => (SyntaxKind::Eof, SyntaxKind::Eof),
+    };
+    if open != SyntaxKind::Eof {
         let mut depth = 0;
         loop {
             match p.nth(n) {
-                SyntaxKind::Lt => depth += 1,
-                SyntaxKind::Gt => {
+                kind if kind == open => depth += 1,
+                kind if kind == close => {
                     depth -= 1;
                     if depth == 0 {
                         n += 1;
@@ -233,6 +235,7 @@ fn generic_arg(p: &mut Parser) -> bool {
         SyntaxKind::ConstArg
     } else if at_assoc_arg(p) {
         name_ref(p);
+        p.eat(SyntaxKind::Colon2);
         if p.at(SyntaxKind::Lt) {
             generic_arg_list(p);
         } else if p.at(SyntaxKind::LParen) {

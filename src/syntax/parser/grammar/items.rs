@@ -52,6 +52,10 @@ pub(super) fn item(p: &mut Parser) -> Option<SyntaxKind> {
         union_item(p)
     } else if p.at_kw("enum") {
         enum_item(p)
+    } else if p.at_kw("type") && p.nth_at_kw(1, "const") {
+        // `type const NAME: T = value;` (nightly).
+        p.bump_remap(SyntaxKind::TypeKw);
+        const_item(p)
     } else if p.at_kw("type") {
         type_alias(p)
     } else if p.at_kw("static") {
@@ -111,7 +115,7 @@ pub(super) fn item(p: &mut Parser) -> Option<SyntaxKind> {
         } else {
             const_item(p)
         }
-    } else if p.at_kw("async") {
+    } else if p.at_kw("async") || (p.at_kw("gen") && p.nth_at_kw(1, "fn")) {
         fn_item(p)
     } else if p.at_contextual_kw("safe") && p.nth_at_kw(1, "static") {
         p.bump_remap(SyntaxKind::SafeKw);
@@ -160,7 +164,7 @@ pub(super) fn item_list_contents(p: &mut Parser, in_braces: bool) {
 fn at_item_start(p: &Parser) -> bool {
     const KEYWORDS: &[&str] = &[
         "pub", "fn", "struct", "enum", "trait", "impl", "type", "const", "static", "use", "mod",
-        "extern", "unsafe", "async",
+        "extern", "unsafe", "async", "gen",
     ];
     matches!(
         p.current(),
@@ -251,11 +255,13 @@ fn extern_crate(p: &mut Parser) -> SyntaxKind {
     SyntaxKind::ExternCrate
 }
 
-/// A function with any of `const`, `async`, `unsafe`, `safe` and `extern "abi"` before `fn`.
+/// A function with any of `const`, `async`, `gen` (2024), `unsafe`, `safe` and
+/// `extern "abi"` before `fn`.
 fn fn_item(p: &mut Parser) -> SyntaxKind {
     loop {
         if p.eat_kw("const", SyntaxKind::ConstKw)
             || p.eat_kw("async", SyntaxKind::AsyncKw)
+            || p.eat_kw("gen", SyntaxKind::GenKw)
             || p.eat_kw("unsafe", SyntaxKind::UnsafeKw)
             || p.eat_contextual_kw("safe", SyntaxKind::SafeKw)
         {

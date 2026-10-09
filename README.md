@@ -220,7 +220,9 @@ running `rustfmt` after `mto` is expected to leave the layout alone.
 `cargo xtask test` runs every gate and test suite and reports each as passed,
 failed or skipped (with the reason). `cargo xtask test -h` lists every group,
 task, flag and environment variable. Each run is logged, with every task's full
-output, to `logs/test.log` (not tracked by git).
+output, to `logs/test.log` (not tracked by git). While it runs, the machine is
+kept awake (`caffeinate` on macOS, `systemd-inhibit` on Linux), and a fuzz task
+fails if the machine slept anyway, since sleep would cut its fuzzing short.
 
 ```bash
 # Gates and all tests (the default)
@@ -252,6 +254,12 @@ cargo xtask capabilities refresh
 cargo xtask capabilities sync
 # How much of rustfmt mto supports, and how rustfmt's own tests fare
 cargo xtask capabilities report [--markdown]
+# Check out the pinned real-world corpus (compat/corpus.txt), then check
+# that every file round-trips, parses and lexes like rustc; --baseline
+# records parsing speed in compat/baseline.txt
+cargo xtask corpus check
+# Move every corpus pin to its repository's current HEAD
+cargo xtask corpus update
 # Every command, gate and exit code
 cargo xtask help
 ```

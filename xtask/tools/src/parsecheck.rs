@@ -7,8 +7,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use mtindo::syntax::{Edition, parse};
+use mtindo::syntax::parse;
 use mtindo::text::line_index::LineIndex;
+
+use crate::common;
 
 const DEFAULT_PATHS: &[&str] = &["src", "tests", "benches", "xtask/src", "fuzz/fuzz_targets"];
 
@@ -38,7 +40,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
             Err(_) => continue,
         };
         parsed += 1;
-        let edition = edition_for(file, &text);
+        let edition = common::edition_for(file, &text);
         let result = parse(&text, edition);
         assert_eq!(
             result.syntax_node().text(),
@@ -105,38 +107,4 @@ fn collect(path: &Path, skip_fixtures: bool, files: &mut Vec<PathBuf>) {
             files.push(child);
         }
     }
-}
-
-/// The edition to parse `file` with.
-fn edition_for(file: &Path, text: &str) -> Edition {
-    for line in text.lines().take(20) {
-        if let Some(year) = line.trim().strip_prefix("// rustfmt-edition:")
-            && let Some(edition) = Edition::from_year(year)
-        {
-            return edition;
-        }
-    }
-    let mut dir = file.parent();
-    while let Some(current) = dir {
-        if let Ok(manifest) = fs::read_to_string(current.join("Cargo.toml")) {
-            for line in manifest.lines() {
-                let line = line.trim();
-                if let Some(value) = line.strip_prefix("edition") {
-                    let year = value
-                        .trim()
-                        .trim_start_matches('=')
-                        .trim()
-                        .trim_matches('"');
-                    if let Some(edition) = Edition::from_year(year) {
-                        return edition;
-                    }
-                }
-            }
-            if manifest.contains("[package]") && !manifest.contains("edition.workspace") {
-                return Edition::E2015;
-            }
-        }
-        dir = current.parent();
-    }
-    Edition::E2015
 }

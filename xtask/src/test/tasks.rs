@@ -38,7 +38,7 @@ pub const GROUPS: &[(&str, &str)] = &[
     ),
     (
         "heavy",
-        "Real-world crates still compile after formatting, and the Unicode tables match the generator; needs network access",
+        "Real-world crates still compile after formatting, the corpus checks, and the Unicode tables match the generator; needs network access",
     ),
     (
         "fuzz",
@@ -115,6 +115,9 @@ pub const TEST_REGISTRY: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// How long `fuzz-24h` runs each target.
+const FUZZ_24H_SECONDS: u32 = 24 * 60 * 60;
+
 /// What a task does: run a program, or a check inside this process that returns its
 /// problems (none means it passed).
 pub enum Action {
@@ -138,6 +141,8 @@ pub struct Task {
     pub action: Action,
     pub env: Vec<(String, String)>,
     pub requires: Vec<&'static str>,
+    /// Runs only when named with `--target`, never as part of a group or `--full`.
+    pub target_only: bool,
     pub state: State,
     pub seconds: f64,
     pub note: String,
@@ -153,6 +158,7 @@ impl Task {
             action,
             env: Vec::new(),
             requires: Vec::new(),
+            target_only: false,
             state: State::Pending,
             seconds: 0.0,
             note: String::new(),
@@ -162,6 +168,11 @@ impl Task {
 
     fn requires(mut self, tools: &[&'static str]) -> Task {
         self.requires = tools.to_vec();
+        self
+    }
+
+    fn target_only(mut self) -> Task {
+        self.target_only = true;
         self
     }
 
@@ -332,6 +343,15 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
         .unwrap_or_else(|_| "xtask".to_string());
     tasks.push(
         Task::new(
+            "corpus",
+            "Pinned corpus: round trip, valid code, tokens, splitters, speed",
+            "heavy",
+            Action::Command(this_binary.clone(), vec!["corpus".into(), "check".into()]),
+        )
+        .requires(&["git"]),
+    );
+    tasks.push(
+        Task::new(
             "unicode",
             "Unicode tables match the generator",
             "heavy",
@@ -354,6 +374,16 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
             .requires(&["cargo-fuzz"]),
         );
     }
+    tasks.push(
+        Task::new(
+            "fuzz-24h",
+            "Fuzz the lexer and parser side by side for 24 hours (--target only)",
+            "fuzz",
+            Action::Check(fuzz_24h),
+        )
+        .requires(&["cargo-fuzz"])
+        .target_only(),
+    );
     if root.join("benches").exists() {
         tasks.push(Task::new(
             "bench",
@@ -370,6 +400,53 @@ fn command(program: &str, args: &[&str]) -> Action {
         program.to_string(),
         args.iter().map(|a| a.to_string()).collect(),
     )
+}
+
+/// The final stage 1 gate: the lexer and parser targets fuzzed at the same time, each for
+/// [`FUZZ_24H_SECONDS`]. A crash in either is a problem, with the end of its output. Like
+/// every fuzz task, it fails if the machine slept (the runner keeps it awake and checks).
+fn fuzz_24h(root: &Path) -> Vec<String> {
+    let run = |target: &'static str| {
+        let args: Vec<String> = [
+            "+nightly",
+            "fuzz",
+            "run",
+            target,
+            "--",
+            &format!("-max_total_time={}", FUZZ_24H_SECONDS),
+        ]
+        .iter()
+        .map(|a| a.to_string())
+        .collect();
+        (
+            target,
+            crate::common::process::capture(root, "cargo", &args, &[]),
+        )
+    };
+    let results = std::thread::scope(|scope| {
+        let handles: Vec<_> = ["lexer", "parser"]
+            .into_iter()
+            .map(|target| scope.spawn(move || run(target)))
+            .collect();
+        handles
+            .into_iter()
+            .filter_map(|h| h.join().ok())
+            .collect::<Vec<_>>()
+    });
+    let mut problems = Vec::new();
+    for (target, (code, output)) in results {
+        if code != 0 {
+            let tail: Vec<&str> = output.lines().rev().take(30).collect();
+            let tail: Vec<&str> = tail.into_iter().rev().collect();
+            problems.push(format!(
+                "fuzz target {} failed (exit {}):\n{}",
+                target,
+                code,
+                tail.join("\n")
+            ));
+        }
+    }
+    problems
 }
 
 fn gate(name: &str) -> fn(&Path) -> Vec<String> {

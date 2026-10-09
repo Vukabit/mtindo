@@ -160,7 +160,12 @@ fn path_or_macro_type(p: &mut Parser, allow_bounds: bool) {
 }
 
 fn type_inner(p: &mut Parser, allow_bounds: bool) {
-    if p.at(SyntaxKind::LParen) {
+    if allow_bounds && p.at(SyntaxKind::LParen) && p.nth(1) == SyntaxKind::Question {
+        // `(?Sized) + Trait`: a bare trait object led by a parenthesized `?` bound.
+        let m = p.start();
+        generics::bounds(p);
+        m.complete(p, SyntaxKind::DynTraitType);
+    } else if p.at(SyntaxKind::LParen) {
         paren_or_tuple(p, allow_bounds);
     } else if p.at(SyntaxKind::Bang) {
         let m = p.start();

@@ -75,6 +75,7 @@ pub(super) fn at_expr_start(p: &Parser) -> bool {
         .any(|kw| p.at_kw(kw))
         || p.at_contextual_kw("yield")
         || p.at_contextual_kw("become")
+        || at_yeet(p)
         || paths::at_path_start(p)
 }
 
@@ -175,7 +176,12 @@ fn at_item_start(p: &Parser) -> bool {
             && !p.nth_at(1, SyntaxKind::PipePipe);
     }
     if p.at_kw("async") {
-        return p.nth_at_kw(1, "fn") || p.nth_at_kw(1, "unsafe");
+        return p.nth_at_kw(1, "fn")
+            || p.nth_at_kw(1, "unsafe")
+            || (p.nth_at_kw(1, "gen") && p.nth_at_kw(2, "fn"));
+    }
+    if p.at_kw("gen") {
+        return p.nth_at_kw(1, "fn");
     }
     if p.at_kw("static") {
         return nth_at_name(p, 1) || p.nth_at_kw(1, "mut");
@@ -184,6 +190,11 @@ fn at_item_start(p: &Parser) -> bool {
         || (p.at_contextual_kw("macro") && nth_at_name(p, 1))
         || (p.at_contextual_kw("auto") && p.nth_at_kw(1, "trait"))
         || (p.at_contextual_kw("macro_rules") && p.nth(1) == SyntaxKind::Bang && nth_at_name(p, 2))
+}
+
+/// `do yeet` (nightly); `do` is reserved, so this cannot be anything else.
+fn at_yeet(p: &Parser) -> bool {
+    p.at_contextual_kw("do") && p.nth(1) == SyntaxKind::Ident && p.nth_text(1) == "yeet"
 }
 
 /// The primary expression, with whether it is block-like (`{}`, `if`, `match`, loops).
@@ -273,6 +284,16 @@ fn atom(p: &mut Parser, r: Restrictions) -> Option<(CompletedMarker, bool)> {
             expr_bp(p, Restrictions { stmt: false, ..r }, 0);
         }
         return Some((m.complete(p, kind), false));
+    }
+    if at_yeet(p) {
+        // `do yeet` and `do yeet value` (nightly).
+        let m = p.start();
+        p.bump_any();
+        p.bump_any();
+        if operand_follows(p, r) {
+            expr_bp(p, Restrictions { stmt: false, ..r }, 0);
+        }
+        return Some((m.complete(p, SyntaxKind::YeetExpr), false));
     }
     if p.at_kw("break") || p.at_kw("continue") {
         let m = p.start();
@@ -714,7 +735,10 @@ fn postfix(p: &mut Parser, mut lhs: CompletedMarker) -> (CompletedMarker, bool) 
                 lhs = m.complete(p, SyntaxKind::MethodCallExpr);
             } else if nth_at_name(p, 1)
                 || matches!(p.nth(1), SyntaxKind::IntNumber | SyntaxKind::FloatNumber)
+                || (p.nth(1) == SyntaxKind::Ident
+                    && matches!(p.nth_text(1), "self" | "Self" | "super" | "crate"))
             {
+                // Path keywords are accepted as field names, as rustc's parser does.
                 let m = lhs.precede(p);
                 p.bump(SyntaxKind::Dot);
                 if nth_at_name(p, 0) {

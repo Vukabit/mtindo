@@ -3,6 +3,8 @@
 //! This crate is never published and is not part of the `mto` binary.
 
 mod gates;
+mod sha256;
+mod unicode;
 
 use std::env;
 use std::path::PathBuf;
@@ -15,6 +17,10 @@ Commands:
   gates [all|deps|layering]   Check repository rules (default: all)
       deps       mtindo has no runtime dependencies; xtask uses only allowed ones
       layering   modules under src/ only use layers below them
+  unicode [--version X.Y.Z] [--check]
+                              Regenerate src/text/unicode/*_tables.rs from the Unicode
+                              Character Database (default version: the toolchain's
+                              char::UNICODE_VERSION); --check only compares
   help                        Show this message
 
 Exit codes: 0 success, 1 a check failed, 2 bad arguments.
@@ -25,6 +31,7 @@ fn main() -> ExitCode {
     let root = project_root();
     match args.first().map(String::as_str) {
         Some("gates") => gates::run(&root, &args[1..]),
+        Some("unicode") => unicode::run(&root, &args[1..]),
         Some("help") | Some("-h") | Some("--help") => {
             print!("{}", USAGE);
             ExitCode::SUCCESS

@@ -1,3 +1,5 @@
+pub mod text;
+
 use std::collections::HashSet;
 use std::env;
 use std::fmt;
@@ -964,26 +966,11 @@ pub fn split_header(source: &str) -> (&str, &str) {
 
 /// Reorders the items of one source file, or explains why the file was left alone.
 pub fn try_reorganize(source: &str, config: &LayoutConfig, dbg: bool) -> Result<String, String> {
-    let (bom, text) = match source.strip_prefix('\u{feff}') {
-        Some(rest) => ("\u{feff}", rest),
-        None => ("", source),
-    };
-    if text.trim().is_empty() {
+    if source.trim_start_matches('\u{feff}').trim().is_empty() {
         return Ok(source.to_string());
     }
-    let crlf_count = text.matches("\r\n").count();
-    let lf_count = text.matches('\n').count();
-    if crlf_count > 0 && crlf_count != lf_count {
-        return Err("mixed line endings".to_string());
-    }
-    let normalized;
-    let text = if crlf_count > 0 {
-        normalized = text.replace("\r\n", "\n");
-        normalized.as_str()
-    } else {
-        text
-    };
-    let (header, body) = split_header(text);
+    let normalized = text::source::normalize(source)?;
+    let (header, body) = split_header(&normalized.text);
     let scan = scan_blocks(body);
     if let Some(problem) = scan.problem {
         return Err(problem);
@@ -1064,11 +1051,8 @@ pub fn try_reorganize(source: &str, config: &LayoutConfig, dbg: bool) -> Result<
         output.push_str(&block.raw_content);
         previous_block = Some(block);
     }
-    let mut result = output.trim_end().to_string() + "\n";
-    if crlf_count > 0 {
-        result = result.replace('\n', "\r\n");
-    }
-    Ok(format!("{}{}", bom, result))
+    let result = output.trim_end().to_string() + "\n";
+    Ok(normalized.restore(&result))
 }
 
 /// A unified diff of two texts, with three lines of context.

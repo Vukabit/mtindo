@@ -18,3 +18,6 @@ scripts/logs/
 
 # Internal planning docs (not published)
 docs/internal/
+
+# Downloaded test and generator inputs (corpus, Unicode data)
+compat/cache/

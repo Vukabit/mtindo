@@ -171,4 +171,5 @@ Repository rules are also available directly through `xtask`, a development-only
 
 ```bash
 cargo xtask gates               # mtindo has no runtime dependencies; modules only use lower layers
+cargo xtask unicode             # regenerate src/text/unicode tables from the Unicode Character Database
 ```

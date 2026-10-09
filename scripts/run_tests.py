@@ -56,7 +56,7 @@ DEFAULT_GROUPS = ["gates", "tests"]
 GROUP_INFO = {
     "gates": "Repository rules: clippy, dependencies, layering, rustfmt, mto on itself, help text",
     "tests": "Every test suite in tests/, plus library, binary and xtask unit tests",
-    "heavy": "15 real-world crates must still compile after formatting; needs git and network access",
+    "heavy": "Real-world crates still compile after formatting, and the Unicode tables match the generator; needs network access",
     "fuzz": "Each fuzz target for --fuzz-time seconds; needs nightly Rust and cargo-fuzz",
     "bench": "Criterion benchmarks; slow, and report numbers rather than pass/fail",
 }
@@ -177,6 +177,8 @@ def tool_available(tool):
         available = run_process(["cargo", "+nightly", "fuzz", "--version"], None)[0] == 0
     elif tool == "rustc":
         available = shutil.which("rustc") != None
+    elif tool == "curl":
+        available = shutil.which("curl") != None
     tool_cache[tool] = available
     logger.info("Tool check: " + tool + " available=" + str(available))
     return available
@@ -267,6 +269,9 @@ def build_tasks(args, announce=True):
                 sys.stdout.write(COLOR_YELLOW + "warning: " + COLOR_RESET + warning + "\n")
                 logger.info("Warning: " + warning)
             tasks.append(Task(task_id, task_id, "tests", ["cargo", "test", "--test", task_id, "--quiet"]))
+
+    tasks.append(Task("unicode", "Unicode tables match the generator", "heavy",
+                      ["cargo", "xtask", "unicode", "--check"], requires=["curl"]))
 
     fuzz_dir = pathlib.Path("fuzz") / "fuzz_targets"
     if fuzz_dir.exists() == True:

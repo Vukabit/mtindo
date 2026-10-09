@@ -16,7 +16,7 @@ const LAYERS: &[(&str, u8)] = &[
 ];
 
 /// Dependencies xtask itself may use. mtindo may use none.
-const XTASK_ALLOWED_DEPENDENCIES: &[&str] = &[];
+const XTASK_ALLOWED_DEPENDENCIES: &[&str] = &["mtindo", "ra-ap-rustc_lexer"];
 
 /// mtindo must declare no runtime dependencies; xtask may only use the allowed list.
 pub fn check_dependencies(root: &Path) -> Vec<String> {

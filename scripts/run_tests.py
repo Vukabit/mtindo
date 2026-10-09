@@ -270,6 +270,8 @@ def build_tasks(args, announce=True):
                 logger.info("Warning: " + warning)
             tasks.append(Task(task_id, task_id, "tests", ["cargo", "test", "--test", task_id, "--quiet"]))
 
+    tasks.append(Task("lexdiff", "Lexer agrees with rustc's lexer on the repo's sources", "tests",
+                      ["cargo", "xtask", "lexdiff"]))
     tasks.append(Task("unicode", "Unicode tables match the generator", "heavy",
                       ["cargo", "xtask", "unicode", "--check"], requires=["curl"]))
 

@@ -1,3 +1,4 @@
+pub mod syntax;
 pub mod text;
 
 use std::collections::HashSet;
@@ -1228,7 +1229,8 @@ fn arrange_blocks(blocks: &mut Vec<CodeBlock>, config: &LayoutConfig, macros_fir
                     return group_a.cmp(&group_b);
                 }
             }
-            return a.identifier.cmp(&b.identifier);
+            return (import_path_rank(&a.identifier), &a.identifier)
+                .cmp(&(import_path_rank(&b.identifier), &b.identifier));
         }
         let mut family_a = &a.identifier;
         if config.group_impls && a.kind == ItemKind::ImplBlock {
@@ -1461,6 +1463,18 @@ fn flush_block(blocks: &mut Vec<CodeBlock>, current_block: &mut String) {
         blocks.push(parse_block_metadata(trimmed, false, idx));
     }
     current_block.clear();
+}
+
+/// Where an import path sorts by its first segment, as rustfmt orders them in every edition:
+/// `self::` first, then `super::`, then `crate::`, then everything else.
+fn import_path_rank(path: &str) -> u8 {
+    let first = path.split("::").next().unwrap_or("");
+    match first {
+        "self" => 0,
+        "super" => 1,
+        "crate" => 2,
+        _ => 3,
+    }
 }
 
 fn is_pinned(block: &CodeBlock) -> bool {

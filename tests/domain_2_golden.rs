@@ -75,7 +75,7 @@ use super::parent_module;
 use serde::Deserialize;
 ";
 
-    let expected = "use alloc::vec::Vec;\nuse std::collections::HashMap;\n\nuse serde::Deserialize;\nuse tokio::sync::Mutex;\n\nuse crate::local_module;\nuse super::parent_module;\n";
+    let expected = "use alloc::vec::Vec;\nuse std::collections::HashMap;\n\nuse serde::Deserialize;\nuse tokio::sync::Mutex;\n\nuse super::parent_module;\nuse crate::local_module;\n";
 
     let config = LayoutConfig {
         sort_imports: true,

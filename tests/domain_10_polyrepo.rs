@@ -27,7 +27,7 @@ fn test_distributed_rollback() {
         original_files.push((full_a, content_a));
         original_files.push((full_b, content_b));
 
-        idx = idx + 1;
+        idx += 1;
     }
 
     let mut format_cmd = env.mto_cmd();
@@ -59,7 +59,10 @@ fn test_distributed_rollback() {
                 let target_path = parts[4];
 
                 let mut restore_cmd = env.mto_cmd();
-                restore_cmd.arg("--restore").arg(backup_path).arg(target_path);
+                restore_cmd
+                    .arg("--restore")
+                    .arg(backup_path)
+                    .arg(target_path);
                 restore_cmd.assert().success();
 
                 executed_restores += 1;
@@ -75,6 +78,37 @@ fn test_distributed_rollback() {
         let restored_content = fs::read_to_string(path).unwrap();
         assert_eq!(&restored_content, original_content);
     }
+}
+
+#[test]
+fn test_follow_links_visits_each_real_file_once() {
+    let env = TestEnvironment::new();
+
+    env.create_dir("dir_a");
+    env.create_dir("dir_b");
+    env.create_symlink("dir_b", "dir_a/link_to_b");
+    env.create_symlink("dir_a", "dir_b/link_to_a");
+    let file_b = env.write_file("dir_b/lib.rs", "fn d() {}\nfn c() {}");
+
+    let output = env
+        .mto_cmd()
+        .arg("--follow-links")
+        .arg("dir_a")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout.matches("Formatted:").count(),
+        1,
+        "formatted more than once:\n{}",
+        stdout
+    );
+    assert_eq!(
+        fs::read_to_string(file_b).unwrap(),
+        "fn c() {}\n\nfn d() {}\n"
+    );
 }
 
 #[test]
@@ -110,16 +144,35 @@ fn test_symlink_cycles() {
     env.create_dir("dir_a");
     env.create_dir("dir_b");
 
-    env.create_symlink("../dir_b", "dir_a/link_to_b");
-    env.create_symlink("../dir_a", "dir_b/link_to_a");
+    env.create_symlink("dir_b", "dir_a/link_to_b");
+    env.create_symlink("dir_a", "dir_b/link_to_a");
 
     let file_a = env.write_file("dir_a/main.rs", "fn b() {}\nfn a() {}");
 
-    let mut cmd = env.mto_cmd();
-    cmd.arg(".");
+    let output = env.mto_cmd().arg(".").output().unwrap();
+    assert!(output.status.success());
 
-    cmd.assert().success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout.matches("Formatted:").count(),
+        1,
+        "formatted more than once:\n{}",
+        stdout
+    );
 
     let content_a = fs::read_to_string(file_a).unwrap();
     assert_eq!(content_a, "fn a() {}\n\nfn b() {}\n");
+}
+
+#[test]
+fn test_symlinked_dirs_skipped_by_default() {
+    let env = TestEnvironment::new();
+
+    env.create_dir("project");
+    let outside = env.write_file("outside/lib.rs", "fn b() {}\nfn a() {}");
+    env.create_symlink("outside", "project/linked");
+
+    env.mto_cmd().arg("project").assert().success();
+
+    assert_eq!(fs::read_to_string(outside).unwrap(), "fn b() {}\nfn a() {}");
 }

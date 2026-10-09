@@ -3,33 +3,40 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use mtindo::{
-    c_cyan, c_green, c_red, c_reset, c_yellow, parse_toml_config, process_file,
-        process_init,
-    process_stdin, resolve_config_path, restore_backup, walk_directory,
-        LayoutConfig,
+    LayoutConfig, MtoError, Outcome, RunOptions, c_cyan, c_green, c_red, c_reset, c_yellow,
+    parse_toml_config, process_file, process_init, process_stdin, resolve_config_path,
+    restore_backup, walk_directory,
 };
 
 const MAN_PAGE: &str = r#"# mtindo (mto)
-`mtindo` is a dependency-free structural reorganizer for Rust source files.
-While `rustfmt` handles internal spacing and line wrapping, `mtindo` operates at
-the block level. It physically reorders your source code—moving structs,
-enums, impls, and functions into a predictable, strictly organized top-down
-layout.
+`mtindo` is a dependency-free layout tool for Rust source files. Its command
+is `mto`. While `rustfmt` handles spacing and line wrapping inside items, `mto`
+reorders the top-level items of a file (modules, imports, macros, constants,
+types with their impls, functions) into a predictable top-down layout.
+It never changes the inside of an item.
 ## Core Features
-*   **AST-Aware Block Sorting:** Parses brace depth, raw strings, and block
-attributes utilizing only the standard library.
-*   **Sticky Impl Grouping:** Automatically anchors `impl` and `impl Trait for`
-blocks directly beneath their parent data structures.
-*   **Visibility Hierarchy:** Sorts identical item types internally by
-visibility (`pub` -> `pub(super)` -> `pub(crate)` -> private).
-*   **Atomic Writes:** Executes file updates using OS-level atomic renames to
-prevent partial writes.
-*   **Failsafe Backups:** Automatically snapshots your source code to the
-system temporary directory before modification.
-*   **CI/CD Check Mode:** Non-destructive verification returning exit code 1
-upon formatting drift.
-*   **Stdin/Stdout Filtering:** Seamless Unix pipeline integration for editor
-tooling.
+*   **Structure-Aware Splitting:** A standard-library scanner tracks braces,
+strings, raw strings, char literals and nested comments to find where each
+top-level item starts and ends.
+*   **Refuses When Unsure:** If a file cannot be split cleanly (unbalanced
+delimiters, an unterminated string or comment, mixed line endings), it is
+left untouched and reported as skipped.
+*   **Sticky Impl Grouping:** `impl Type` and `impl Trait for Type` blocks are
+kept directly beneath the type they implement.
+*   **Visibility Hierarchy:** Items of the same kind are ordered by visibility
+(`pub` -> `pub(super)` -> `pub(crate)` -> private).
+*   **Order-Sensitive Items Stay Put:** The file header (shebang, `//!`,
+`#![...]`), `macro_rules!` order, `#[macro_use]` modules, `extern crate`, and
+item-position macro calls are never moved past each other; a macro never ends
+up below an item that originally followed it; a `#[cfg(test)]` module stays
+last.
+*   **Atomic Writes:** Files are replaced by an OS-level rename of a synced
+sibling temp file. Permissions are kept and symlinked files stay symlinks.
+*   **Backups:** Every changed file is first copied to the system temporary
+directory, and the undo command is printed.
+*   **CI/CD Check Mode:** Prints a diff for every file that would change and
+exits with status 1.
+*   **Stdin/Stdout Filtering:** Reads source from stdin when no path is given.
 ## Installation
 Run the following from the root of the repository:
 ```bash
@@ -39,36 +46,44 @@ cargo install --path .
 ```text
 mto [OPTIONS] [TARGET_PATH]
 ```
-*   `[TARGET_PATH]`: Can be a single `.rs` file or a directory. Directories are
-traversed recursively (skipping `target/`, `.git/`, and `node_modules/`).
-*   `-R, --recursive`: Recursively format all `.rs` files starting from the
-current directory.
+*   `[TARGET_PATH]`: A single `.rs` file or a directory. Directories are
+traversed recursively, skipping `ignore_dirs` and symlinked entries.
+*   `-R, --recursive`: Format all `.rs` files from the current directory.
 *   `-c, --config <FILE>`: Use a specific configuration file.
-*   `-d, --dry-run`: Evaluate the target path and output the intended actions
-without writing to disk.
-*   `--check`: Verify formatting without writing to disk; exits with status 1
-if drift is detected.
+*   `-d, --dry-run`: List the files that would change without writing.
+*   `--check`: Print a diff for every file that would change; exit 1 if any.
+*   `--follow-links`: Also follow symlinked files and directories (each real
+path is still visited once).
 *   `-r, --restore <BACKUP> <TARGET>`: Atomically replace the target file with
-the specified backup payload.
+the specified backup.
 *   `--man`: Print this manual.
 *   `-h, --help`: Print the short help menu.
-## Configuration (.mto.toml)
-You control the sorting logic via a `.mto.toml` file. `mtindo` resolves
-configuration paths in the following priority order:
-1. Explicit path passed via `--config`.
-2. `.mto.toml` in the current working directory.
-3. `~/.config/mtindo/.mto.toml` (Global XDG-style).
-4. `~/.mto.toml` (Global fallback).
+## Exit Codes
+*   `0`: success.
+*   `1`: `--check` found files that would change.
+*   `2`: bad arguments or configuration.
+*   `3`: a file could not be read or written.
+## Configuration (mto.toml)
+`mto` looks for configuration in this order and uses the first file found:
+1. The path passed via `--config`.
+2. `mto.toml` or `.mto.toml` in the target's directory, then each parent
+directory in turn.
+3. `~/.config/mtindo/mto.toml` or `~/.config/mtindo/.mto.toml`.
+4. `~/mto.toml` or `~/.mto.toml`.
 5. Internal defaults.
 ```toml
-# Enable or disable alphabetical sorting within matching categories and
-    visibilities.
+# Sort items of the same kind and visibility alphabetically.
 sort_alphabetically = true
-# Keep `impl` blocks directly below the struct/enum they implement.
+# Keep `impl` blocks directly below the struct/enum/trait they implement.
 group_impls = true
-# Define the absolute top-down ordering of your source files.
-# Valid tokens: ModDecl, UseDecl, MacroDecl, ConstDecl, StaticDecl, TraitDecl,
-    EnumDecl, StructDecl, ImplBlock, FnDecl, Unknown
+# Sort use declarations, and separate std, external and local groups.
+sort_imports = true
+import_grouping = true
+# Blank lines between items.
+blank_lines_between_blocks = 1
+# The top-down order of item kinds. Valid tokens: ModDecl, UseDecl,
+# MacroDecl, ConstDecl, StaticDecl, TraitDecl, EnumDecl, StructDecl,
+# ImplBlock, FnDecl, Unknown
 type_order = [
     "ModDecl",
     "UseDecl",
@@ -83,28 +98,25 @@ type_order = [
     "Unknown"
 ]
 ```
+`max_width` and `tab_width` are accepted but have no effect yet; they are
+reserved for the formatter.
 ## Safety and Backups
-Data loss is impossible by design.
-1. Before any file is modified, an exact copy is saved to `/tmp/mtindo_backups/`
-(or your OS equivalent) using a millisecond-precision UNIX timestamp.
-2. The reordered source is written to a temporary sidecar file.
-3. An atomic file system rename overwrites the original file.
-4. `cargo +nightly fmt` is executed to align interior spacing.
-5. If `rustfmt` fails (indicating a generated syntax error), `mtindo`
-automatically restores the backup snapshot.
-If you need to manually revert a file, run:
+1. Before a file is modified, an exact copy is saved to
+`/tmp/mtindo_backups/` (or your OS equivalent).
+2. The reordered source is written to a synced sibling temp file.
+3. An atomic rename replaces the original file.
+To revert a file, run the undo command printed after formatting:
 ```bash
-mto --restore /tmp/mtindo_backups/170000000_src_main.bak src/main.rs
+mto --restore /tmp/mtindo_backups/1700000000000_123_0_src_main.rs.bak src/main.rs
 ```
+Text between `// mto: off` and `// mto: on` is never moved or changed.
 "#;
 
 enum CliAction {
     Format {
         target_path: PathBuf,
         config_path: Option<PathBuf>,
-        dry_run: bool,
-        dbg: bool,
-        check: bool,
+        opts: RunOptions,
     },
     Stdin {
         config_path: Option<PathBuf>,
@@ -122,138 +134,104 @@ enum CliAction {
 
 fn main() {
     let action = match parse_args() {
-        Some(a) => a,
-        None => std::process::exit(1),
+        Ok(Some(a)) => a,
+        Ok(None) => return,
+        Err(()) => std::process::exit(2),
     };
-    match action {
+    let code = match action {
         CliAction::Man => {
             print_man_page();
+            0
         }
-        CliAction::Stdin { config_path, check } => {
-            process_stdin(config_path, check);
-        }
-        CliAction::Init { target_path } => {
-            process_init(target_path);
-        }
+        CliAction::Stdin { config_path, check } => match process_stdin(config_path, check) {
+            Ok(Outcome::Changed) if check => 1,
+            Ok(_) => 0,
+            Err(e) => report_error(&e),
+        },
+        CliAction::Init { target_path } => match process_init(target_path) {
+            Ok(path) => {
+                println!(
+                    "{}Initialized default configuration:{} {}",
+                    c_green(),
+                    c_reset(false),
+                    path.display()
+                );
+                0
+            }
+            Err(e) => report_error(&e),
+        },
         CliAction::Restore {
             backup_path,
             target_path,
         } => {
             if !backup_path.exists() {
-                eprintln!(
-                    "{}Error: Backup file {} does not exist.{}",
-                    c_red(),
-                    backup_path.display(),
-                    c_reset(true)
-                );
-                std::process::exit(1);
-            }
-            match restore_backup(&backup_path, &target_path) {
-                Ok(_) => println!(
-                    "{}Successfully restored {} from backup.{}",
-                    c_green(),
-                    target_path.display(),
-                    c_reset(false)
-                ),
-                Err(e) => {
-                    eprintln!("{}Failed to restore file: {}{}", c_red(), e, c_reset(true));
-                    std::process::exit(1);
+                report_error(&MtoError::Usage(format!(
+                    "backup file {} does not exist",
+                    backup_path.display()
+                )))
+            } else {
+                match restore_backup(&backup_path, &target_path) {
+                    Ok(_) => {
+                        println!(
+                            "{}Successfully restored {} from backup.{}",
+                            c_green(),
+                            target_path.display(),
+                            c_reset(false)
+                        );
+                        0
+                    }
+                    Err(e) => report_error(&MtoError::Io(format!("failed to restore file: {}", e))),
                 }
             }
         }
         CliAction::Format {
             target_path,
             config_path,
-            dry_run,
-            dbg,
-            check,
-        } => {
-            let resolved_config =
-                resolve_config_path(config_path, Some(&target_path));
-            let config = match resolved_config {
-                Some(path) => {
-                    println!(
-                        "{}Using configuration:{} {}",
-                        c_cyan(),
-                        c_reset(false),
-                        path.display()
-                    );
-                    parse_toml_config(&path)
-                }
-                None => {
-                    println!(
-                        "{}Using configuration:{} Internal Defaults",
-                        c_cyan(),
-                        c_reset(false)
-                    );
-                    LayoutConfig::default()
-                }
-            };
-            if !target_path.exists() {
-                eprintln!(
-                    "{}Error: Target path '{}' does not exist.{}",
-                    c_red(),
-                    target_path.display(),
-                    c_reset(true)
-                );
-                std::process::exit(1);
-            }
-            if target_path.is_file() {
-                process_file(&target_path, &config, dry_run, dbg, check);
-            } else if target_path.is_dir() {
-                walk_directory(&target_path, &config, dry_run, dbg, check);
-            }
-            if check {
-                println!(
-                    "{}Check passed successfully: no formatting drift detected.{}",
-                    c_green(),
-                    c_reset(false)
-                );
-            }
-        }
-    }
+            opts,
+        } => run_format(target_path, config_path, &opts),
+    };
+    std::process::exit(code);
 }
 
-fn parse_args() -> Option<CliAction> {
+fn parse_args() -> Result<Option<CliAction>, ()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         if !std::io::stdin().is_terminal() {
-            return Some(
-    CliAction::Stdin {
+            return Ok(Some(CliAction::Stdin {
                 config_path: None,
                 check: false,
-            },
-);
+            }));
         }
         print_help();
-        return None;
+        return Ok(None);
     }
     if args[1] == "init" {
         let target_path = args.get(2).map(PathBuf::from);
-        return Some(CliAction::Init { target_path });
+        return Ok(Some(CliAction::Init { target_path }));
     }
     let mut i = 1;
     let mut target_path = None;
     let mut config_path = None;
-    let mut dry_run = false;
     let mut recursive = false;
-    let mut dbg = false;
-    let mut check = false;
+    let mut opts = RunOptions::default();
     while i < args.len() {
         match args[i].as_str() {
-            "--man" => return Some(CliAction::Man),
+            "--man" => return Ok(Some(CliAction::Man)),
             "-h" | "--help" => {
                 print_help();
-                return None;
+                return Ok(None);
             }
             "-d" | "--dry-run" => {
-                dry_run = true;
+                opts.dry_run = true;
             }
             "--dbg" => {
-                dbg = true;
+                opts.debug = true;
             }
             "--check" => {
-                check = true;
+                opts.check = true;
+            }
+            "--follow-links" => {
+                opts.follow_links = true;
             }
             "-R" | "--recursive" => {
                 recursive = true;
@@ -263,33 +241,40 @@ fn parse_args() -> Option<CliAction> {
                     config_path = Some(PathBuf::from(&args[i + 1]));
                     i += 1;
                 } else {
-                    eprintln!("{}Error: Missing path for --config{}", c_red(), c_reset(true));
-                    return None;
+                    eprintln!(
+                        "{}Error: Missing path for --config{}",
+                        c_red(),
+                        c_reset(true)
+                    );
+                    return Err(());
                 }
             }
             "-r" | "--restore" => {
                 if i + 2 < args.len() {
-                    return Some(
-    CliAction::Restore {
+                    return Ok(Some(CliAction::Restore {
                         backup_path: PathBuf::from(&args[i + 1]),
                         target_path: PathBuf::from(&args[i + 2]),
-                    },
-);
+                    }));
                 } else {
                     eprintln!(
                         "{}Error: --restore requires <BACKUP_PATH> <TARGET_PATH>{}",
                         c_red(),
                         c_reset(true)
                     );
-                    return None;
+                    return Err(());
                 }
             }
-            path if target_path.is_none() => {
+            path if target_path.is_none() && !path.starts_with('-') => {
                 target_path = Some(PathBuf::from(path));
             }
             _ => {
-                eprintln!("{}Error: Unknown argument '{}'{}", c_red(), args[i], c_reset(true));
-                return None;
+                eprintln!(
+                    "{}Error: Unknown argument '{}'{}",
+                    c_red(),
+                    args[i],
+                    c_reset(true)
+                );
+                return Err(());
             }
         }
         i += 1;
@@ -298,45 +283,56 @@ fn parse_args() -> Option<CliAction> {
         target_path = Some(PathBuf::from("."));
     }
     match target_path {
-        Some(path) => Some(
-    CliAction::Format {
+        Some(path) => Ok(Some(CliAction::Format {
             target_path: path,
             config_path,
-            dry_run,
-            dbg,
-            check,
-        },
-),
+            opts,
+        })),
         None => {
             if !std::io::stdin().is_terminal() {
-                Some(CliAction::Stdin { config_path, check })
+                Ok(Some(CliAction::Stdin {
+                    config_path,
+                    check: opts.check,
+                }))
             } else {
                 eprintln!(
                     "{}Error: No target path provided. Use -R to format current directory recursively, or pipe via stdin.{}",
                     c_red(),
                     c_reset(true)
                 );
-                None
+                Err(())
             }
         }
     }
 }
 
 fn print_help() {
-    println!("{}mtindo (mto) - Rust Source Reorganizer{}", c_cyan(), c_reset(false));
-    println!("Safely and atomically restructures Rust code blocks.\n");
+    println!(
+        "{}mtindo (mto) - Rust Source Reorganizer{}",
+        c_cyan(),
+        c_reset(false)
+    );
+    println!("Safely and atomically reorders the top-level items of Rust files.\n");
     println!("{}USAGE:{}", c_yellow(false), c_reset(false));
     println!("    mto [OPTIONS] [TARGET_PATH]");
     println!("    mto --restore <BACKUP_FILE> <TARGET_PATH>");
+    println!("    mto init [DIR]");
     println!("    cat file.rs | mto\n");
     println!("{}OPTIONS:{}", c_yellow(false), c_reset(false));
     println!("    -c, --config <FILE>     Specify custom .toml config path");
-    println!("    -d, --dry-run           Process files without saving changes");
+    println!("    -d, --dry-run           List files that would change without saving");
     println!("    -R, --recursive         Format all .rs files from current directory");
-    println!("    --check                 Verify formatting without writing changes (exit 1 on drift)");
+    println!(
+        "    --check                 Print a diff for files that would change (exit 1 if any)"
+    );
+    println!("    --follow-links          Follow symlinked files and directories");
     println!("    -r, --restore           Restore a file from a backup safely");
     println!("        --man               Print the full manual page");
     println!("    -h, --help              Print this help information\n");
+    println!("{}EXIT CODES:{}", c_yellow(false), c_reset(false));
+    println!(
+        "    0 success, 1 check found changes, 2 bad arguments or config, 3 read/write failure\n"
+    );
     println!("{}EXAMPLES:{}", c_yellow(false), c_reset(false));
     println!("    mto src/main.rs");
     println!("    mto -R --check");
@@ -352,13 +348,13 @@ fn print_man_page() {
     let mut in_code_block = false;
     let mut lang = String::new();
     for line in MAN_PAGE.lines() {
-        if line.starts_with("```") {
+        if let Some(fence_lang) = line.strip_prefix("```") {
             if in_code_block {
                 println!("\x1b[90m```\x1b[0m");
                 in_code_block = false;
             } else {
                 in_code_block = true;
-                lang = line[3..].trim().to_string();
+                lang = fence_lang.trim().to_string();
                 println!("\x1b[90m{}\x1b[0m", line);
             }
             continue;
@@ -424,4 +420,71 @@ fn print_man_page() {
             println!("{}", out);
         }
     }
+}
+
+fn report_error(error: &MtoError) -> i32 {
+    eprintln!("{}Error: {}{}", c_red(), error, c_reset(true));
+    error.exit_code()
+}
+
+fn run_format(target_path: PathBuf, config_path: Option<PathBuf>, opts: &RunOptions) -> i32 {
+    let config = match resolve_config_path(config_path, Some(&target_path)) {
+        Some(path) => {
+            if opts.debug {
+                eprintln!(
+                    "{}Using configuration:{} {}",
+                    c_cyan(),
+                    c_reset(true),
+                    path.display()
+                );
+            }
+            match parse_toml_config(&path) {
+                Ok(config) => config,
+                Err(e) => return report_error(&e),
+            }
+        }
+        None => LayoutConfig::default(),
+    };
+    if !target_path.exists() {
+        return report_error(&MtoError::Usage(format!(
+            "target path '{}' does not exist",
+            target_path.display()
+        )));
+    }
+    let outcomes = if target_path.is_file() {
+        vec![process_file(&target_path, &config, opts)]
+    } else {
+        walk_directory(&target_path, &config, opts)
+    };
+    let changed = outcomes.iter().filter(|o| **o == Outcome::Changed).count();
+    let skipped = outcomes.iter().filter(|o| **o == Outcome::Skipped).count();
+    let failed = outcomes.iter().filter(|o| **o == Outcome::Failed).count();
+    if skipped > 0 {
+        eprintln!(
+            "{}{} file(s) skipped because they could not be split safely.{}",
+            c_yellow(true),
+            skipped,
+            c_reset(true)
+        );
+    }
+    if failed > 0 {
+        return 3;
+    }
+    if opts.check {
+        if changed > 0 {
+            eprintln!(
+                "{}{} file(s) would be reformatted.{}",
+                c_red(),
+                changed,
+                c_reset(true)
+            );
+            return 1;
+        }
+        println!(
+            "{}Check passed successfully: no formatting drift detected.{}",
+            c_green(),
+            c_reset(false)
+        );
+    }
+    0
 }

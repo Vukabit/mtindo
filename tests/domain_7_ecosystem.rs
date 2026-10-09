@@ -3,7 +3,7 @@ mod common;
 use std::fs;
 
 use common::TestEnvironment;
-use mtindo::{resolve_config_path, walk_directory, LayoutConfig};
+use mtindo::{LayoutConfig, RunOptions, resolve_config_path, walk_directory};
 
 #[test]
 fn test_config_resolution_hierarchy() {
@@ -44,7 +44,7 @@ fn test_directory_exclusion_matrix() {
     fs::write(&src_file, hostile_content).unwrap();
 
     let config = LayoutConfig::default();
-    walk_directory(env.dir.path(), &config, false, false, false);
+    walk_directory(env.dir.path(), &config, &RunOptions::default());
 
     let target_content = fs::read_to_string(&target_file).unwrap();
     assert_eq!(target_content, hostile_content);

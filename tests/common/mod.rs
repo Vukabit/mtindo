@@ -1,10 +1,11 @@
 #![allow(dead_code)]
 
-use assert_cmd::Command;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
-use tempfile::{tempdir, TempDir};
+
+use assert_cmd::Command;
+use tempfile::{TempDir, tempdir};
 
 pub struct TestEnvironment {
     pub dir: TempDir,
@@ -45,11 +46,11 @@ impl TestEnvironment {
     pub fn git_init(&self, sub_dir: &str) {
         let target_path = self.dir.path().join(sub_dir);
         fs::create_dir_all(&target_path).unwrap();
-        
+
         let mut cmd = StdCommand::new("git");
         cmd.arg("init");
         cmd.current_dir(&target_path);
-        
+
         let status = cmd.status().unwrap();
         assert!(status.success());
     }
@@ -57,11 +58,11 @@ impl TestEnvironment {
     pub fn create_symlink(&self, original: &str, link: &str) {
         let original_path = self.dir.path().join(original);
         let link_path = self.dir.path().join(link);
-        
+
         if let Some(parent_dir) = link_path.parent() {
             fs::create_dir_all(parent_dir).unwrap();
         }
-        
+
         std::os::unix::fs::symlink(original_path, link_path).unwrap();
     }
 }

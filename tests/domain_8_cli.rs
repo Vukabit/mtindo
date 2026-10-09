@@ -25,6 +25,31 @@ fn test_cli_check_no_drift() {
 }
 
 #[test]
+fn test_cli_check_reports_every_drifted_file() {
+    let env = TestEnvironment::new();
+    env.write_file("src/one.rs", "fn b() {}\nfn a() {}");
+    env.write_file("src/two.rs", "fn d() {}\nfn c() {}");
+    env.write_file("src/three.rs", "fn e() {}\n");
+
+    let output = env.mto_cmd().arg("--check").arg("src").output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Diff in src/one.rs"), "{}", stdout);
+    assert!(stdout.contains("Diff in src/two.rs"), "{}", stdout);
+    assert!(!stdout.contains("three.rs"), "{}", stdout);
+    assert!(stdout.contains("-fn b() {}"), "{}", stdout);
+    assert!(stdout.contains("+fn b() {}"), "{}", stdout);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("2 file(s) would be reformatted"),
+        "{}",
+        stderr
+    );
+}
+
+#[test]
 fn test_cli_dry_run_contract() {
     let env = TestEnvironment::new();
     let initial_content = "fn b() {}\nfn a() {}";
@@ -52,7 +77,16 @@ fn test_cli_init_success_and_failure() {
 
     let mut cmd2 = env.mto_cmd();
     cmd2.arg("init");
-    cmd2.assert().failure().code(1);
+    cmd2.assert().failure().code(2);
+}
+
+#[test]
+fn test_cli_invalid_config_exits_two() {
+    let env = TestEnvironment::new();
+    env.write_file("mto.toml", "max_width = wide");
+    env.write_file("main.rs", "fn a() {}\n");
+
+    env.mto_cmd().arg("main.rs").assert().failure().code(2);
 }
 
 #[test]
@@ -71,6 +105,18 @@ fn test_cli_restore_contract() {
 }
 
 #[test]
+fn test_cli_skips_file_it_cannot_split() {
+    let env = TestEnvironment::new();
+    let broken = "fn b() {}\nfn a() {\n    if true {\n";
+    env.write_file("main.rs", broken);
+
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Skipped"));
+    assert_eq!(env.read_file("main.rs"), broken);
+}
+
+#[test]
 fn test_cli_stdin_pipeline() {
     let env = TestEnvironment::new();
 
@@ -83,4 +129,24 @@ fn test_cli_stdin_pipeline() {
 
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(stdout, "fn a() {}\n\nfn b() {}\n");
+}
+
+#[test]
+fn test_cli_unchanged_file_is_not_rewritten() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", "fn a() {}\n\nfn b() {}\n");
+
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Formatted:"));
+}
+
+#[test]
+fn test_cli_unknown_argument_exits_two() {
+    let env = TestEnvironment::new();
+    env.mto_cmd()
+        .arg("--no-such-flag")
+        .assert()
+        .failure()
+        .code(2);
 }

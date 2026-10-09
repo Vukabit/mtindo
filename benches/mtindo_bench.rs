@@ -1,5 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use mtindo::{reorganize_file, LayoutConfig};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use mtindo::{LayoutConfig, reorganize_file};
 
 fn bench_reorganize(c: &mut Criterion) {
     let source = generate_monolith();

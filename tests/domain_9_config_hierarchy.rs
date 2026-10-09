@@ -3,13 +3,17 @@ mod common;
 use std::fs;
 
 use common::TestEnvironment;
-use mtindo::{resolve_config_path, walk_directory, LayoutConfig};
+use mtindo::{LayoutConfig, RunOptions, resolve_config_path, walk_directory};
 
 #[test]
 fn test_cargo_workspace_root_inheritance() {
     let env = TestEnvironment::new();
 
-    fs::write(env.dir.path().join("mto.toml"), "max_width = 150\nignore_dirs = [\"custom_exclude\"]").unwrap();
+    fs::write(
+        env.dir.path().join("mto.toml"),
+        "max_width = 150\nignore_dirs = [\"custom_exclude\"]",
+    )
+    .unwrap();
 
     let member_dir = env.create_dir("crates/subcrate");
     let excluded_dir = env.create_dir("crates/subcrate/custom_exclude");
@@ -21,10 +25,12 @@ fn test_cargo_workspace_root_inheritance() {
     let resolved = resolve_config_path(None, Some(&member_dir.join("src/lib.rs")));
     assert_eq!(resolved, Some(env.dir.path().join("mto.toml")));
 
-    let mut config = LayoutConfig::default();
-    config.ignore_dirs = vec!["custom_exclude".to_string()];
+    let config = LayoutConfig {
+        ignore_dirs: vec!["custom_exclude".to_string()],
+        ..LayoutConfig::default()
+    };
 
-    walk_directory(env.dir.path(), &config, false, false, false);
+    walk_directory(env.dir.path(), &config, &RunOptions::default());
 
     let content = fs::read_to_string(&ignored_file).unwrap();
     assert_eq!(content, hostile_content);
@@ -34,7 +40,11 @@ fn test_cargo_workspace_root_inheritance() {
 fn test_deep_hierarchical_config_inheritance() {
     let env = TestEnvironment::new();
 
-    fs::write(env.dir.path().join("mto.toml"), "sort_alphabetically = false\nmax_width = 80").unwrap();
+    fs::write(
+        env.dir.path().join("mto.toml"),
+        "sort_alphabetically = false\nmax_width = 80",
+    )
+    .unwrap();
 
     let level1 = env.create_dir("level1");
     fs::write(level1.join("mto.toml"), "sort_alphabetically = true").unwrap();
@@ -53,7 +63,10 @@ fn test_deep_hierarchical_config_inheritance() {
 #[test]
 fn test_malformed_toml_handling() {
     let env = TestEnvironment::new();
-    env.write_file("mto.toml", "sort_alphabetically = [invalid_syntax_missing_quotes");
+    env.write_file(
+        "mto.toml",
+        "sort_alphabetically = [invalid_syntax_missing_quotes",
+    );
 
     let target_file = env.write_file("main.rs", "fn b() {}\nfn a() {}");
 

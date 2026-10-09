@@ -1,0 +1,21 @@
+macro_rules! fmt_impl {
+    ($name:ident) => {
+        pub fn $name() -> &'static str {
+            stringify!($name)
+        }
+    };
+}
+
+mod debug {
+    fmt_impl!(debug);
+}
+
+mod hex {
+    fmt_impl!(hex);
+}
+
+use std::fmt;
+
+pub fn show(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}{}", hex::hex(), debug::debug())
+}

@@ -1,36 +1,37 @@
 # mtindo
 
-`mtindo` is a dependency-free, structural block reorganizer for Rust source files. Its command is `mto`.
+`mtindo` is a dependency-free layout tool for Rust source files. Its command is `mto`.
 
-While the official `rustfmt` is fantastic at handling internal spacing, indentation, and line wrapping, it doesn't care about the vertical organization of your file. `mtindo` takes over where `rustfmt` leaves off. It physically reorders your source code—moving structs, enums, impls, and functions into a predictable, strictly organized top-down layout.
+`rustfmt` handles spacing, indentation and line wrapping inside items, but it leaves the vertical organization of a file alone. `mto` handles that part: it reorders the top-level items of a file (modules, imports, macros, constants, types with their impls, functions) into a predictable top-down layout. It never changes the inside of an item.
 
 No more scrolling past 800 lines of helper functions just to find the main `struct` definition.
 
 ## Core Features
 
-* **AST-Aware Block Sorting:** This isn't a naive regex script. `mtindo` uses a custom standard-library state machine to accurately track brace depth, escape sequences, block comments, and raw strings (`r#"..."#`).
-* **Hierarchical Configuration:** Drop an `mto.toml` file anywhere in your project. `mtindo` automatically traverses up the directory tree to inherit or override settings, making it perfect for complex Cargo workspaces.
-* **Sticky Impl Grouping:** Automatically anchors `impl Target` and `impl Trait for Target` blocks directly beneath their parent data structures so your logic stays with its data.
-* **Visibility Hierarchy:** Sorts identical item types internally by visibility rank (`pub` -> `pub(super)` -> `pub(crate)` -> private).
-* **Failsafe Backups:** Modifying ASTs is inherently risky. Before a single byte is changed, an exact snapshot of your source file is saved to your system's temporary directory with a millisecond-precision timestamp.
-* **Atomic Writes:** Executes file updates using OS-level atomic renames. Your file is never left in a partially written or corrupted state, even if the power fails mid-write.
-* **Polyrepo & Cycle Protection:** Safely traverses massive codebases while strictly ignoring Unix symlink cycles and intelligently skipping ignored directories.
+* **Structure-Aware Splitting:** A standard-library scanner tracks braces, parentheses, brackets, strings, raw strings (`r#"..."#`), char literals and nested block comments to find exactly where each top-level item starts and ends.
+* **Refuses When Unsure:** If a file cannot be split cleanly (unbalanced delimiters, an unterminated string or comment, mixed line endings), it is left untouched and reported as skipped.
+* **Item Bodies Are Never Touched:** Each item is moved byte-for-byte. Only the order of items and the blank lines between them change. Line endings (LF or CRLF) and a leading byte-order mark are preserved.
+* **Sticky Impl Grouping:** `impl Target` and `impl Trait for Target` blocks stay directly beneath the type they implement.
+* **Visibility Hierarchy:** Items of the same kind are ordered by visibility (`pub` -> `pub(super)` -> `pub(crate)` -> private).
+* **Comments Travel With Their Item:** A comment directly above an item, or at the end of its last line, moves with it.
+* **Order-Sensitive Items Stay Put:** See [What mto never moves](#what-mto-never-moves).
+* **Atomic Writes:** Files are replaced by an OS-level rename of a fully written, synced sibling temp file. Permissions are kept, and a symlinked file stays a symlink.
+* **Backups:** Before a file is changed, an exact copy is saved to the system temporary directory and the undo command is printed.
+* **Safe Directory Walks:** Symlinked directories are skipped unless `--follow-links` is given, and every real path is visited at most once, so symlink cycles cannot cause repeated work.
 
 ## Installation
 
-Because `mtindo` relies entirely on the Rust standard library, building it is incredibly fast. 
-
-Clone this repository, navigate to the root directory, and run:
+`mtindo` relies entirely on the Rust standard library. Clone this repository, navigate to the root directory, and run:
 
 ```bash
 cargo install --path .
 ```
 
-This compiles the tool in highly-optimized release mode and automatically places the resulting binary into Cargo's global binary directory (`~/.cargo/bin`), which should already be in your system's `PATH`.
+This builds the `mto` binary in release mode and places it in Cargo's binary directory (`~/.cargo/bin`), which should already be on your `PATH`.
 
 ## Command Line Interface
 
-You can pass a single file or a whole directory. Directories are traversed recursively, automatically skipping ignored folders defined in your config.
+You can pass a single file or a whole directory. Directories are traversed recursively, skipping the folders listed in `ignore_dirs`.
 
 ```bash
 # Format a single file
@@ -39,44 +40,77 @@ mto src/main.rs
 # Format an entire project
 mto src/
 
-# See what would change without modifying files
+# List the files that would change, without writing
 mto --dry-run src/
+
+# Show a diff of every file that would change, and fail if there are any
+mto --check src/
+
+# Read from stdin, write to stdout
+cat src/main.rs | mto
 ```
 
 ### Options
-* `-c, --config <FILE>`: Specify a custom `.toml` config path.
-* `-d, --dry-run`: Evaluate the target path and output the intended actions without writing to disk.
-* `--check`: Run in validation mode. Exits with code `1` if any files are structurally unformatted (useful for CI pipelines).
-* `-r, --restore <BACKUP> <TARGET>`: Atomically replace the target file with a specified backup payload.
-* `--man`: Print the embedded manual directly to stdout.
+* `-c, --config <FILE>`: Use a specific `.toml` config file.
+* `-d, --dry-run`: List the files that would change without writing to disk.
+* `--check`: Print a diff for every file that would change, and exit with code `1` if there are any (useful in CI).
+* `-R, --recursive`: Format every `.rs` file under the current directory.
+* `--follow-links`: Also follow symlinked files and directories.
+* `-r, --restore <BACKUP> <TARGET>`: Atomically replace the target file with a backup.
+* `--man`: Print the embedded manual.
 * `-h, --help`: Print the short help menu.
+
+### Exit Codes
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | `--check` found files that would change |
+| 2 | Bad arguments or configuration |
+| 3 | A file could not be read or written |
+
+## What mto never moves
+
+Some items depend on their position in the file. `mto` keeps them in place:
+
+* **The file header:** a shebang line, inner doc comments (`//!`, `/*! */`), inner attributes (`#![...]`), and a leading comment block separated from the first item by a blank line (such as a license header) always stay first.
+* **`macro_rules!` definitions** keep their original order relative to each other, and never end up below an item that originally came after them, since a macro is only visible to code that follows it. When the configured order would break that, macros are placed first.
+* **A file that defines the same macro name twice** is skipped, because there the order of definitions changes behavior.
+* **`#[macro_use]` modules** move ahead of the other modules, in their original order, so every module that used their macros still can.
+* **`extern crate` declarations and item-position macro calls** (`thread_local! { .. }`, `include!(..)`, your own `make_items!();`) stay at their original position in the file.
+* **A `#[cfg(test)]` module** always goes last.
+* **Anything between `// mto: off` and `// mto: on`** is left exactly as written, in its original position.
 
 ## Configuration (`mto.toml`)
 
-You control the sorting logic via an `mto.toml` file. If the file is missing, `mtindo` falls back to its internal defaults. The parser is strict—it will halt and report an error if it encounters invalid syntax, ensuring a bad config doesn't silently corrupt your formatting.
+`mto` uses the first configuration file it finds, in this order:
+
+1. The path passed via `--config`.
+2. `mto.toml` or `.mto.toml` in the target's directory, then each parent directory in turn.
+3. `~/.config/mtindo/mto.toml` or `~/.config/mtindo/.mto.toml`.
+4. `~/mto.toml` or `~/.mto.toml`.
+5. The internal defaults below.
+
+Only one file is used; settings are not merged across files. The parser is strict: an invalid value stops the run with exit code `2` instead of silently falling back.
 
 Here is the default configuration:
 
 ```toml
-# General spacing and line constraints
-max_width = 100
-tab_width = 4
+# Blank lines between items.
 blank_lines_between_blocks = 1
 
-# Enable or disable alphabetical sorting within matching categories and visibilities.
+# Sort items of the same kind and visibility alphabetically.
 sort_alphabetically = true
 
-# Keep `impl` blocks directly below the struct/enum they implement.
+# Keep `impl` blocks directly below the struct/enum/trait they implement.
 group_impls = true
 
-# Reorder use declarations alphabetically
+# Sort use declarations alphabetically.
 sort_imports = true
 
-# Consolidate imports with the same root path
+# Separate std, external and local (crate/self/super) imports with a blank line.
 import_grouping = true
 
-# Define the absolute top-down ordering of your source files.
-# Items will be grouped exactly in this order.
+# The top-down order of item kinds. Items of an unlisted kind go last.
 type_order = [
     "ModDecl",
     "UseDecl",
@@ -87,10 +121,11 @@ type_order = [
     "EnumDecl",
     "StructDecl",
     "ImplBlock",
-    "FnDecl"
+    "FnDecl",
+    "Unknown"
 ]
 
-# Directories that should be strictly ignored during recursive traversal.
+# Directories that are skipped during recursive traversal.
 ignore_dirs = [
     ".git",
     "target",
@@ -101,19 +136,33 @@ ignore_dirs = [
 ]
 ```
 
-*Note: Any tokens the lexer doesn't explicitly match against your `type_order` are safely bubbled to the bottom of the file to prevent data loss.*
+`max_width` and `tab_width` are accepted for forward compatibility but currently have no effect; they are reserved for the formatter.
 
-## Safety and Disaster Recovery
+Type aliases, `extern` blocks and other items without their own kind are classified as `Unknown`.
 
-`mtindo` is designed to make permanent data loss impossible.
+## Safety and Recovery
 
-1. **Snapshot:** Before formatting begins, a complete copy of `main.rs` is saved to `/tmp/mtindo_backups/1700000000000_src_main.rs.bak`.
-2. **Atomic Write:** The newly sorted code is written to a temporary file alongside the target. Once fully written, it is atomically swapped into place.
-3. **Verification:** `mtindo` triggers `rustfmt` to clean up the interior spacing. If `rustfmt` throws a syntax error (indicating the structural layout broke the code), `mtindo` automatically reverts the file back to the snapshot.
+1. **Refusal:** If a file cannot be split into items with certainty, it is skipped and left byte-for-byte unchanged.
+2. **Snapshot:** Before a file is changed, a complete copy is saved to `/tmp/mtindo_backups/` (or your OS equivalent).
+3. **Atomic Write:** The new content is written to a synced temp file next to the target, then renamed over it in one step.
 
-If you ever need to manually revert a file because you didn't like the resulting layout, the CLI will print the exact undo command to your terminal after a successful run:
+Unchanged files are never rewritten. To revert a file, run the undo command printed after it was formatted:
 
 ```bash
-# Example Undo Command
-mto --restore /tmp/mtindo_backups/1700000000000_src_main.rs.bak src/main.rs
+mto --restore /tmp/mtindo_backups/1700000000000_123_0_src_main.rs.bak src/main.rs
+```
+
+## Where it's headed
+
+`mto` is growing into a complete Rust formatter: output identical to `rustfmt` by default, plus per-team control over file layout, still with no dependencies and nothing else to install. Until then, run `mto` together with `rustfmt`; running `rustfmt` after `mto` is expected to leave the layout alone.
+
+## Development
+
+`scripts/run_tests.py` runs every gate and test suite and reports each as passed, failed or skipped (with the reason):
+
+```bash
+scripts/run_tests.py            # gates (clippy, no runtime dependencies, rustfmt, mto on itself) and all tests
+scripts/run_tests.py --full     # also the 15 real-crate check (network), fuzzing (nightly) and benchmarks
+scripts/run_tests.py --list     # show the plan without running it
+scripts/run_tests.py --bless    # regenerate tests/fixtures expected outputs; review the diff before committing
 ```

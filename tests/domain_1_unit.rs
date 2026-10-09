@@ -1,5 +1,5 @@
 use mtindo::{
-    apply_config_value, classify_import, parse_block_metadata, ItemKind, LayoutConfig, Visibility,
+    ItemKind, LayoutConfig, Visibility, apply_config_value, classify_import, parse_block_metadata,
 };
 
 #[test]
@@ -7,13 +7,13 @@ fn test_config_booleans() {
     let mut config = LayoutConfig::default();
 
     apply_config_value(&mut config, "sort_alphabetically", "false");
-    assert_eq!(config.sort_alphabetically, false);
+    assert!(!config.sort_alphabetically);
     apply_config_value(&mut config, "group_impls", "\"false\"");
-    assert_eq!(config.group_impls, false);
+    assert!(!config.group_impls);
     apply_config_value(&mut config, "sort_imports", "'false'");
-    assert_eq!(config.sort_imports, false);
+    assert!(!config.sort_imports);
     apply_config_value(&mut config, "import_grouping", " true ");
-    assert_eq!(config.import_grouping, true);
+    assert!(config.import_grouping);
 }
 
 #[test]
@@ -45,25 +45,49 @@ fn test_config_type_order_arrays() {
 
 #[test]
 fn test_import_classification() {
-    assert_eq!(classify_import("use std::collections::HashMap;"), mtindo::ImportGroup::Std);
-    assert_eq!(classify_import("pub use core::fmt;"), mtindo::ImportGroup::Std);
-    assert_eq!(classify_import("use alloc::vec::Vec;"), mtindo::ImportGroup::Std);
+    assert_eq!(
+        classify_import("use std::collections::HashMap;"),
+        mtindo::ImportGroup::Std
+    );
+    assert_eq!(
+        classify_import("pub use core::fmt;"),
+        mtindo::ImportGroup::Std
+    );
+    assert_eq!(
+        classify_import("use alloc::vec::Vec;"),
+        mtindo::ImportGroup::Std
+    );
 
-    assert_eq!(classify_import("use crate::internal::module;"), mtindo::ImportGroup::Local);
-    assert_eq!(classify_import("pub(crate) use super::parent;"), mtindo::ImportGroup::Local);
-    assert_eq!(classify_import("use self::local;"), mtindo::ImportGroup::Local);
+    assert_eq!(
+        classify_import("use crate::internal::module;"),
+        mtindo::ImportGroup::Local
+    );
+    assert_eq!(
+        classify_import("pub(crate) use super::parent;"),
+        mtindo::ImportGroup::Local
+    );
+    assert_eq!(
+        classify_import("use self::local;"),
+        mtindo::ImportGroup::Local
+    );
 
-    assert_eq!(classify_import("use serde::Deserialize;"), mtindo::ImportGroup::External);
-    assert_eq!(classify_import("pub use tokio::sync::Mutex;"), mtindo::ImportGroup::External);
+    assert_eq!(
+        classify_import("use serde::Deserialize;"),
+        mtindo::ImportGroup::External
+    );
+    assert_eq!(
+        classify_import("pub use tokio::sync::Mutex;"),
+        mtindo::ImportGroup::External
+    );
 }
 
 #[test]
-fn test_item_kind_from_str() {
-    assert_eq!(ItemKind::from_str("ModDecl"), ItemKind::ModDecl);
-    assert_eq!(ItemKind::from_str("\"UseDecl\""), ItemKind::UseDecl);
-    assert_eq!(ItemKind::from_str("'MacroDecl'"), ItemKind::MacroDecl);
-    assert_eq!(ItemKind::from_str("  ConstDecl  "), ItemKind::ConstDecl);
-    assert_eq!(ItemKind::from_str("InvalidGarbage"), ItemKind::Unknown);
+fn test_item_kind_from_name() {
+    assert_eq!(ItemKind::from_name("ModDecl"), ItemKind::ModDecl);
+    assert_eq!(ItemKind::from_name("\"UseDecl\""), ItemKind::UseDecl);
+    assert_eq!(ItemKind::from_name("'MacroDecl'"), ItemKind::MacroDecl);
+    assert_eq!(ItemKind::from_name("  ConstDecl  "), ItemKind::ConstDecl);
+    assert_eq!(ItemKind::from_name("InvalidGarbage"), ItemKind::Unknown);
 }
 
 #[test]

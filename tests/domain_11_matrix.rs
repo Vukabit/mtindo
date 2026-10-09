@@ -1,35 +1,4 @@
-use mtindo::{reorganize_file, LayoutConfig, apply_config_value};
-
-const CORPUS_STICKY_IMPLS: &str = r#"
-fn global_helper_b() {}
-fn global_helper_a() {}
-
-pub struct Alpha {
-    pub value: u32,
-}
-
-impl Alpha {
-    pub fn new() -> Self {
-        Alpha { value: 0 }
-    }
-}
-
-pub struct Beta<T> {
-    pub inner: T,
-}
-
-impl<T: Clone> Clone for Beta<T> {
-    fn clone(&self) -> Self {
-        Beta { inner: self.inner.clone() }
-    }
-}
-
-impl Alpha {
-    pub fn reset(&mut self) {
-        self.value = 0;
-    }
-}
-"#;
+use mtindo::{LayoutConfig, apply_config_value, reorganize_file};
 
 const CORPUS_ATTRIBUTES_AND_MACROS: &str = r#"
 use std::collections::HashMap;
@@ -96,6 +65,37 @@ pub fn resolve_public() {}
 fn resolve_private() {}
 "#;
 
+const CORPUS_STICKY_IMPLS: &str = r#"
+fn global_helper_b() {}
+fn global_helper_a() {}
+
+pub struct Alpha {
+    pub value: u32,
+}
+
+impl Alpha {
+    pub fn new() -> Self {
+        Alpha { value: 0 }
+    }
+}
+
+pub struct Beta<T> {
+    pub inner: T,
+}
+
+impl<T: Clone> Clone for Beta<T> {
+    fn clone(&self) -> Self {
+        Beta { inner: self.inner.clone() }
+    }
+}
+
+impl Alpha {
+    pub fn reset(&mut self) {
+        self.value = 0;
+    }
+}
+"#;
+
 fn generate_configuration_matrix() -> Vec<LayoutConfig> {
     let mut permutations = Vec::new();
 
@@ -115,14 +115,42 @@ fn generate_configuration_matrix() -> Vec<LayoutConfig> {
                         for &max_width in &max_width_options {
                             for &tab_width in &tab_width_options {
                                 let mut config = LayoutConfig::default();
-                                
-                                apply_config_value(&mut config, "sort_alphabetically", &sort_alpha.to_string());
-                                apply_config_value(&mut config, "group_impls", &group_impls.to_string());
-                                apply_config_value(&mut config, "sort_imports", &sort_imports.to_string());
-                                apply_config_value(&mut config, "import_grouping", &import_grouping.to_string());
-                                apply_config_value(&mut config, "blank_lines_between_blocks", &blank_lines.to_string());
-                                apply_config_value(&mut config, "max_width", &max_width.to_string());
-                                apply_config_value(&mut config, "tab_width", &tab_width.to_string());
+
+                                apply_config_value(
+                                    &mut config,
+                                    "sort_alphabetically",
+                                    &sort_alpha.to_string(),
+                                );
+                                apply_config_value(
+                                    &mut config,
+                                    "group_impls",
+                                    &group_impls.to_string(),
+                                );
+                                apply_config_value(
+                                    &mut config,
+                                    "sort_imports",
+                                    &sort_imports.to_string(),
+                                );
+                                apply_config_value(
+                                    &mut config,
+                                    "import_grouping",
+                                    &import_grouping.to_string(),
+                                );
+                                apply_config_value(
+                                    &mut config,
+                                    "blank_lines_between_blocks",
+                                    &blank_lines.to_string(),
+                                );
+                                apply_config_value(
+                                    &mut config,
+                                    "max_width",
+                                    &max_width.to_string(),
+                                );
+                                apply_config_value(
+                                    &mut config,
+                                    "tab_width",
+                                    &tab_width.to_string(),
+                                );
 
                                 permutations.push(config);
                             }
@@ -141,7 +169,10 @@ fn test_corpus_matrix_permutations() {
     let corpus = [
         ("STICKY_IMPLS", CORPUS_STICKY_IMPLS),
         ("ATTRIBUTES_AND_MACROS", CORPUS_ATTRIBUTES_AND_MACROS),
-        ("DELIMITER_AND_RAW_STRINGS", CORPUS_DELIMITER_AND_RAW_STRINGS),
+        (
+            "DELIMITER_AND_RAW_STRINGS",
+            CORPUS_DELIMITER_AND_RAW_STRINGS,
+        ),
         ("MIXED_HIERARCHIES", CORPUS_MIXED_HIERARCHIES),
     ];
 
@@ -149,11 +180,7 @@ fn test_corpus_matrix_permutations() {
 
     for (name, snippet) in corpus {
         for (idx, config) in configs.iter().enumerate() {
-            let first_pass = reorganize_file(
-                snippet.to_string(),
-                config,
-                false,
-            );
+            let first_pass = reorganize_file(snippet.to_string(), config, false);
 
             assert!(
                 !first_pass.is_empty(),
@@ -162,18 +189,12 @@ fn test_corpus_matrix_permutations() {
                 idx
             );
 
-            let second_pass = reorganize_file(
-                first_pass.clone(),
-                config,
-                false,
-            );
+            let second_pass = reorganize_file(first_pass.clone(), config, false);
 
             assert_eq!(
-                first_pass,
-                second_pass,
+                first_pass, second_pass,
                 "Idempotency violation in corpus '{}' under permutation index {}",
-                name,
-                idx
+                name, idx
             );
         }
     }

@@ -4,8 +4,6 @@ group_impls = true
 sort_imports = true
 import_grouping = true
 blank_lines_between_blocks = 1
-max_width = 100
-tab_width = 4
 type_order = [
   "ModDecl",
   "UseDecl",
@@ -26,5 +24,6 @@ ignore_dirs = [
     "node_modules",
     "vendor",
     "dist",
-    ".venv"
+    ".venv",
+    "fixtures"
 ]

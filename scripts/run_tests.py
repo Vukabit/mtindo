@@ -1,440 +1,531 @@
 #!/usr/bin/env python3
+"""Runs mtindo's gates and test suites, and reports each one as passed, failed or skipped.
 
-import sys
-import time
-import subprocess
-import threading
+Usage:
+    scripts/run_tests.py                     gates + tests (the default)
+    scripts/run_tests.py --full              everything: gates, tests, heavy, fuzz, bench
+    scripts/run_tests.py --group heavy       only the given group (repeatable)
+    scripts/run_tests.py --target snapshots  only one task, by id (see --list)
+    scripts/run_tests.py --bless             regenerate regression fixtures, then show what changed
+    scripts/run_tests.py --list              show the plan without running anything
+
+Exit codes: 0 when nothing failed (skips do not fail a run), 1 when anything failed,
+2 for bad arguments, 130 when interrupted.
+"""
+
 import argparse
+import os
 import pathlib
+import shutil
+import subprocess
+import sys
+import threading
+import time
 
 project_root = pathlib.Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(project_root))
+os.chdir(project_root)
 
 from scripts.common.logger import FileLogger
+
+IS_TTY = sys.stdout.isatty()
 
 COLOR_RED = "\033[91m"
 COLOR_GREEN = "\033[92m"
 COLOR_YELLOW = "\033[93m"
 COLOR_CYAN = "\033[96m"
+COLOR_DIM = "\033[90m"
 COLOR_RESET = "\033[0m"
 COLOR_BOLD = "\033[1m"
 
-if sys.stdout.isatty() == False:
+if IS_TTY == False:
     COLOR_RED = ""
     COLOR_GREEN = ""
     COLOR_YELLOW = ""
     COLOR_CYAN = ""
+    COLOR_DIM = ""
     COLOR_RESET = ""
     COLOR_BOLD = ""
 
+GROUPS = ["gates", "tests", "heavy", "fuzz", "bench"]
+DEFAULT_GROUPS = ["gates", "tests"]
+
+# Human titles for the test files, in run order. A test file missing from this table
+# still runs (under its file name) and triggers a warning, so nothing is skipped silently.
+TEST_REGISTRY = [
+    ("lib", "Library and binary unit tests", "tests"),
+    ("domain_1_unit", "Unit: config values, imports, item metadata", "tests"),
+    ("domain_2_golden", "Golden layouts", "tests"),
+    ("snapshots", "Regression fixtures", "tests"),
+    ("integration", "Block extraction", "tests"),
+    ("domain_3_proptest", "Property tests: no panics, no lost lines, idempotence", "tests"),
+    ("domain_6_io", "File I/O: backups, atomic writes, permissions, symlinks", "tests"),
+    ("domain_7_ecosystem", "Config lookup and ignored directories", "tests"),
+    ("domain_8_cli", "Command line: check, dry run, exit codes, stdin", "tests"),
+    ("domain_9_config_hierarchy", "Config hierarchy", "tests"),
+    ("domain_10_polyrepo", "Multiple repos, rollback, symlink cycles", "tests"),
+    ("domain_11_matrix", "Every settings combination is idempotent", "tests"),
+    ("domain_12_scale", "500-file repository still compiles after formatting", "tests"),
+    ("domain_13_rw", "15 real crates still compile after formatting (network)", "heavy"),
+]
+
+FAILURE_TAIL_LINES = 60
+STATE_FILE = pathlib.Path("scripts") / "logs" / ".last_success"
+
 logger = FileLogger("run_tests")
+current_process = None
+tool_cache = {}
+
+
+class Task:
+    def __init__(self, task_id, title, group, command, env=None, requires=None):
+        self.task_id = task_id
+        self.title = title
+        self.group = group
+        self.command = command
+        self.env = env
+        self.requires = requires
+        self.status = "PENDING"
+        self.seconds = 0.0
+        self.note = ""
+        self.output = ""
+
 
 class Spinner:
     def __init__(self, message):
         self.message = message
         self.is_running = False
         self.thread = None
-        self.start_time = 0.0
-        self.frames = []
-        self.frames.append("⠋")
-        self.frames.append("⠙")
-        self.frames.append("⠹")
-        self.frames.append("⠸")
-        self.frames.append("⠼")
-        self.frames.append("⠴")
-        self.frames.append("⠦")
-        self.frames.append("⠧")
-        self.frames.append("⠇")
-        self.frames.append("⠏")
+        self.frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     def spin(self):
         idx = 0
         while self.is_running == True:
-            frame = self.frames[idx]
-            sys.stdout.write("\r\033[K")
-            sys.stdout.write(COLOR_CYAN)
-            sys.stdout.write(frame)
-            sys.stdout.write(COLOR_RESET)
-            sys.stdout.write(" ")
-            sys.stdout.write(self.message)
+            sys.stdout.write("\r\033[K" + COLOR_CYAN + self.frames[idx] + COLOR_RESET + " " + self.message)
             sys.stdout.flush()
-            
-            idx = idx + 1
-            if idx >= len(self.frames):
-                idx = 0
+            idx = (idx + 1) % len(self.frames)
             time.sleep(0.1)
 
     def start(self):
+        if IS_TTY == False:
+            return
         self.is_running = True
-        self.start_time = time.time()
-        self.thread = threading.Thread(target=self.spin)
+        self.thread = threading.Thread(target=self.spin, daemon=True)
         self.thread.start()
 
-    def stop(self, success, details):
+    def stop(self):
+        if self.thread == None:
+            return
         self.is_running = False
         self.thread.join()
-        elapsed = time.time() - self.start_time
-        
         sys.stdout.write("\r\033[K")
-        if success == True:
-            sys.stdout.write(COLOR_GREEN)
-            sys.stdout.write("✓")
-            
-            log_msg = "Task Passed: " + self.message
-            logger.info(log_msg)
-        else:
-            sys.stdout.write(COLOR_RED)
-            sys.stdout.write("✗")
-            
-            log_msg = "Task Failed: " + self.message
-            logger.error(log_msg)
-        
-        sys.stdout.write(COLOR_RESET)
-        sys.stdout.write(" ")
-        sys.stdout.write(self.message)
-        sys.stdout.write(" (")
-        sys.stdout.write(str(round(elapsed, 2)))
-        sys.stdout.write("s)\n")
-        
-        if success == False:
-            if details != "":
-                sys.stdout.write(details)
-                sys.stdout.write("\n")
-                
-                logger.error("Failure Details:\n" + details)
-        
         sys.stdout.flush()
 
-def run_command(name, command_args):
-    command_string = " ".join(command_args)
-    log_msg = "Executing: " + command_string
-    logger.info(log_msg)
-    
-    spinner = Spinner(name)
-    spinner.start()
-    
-    process = subprocess.Popen(
-        command_args,
+
+def run_process(command, env_extra):
+    global current_process
+    env = dict(os.environ)
+    if env_extra != None:
+        env.update(env_extra)
+    current_process = subprocess.Popen(
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True
+        text=True,
+        env=env,
     )
-    
-    output_data = process.communicate()[0]
-    exit_code = process.returncode
-    
-    debug_msg = "Raw Output for " + name + ":\n" + output_data
-    logger.debug(debug_msg)
-    
-    if exit_code == 0:
-        spinner.stop(True, "")
-        return True
-    else:
-        spinner.stop(False, output_data)
-        return False
+    output = current_process.communicate()[0]
+    code = current_process.returncode
+    current_process = None
+    return code, output
 
-class FuzzWorker(threading.Thread):
-    def __init__(self, target_name, time_limit):
-        super().__init__()
-        self.target_name = target_name
-        self.time_limit = time_limit
-        self.success = False
-        self.output = ""
 
-    def run(self):
-        command = []
-        command.append("cargo")
-        command.append("+nightly")
-        command.append("fuzz")
-        command.append("run")
-        command.append(self.target_name)
-        command.append("--")
-        time_arg = "-max_total_time=" + str(self.time_limit)
-        command.append(time_arg)
-        
-        command_string = " ".join(command)
-        log_msg = "Fuzzing Thread Started: " + command_string
-        logger.info(log_msg)
-        
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
-        self.output = process.communicate()[0]
-        
-        debug_msg = "Fuzz Output for " + self.target_name + ":\n" + self.output
-        logger.debug(debug_msg)
-        
-        if process.returncode == 0:
-            self.success = True
-        else:
-            self.success = False
+def tool_available(tool):
+    if tool in tool_cache:
+        return tool_cache[tool]
+    available = False
+    if tool == "git":
+        available = shutil.which("git") != None
+    elif tool == "rustfmt":
+        available = run_process(["cargo", "fmt", "--version"], None)[0] == 0
+    elif tool == "clippy":
+        available = run_process(["cargo", "clippy", "--version"], None)[0] == 0
+    elif tool == "cargo-fuzz":
+        available = run_process(["cargo", "+nightly", "fuzz", "--version"], None)[0] == 0
+    elif tool == "rustc":
+        available = shutil.which("rustc") != None
+    tool_cache[tool] = available
+    logger.info("Tool check: " + tool + " available=" + str(available))
+    return available
 
-def get_fuzz_targets():
-    fuzz_targets = []
-    fuzz_dir = pathlib.Path("fuzz") / "fuzz_targets"
-    
-    if fuzz_dir.exists() == True:
-        for file_path in fuzz_dir.iterdir():
-            if file_path.suffix == ".rs":
-                target_name = file_path.stem
-                fuzz_targets.append(target_name)
-                
-    return fuzz_targets
 
-def discover_standard_tasks():
+def check_no_runtime_dependencies():
+    """Fails if Cargo.toml declares any runtime dependency (dev-dependencies are allowed)."""
+    lines = pathlib.Path("Cargo.toml").read_text(encoding="utf-8").splitlines()
+    section = ""
+    offending = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            section = stripped
+            if section.startswith("[dependencies.") or section.startswith("[build-dependencies."):
+                offending.append(section)
+            continue
+        if stripped == "" or stripped.startswith("#"):
+            continue
+        is_runtime = section == "[dependencies]" or section == "[build-dependencies]"
+        if section.startswith("[target.") and section.endswith(".dependencies]"):
+            is_runtime = True
+        if is_runtime == True:
+            offending.append(section + " " + stripped)
+    if len(offending) == 0:
+        return 0, "[dependencies] is empty."
+    return 1, "Runtime dependencies are not allowed (D4):\n  " + "\n  ".join(offending)
+
+
+def build_tasks(args):
     tasks = []
+
+    tasks.append(Task("clippy", "Clippy, warnings are errors", "gates",
+                      ["cargo", "clippy", "--all-targets", "--quiet", "--", "-D", "warnings"],
+                      requires=["clippy"]))
+    tasks.append(Task("deps", "No runtime dependencies", "gates", check_no_runtime_dependencies))
+    tasks.append(Task("rustfmt", "rustfmt agrees with the repo layout", "gates",
+                      ["cargo", "fmt", "--check"], requires=["rustfmt"]))
+    tasks.append(Task("self-format", "mto formats itself", "gates",
+                      ["cargo", "run", "--quiet", "--bin", "mto", "--", "--check", "."]))
+    if pathlib.Path("fuzz").exists() == True:
+        tasks.append(Task("fuzz-build", "Fuzz crate compiles", "gates",
+                          ["cargo", "check", "--quiet", "--manifest-path", "fuzz/Cargo.toml"]))
+
+    tasks.append(Task("build", "Build test binaries", "tests",
+                      ["cargo", "test", "--no-run", "--quiet"]))
+
+    test_files = []
     tests_dir = pathlib.Path("tests")
-    
     if tests_dir.exists() == True:
-        file_list = []
-        for file_path in tests_dir.iterdir():
+        for file_path in sorted(tests_dir.iterdir()):
             if file_path.suffix == ".rs":
-                file_list.append(file_path)
-                
-        def sort_key(path_obj):
-            name = path_obj.stem
-            if name.startswith("domain_"):
-                parts = name.split("_")
-                if len(parts) > 1:
-                    if parts[1].isdigit() == True:
-                        return int(parts[1])
-            return 999
-            
-        file_list.sort(key=sort_key)
-        
-        for file_path in file_list:
-            target_name = file_path.stem
-            if target_name.startswith("domain_"):
-                name_parts = target_name.split("_")
-                
-                domain_num = name_parts[1]
-                domain_words = name_parts[2:]
-                domain_desc = " ".join(domain_words).title()
-                
-                task_title = "Domain " + domain_num + ": " + domain_desc
-                command_args = ["cargo", "test", "--test", target_name, "--quiet"]
-                
-                tasks.append((task_title, target_name, command_args))
-                
-    benches_dir = pathlib.Path("benches")
-    if benches_dir.exists() == True:
-        bench_command = ["cargo", "bench", "--quiet"]
-        tasks.append(("Benchmarks", "mtindo_bench", bench_command))
-        
+                test_files.append(file_path.stem)
+
+    registered = []
+    for entry in TEST_REGISTRY:
+        task_id = entry[0]
+        registered.append(task_id)
+        if task_id == "lib":
+            command = ["cargo", "test", "--lib", "--bins", "--quiet"]
+        elif task_id in test_files:
+            command = ["cargo", "test", "--test", task_id, "--quiet"]
+        else:
+            continue
+        env = None
+        requires = None
+        if task_id == "snapshots":
+            requires = ["rustc"]
+            if args.bless == True:
+                env = {"MTINDO_BLESS": "1"}
+        if task_id == "domain_13_rw":
+            env = {"MTINDO_HEAVY_TESTS": "1"}
+            requires = ["git"]
+        tasks.append(Task(task_id, entry[1], entry[2], command, env=env, requires=requires))
+
+    for task_id in test_files:
+        if task_id not in registered:
+            warning = "tests/" + task_id + ".rs is not in TEST_REGISTRY; running it under its file name."
+            sys.stdout.write(COLOR_YELLOW + "warning: " + COLOR_RESET + warning + "\n")
+            logger.info("Warning: " + warning)
+            tasks.append(Task(task_id, task_id, "tests", ["cargo", "test", "--test", task_id, "--quiet"]))
+
+    fuzz_dir = pathlib.Path("fuzz") / "fuzz_targets"
+    if fuzz_dir.exists() == True:
+        for file_path in sorted(fuzz_dir.iterdir()):
+            if file_path.suffix == ".rs":
+                target = file_path.stem
+                command = ["cargo", "+nightly", "fuzz", "run", target, "--", "-max_total_time=" + str(args.fuzz_time)]
+                tasks.append(Task(target, "Fuzz " + target + " for " + str(args.fuzz_time) + "s", "fuzz",
+                                  command, requires=["cargo-fuzz"]))
+
+    if pathlib.Path("benches").exists() == True:
+        tasks.append(Task("bench", "Benchmarks", "bench", ["cargo", "bench", "--quiet"]))
+
     return tasks
 
-def get_current_git_hash():
-    process = subprocess.Popen(
-        ["git", "rev-parse", "HEAD"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-    output = process.communicate()[0]
-    
-    if process.returncode == 0:
-        return output.strip()
-    return ""
 
-def save_success_state(commit_hash):
-    state_file = pathlib.Path("scripts") / "logs" / ".last_success"
-    file_handle = open(state_file, "w", encoding="utf-8")
-    file_handle.write(commit_hash)
-    file_handle.close()
+def select_tasks(tasks, args):
+    groups = DEFAULT_GROUPS
+    explicit = False
+    if args.full == True:
+        groups = GROUPS
+    elif args.group != None and len(args.group) > 0:
+        groups = args.group
+        explicit = True
 
-def get_last_success_state():
-    state_file = pathlib.Path("scripts") / "logs" / ".last_success"
-    if state_file.exists() == True:
-        file_handle = open(state_file, "r", encoding="utf-8")
-        content = file_handle.read().strip()
-        file_handle.close()
-        return content
-    return ""
+    for task in tasks:
+        if args.target != "":
+            if task.task_id == args.target:
+                task.status = "PENDING"
+            else:
+                task.status = "EXCLUDED"
+        elif task.group in groups:
+            task.status = "PENDING"
+        elif explicit == True or task.group in DEFAULT_GROUPS:
+            task.status = "EXCLUDED"
+        else:
+            task.status = "SKIP"
+            task.note = "use --group " + task.group + " or --full"
+    return groups
 
-def print_failure_diff(last_good_hash):
-    if last_good_hash == "":
-        return
-        
-    sys.stdout.write("\n")
-    sys.stdout.write("========================================\n")
-    sys.stdout.write(COLOR_YELLOW)
-    sys.stdout.write("STATE DRIFT DETECTED\n")
-    sys.stdout.write(COLOR_RESET)
-    
-    hash_short = last_good_hash[:7]
-    sys.stdout.write("Generating diff against last known-good state (")
-    sys.stdout.write(hash_short)
-    sys.stdout.write(")...\n")
-    sys.stdout.write("========================================\n\n")
-    
-    process = subprocess.Popen(
-        ["git", "diff", last_good_hash, "HEAD"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-    output = process.communicate()[0]
-    
-    if output.strip() == "":
-        sys.stdout.write("No uncommitted changes found. The failure is likely caused by environment state.\n")
+
+def run_task(task):
+    if task.requires != None:
+        for tool in task.requires:
+            if tool_available(tool) == False:
+                task.status = "SKIP"
+                task.note = tool + " is not available"
+                return
+
+    logger.info("Running [" + task.task_id + "]: " + describe_command(task))
+    spinner = Spinner(task.title)
+    spinner.start()
+    started = time.time()
+    if callable(task.command) == True:
+        code, output = task.command()
     else:
-        sys.stdout.write(output)
-        
-    sys.stdout.write("\n")
-    logger.error("Failure Diff against " + hash_short + ":\n" + output)
+        code, output = run_process(task.command, task.env)
+    task.seconds = time.time() - started
+    spinner.stop()
+
+    task.output = output
+    logger.debug("Output of [" + task.task_id + "]:\n" + output)
+    if code == 0:
+        task.status = "PASS"
+        logger.info("Passed [" + task.task_id + "] in " + format_seconds(task.seconds))
+    else:
+        task.status = "FAIL"
+        task.note = "exit code " + str(code)
+        logger.error("Failed [" + task.task_id + "] with exit code " + str(code))
+
+
+def describe_command(task):
+    if callable(task.command) == True:
+        return "(built-in check)"
+    text = " ".join(task.command)
+    if task.env != None:
+        for key in task.env:
+            text = key + "=" + task.env[key] + " " + text
+    return text
+
+
+def format_seconds(seconds):
+    return str(round(seconds, 2)) + "s"
+
+
+def print_task_line(task):
+    if task.status == "PASS":
+        mark = COLOR_GREEN + "✓" + COLOR_RESET
+    elif task.status == "FAIL":
+        mark = COLOR_RED + "✗" + COLOR_RESET
+    else:
+        mark = COLOR_YELLOW + "-" + COLOR_RESET
+    line = mark + " " + task.title
+    if task.status == "PASS" or task.status == "FAIL":
+        line = line + COLOR_DIM + " (" + format_seconds(task.seconds) + ")" + COLOR_RESET
+    if task.status == "SKIP":
+        line = line + COLOR_DIM + " (skipped: " + task.note + ")" + COLOR_RESET
+    sys.stdout.write(line + "\n")
+
+    if task.status == "FAIL" and task.output.strip() != "":
+        lines = task.output.rstrip().splitlines()
+        if len(lines) > FAILURE_TAIL_LINES:
+            hidden = len(lines) - FAILURE_TAIL_LINES
+            sys.stdout.write(COLOR_DIM + "    ... " + str(hidden) + " earlier lines in scripts/logs/run_tests.log" + COLOR_RESET + "\n")
+            lines = lines[-FAILURE_TAIL_LINES:]
+        for output_line in lines:
+            sys.stdout.write("    " + output_line + "\n")
+    sys.stdout.flush()
+
+
+def git_output(git_args):
+    if tool_available("git") == False:
+        return 1, ""
+    return run_process(["git"] + git_args, None)
+
+
+def current_commit():
+    code, output = git_output(["rev-parse", "HEAD"])
+    if code != 0:
+        return ""
+    return output.strip()
+
+
+def tree_is_dirty():
+    code, output = git_output(["status", "--porcelain"])
+    if code != 0:
+        return True
+    return output.strip() != ""
+
+
+def last_good_commit():
+    if STATE_FILE.exists() == False:
+        return ""
+    return STATE_FILE.read_text(encoding="utf-8").strip()
+
+
+def record_success(commit, dirty):
+    if commit == "":
+        return
+    if dirty == True:
+        logger.info("All tasks passed, but the working tree has uncommitted changes; known-good commit not updated.")
+        return
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(commit + "\n", encoding="utf-8")
+    logger.info("Recorded known-good commit " + commit)
+
+
+def print_changes_since_last_good(commit, dirty):
+    last_good = last_good_commit()
+    if last_good == "":
+        return
+    if last_good == commit and dirty == False:
+        sys.stdout.write("\nThis commit passed before with a clean tree; the failure likely comes from the environment.\n")
+        return
+    code, stat = git_output(["diff", "--stat", last_good])
+    if code != 0:
+        return
+    code_untracked, untracked = git_output(["ls-files", "--others", "--exclude-standard"])
+    sys.stdout.write("\n" + COLOR_YELLOW + "Changes since the last passing commit (" + last_good[:7] + "), including uncommitted work:" + COLOR_RESET + "\n")
+    sys.stdout.write(stat.rstrip() + "\n")
+    if code_untracked == 0 and untracked.strip() != "":
+        count = len(untracked.strip().splitlines())
+        sys.stdout.write("  plus " + str(count) + " untracked file(s)\n")
+    full_code, full_diff = git_output(["diff", last_good])
+    if full_code == 0:
+        logger.error("Full diff against " + last_good[:7] + ":\n" + full_diff)
+    sys.stdout.write(COLOR_DIM + "Full diff in scripts/logs/run_tests.log" + COLOR_RESET + "\n")
+
+
+def print_blessed_changes():
+    code, output = git_output(["status", "--short", "--", "tests/fixtures"])
+    sys.stdout.write("\n" + COLOR_YELLOW + "--bless rewrote the expected outputs. Review every change before committing:" + COLOR_RESET + "\n")
+    if code == 0 and output.strip() != "":
+        sys.stdout.write(output.rstrip() + "\n")
+    else:
+        sys.stdout.write("  no fixture changed\n")
+
+
+def print_plan(tasks, groups):
+    sys.stdout.write(COLOR_BOLD + "Plan (groups: " + ", ".join(groups) + ")" + COLOR_RESET + "\n")
+    for task in tasks:
+        if task.status == "PENDING":
+            marker = COLOR_GREEN + "run " + COLOR_RESET
+        elif task.status == "SKIP":
+            marker = COLOR_YELLOW + "skip" + COLOR_RESET
+        else:
+            marker = COLOR_DIM + "off " + COLOR_RESET
+        sys.stdout.write("  " + marker + "  " + task.group.ljust(6) + "  " + task.task_id.ljust(26) + task.title + "\n")
+
+
+def print_summary(tasks, elapsed):
+    passed = 0
+    failed = 0
+    skipped = 0
+    for task in tasks:
+        if task.status == "PASS":
+            passed = passed + 1
+        elif task.status == "FAIL":
+            failed = failed + 1
+        elif task.status == "SKIP":
+            skipped = skipped + 1
+
+    sys.stdout.write("========================================\n")
+    counts = str(passed) + " passed, " + str(failed) + " failed, " + str(skipped) + " skipped in " + format_seconds(elapsed)
+    if failed == 0:
+        sys.stdout.write(COLOR_GREEN + COLOR_BOLD + "SUCCESS: " + counts + COLOR_RESET + "\n")
+    else:
+        sys.stdout.write(COLOR_RED + COLOR_BOLD + "FAILURE: " + counts + COLOR_RESET + "\n")
+        for task in tasks:
+            if task.status == "FAIL":
+                sys.stdout.write("  " + COLOR_RED + "✗" + COLOR_RESET + " " + task.task_id + "  (rerun: scripts/run_tests.py --target " + task.task_id + ")\n")
+    logger.info("Run complete: " + counts)
+    return failed
+
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="mtindo test orchestrator")
-    
-    parser.add_argument(
-        "--target",
-        type=str,
-        default="",
-        help="Run a specific test name exactly (e.g., domain_1_unit)."
-    )
-    
-    parser.add_argument(
-        "--group",
-        type=str,
-        default="all",
-        choices=["all", "standard", "fuzz"],
-        help="Target a specific domain group. Default is 'all'."
-    )
-    
-    parser.add_argument(
-        "--fuzz-time",
-        type=int,
-        default=10,
-        help="Execution time limit per fuzz target in seconds."
-    )
-    
+    parser = argparse.ArgumentParser(description="mtindo gates and test suites")
+    parser.add_argument("--group", action="append", choices=GROUPS,
+                        help="Run only this group; repeatable. Default: gates and tests.")
+    parser.add_argument("--full", action="store_true",
+                        help="Run every group, including heavy (network), fuzz (nightly) and bench.")
+    parser.add_argument("--target", type=str, default="",
+                        help="Run one task by id, whatever its group (see --list).")
+    parser.add_argument("--fuzz-time", type=int, default=10,
+                        help="Seconds to fuzz each target. Default: 10.")
+    parser.add_argument("--bless", action="store_true",
+                        help="Regenerate the regression fixtures' expected outputs, then list what changed.")
+    parser.add_argument("--list", action="store_true",
+                        help="Show which tasks would run, without running them.")
     return parser.parse_args()
+
 
 def main():
     args = parse_arguments()
-    cargo_path = pathlib.Path("Cargo.toml")
-    
-    if cargo_path.exists() == False:
-        sys.stderr.write("FATAL: Execute this script from the project root directory.\n")
-        sys.exit(1)
-        
-    logger.info("Starting mtindo 110% Coverage Pipeline")
-    
-    arg_msg = "Arguments passed: target=" + args.target + ", group=" + args.group + ", fuzz-time=" + str(args.fuzz_time)
-    logger.info(arg_msg)
+    tasks = build_tasks(args)
+    groups = select_tasks(tasks, args)
 
-    current_hash = get_current_git_hash()
-    standard_tasks = discover_standard_tasks()
-    
-    tasks_to_run = []
-    if args.group == "all" or args.group == "standard":
-        for task in standard_tasks:
-            target_key = task[1]
-            if args.target == "" or args.target == target_key:
-                tasks_to_run.append(task)
-                
-    sys.stdout.write(COLOR_BOLD)
-    sys.stdout.write("Executing mtindo 110% Coverage Pipeline\n")
-    sys.stdout.write(COLOR_RESET)
+    if args.target != "":
+        found = False
+        for task in tasks:
+            if task.task_id == args.target:
+                found = True
+        if found == False:
+            sys.stderr.write("Unknown task id '" + args.target + "'. Use --list to see the ids.\n")
+            return 2
+
+    if args.list == True:
+        print_plan(tasks, groups)
+        return 0
+
+    commit = current_commit()
+    dirty = tree_is_dirty()
+    revision = "no git"
+    if commit != "":
+        revision = commit[:7]
+        if dirty == True:
+            revision = revision + " + uncommitted changes"
+
+    logger.info("Starting run: groups=" + ",".join(groups) + " target=" + args.target + " revision=" + revision)
+    sys.stdout.write(COLOR_BOLD + "mtindo checks" + COLOR_RESET + COLOR_DIM + "  (" + ", ".join(groups) + " | " + revision + ")" + COLOR_RESET + "\n")
     sys.stdout.write("========================================\n")
-    
-    start_total = time.time()
-    failed_count = 0
-    
-    for task in tasks_to_run:
-        task_title = task[0]
-        task_command = task[2]
-        
-        success = run_command(task_title, task_command)
-        if success == False:
-            failed_count = failed_count + 1
-    
-    if args.group == "all" or args.group == "fuzz":
-        fuzz_targets = get_fuzz_targets()
-        
-        if len(fuzz_targets) > 0 and (args.target == "" or args.target in fuzz_targets):
-            
-            fuzz_targets_to_run = []
-            for t in fuzz_targets:
-                if args.target == "" or args.target == t:
-                    fuzz_targets_to_run.append(t)
-            
-            if len(fuzz_targets_to_run) > 0:
-                spinner_msg = "Domain 4: Fuzzing (" + str(len(fuzz_targets_to_run)) + " targets concurrently, " + str(args.fuzz_time) + "s limit)"
-                fuzz_spinner = Spinner(spinner_msg)
-                fuzz_spinner.start()
-                
-                workers = []
-                for target_name in fuzz_targets_to_run:
-                    worker = FuzzWorker(target_name, args.fuzz_time)
-                    worker.start()
-                    workers.append(worker)
-                
-                for worker in workers:
-                    worker.join()
-                
-                fuzz_spinner.stop(True, "")
-                
-                for worker in workers:
-                    status_prefix = "  -> " + worker.target_name + ": "
-                    if worker.success == True:
-                        sys.stdout.write(status_prefix)
-                        sys.stdout.write(COLOR_GREEN)
-                        sys.stdout.write("CLEAN\n")
-                        sys.stdout.write(COLOR_RESET)
-                        
-                        clean_msg = worker.target_name + " Fuzzing completed cleanly."
-                        logger.info(clean_msg)
-                    else:
-                        failed_count = failed_count + 1
-                        sys.stdout.write(status_prefix)
-                        sys.stdout.write(COLOR_RED)
-                        sys.stdout.write("PANIC DETECTED\n")
-                        sys.stdout.write(COLOR_RESET)
-                        sys.stdout.write(worker.output)
-                        sys.stdout.write("\n")
-                        
-                        panic_msg = worker.target_name + " Fuzzing encountered a panic."
-                        logger.error(panic_msg)
-    
-    elapsed_total = time.time() - start_total
-    
-    if failed_count == 0:
-        if current_hash != "":
-            save_success_state(current_hash)
-            
-        sys.stdout.write("========================================\n")
-        sys.stdout.write(COLOR_GREEN)
-        sys.stdout.write(COLOR_BOLD)
-        sys.stdout.write("SUCCESS: All domains passed in ")
-        sys.stdout.write(str(round(elapsed_total, 2)))
-        sys.stdout.write("s\n")
-        sys.stdout.write(COLOR_RESET)
-    else:
-        last_good = get_last_success_state()
-        if last_good != "" and last_good != current_hash:
-            print_failure_diff(last_good)
-            
-        sys.stdout.write("========================================\n")
-        sys.stdout.write(COLOR_RED)
-        sys.stdout.write(COLOR_BOLD)
-        sys.stdout.write("FAILURE: ")
-        sys.stdout.write(str(failed_count))
-        sys.stdout.write(" domains failed. Total time: ")
-        sys.stdout.write(str(round(elapsed_total, 2)))
-        sys.stdout.write("s\n")
-        sys.stdout.write(COLOR_RESET)
-    
-    summary_msg = "Pipeline Execution Complete. Failed domains: " + str(failed_count)
-    logger.info(summary_msg)
-    
-    if failed_count > 0:
-        sys.exit(1)
-    else:
-        sys.exit(0)
+
+    started = time.time()
+    for task in tasks:
+        if task.status == "EXCLUDED":
+            continue
+        if task.status == "PENDING":
+            run_task(task)
+        print_task_line(task)
+    elapsed = time.time() - started
+
+    if args.bless == True:
+        print_blessed_changes()
+
+    failed = print_summary(tasks, elapsed)
+    if failed == 0:
+        ran_default_groups = "gates" in groups and "tests" in groups
+        if args.target == "" and args.bless == False and ran_default_groups == True:
+            record_success(commit, dirty)
+        return 0
+
+    print_changes_since_last_good(commit, dirty)
+    return 1
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        if current_process != None:
+            current_process.kill()
+        sys.stdout.write("\n" + COLOR_YELLOW + "Interrupted." + COLOR_RESET + "\n")
+        logger.info("Run interrupted by the user")
+        sys.exit(130)

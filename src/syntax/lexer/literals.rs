@@ -102,10 +102,10 @@ pub(super) fn raw_string(cursor: &mut Cursor, kind: SyntaxKind) -> Lexed {
         cursor.bump();
         hashes += 1;
     }
-    if cursor.first() != Some('"') {
+    // Like rustc, the character that should have been the opening quote belongs to the token.
+    if cursor.bump() != Some('"') {
         return (kind, Some(LexError::InvalidRawStringDelimiter));
     }
-    cursor.bump();
     loop {
         match cursor.bump() {
             None => return (kind, Some(LexError::UnterminatedRawString)),

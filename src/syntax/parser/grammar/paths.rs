@@ -33,6 +33,41 @@ pub(super) fn nth_at_path_start(p: &Parser, n: usize) -> bool {
         || (p.nth(n) == SyntaxKind::Dollar && p.nth_text(n + 1) == "crate")
 }
 
+/// `Fn(A, B) -> C` sugar; also `method(..)` (nightly return type notation) and named
+/// parameters such as `Fn(msg: String)`.
+pub(super) fn parenthesized_args(p: &mut Parser) {
+    let m = p.start();
+    p.bump(SyntaxKind::LParen);
+    if p.at(SyntaxKind::Dot2) && p.nth(2) == SyntaxKind::RParen {
+        p.bump(SyntaxKind::Dot2);
+    }
+    while !p.at(SyntaxKind::RParen) && !p.is_eof() {
+        let named = (nth_at_name(p, 0) || p.nth_text(0) == "_")
+            && p.nth(1) == SyntaxKind::Colon
+            && !p.nth_at(1, SyntaxKind::Colon2);
+        if named {
+            let param = p.start();
+            super::patterns::pattern_single(p);
+            p.bump(SyntaxKind::Colon);
+            types::type_(p);
+            param.complete(p, SyntaxKind::Param);
+        } else if types::at_type_start(p) {
+            types::type_(p);
+        } else {
+            p.error("expected a type");
+            break;
+        }
+        if !p.eat(SyntaxKind::Comma) {
+            break;
+        }
+    }
+    p.expect(SyntaxKind::RParen);
+    m.complete(p, SyntaxKind::ParenthesizedArgList);
+    if p.at(SyntaxKind::ThinArrow) {
+        types::ret_type(p);
+    }
+}
+
 /// A whole path.
 pub(super) fn path(p: &mut Parser, mode: Mode) {
     let m = p.start();
@@ -47,27 +82,6 @@ pub(super) fn path(p: &mut Parser, mode: Mode) {
         segment(p, mode);
     }
     m.complete(p, SyntaxKind::Path);
-}
-
-/// `Fn(A, B) -> C` sugar.
-fn parenthesized_args(p: &mut Parser) {
-    let m = p.start();
-    p.bump(SyntaxKind::LParen);
-    while !p.at(SyntaxKind::RParen) && !p.is_eof() {
-        if !types::at_type_start(p) {
-            p.error("expected a type");
-            break;
-        }
-        types::type_(p);
-        if !p.eat(SyntaxKind::Comma) {
-            break;
-        }
-    }
-    p.expect(SyntaxKind::RParen);
-    m.complete(p, SyntaxKind::ParenthesizedArgList);
-    if p.at(SyntaxKind::ThinArrow) {
-        types::ret_type(p);
-    }
 }
 
 /// `<Type as Trait>` at the start of a qualified path.

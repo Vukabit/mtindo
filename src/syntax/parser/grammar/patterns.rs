@@ -55,7 +55,8 @@ fn at_range_end(p: &Parser) -> bool {
 
 /// True if a range end follows `n` tokens ahead (for `..5` versus a rest pattern `..`).
 fn at_range_end_after(p: &Parser, n: usize) -> bool {
-    p.nth(n).is_literal()
+    (p.nth_at_kw(n, "const") && p.nth(n + 1) == SyntaxKind::LBrace)
+        || p.nth(n).is_literal()
         || (p.nth(n) == SyntaxKind::Minus && p.nth(n + 1).is_literal())
         || paths::nth_at_path_start(p, n)
 }
@@ -63,7 +64,16 @@ fn at_range_end_after(p: &Parser, n: usize) -> bool {
 /// `ref mut name @ subpattern`.
 fn ident_pat(p: &mut Parser) -> CompletedMarker {
     let m = p.start();
-    p.eat_kw("ref", SyntaxKind::RefKw);
+    // `mut ref mut x` is nightly; plain patterns use `ref`, `mut` or `ref mut`.
+    p.eat_kw("mut", SyntaxKind::MutKw);
+    if p.eat_kw("ref", SyntaxKind::RefKw)
+        && p.at_contextual_kw("pin")
+        && (p.nth_at_kw(1, "mut") || p.nth_at_kw(1, "const"))
+    {
+        // `ref pin mut x` (nightly pin sugar).
+        p.bump_any();
+        p.eat_kw("const", SyntaxKind::ConstKw);
+    }
     p.eat_kw("mut", SyntaxKind::MutKw);
     name(p);
     if p.eat(SyntaxKind::At) {
@@ -146,7 +156,14 @@ fn pattern_atom(p: &mut Parser) -> Option<CompletedMarker> {
     if p.at(SyntaxKind::Amp) {
         let m = p.start();
         p.bump(SyntaxKind::Amp);
-        p.eat_kw("mut", SyntaxKind::MutKw);
+        if p.at_contextual_kw("pin") && (p.nth_at_kw(1, "mut") || p.nth_at_kw(1, "const")) {
+            p.bump_any();
+            if !p.eat_kw("mut", SyntaxKind::MutKw) {
+                p.bump_remap(SyntaxKind::ConstKw);
+            }
+        } else {
+            p.eat_kw("mut", SyntaxKind::MutKw);
+        }
         pattern_single(p);
         return Some(m.complete(p, SyntaxKind::RefPat));
     }
@@ -193,6 +210,13 @@ fn pattern_list(p: &mut Parser, close: SyntaxKind) -> usize {
         outer_attrs(p);
         if !pattern_top(p) {
             break;
+        }
+        if close == SyntaxKind::RParen && p.at_kw("if") {
+            // `(pattern if condition)` (nightly guard patterns).
+            let guard = p.start();
+            p.bump_remap(SyntaxKind::IfKw);
+            super::expressions::expr(p);
+            guard.complete(p, SyntaxKind::MatchGuard);
         }
         count += 1;
         trailing_comma = p.eat(SyntaxKind::Comma);

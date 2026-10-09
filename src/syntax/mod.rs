@@ -33,7 +33,7 @@ impl Parse {
 
 /// Parses a whole source file.
 pub fn parse(text: &str, edition: Edition) -> Parse {
-    let tokens = lexer::tokenize(text, edition);
+    let tokens = lexer::split_tuple_field_floats(text, lexer::tokenize(text, edition));
     let events = parser::parse_events(text, &tokens, edition);
     let (green, errors) = tree::builder::build_tree(text, &tokens, events);
     Parse {

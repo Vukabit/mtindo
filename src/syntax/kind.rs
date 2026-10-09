@@ -26,6 +26,7 @@ syntax_kinds! {
     // Trivia and file-level tokens.
     Bom => "BOM",
     Shebang => "SHEBANG",
+    Frontmatter => "FRONTMATTER",
     Whitespace => "WHITESPACE",
     LineComment => "LINE_COMMENT",
     BlockComment => "BLOCK_COMMENT",
@@ -174,6 +175,11 @@ syntax_kinds! {
     MacroRules => "MACRO_RULES",
     MacroCall => "MACRO_CALL",
     MacroDef => "MACRO_DEF",
+    Reuse => "REUSE",
+    Restriction => "RESTRICTION",
+    Builtin => "BUILTIN",
+    UnsafeBinderType => "UNSAFE_BINDER_TYPE",
+    UseExpr => "USE_EXPR",
     Attr => "ATTR",
     Meta => "META",
     Visibility => "VISIBILITY",
@@ -324,6 +330,7 @@ impl SyntaxKind {
             self,
             SyntaxKind::Bom
                 | SyntaxKind::Shebang
+                | SyntaxKind::Frontmatter
                 | SyntaxKind::Whitespace
                 | SyntaxKind::LineComment
                 | SyntaxKind::BlockComment

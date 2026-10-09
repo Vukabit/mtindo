@@ -4,8 +4,8 @@
 use super::attributes::{inner_attrs, outer_attrs};
 use super::expressions;
 use super::{
-    abi, at_open_delim, error_bump, generics, name, name_ref, nth_at_name, params, paths,
-    token_tree, types, visibility,
+    abi, at_open_delim, at_restriction, error_bump, generics, name, name_ref, nth_at_name, params,
+    paths, restriction, token_tree, types, visibility,
 };
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::Parser;
@@ -26,8 +26,21 @@ pub(super) fn item(p: &mut Parser) -> Option<SyntaxKind> {
         .iter()
         .any(|kw| p.nth_at_kw(1, kw))
     };
-    if p.at_contextual_kw("default") && item_keyword_follows(p) {
-        p.bump_remap(SyntaxKind::DefaultKw);
+    loop {
+        if p.at_contextual_kw("default") && item_keyword_follows(p) {
+            p.bump_remap(SyntaxKind::DefaultKw);
+        } else if p.at_contextual_kw("final") && item_keyword_follows(p) {
+            p.bump_any();
+        } else {
+            break;
+        }
+    }
+    if at_restriction(p, "impl") {
+        restriction(p, SyntaxKind::ImplKw);
+    }
+    if p.at_contextual_kw("reuse") && (paths::nth_at_path_start(p, 1) || p.nth(1) == SyntaxKind::Lt)
+    {
+        return Some(reuse_item(p));
     }
     let kind = if p.at_kw("use") {
         use_item(p)
@@ -50,6 +63,10 @@ pub(super) fn item(p: &mut Parser) -> Option<SyntaxKind> {
     } else if p.at_kw("unsafe") {
         if p.nth_at_kw(1, "impl") {
             impl_item(p)
+        } else if p.nth_text(1) == "default" && p.nth_at_kw(2, "impl") {
+            p.bump_remap(SyntaxKind::UnsafeKw);
+            p.bump_remap(SyntaxKind::DefaultKw);
+            impl_item(p)
         } else if p.nth_at_kw(1, "trait") || (p.nth_text(1) == "auto" && p.nth_at_kw(2, "trait")) {
             trait_item(p)
         } else if p.nth_at_kw(1, "mod") {
@@ -68,7 +85,18 @@ pub(super) fn item(p: &mut Parser) -> Option<SyntaxKind> {
             fn_item(p)
         }
     } else if p.at_kw("const") {
-        if p.nth_at_kw(1, "fn")
+        let trait_follows = p.nth_at_kw(1, "trait")
+            || ((p.nth_at_kw(1, "unsafe") || p.nth_text(1) == "auto")
+                && (p.nth_at_kw(2, "trait")
+                    || p.nth_text(2) == "auto"
+                    || p.nth_at_kw(2, "unsafe")));
+        if trait_follows {
+            trait_item(p)
+        } else if p.nth(1) == SyntaxKind::LBrace {
+            p.bump_remap(SyntaxKind::ConstKw);
+            expressions::block_expr(p);
+            SyntaxKind::Const
+        } else if p.nth_at_kw(1, "fn")
             || p.nth_at_kw(1, "unsafe")
             || p.nth_at_kw(1, "async")
             || p.nth_at_kw(1, "extern")
@@ -392,7 +420,13 @@ fn record_field_list(p: &mut Parser) {
         let f = p.start();
         outer_attrs(p);
         visibility(p);
-        p.eat_contextual_kw("unsafe", SyntaxKind::UnsafeKw);
+        if at_restriction(p, "mut") {
+            restriction(p, SyntaxKind::MutKw);
+        }
+        p.eat_kw("unsafe", SyntaxKind::UnsafeKw);
+        if at_restriction(p, "mut") {
+            restriction(p, SyntaxKind::MutKw);
+        }
         if !name(p) {
             f.abandon(p);
             error_bump(p, "expected a field");
@@ -441,6 +475,18 @@ fn rename(p: &mut Parser) {
     m.complete(p, SyntaxKind::Rename);
 }
 
+/// `reuse path;`, `reuse path as name;`, `reuse Trait::{a, b} { ... }` (nightly delegation).
+fn reuse_item(p: &mut Parser) -> SyntaxKind {
+    p.bump_any();
+    use_tree(p);
+    if p.at(SyntaxKind::LBrace) {
+        expressions::block_expr(p);
+    } else {
+        p.expect(SyntaxKind::Semi);
+    }
+    SyntaxKind::Reuse
+}
+
 /// `static [mut] NAME: Type = value;`.
 fn static_item(p: &mut Parser) -> SyntaxKind {
     p.bump_remap(SyntaxKind::StaticKw);
@@ -477,8 +523,10 @@ fn struct_item(p: &mut Parser) -> SyntaxKind {
 
 /// `trait T: Bounds where ... { ... }` (also `unsafe`, `auto`) or a trait alias `trait A = B;`.
 fn trait_item(p: &mut Parser) -> SyntaxKind {
+    p.eat_kw("const", SyntaxKind::ConstKw);
     p.eat_kw("unsafe", SyntaxKind::UnsafeKw);
     p.eat_contextual_kw("auto", SyntaxKind::AutoKw);
+    p.eat_kw("unsafe", SyntaxKind::UnsafeKw);
     p.bump_remap(SyntaxKind::TraitKw);
     name(p);
     if p.at(SyntaxKind::Lt) {
@@ -506,6 +554,9 @@ fn tuple_field_list(p: &mut Parser) {
         let f = p.start();
         outer_attrs(p);
         visibility(p);
+        if at_restriction(p, "mut") {
+            restriction(p, SyntaxKind::MutKw);
+        }
         if !types::at_type_start(p) {
             f.abandon(p);
             error_bump(p, "expected a field type");

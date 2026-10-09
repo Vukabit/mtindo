@@ -1,0 +1,42 @@
+SOURCE_FILE@0..34
+  FN@0..10
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "a"
+    PARAM_LIST@4..10
+      L_PAREN@4..5 "("
+      PARAM@5..10
+        IDENT_PAT@5..6
+          NAME@5..6
+            IDENT@5..6 "x"
+        COLON@6..7 ":"
+        WHITESPACE@7..8 " "
+        PATH_TYPE@8..10
+          PATH@8..10
+            PATH_SEGMENT@8..10
+              NAME_REF@8..10
+                IDENT@8..10 "u8"
+  WHITESPACE@10..11 "\n"
+  STRUCT@11..23
+    STRUCT_KW@11..17 "struct"
+    WHITESPACE@17..18 " "
+    NAME@18..22
+      IDENT@18..22 "Next"
+    SEMICOLON@22..23 ";"
+  WHITESPACE@23..24 "\n"
+  FN@24..33
+    FN_KW@24..26 "fn"
+    WHITESPACE@26..27 " "
+    NAME@27..28
+      IDENT@27..28 "c"
+    PARAM_LIST@28..30
+      L_PAREN@28..29 "("
+      R_PAREN@29..30 ")"
+    WHITESPACE@30..31 " "
+    BLOCK_EXPR@31..33
+      L_BRACE@31..32 "{"
+      R_BRACE@32..33 "}"
+  WHITESPACE@33..34 "\n"
+error@11..11: expected `)`
+error@11..11: expected `;`

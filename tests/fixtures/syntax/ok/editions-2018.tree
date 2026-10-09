@@ -1,0 +1,76 @@
+SOURCE_FILE@0..92
+  FN@0..91
+    LINE_COMMENT@0..16 "// edition: 2018"
+    WHITESPACE@16..17 "\n"
+    ASYNC_KW@17..22 "async"
+    WHITESPACE@22..23 " "
+    FN_KW@23..25 "fn"
+    WHITESPACE@25..26 " "
+    NAME@26..27
+      IDENT@26..27 "f"
+    PARAM_LIST@27..29
+      L_PAREN@27..28 "("
+      R_PAREN@28..29 ")"
+    WHITESPACE@29..30 " "
+    BLOCK_EXPR@30..91
+      L_BRACE@30..31 "{"
+      WHITESPACE@31..36 "\n    "
+      LET_STMT@36..70
+        LET_KW@36..39 "let"
+        WHITESPACE@39..40 " "
+        IDENT_PAT@40..41
+          NAME@40..41
+            IDENT@40..41 "d"
+        COLON@41..42 ":"
+        WHITESPACE@42..43 " "
+        PATH_TYPE@43..57
+          PATH@43..57
+            PATH_SEGMENT@43..57
+              NAME_REF@43..46
+                IDENT@43..46 "Box"
+              GENERIC_ARG_LIST@46..57
+                L_ANGLE@46..47 "<"
+                TYPE_ARG@47..56
+                  DYN_TRAIT_TYPE@47..56
+                    DYN_KW@47..50 "dyn"
+                    WHITESPACE@50..51 " "
+                    TYPE_BOUND_LIST@51..56
+                      TYPE_BOUND@51..56
+                        PATH_TYPE@51..56
+                          PATH@51..56
+                            PATH_SEGMENT@51..56
+                              NAME_REF@51..56
+                                IDENT@51..56 "Trait"
+                R_ANGLE@56..57 ">"
+        WHITESPACE@57..58 " "
+        EQ@58..59 "="
+        WHITESPACE@59..60 " "
+        AWAIT_EXPR@60..69
+          CALL_EXPR@60..63
+            PATH_EXPR@60..61
+              PATH@60..61
+                PATH_SEGMENT@60..61
+                  NAME_REF@60..61
+                    IDENT@60..61 "g"
+            ARG_LIST@61..63
+              L_PAREN@61..62 "("
+              R_PAREN@62..63 ")"
+          DOT@63..64 "."
+          AWAIT_KW@64..69 "await"
+        SEMICOLON@69..70 ";"
+      WHITESPACE@70..75 "\n    "
+      LET_STMT@75..89
+        LET_KW@75..78 "let"
+        WHITESPACE@78..79 " "
+        IDENT_PAT@79..84
+          NAME@79..84
+            IDENT@79..84 "r#try"
+        WHITESPACE@84..85 " "
+        EQ@85..86 "="
+        WHITESPACE@86..87 " "
+        LITERAL@87..88
+          INT_NUMBER@87..88 "1"
+        SEMICOLON@88..89 ";"
+      WHITESPACE@89..90 "\n"
+      R_BRACE@90..91 "}"
+  WHITESPACE@91..92 "\n"

@@ -1,0 +1,18 @@
+SOURCE_FILE@0..63
+  SHEBANG@0..20 "#!/usr/bin/env cargo"
+  WHITESPACE@20..21 "\n"
+  FRONTMATTER@21..48 "---cargo\n[dependencies]\n---"
+  WHITESPACE@48..50 "\n\n"
+  FN@50..62
+    FN_KW@50..52 "fn"
+    WHITESPACE@52..53 " "
+    NAME@53..57
+      IDENT@53..57 "main"
+    PARAM_LIST@57..59
+      L_PAREN@57..58 "("
+      R_PAREN@58..59 ")"
+    WHITESPACE@59..60 " "
+    BLOCK_EXPR@60..62
+      L_BRACE@60..61 "{"
+      R_BRACE@61..62 "}"
+  WHITESPACE@62..63 "\n"

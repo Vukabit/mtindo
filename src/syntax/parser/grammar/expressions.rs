@@ -9,7 +9,8 @@
 
 use super::attributes::{inner_attrs, outer_attrs};
 use super::{
-    error_bump, generics, items, name_ref, nth_at_name, paths, patterns, token_tree, types,
+    at_builtin, builtin, error_bump, generics, items, name_ref, nth_at_name, paths, patterns,
+    token_tree, types,
 };
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::{CompletedMarker, Marker, Parser};
@@ -146,6 +147,7 @@ fn at_closure_start(p: &Parser) -> bool {
             || p.nth_at_kw(n, "async")
             || p.nth_at_kw(n, "static")
             || p.nth_at_kw(n, "const")
+            || p.nth_at_kw(n, "use")
         {
             n += 1;
             continue;
@@ -159,10 +161,13 @@ fn at_closure_start(p: &Parser) -> bool {
 /// keyword (`unsafe {`, `const {`, `async move {`, `static ||`).
 fn at_item_start(p: &Parser) -> bool {
     const ALWAYS: &[&str] = &[
-        "fn", "struct", "enum", "trait", "impl", "type", "mod", "use", "pub", "extern",
+        "fn", "struct", "enum", "trait", "impl", "type", "mod", "pub", "extern",
     ];
     if ALWAYS.iter().any(|kw| p.at_kw(kw)) {
         return true;
+    }
+    if p.at_kw("use") {
+        return !(p.nth(1) == SyntaxKind::Pipe || p.nth_at(1, SyntaxKind::PipePipe));
     }
     if p.at_kw("const") || p.at_kw("unsafe") {
         return p.nth(1) != SyntaxKind::LBrace
@@ -176,6 +181,7 @@ fn at_item_start(p: &Parser) -> bool {
         return nth_at_name(p, 1) || p.nth_at_kw(1, "mut");
     }
     (p.at_contextual_kw("union") && nth_at_name(p, 1))
+        || (p.at_contextual_kw("macro") && nth_at_name(p, 1))
         || (p.at_contextual_kw("auto") && p.nth_at_kw(1, "trait"))
         || (p.at_contextual_kw("macro_rules") && p.nth(1) == SyntaxKind::Bang && nth_at_name(p, 2))
 }
@@ -232,12 +238,25 @@ fn atom(p: &mut Parser, r: Restrictions) -> Option<(CompletedMarker, bool)> {
                 "async" => SyntaxKind::AsyncKw,
                 "move" => SyntaxKind::MoveKw,
                 "try" => SyntaxKind::TryKw,
+                "gen" => SyntaxKind::GenKw,
                 _ => SyntaxKind::GenKw,
             };
             p.bump_remap(kind);
         }
         block_body(p);
         return Some((m.complete(p, SyntaxKind::BlockExpr), true));
+    }
+    if p.at_contextual_kw("try") && p.nth_text(1) == "bikeshed" {
+        // `try bikeshed Type { .. }` (nightly heterogeneous try blocks).
+        let m = p.start();
+        p.bump_remap(SyntaxKind::TryKw);
+        p.bump_any();
+        types::type_no_bounds(p);
+        block_body(p);
+        return Some((m.complete(p, SyntaxKind::BlockExpr), true));
+    }
+    if at_builtin(p) {
+        return Some((builtin(p), false));
     }
     if at_closure_start(p) {
         return Some((closure(p, r), false));
@@ -312,14 +331,20 @@ fn block_prefix_len(p: &Parser) -> Option<usize> {
     if (p.at_kw("unsafe") || p.at_kw("const")) && brace_at(1) {
         return Some(1);
     }
-    let async_like = p.at_kw("async")
-        || (p.at_contextual_kw("gen") && p.edition() >= crate::syntax::Edition::E2024);
-    if async_like {
-        if brace_at(1) {
-            return Some(1);
+    let gen_at = |n: usize| p.nth_text(n) == "gen" && p.edition() >= crate::syntax::Edition::E2024;
+    let mut n = 0;
+    if p.at_kw("async") {
+        n += 1;
+    }
+    if gen_at(n) {
+        n += 1;
+    }
+    if n > 0 {
+        if p.nth_at_kw(n, "move") {
+            n += 1;
         }
-        if p.nth_at_kw(1, "move") && brace_at(2) {
-            return Some(2);
+        if brace_at(n) {
+            return Some(n);
         }
     }
     if p.at_contextual_kw("try") && p.edition() >= crate::syntax::Edition::E2018 && brace_at(1) {
@@ -338,6 +363,7 @@ fn closure(p: &mut Parser, r: Restrictions) -> CompletedMarker {
     p.eat_kw("static", SyntaxKind::StaticKw);
     p.eat_kw("async", SyntaxKind::AsyncKw);
     p.eat_kw("move", SyntaxKind::MoveKw);
+    p.eat_kw("use", SyntaxKind::UseKw);
     let params = p.start();
     if p.eat(SyntaxKind::PipePipe) {
         params.complete(p, SyntaxKind::ParamList);
@@ -487,6 +513,10 @@ fn labeled(p: &mut Parser, m: Marker) -> CompletedMarker {
         block_expr(p);
         m.complete(p, SyntaxKind::WhileExpr)
     } else if p.eat_kw("for", SyntaxKind::ForKw) {
+        // `for await x in stream` (nightly async iteration).
+        if p.at_kw("await") {
+            p.bump_remap(SyntaxKind::AwaitKw);
+        }
         patterns::pattern_top(p);
         if !p.eat_kw("in", SyntaxKind::InKw) {
             p.error("expected `in`");
@@ -544,11 +574,8 @@ fn match_arm(p: &mut Parser) {
     m.complete(p, SyntaxKind::MatchArm);
 }
 
-/// `match scrutinee { pattern if guard => body, ... }`.
-fn match_expr(p: &mut Parser) -> CompletedMarker {
-    let m = p.start();
-    p.bump_remap(SyntaxKind::MatchKw);
-    header_expr(p, "an expression");
+/// `{ arms }` of a `match`.
+fn match_arm_list(p: &mut Parser) {
     let arms = p.start();
     if p.eat(SyntaxKind::LBrace) {
         inner_attrs(p);
@@ -564,6 +591,14 @@ fn match_expr(p: &mut Parser) -> CompletedMarker {
         p.error("expected `{`");
     }
     arms.complete(p, SyntaxKind::MatchArmList);
+}
+
+/// `match scrutinee { pattern if guard => body, ... }`.
+fn match_expr(p: &mut Parser) -> CompletedMarker {
+    let m = p.start();
+    p.bump_remap(SyntaxKind::MatchKw);
+    header_expr(p, "an expression");
+    match_arm_list(p);
     m.complete(p, SyntaxKind::MatchExpr)
 }
 
@@ -644,7 +679,20 @@ fn postfix(p: &mut Parser, mut lhs: CompletedMarker) -> (CompletedMarker, bool) 
             p.bump(SyntaxKind::Question);
             lhs = m.complete(p, SyntaxKind::TryExpr);
         } else if p.at(SyntaxKind::Dot) && !p.at(SyntaxKind::Dot2) {
-            if p.nth_at_kw(1, "await") {
+            if p.nth_at_kw(1, "use") {
+                // `x.use` (nightly ergonomic clones).
+                let m = lhs.precede(p);
+                p.bump(SyntaxKind::Dot);
+                p.bump_remap(SyntaxKind::UseKw);
+                lhs = m.complete(p, SyntaxKind::UseExpr);
+            } else if p.nth_at_kw(1, "match") && p.nth(2) == SyntaxKind::LBrace {
+                // `x.match { .. }` (nightly postfix match).
+                let m = lhs.precede(p);
+                p.bump(SyntaxKind::Dot);
+                p.bump_remap(SyntaxKind::MatchKw);
+                match_arm_list(p);
+                lhs = m.complete(p, SyntaxKind::MatchExpr);
+            } else if p.nth_at_kw(1, "await") {
                 let m = lhs.precede(p);
                 p.bump(SyntaxKind::Dot);
                 p.bump_remap(SyntaxKind::AwaitKw);
@@ -737,7 +785,9 @@ fn statement(p: &mut Parser) {
     let m = p.start();
     outer_attrs(p);
     let had_attrs = p.token_pos() > start;
-    if p.at_kw("let") {
+    if p.at_kw("let") || (p.at_kw("super") && p.nth_at_kw(1, "let")) {
+        // `super let` is nightly.
+        p.eat_kw("super", SyntaxKind::SuperKw);
         let_stmt(p);
         m.complete(p, SyntaxKind::LetStmt);
         return;
@@ -800,7 +850,14 @@ fn unary_expr(p: &mut Parser, r: Restrictions) -> Option<(CompletedMarker, bool)
     if p.at(SyntaxKind::Amp) {
         let m = p.start();
         p.bump(SyntaxKind::Amp);
-        if p.at_contextual_kw("raw") && (p.nth_at_kw(1, "const") || p.nth_at_kw(1, "mut")) {
+        let pinned =
+            p.at_contextual_kw("pin") && (p.nth_at_kw(1, "const") || p.nth_at_kw(1, "mut"));
+        if pinned {
+            p.bump_any();
+            if !p.eat_kw("const", SyntaxKind::ConstKw) {
+                p.bump_remap(SyntaxKind::MutKw);
+            }
+        } else if p.at_contextual_kw("raw") && (p.nth_at_kw(1, "const") || p.nth_at_kw(1, "mut")) {
             p.bump_remap(SyntaxKind::RawKw);
             if !p.eat_kw("const", SyntaxKind::ConstKw) {
                 p.bump_remap(SyntaxKind::MutKw);

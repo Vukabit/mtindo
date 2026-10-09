@@ -125,6 +125,39 @@ fn test_file_start() {
 }
 
 #[test]
+fn test_frontmatter() {
+    let e = Edition::E2024;
+    let text = "---cargo\n[dependencies]\n---\nfn main() {}\n";
+    assert_eq!(
+        significant(text, e),
+        pairs(&[
+            ("FRONTMATTER", "---cargo\n[dependencies]\n---"),
+            ("IDENT", "fn"),
+            ("IDENT", "main"),
+            ("L_PAREN", "("),
+            ("R_PAREN", ")"),
+            ("L_BRACE", "{"),
+            ("R_BRACE", "}"),
+        ])
+    );
+    let after_shebang = "#!/usr/bin/env cargo\n\n----\nx\n----\n";
+    assert_eq!(
+        significant(after_shebang, e)[1],
+        ("FRONTMATTER", "----\nx\n----".to_string())
+    );
+    assert_eq!(
+        lex("  ---\n---\n", e)[0].2,
+        Some(LexError::IndentedFrontmatter)
+    );
+    assert_eq!(
+        lex("---\nnever closed\n", e)[0].2,
+        Some(LexError::UnterminatedFrontmatter)
+    );
+    // Only before the first token: later dashes are minus signs.
+    assert_eq!(significant("x\n---\n", e)[1].0, "MINUS");
+}
+
+#[test]
 fn test_guarded_strings_reserved_in_2024() {
     assert_eq!(lex("#\"x\"#", Edition::E2021)[0].2, None);
     assert_eq!(
@@ -281,10 +314,7 @@ fn test_raw_strings() {
         one(r##"r#"open"##, e),
         ("RAW_STRING", Some(LexError::UnterminatedRawString))
     );
-    assert_eq!(
-        significant("r##x", e),
-        pairs(&[("RAW_STRING", "r##"), ("IDENT", "x")])
-    );
+    assert_eq!(significant("r##x", e), pairs(&[("RAW_STRING", "r##x")]));
     assert_eq!(
         lex("r##x", e)[0].2,
         Some(LexError::InvalidRawStringDelimiter)
@@ -315,6 +345,56 @@ fn test_reserved_prefixes_from_2021() {
 }
 
 #[test]
+fn test_split_tuple_field_floats() {
+    let split = |text: &str| {
+        let tokens = split_tuple_field_floats(text, tokenize(text, Edition::E2021));
+        let mut offset = 0;
+        let mut out = Vec::new();
+        for t in tokens {
+            let end = offset + t.len as usize;
+            if t.kind != SyntaxKind::Whitespace {
+                out.push((t.kind.name(), text[offset..end].to_string()));
+            }
+            offset = end;
+        }
+        assert_eq!(offset, text.len());
+        out
+    };
+    assert_eq!(
+        split("x.0.1"),
+        pairs(&[
+            ("IDENT", "x"),
+            ("DOT", "."),
+            ("INT_NUMBER", "0"),
+            ("DOT", "."),
+            ("INT_NUMBER", "1")
+        ])
+    );
+    assert_eq!(
+        split("x.0. await"),
+        pairs(&[
+            ("IDENT", "x"),
+            ("DOT", "."),
+            ("INT_NUMBER", "0"),
+            ("DOT", "."),
+            ("IDENT", "await")
+        ])
+    );
+    // Not after a single dot: ranges and plain floats stay whole.
+    assert_eq!(
+        split("0..1.5"),
+        pairs(&[
+            ("INT_NUMBER", "0"),
+            ("DOT", "."),
+            ("DOT", "."),
+            ("FLOAT_NUMBER", "1.5")
+        ])
+    );
+    assert_eq!(split("1.5"), pairs(&[("FLOAT_NUMBER", "1.5")]));
+    assert_eq!(split("x.1e3")[2].0, "FLOAT_NUMBER");
+}
+
+#[test]
 fn test_strings() {
     let e = Edition::E2021;
     assert_eq!(one(r#""plain""#, e), ("STRING", None));
@@ -327,26 +407,6 @@ fn test_strings() {
         one("\"never closed", e),
         ("STRING", Some(LexError::UnterminatedString))
     );
-}
-
-#[test]
-fn test_unterminated_string_mid_file_keeps_going() {
-    let tokens = lex("fn a() { \"open\n}\nfn b() {}", Edition::E2021);
-    let last = tokens.last().unwrap();
-    assert_eq!(last.0, "STRING");
-    assert_eq!(last.2, Some(LexError::UnterminatedString));
-}
-
-#[test]
-fn test_whitespace_set() {
-    for c in [
-        '\t', '\n', '\u{000B}', '\u{000C}', '\r', ' ', '\u{0085}', '\u{200E}', '\u{200F}',
-        '\u{2028}', '\u{2029}',
-    ] {
-        assert!(is_whitespace(c), "U+{:04X}", c as u32);
-    }
-    assert!(!is_whitespace('\u{00A0}'));
-    assert_eq!(one(" \t\r\n\u{2028}", Edition::E2021), ("WHITESPACE", None));
 }
 
 proptest! {
@@ -378,4 +438,24 @@ proptest! {
             prop_assert!(tokens.iter().all(|t| t.len > 0));
         }
     }
+}
+
+#[test]
+fn test_unterminated_string_mid_file_keeps_going() {
+    let tokens = lex("fn a() { \"open\n}\nfn b() {}", Edition::E2021);
+    let last = tokens.last().unwrap();
+    assert_eq!(last.0, "STRING");
+    assert_eq!(last.2, Some(LexError::UnterminatedString));
+}
+
+#[test]
+fn test_whitespace_set() {
+    for c in [
+        '\t', '\n', '\u{000B}', '\u{000C}', '\r', ' ', '\u{0085}', '\u{200E}', '\u{200F}',
+        '\u{2028}', '\u{2029}',
+    ] {
+        assert!(is_whitespace(c), "U+{:04X}", c as u32);
+    }
+    assert!(!is_whitespace('\u{00A0}'));
+    assert_eq!(one(" \t\r\n\u{2028}", Edition::E2021), ("WHITESPACE", None));
 }

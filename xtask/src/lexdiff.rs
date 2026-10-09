@@ -58,6 +58,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     let mut compared = 0;
     let mut tokens = 0;
     let mut differing = 0;
+    let mut expected_lines: Vec<String> = Vec::new();
     for file in files.iter() {
         let text = match fs::read_to_string(file) {
             Ok(text) => text,
@@ -66,7 +67,10 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         compared += 1;
         let (ours, theirs) = (mto_spans(&text, edition), rustc_spans(&text));
         tokens += theirs.len();
-        let differences = compare(&ours, &theirs, &text);
+        let (differences, known) = compare(&ours, &theirs, &text, edition);
+        for line in known.iter() {
+            expected_lines.push(format!("{}: {}", file.display(), line));
+        }
         if !differences.is_empty() {
             differing += 1;
             println!("{}:", file.display());
@@ -78,12 +82,19 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
             }
         }
     }
+    if !expected_lines.is_empty() {
+        println!("expected differences (rustc's lexer ignores editions and nightly gates):");
+        for line in expected_lines.iter() {
+            println!("  {}", line);
+        }
+    }
     println!(
-        "lexdiff (edition {}): {} files, {} tokens, {} file(s) differ",
+        "lexdiff (edition {}): {} files, {} tokens, {} file(s) differ, {} expected difference(s)",
         edition.year(),
         compared,
         tokens,
-        differing
+        differing,
+        expected_lines.len()
     );
     if differing == 0 {
         ExitCode::SUCCESS
@@ -120,9 +131,17 @@ fn collect(path: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// Lists every boundary or class mismatch, with the line it is on.
-fn compare(ours: &[Span], theirs: &[Span], text: &str) -> Vec<String> {
+/// Every boundary or class mismatch, with the line it is on, split into unexplained
+/// differences and expected ones (see [`expected_difference`]).
+fn compare(
+    ours: &[Span],
+    theirs: &[Span],
+    text: &str,
+    edition: Edition,
+) -> (Vec<String>, Vec<String>) {
     let mut differences = Vec::new();
+    let mut expected = Vec::new();
+    let mut last_was_expected = false;
     let (mut i, mut j) = (0, 0);
     while i < ours.len() && j < theirs.len() {
         let (a, b) = (&ours[i], &theirs[j]);
@@ -132,36 +151,87 @@ fn compare(ours: &[Span], theirs: &[Span], text: &str) -> Vec<String> {
             continue;
         }
         let line = text[..a.start.min(b.start)].matches('\n').count() + 1;
-        differences.push(format!(
+        let description = format!(
             "line {}: mto {} {:?}, rustc {} {:?}",
             line,
             a.class,
             &text[a.start..a.end],
             b.class,
             &text[b.start..b.end]
-        ));
-        // Resynchronise at the next shared boundary.
-        let resume = a.end.max(b.end);
-        while i < ours.len() && ours[i].end <= resume {
-            i += 1;
+        );
+        match expected_difference(&b.class, &text[b.start..b.end], edition) {
+            Some(reason) => {
+                expected.push(format!("{} (expected: {})", description, reason));
+                last_was_expected = true;
+            }
+            None => {
+                differences.push(description);
+                last_was_expected = false;
+            }
         }
-        while j < theirs.len() && theirs[j].end <= resume {
-            j += 1;
+        // Resynchronise where both lexers next start a token at the same byte, so one root
+        // cause is reported once.
+        i += 1;
+        j += 1;
+        while let (Some(x), Some(y)) = (ours.get(i), theirs.get(j)) {
+            if x.start == y.start {
+                break;
+            }
+            if x.start < y.start {
+                i += 1;
+            } else {
+                j += 1;
+            }
         }
     }
     if i < ours.len() || j < theirs.len() {
-        differences.push(format!(
+        let line = format!(
             "token counts differ at the end: mto {} left, rustc {} left",
             ours.len() - i,
             theirs.len() - j
-        ));
+        );
+        // Running out of shared boundaries right after an expected difference is part of it.
+        if last_was_expected {
+            expected.push(format!("{} (follows the expected difference above)", line));
+        } else {
+            differences.push(line);
+        }
     }
-    differences
+    (differences, expected)
+}
+
+/// Why rustc's edition-agnostic lexer is expected to differ here, if it is: it always produces
+/// tokens that only exist in later editions or on nightly, and its parser splits them again.
+fn expected_difference(
+    rustc_class: &str,
+    rustc_text: &str,
+    edition: Edition,
+) -> Option<&'static str> {
+    match rustc_class {
+        "forced-keyword" => Some("nightly raw keyword `k#name`; mto lexes a reserved prefix"),
+        "guarded-string-prefix" if edition < Edition::E2024 => {
+            Some("`#\"` is only reserved from 2024")
+        }
+        "guarded-string-prefix" => {
+            Some("both reject `#\"`; mto marks the `#` and lexes the string")
+        }
+        "lifetime" if edition < Edition::E2021 && rustc_text.starts_with("'r#") => {
+            Some("raw lifetimes exist from 2021")
+        }
+        "literal"
+            if edition < Edition::E2021
+                && (rustc_text.starts_with("c\"") || rustc_text.starts_with("cr")) =>
+        {
+            Some("C strings exist from 2021")
+        }
+        _ => None,
+    }
 }
 
 fn mto_class(kind: SyntaxKind) -> String {
     match kind {
         SyntaxKind::Whitespace => "whitespace".to_string(),
+        SyntaxKind::Frontmatter => "frontmatter".to_string(),
         SyntaxKind::LineComment | SyntaxKind::BlockComment => "comment".to_string(),
         SyntaxKind::OuterLineDoc
         | SyntaxKind::InnerLineDoc
@@ -253,7 +323,7 @@ fn rustc_spans(text: &str) -> Vec<Span> {
     };
     offset += rustc::strip_shebang(&text[offset..]).unwrap_or(0);
     let mut spans = Vec::new();
-    for token in rustc::tokenize(&text[offset..], rustc::FrontmatterAllowed::No) {
+    for token in rustc::tokenize(&text[offset..], rustc::FrontmatterAllowed::Yes) {
         let end = offset + token.len as usize;
         spans.push(Span {
             start: offset,

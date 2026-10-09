@@ -31,6 +31,10 @@ fn abi(p: &mut Parser) {
     m.complete(p, SyntaxKind::Abi);
 }
 
+fn at_builtin(p: &Parser) -> bool {
+    p.at_contextual_kw("builtin") && p.nth(1) == SyntaxKind::Pound
+}
+
 /// True if the current token can be a name: an identifier that is not a keyword here, or a
 /// raw identifier. Contextual keywords such as `union` are valid names.
 fn at_name(p: &Parser) -> bool {
@@ -43,6 +47,28 @@ fn at_open_delim(p: &Parser) -> bool {
         p.current(),
         SyntaxKind::LParen | SyntaxKind::LBrack | SyntaxKind::LBrace
     )
+}
+
+/// True at `keyword(crate)`, `keyword(self)`, `keyword(super)` or `keyword(in path)`: the
+/// nightly `impl(..)` and `mut(..)` restrictions, and the restricted part of `pub(..)`.
+fn at_restriction(p: &Parser, keyword: &str) -> bool {
+    p.at_kw(keyword)
+        && p.nth(1) == SyntaxKind::LParen
+        && (((p.nth_at_kw(2, "crate") || p.nth_at_kw(2, "self") || p.nth_at_kw(2, "super"))
+            && p.nth(3) == SyntaxKind::RParen)
+            || p.nth_at_kw(2, "in"))
+}
+
+/// `builtin # name(...)` (nightly built-in syntax), in expression, type or pattern position.
+fn builtin(p: &mut Parser) -> CompletedMarker {
+    let m = p.start();
+    p.bump_any();
+    p.bump(SyntaxKind::Pound);
+    name_ref(p);
+    if at_open_delim(p) {
+        token_tree(p);
+    }
+    m.complete(p, SyntaxKind::Builtin)
 }
 
 fn closing_delim(open: SyntaxKind) -> SyntaxKind {
@@ -106,6 +132,20 @@ fn nth_at_name(p: &Parser, n: usize) -> bool {
         SyntaxKind::Ident => !is_keyword_in(p.nth_text(n), p.edition()),
         _ => false,
     }
+}
+
+/// `impl(crate)` before a trait or `mut(in path)` before a field (nightly).
+fn restriction(p: &mut Parser, keyword: SyntaxKind) {
+    let m = p.start();
+    p.bump_remap(keyword);
+    p.bump(SyntaxKind::LParen);
+    if p.eat_kw("in", SyntaxKind::InKw) {
+        paths::path(p, paths::Mode::Simple);
+    } else {
+        name_ref(p);
+    }
+    p.expect(SyntaxKind::RParen);
+    m.complete(p, SyntaxKind::Restriction);
 }
 
 /// Error recovery: skips tokens up to (not including) one of `terminators` at nesting depth

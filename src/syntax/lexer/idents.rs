@@ -81,8 +81,14 @@ pub(super) fn lifetime_or_char(cursor: &mut Cursor, edition: Edition) -> Lexed {
 /// The rest of an identifier. From 2021 on, an identifier directly followed by `#`, `"` or `'`
 /// is a reserved prefix, such as `k#x` or `f"..."`.
 fn ident(cursor: &mut Cursor, edition: Edition) -> Lexed {
+    let start = cursor.pos();
     cursor.eat_while(is_ident_continue);
-    if edition >= Edition::E2021 && matches!(cursor.first(), Some('#' | '"' | '\'')) {
+    // `builtin#name(..)` is nightly built-in syntax, not a reserved prefix.
+    let builtin_pound = cursor.first() == Some('#') && cursor.consumed_since(start) == "uiltin";
+    if edition >= Edition::E2021
+        && matches!(cursor.first(), Some('#' | '"' | '\''))
+        && !builtin_pound
+    {
         (SyntaxKind::Ident, Some(LexError::ReservedPrefix))
     } else {
         (SyntaxKind::Ident, None)

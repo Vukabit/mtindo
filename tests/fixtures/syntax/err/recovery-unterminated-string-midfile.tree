@@ -1,0 +1,27 @@
+SOURCE_FILE@0..48
+  FN@0..48
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "a"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..48
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..13 "\n    "
+      LET_STMT@13..48
+        LET_KW@13..16 "let"
+        WHITESPACE@16..17 " "
+        IDENT_PAT@17..18
+          NAME@17..18
+            IDENT@17..18 "s"
+        WHITESPACE@18..19 " "
+        EQ@19..20 "="
+        WHITESPACE@20..21 " "
+        LITERAL@21..48
+          STRING@21..48 "\"never closed;\n}\nfn b() {}\n"
+error@21..48: string is not closed
+error@48..48: expected `;`
+error@48..48: expected `}`

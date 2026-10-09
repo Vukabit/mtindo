@@ -1,6 +1,6 @@
 //! Types.
 
-use super::{abi, expressions, generics, params, paths, token_tree};
+use super::{abi, at_builtin, builtin, expressions, generics, params, paths, token_tree};
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::{CompletedMarker, Parser};
 
@@ -20,6 +20,7 @@ pub(super) fn at_type_start(p: &Parser) -> bool {
         || p.at_kw("impl")
         || p.at_kw("dyn")
         || at_dyn_2015(p)
+        || at_builtin(p)
         || p.nth_text(0) == "_"
         || paths::at_path_start(p)
 }
@@ -181,13 +182,29 @@ fn type_inner(p: &mut Parser, allow_bounds: bool) {
         if p.at(SyntaxKind::Lifetime) {
             p.bump_any();
         }
-        p.eat_kw("mut", SyntaxKind::MutKw);
+        if p.at_contextual_kw("pin") && (p.nth_at_kw(1, "mut") || p.nth_at_kw(1, "const")) {
+            p.bump_any();
+            if !p.eat_kw("mut", SyntaxKind::MutKw) {
+                p.bump_remap(SyntaxKind::ConstKw);
+            }
+        } else {
+            p.eat_kw("mut", SyntaxKind::MutKw);
+        }
         type_no_bounds(p);
         m.complete(p, SyntaxKind::RefType);
     } else if p.nth_text(0) == "_" && p.current() == SyntaxKind::Ident {
         let m = p.start();
         p.bump_any();
         m.complete(p, SyntaxKind::InferType);
+    } else if p.at_kw("unsafe") && p.nth(1) == SyntaxKind::Lt {
+        // `unsafe<'a> T` (nightly unsafe binders).
+        let m = p.start();
+        p.bump_remap(SyntaxKind::UnsafeKw);
+        generics::generic_param_list(p);
+        type_no_bounds(p);
+        m.complete(p, SyntaxKind::UnsafeBinderType);
+    } else if at_builtin(p) {
+        builtin(p);
     } else if p.at_kw("fn") || p.at_kw("unsafe") || p.at_kw("extern") {
         let m = p.start();
         fn_ptr(p, m);

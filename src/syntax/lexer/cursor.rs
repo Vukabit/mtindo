@@ -26,6 +26,11 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// The text consumed since byte position `start`.
+    pub(super) fn consumed_since(&self, start: usize) -> &'a str {
+        &self.text[start..self.pos]
+    }
+
     pub(super) fn first(&self) -> Option<char> {
         self.rest().chars().next()
     }

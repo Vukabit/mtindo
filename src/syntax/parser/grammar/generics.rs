@@ -18,6 +18,7 @@ pub(super) fn at_bound_start(p: &Parser) -> bool {
         || p.at_kw("const")
         || p.at_kw("async")
         || p.at_kw("use")
+        || (p.at(SyntaxKind::LBrack) && p.nth_at_kw(1, "const"))
         || paths::at_path_start(p)
 }
 
@@ -109,6 +110,14 @@ fn at_assoc_arg(p: &Parser) -> bool {
         return false;
     }
     let mut n = 1;
+    // `method(..): Bound` (nightly return type notation).
+    if p.nth(1) == SyntaxKind::LParen
+        && p.nth(2) == SyntaxKind::Dot
+        && p.nth(3) == SyntaxKind::Dot
+        && p.nth(4) == SyntaxKind::RParen
+    {
+        return p.nth(5) == SyntaxKind::Colon && !p.nth_at(5, SyntaxKind::Colon2);
+    }
     if p.nth(1) == SyntaxKind::Lt {
         let mut depth = 0;
         loop {
@@ -174,6 +183,14 @@ fn bound(p: &mut Parser) {
             if p.eat_kw("const", SyntaxKind::ConstKw) || p.eat_kw("async", SyntaxKind::AsyncKw) {
                 continue;
             }
+            if p.at(SyntaxKind::LBrack) && p.nth_at_kw(1, "const") && p.nth(2) == SyntaxKind::RBrack
+            {
+                // `[const] Trait` (nightly).
+                p.bump(SyntaxKind::LBrack);
+                p.bump_remap(SyntaxKind::ConstKw);
+                p.bump(SyntaxKind::RBrack);
+                continue;
+            }
             break;
         }
         if p.at_kw("for") {
@@ -197,7 +214,11 @@ fn bump_literal(p: &mut Parser) {
 /// One generic argument.
 fn generic_arg(p: &mut Parser) -> bool {
     let m = p.start();
-    let kind = if p.at(SyntaxKind::Lifetime) {
+    let kind = if p.at(SyntaxKind::Lifetime) && p.nth(1) == SyntaxKind::Plus {
+        // `S<'static + Trait>`: a bare trait object led by a lifetime.
+        types::type_(p);
+        SyntaxKind::TypeArg
+    } else if p.at(SyntaxKind::Lifetime) {
         p.bump_any();
         SyntaxKind::LifetimeArg
     } else if p.at(SyntaxKind::LBrace) {
@@ -214,6 +235,8 @@ fn generic_arg(p: &mut Parser) -> bool {
         name_ref(p);
         if p.at(SyntaxKind::Lt) {
             generic_arg_list(p);
+        } else if p.at(SyntaxKind::LParen) {
+            paths::parenthesized_args(p);
         }
         if p.eat(SyntaxKind::Colon) {
             bounds(p);

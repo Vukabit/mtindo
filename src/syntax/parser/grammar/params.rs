@@ -44,7 +44,10 @@ fn at_self_param(p: &Parser) -> bool {
     if p.nth(n) == SyntaxKind::Lifetime {
         n += 1;
     }
-    if p.nth_at_kw(n, "mut") {
+    if p.nth_text(n) == "pin" && (p.nth_at_kw(n + 1, "mut") || p.nth_at_kw(n + 1, "const")) {
+        n += 1;
+    }
+    if p.nth_at_kw(n, "mut") || p.nth_at_kw(n, "const") {
         n += 1;
     }
     self_at(n)
@@ -111,8 +114,14 @@ fn pattern_before_colon(p: &Parser) -> bool {
 }
 
 fn self_param_body(p: &mut Parser) {
-    if p.eat(SyntaxKind::Amp) && p.at(SyntaxKind::Lifetime) {
-        p.bump_any();
+    if p.eat(SyntaxKind::Amp) {
+        if p.at(SyntaxKind::Lifetime) {
+            p.bump_any();
+        }
+        if p.at_contextual_kw("pin") {
+            p.bump_any();
+        }
+        p.eat_kw("const", SyntaxKind::ConstKw);
     }
     p.eat_kw("mut", SyntaxKind::MutKw);
     p.bump_remap(SyntaxKind::SelfKw);

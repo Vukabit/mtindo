@@ -21,6 +21,7 @@ pub enum LexError {
     EmptyChar,
     EmptyExponent,
     EmptyIntDigits,
+    IndentedFrontmatter,
     InvalidRawStringDelimiter,
     LifetimeStartsWithNumber,
     ReservedGuardedString,
@@ -28,6 +29,7 @@ pub enum LexError {
     TooManyRawStringHashes,
     UnknownChar,
     UnterminatedBlockComment,
+    UnterminatedFrontmatter,
     UnterminatedChar,
     UnterminatedRawString,
     UnterminatedString,
@@ -39,6 +41,7 @@ impl LexError {
             LexError::EmptyChar => "empty character literal",
             LexError::EmptyExponent => "float exponent has no digits",
             LexError::EmptyIntDigits => "number has a base prefix but no digits",
+            LexError::IndentedFrontmatter => "frontmatter fence must start its line",
             LexError::InvalidRawStringDelimiter => "raw string is missing its opening quote",
             LexError::LifetimeStartsWithNumber => "lifetime starts with a number",
             LexError::ReservedGuardedString => "`#\"` and `##` are reserved in edition 2024",
@@ -46,6 +49,7 @@ impl LexError {
             LexError::TooManyRawStringHashes => "raw string uses more than 255 `#`",
             LexError::UnknownChar => "character cannot start a token",
             LexError::UnterminatedBlockComment => "block comment is not closed",
+            LexError::UnterminatedFrontmatter => "frontmatter is not closed",
             LexError::UnterminatedChar => "character literal is not closed",
             LexError::UnterminatedRawString => "raw string is not closed",
             LexError::UnterminatedString => "string is not closed",
@@ -78,6 +82,42 @@ pub fn is_whitespace(c: char) -> bool {
     )
 }
 
+/// Splits floats that are really tuple-field chains. The lexer reads `x.0.1` as `x`, `.`,
+/// `0.1`, and `x.0. await` as `x`, `.`, `0.`, `await`, like rustc's lexer; rustc's parser then
+/// splits such floats. A float directly after a single `.` (not part of `..`) is always a
+/// field chain, so this pass splits `0.1` into `0` `.` `1` and `0.` into `0` `.`. The token
+/// texts still add up to the input.
+pub fn split_tuple_field_floats(text: &str, tokens: Vec<Token>) -> Vec<Token> {
+    let mut out: Vec<Token> = Vec::with_capacity(tokens.len());
+    let mut offset = 0;
+    for token in tokens {
+        let start = offset;
+        offset += token.len as usize;
+        let after_single_dot = out.last().is_some_and(|t| t.kind == SyntaxKind::Dot)
+            && !(out.len() >= 2 && out[out.len() - 2].kind == SyntaxKind::Dot);
+        let float_text = &text[start..offset];
+        let splittable = token.kind == SyntaxKind::FloatNumber
+            && token.error.is_none()
+            && after_single_dot
+            && float_text.split_once('.').is_some_and(|(whole, fraction)| {
+                !whole.is_empty()
+                    && whole.bytes().all(|b| b.is_ascii_digit())
+                    && fraction.bytes().all(|b| b.is_ascii_digit())
+            });
+        if !splittable {
+            out.push(token);
+            continue;
+        }
+        let (whole, fraction) = float_text.split_once('.').unwrap();
+        out.push(self::token(SyntaxKind::IntNumber, whole.len(), None));
+        out.push(self::token(SyntaxKind::Dot, 1, None));
+        if !fraction.is_empty() {
+            out.push(self::token(SyntaxKind::IntNumber, fraction.len(), None));
+        }
+    }
+    out
+}
+
 /// Splits `text` into tokens for the given edition.
 pub fn tokenize(text: &str, edition: Edition) -> Vec<Token> {
     let mut tokens = Vec::new();
@@ -91,6 +131,7 @@ pub fn tokenize(text: &str, edition: Edition) -> Vec<Token> {
         tokens.push(token(SyntaxKind::Shebang, len, None));
         offset += len;
     }
+    offset += frontmatter(&text[offset..], &mut tokens);
     let mut cursor = Cursor::new(&text[offset..]);
     while !cursor.is_eof() {
         let start = cursor.pos();
@@ -98,6 +139,41 @@ pub fn tokenize(text: &str, edition: Edition) -> Vec<Token> {
         tokens.push(token(kind, cursor.pos() - start, error));
     }
     tokens
+}
+
+/// Cargo-script frontmatter: a `---` fenced block before any other token (after an optional
+/// shebang and whitespace), closed by a line starting with the same number of dashes.
+/// Pushes the leading whitespace and the frontmatter token; returns the bytes consumed.
+fn frontmatter(text: &str, tokens: &mut Vec<Token>) -> usize {
+    let ws_len = text.len() - text.trim_start_matches(is_whitespace).len();
+    let rest = &text[ws_len..];
+    if !rest.starts_with("---") {
+        return 0;
+    }
+    let indented = ws_len > 0 && !text[..ws_len].ends_with('\n');
+    let start = if indented { 0 } else { ws_len };
+    if !indented && ws_len > 0 {
+        tokens.push(token(SyntaxKind::Whitespace, ws_len, None));
+    }
+    let dashes = rest.len() - rest.trim_start_matches('-').len();
+    let fence = format!("\n{}", "-".repeat(dashes));
+    let line_end = |from: usize| rest[from..].find('\n').map_or(rest.len(), |i| from + i);
+    let (end, mut error) = match rest.find(&fence) {
+        Some(at) => (line_end(at + fence.len()), None),
+        None => {
+            let recovery = rest.find("\n---").map(|at| line_end(at + 1));
+            (
+                recovery.unwrap_or(rest.len()),
+                Some(LexError::UnterminatedFrontmatter),
+            )
+        }
+    };
+    if indented {
+        error = error.or(Some(LexError::IndentedFrontmatter));
+    }
+    let len = ws_len - start + end;
+    tokens.push(token(SyntaxKind::Frontmatter, len, error));
+    ws_len + end
 }
 
 fn next_token(cursor: &mut Cursor, edition: Edition) -> Lexed {

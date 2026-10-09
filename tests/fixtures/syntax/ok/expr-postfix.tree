@@ -113,14 +113,18 @@ SOURCE_FILE@0..187
       WHITESPACE@103..108 "\n    "
       EXPR_STMT@108..114
         FIELD_EXPR@108..113
-          PATH_EXPR@108..109
-            PATH@108..109
-              PATH_SEGMENT@108..109
-                NAME_REF@108..109
-                  IDENT@108..109 "t"
-          DOT@109..110 "."
-          NAME_REF@110..113
-            FLOAT_NUMBER@110..113 "0.1"
+          FIELD_EXPR@108..111
+            PATH_EXPR@108..109
+              PATH@108..109
+                PATH_SEGMENT@108..109
+                  NAME_REF@108..109
+                    IDENT@108..109 "t"
+            DOT@109..110 "."
+            NAME_REF@110..111
+              INT_NUMBER@110..111 "0"
+          DOT@111..112 "."
+          NAME_REF@112..113
+            INT_NUMBER@112..113 "1"
         SEMICOLON@113..114 ";"
       WHITESPACE@114..119 "\n    "
       EXPR_STMT@119..127

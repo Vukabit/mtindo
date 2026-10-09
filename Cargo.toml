@@ -1,3 +1,7 @@
+[workspace]
+members = ["xtask"]
+exclude = ["fuzz"]
+
 [package]
 name = "mtindo"
 version = "0.1.1"

@@ -158,11 +158,17 @@ mto --restore /tmp/mtindo_backups/1700000000000_123_0_src_main.rs.bak src/main.r
 
 ## Development
 
-`scripts/run_tests.py` runs every gate and test suite and reports each as passed, failed or skipped (with the reason):
+`scripts/run_tests.py` runs every gate and test suite and reports each as passed, failed or skipped (with the reason). `scripts/run_tests.py -h` lists every group, task, flag and environment variable.
 
 ```bash
-scripts/run_tests.py            # gates (clippy, no runtime dependencies, rustfmt, mto on itself) and all tests
+scripts/run_tests.py            # gates and all tests (the default)
 scripts/run_tests.py --full     # also the 15 real-crate check (network), fuzzing (nightly) and benchmarks
 scripts/run_tests.py --list     # show the plan without running it
 scripts/run_tests.py --bless    # regenerate tests/fixtures expected outputs; review the diff before committing
+```
+
+Repository rules are also available directly through `xtask`, a development-only crate in this workspace:
+
+```bash
+cargo xtask gates               # mtindo has no runtime dependencies; modules only use lower layers
 ```

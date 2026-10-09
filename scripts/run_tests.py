@@ -8,6 +8,7 @@ Usage:
     scripts/run_tests.py --target snapshots  only one task, by id (see --list)
     scripts/run_tests.py --bless             regenerate regression fixtures, then show what changed
     scripts/run_tests.py --list              show the plan without running anything
+    scripts/run_tests.py -h                  every group, task id, flag and environment variable
 
 Exit codes: 0 when nothing failed (skips do not fail a run), 1 when anything failed,
 2 for bad arguments, 130 when interrupted.
@@ -15,6 +16,7 @@ Exit codes: 0 when nothing failed (skips do not fail a run), 1 when anything fai
 
 import argparse
 import os
+import re
 import pathlib
 import shutil
 import subprocess
@@ -50,10 +52,31 @@ if IS_TTY == False:
 GROUPS = ["gates", "tests", "heavy", "fuzz", "bench"]
 DEFAULT_GROUPS = ["gates", "tests"]
 
+# Shown by -h. Every group must have an entry; the help gate checks it.
+GROUP_INFO = {
+    "gates": "Repository rules: clippy, dependencies, layering, rustfmt, mto on itself, help text",
+    "tests": "Every test suite in tests/, plus library, binary and xtask unit tests",
+    "heavy": "15 real-world crates must still compile after formatting; needs git and network access",
+    "fuzz": "Each fuzz target for --fuzz-time seconds; needs nightly Rust and cargo-fuzz",
+    "bench": "Criterion benchmarks; slow, and report numbers rather than pass/fail",
+}
+
+ENV_BLESS = "MTINDO_BLESS"
+ENV_HEAVY = "MTINDO_HEAVY_TESTS"
+
+# Environment variables the runner sets for tasks. Shown by -h.
+ENV_VARS = [
+    (ENV_BLESS, "set to 1 for the snapshots task with --bless: rewrite expected outputs"),
+    (ENV_HEAVY, "set to 1 for domain_13_rw: run the real-world crate check instead of skipping it"),
+]
+
+DEFAULT_FUZZ_TIME = 10
+
 # Human titles for the test files, in run order. A test file missing from this table
 # still runs (under its file name) and triggers a warning, so nothing is skipped silently.
 TEST_REGISTRY = [
     ("lib", "Library and binary unit tests", "tests"),
+    ("xtask", "xtask unit tests: dependency and layering checks", "tests"),
     ("domain_1_unit", "Unit: config values, imports, item metadata", "tests"),
     ("domain_2_golden", "Golden layouts", "tests"),
     ("snapshots", "Regression fixtures", "tests"),
@@ -159,47 +182,53 @@ def tool_available(tool):
     return available
 
 
-def check_no_runtime_dependencies():
-    """Fails if Cargo.toml declares any runtime dependency (dev-dependencies are allowed)."""
-    lines = pathlib.Path("Cargo.toml").read_text(encoding="utf-8").splitlines()
-    section = ""
-    offending = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("["):
-            section = stripped
-            if section.startswith("[dependencies.") or section.startswith("[build-dependencies."):
-                offending.append(section)
-            continue
-        if stripped == "" or stripped.startswith("#"):
-            continue
-        is_runtime = section == "[dependencies]" or section == "[build-dependencies]"
-        if section.startswith("[target.") and section.endswith(".dependencies]"):
-            is_runtime = True
-        if is_runtime == True:
-            offending.append(section + " " + stripped)
-    if len(offending) == 0:
-        return 0, "[dependencies] is empty."
-    return 1, "Runtime dependencies are not allowed (D4):\n  " + "\n  ".join(offending)
+def check_help_text():
+    """Fails if -h leaves out any group, task id, flag or environment variable."""
+    code, output = run_process([sys.executable, "scripts/run_tests.py", "-h"], None)
+    if code != 0:
+        return code, output
+    missing = []
+    for group in GROUPS:
+        if group not in GROUP_INFO:
+            missing.append("group " + group + " has no GROUP_INFO entry")
+        if re.search(r"^\s+" + re.escape(group) + r"\s", output, re.MULTILINE) == None:
+            missing.append("group " + group)
+    for task in build_tasks(HelpDefaults(), False):
+        if re.search(r"^\s+" + re.escape(task.task_id) + r"\s", output, re.MULTILINE) == None:
+            missing.append("task " + task.task_id)
+    for action in build_parser()._actions:
+        for option in action.option_strings:
+            if option not in output:
+                missing.append("flag " + option)
+    for entry in ENV_VARS:
+        if entry[0] not in output:
+            missing.append("environment variable " + entry[0])
+    if len(missing) == 0:
+        return 0, "-h lists every group, task, flag and environment variable."
+    return 1, "Missing from -h:\n  " + "\n  ".join(missing)
 
 
-def build_tasks(args):
+def build_tasks(args, announce=True):
     tasks = []
 
     tasks.append(Task("clippy", "Clippy, warnings are errors", "gates",
-                      ["cargo", "clippy", "--all-targets", "--quiet", "--", "-D", "warnings"],
+                      ["cargo", "clippy", "--workspace", "--all-targets", "--quiet", "--", "-D", "warnings"],
                       requires=["clippy"]))
-    tasks.append(Task("deps", "No runtime dependencies", "gates", check_no_runtime_dependencies))
+    tasks.append(Task("deps", "No runtime dependencies", "gates",
+                      ["cargo", "xtask", "gates", "deps"]))
+    tasks.append(Task("layering", "Modules only use lower layers", "gates",
+                      ["cargo", "xtask", "gates", "layering"]))
     tasks.append(Task("rustfmt", "rustfmt agrees with the repo layout", "gates",
-                      ["cargo", "fmt", "--check"], requires=["rustfmt"]))
+                      ["cargo", "fmt", "--all", "--check"], requires=["rustfmt"]))
     tasks.append(Task("self-format", "mto formats itself", "gates",
                       ["cargo", "run", "--quiet", "--bin", "mto", "--", "--check", "."]))
     if pathlib.Path("fuzz").exists() == True:
         tasks.append(Task("fuzz-build", "Fuzz crate compiles", "gates",
                           ["cargo", "check", "--quiet", "--manifest-path", "fuzz/Cargo.toml"]))
+    tasks.append(Task("help", "-h lists every group, task, flag and variable", "gates", check_help_text))
 
     tasks.append(Task("build", "Build test binaries", "tests",
-                      ["cargo", "test", "--no-run", "--quiet"]))
+                      ["cargo", "test", "--workspace", "--no-run", "--quiet"]))
 
     test_files = []
     tests_dir = pathlib.Path("tests")
@@ -214,6 +243,8 @@ def build_tasks(args):
         registered.append(task_id)
         if task_id == "lib":
             command = ["cargo", "test", "--lib", "--bins", "--quiet"]
+        elif task_id == "xtask":
+            command = ["cargo", "test", "--package", "xtask", "--quiet"]
         elif task_id in test_files:
             command = ["cargo", "test", "--test", task_id, "--quiet"]
         else:
@@ -223,17 +254,18 @@ def build_tasks(args):
         if task_id == "snapshots":
             requires = ["rustc"]
             if args.bless == True:
-                env = {"MTINDO_BLESS": "1"}
+                env = {ENV_BLESS: "1"}
         if task_id == "domain_13_rw":
-            env = {"MTINDO_HEAVY_TESTS": "1"}
+            env = {ENV_HEAVY: "1"}
             requires = ["git"]
         tasks.append(Task(task_id, entry[1], entry[2], command, env=env, requires=requires))
 
     for task_id in test_files:
         if task_id not in registered:
-            warning = "tests/" + task_id + ".rs is not in TEST_REGISTRY; running it under its file name."
-            sys.stdout.write(COLOR_YELLOW + "warning: " + COLOR_RESET + warning + "\n")
-            logger.info("Warning: " + warning)
+            if announce == True:
+                warning = "tests/" + task_id + ".rs is not in TEST_REGISTRY; running it under its file name."
+                sys.stdout.write(COLOR_YELLOW + "warning: " + COLOR_RESET + warning + "\n")
+                logger.info("Warning: " + warning)
             tasks.append(Task(task_id, task_id, "tests", ["cargo", "test", "--test", task_id, "--quiet"]))
 
     fuzz_dir = pathlib.Path("fuzz") / "fuzz_targets"
@@ -450,21 +482,58 @@ def print_summary(tasks, elapsed):
     return failed
 
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(description="mtindo gates and test suites")
+class HelpDefaults:
+    """Stands in for parsed arguments when listing tasks for -h."""
+    bless = False
+    fuzz_time = DEFAULT_FUZZ_TIME
+
+
+def help_epilog():
+    lines = []
+    lines.append("groups (default: " + ", ".join(DEFAULT_GROUPS) + "):")
+    for group in GROUPS:
+        lines.append("  " + group.ljust(7) + GROUP_INFO.get(group, ""))
+    lines.append("")
+    lines.append("tasks (id, group, what it checks; run one with --target ID):")
+    for task in build_tasks(HelpDefaults(), False):
+        lines.append("  " + task.task_id.ljust(26) + task.group.ljust(7) + task.title)
+    lines.append("")
+    lines.append("environment variables the runner sets:")
+    for entry in ENV_VARS:
+        lines.append("  " + entry[0].ljust(20) + entry[1])
+    lines.append("")
+    lines.append("files:")
+    lines.append("  scripts/logs/run_tests.log   full output of every task")
+    lines.append("  scripts/logs/.last_success   last commit that passed a default or full run on a clean tree")
+    lines.append("")
+    lines.append("exit codes:")
+    lines.append("  0 nothing failed (skips never fail a run), 1 something failed, 2 bad arguments, 130 interrupted")
+    return "\n".join(lines)
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        description="Run mtindo's gates and test suites; report each as passed, failed or skipped with a reason.",
+        epilog=help_epilog(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--group", action="append", choices=GROUPS,
                         help="Run only this group; repeatable. Default: gates and tests.")
     parser.add_argument("--full", action="store_true",
                         help="Run every group, including heavy (network), fuzz (nightly) and bench.")
-    parser.add_argument("--target", type=str, default="",
-                        help="Run one task by id, whatever its group (see --list).")
-    parser.add_argument("--fuzz-time", type=int, default=10,
-                        help="Seconds to fuzz each target. Default: 10.")
+    parser.add_argument("--target", type=str, default="", metavar="ID",
+                        help="Run one task by id, whatever its group (ids are listed below).")
+    parser.add_argument("--fuzz-time", type=int, default=DEFAULT_FUZZ_TIME, metavar="SECONDS",
+                        help="Seconds to fuzz each target. Default: " + str(DEFAULT_FUZZ_TIME) + ".")
     parser.add_argument("--bless", action="store_true",
                         help="Regenerate the regression fixtures' expected outputs, then list what changed.")
     parser.add_argument("--list", action="store_true",
                         help="Show which tasks would run, without running them.")
-    return parser.parse_args()
+    return parser
+
+
+def parse_arguments():
+    return build_parser().parse_args()
 
 
 def main():

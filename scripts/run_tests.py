@@ -71,6 +71,7 @@ ENV_VARS = [
 ]
 
 DEFAULT_FUZZ_TIME = 10
+HELP_WIDTH = 100
 
 # Human titles for the test files, in run order. A test file missing from this table
 # still runs (under its file name) and triggers a warning, so nothing is skipped silently.
@@ -522,7 +523,8 @@ def build_parser():
     parser = argparse.ArgumentParser(
         description="Run mtindo's gates and test suites; report each as passed, failed or skipped with a reason.",
         epilog=help_epilog(),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        # A fixed width keeps -h identical in every terminal.
+        formatter_class=lambda prog: argparse.RawDescriptionHelpFormatter(prog, width=HELP_WIDTH),
     )
     parser.add_argument("--group", action="append", choices=GROUPS,
                         help="Run only this group; repeatable. Default: gates and tests.")

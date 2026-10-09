@@ -47,8 +47,10 @@ mto --dry-run src/
 mto --check src/
 
 # Read from stdin, write to stdout
-cat src/main.rs | mto
+cat src/main.rs | mto -
 ```
+
+Running `mto` with no arguments prints the short help, the same as `mto -h`, whether or not anything is piped in. Reading stdin always needs the explicit `-`.
 
 ### Options
 * `-c, --config <FILE>`: Use a specific `.toml` config file.
@@ -57,8 +59,12 @@ cat src/main.rs | mto
 * `-R, --recursive`: Format every `.rs` file under the current directory.
 * `--follow-links`: Also follow symlinked files and directories.
 * `-r, --restore <BACKUP> <TARGET>`: Atomically replace the target file with a backup.
+* `--dbg`: Print how each file was split into items.
 * `--man`: Print the embedded manual.
 * `-h, --help`: Print the short help menu.
+* `-V, --version`: Print the version.
+
+Output is colored only when it goes to a terminal. Set `NO_COLOR` to turn color off, or `FORCE_COLOR` to turn it on; `NO_COLOR` wins if both are set.
 
 ### Exit Codes
 | Code | Meaning |

@@ -268,7 +268,7 @@ pub fn apply_config_value(config: &mut LayoutConfig, key: &str, value: &str) -> 
 }
 
 pub fn c_cyan() -> &'static str {
-    if std::io::stdout().is_terminal() {
+    if color_enabled(false) {
         "\x1b[1;36m"
     } else {
         ""
@@ -276,7 +276,7 @@ pub fn c_cyan() -> &'static str {
 }
 
 pub fn c_green() -> &'static str {
-    if std::io::stdout().is_terminal() {
+    if color_enabled(false) {
         "\x1b[1;32m"
     } else {
         ""
@@ -284,7 +284,7 @@ pub fn c_green() -> &'static str {
 }
 
 pub fn c_red() -> &'static str {
-    if std::io::stderr().is_terminal() {
+    if color_enabled(true) {
         "\x1b[1;31m"
     } else {
         ""
@@ -292,21 +292,15 @@ pub fn c_red() -> &'static str {
 }
 
 pub fn c_reset(is_err: bool) -> &'static str {
-    let tty = if is_err {
-        std::io::stderr().is_terminal()
-    } else {
-        std::io::stdout().is_terminal()
-    };
-    if tty { "\x1b[0m" } else { "" }
+    if color_enabled(is_err) { "\x1b[0m" } else { "" }
 }
 
 pub fn c_yellow(is_err: bool) -> &'static str {
-    let tty = if is_err {
-        std::io::stderr().is_terminal()
+    if color_enabled(is_err) {
+        "\x1b[1;33m"
     } else {
-        std::io::stdout().is_terminal()
-    };
-    if tty { "\x1b[1;33m" } else { "" }
+        ""
+    }
 }
 
 pub fn classify_import(content: &str) -> ImportGroup {
@@ -338,6 +332,23 @@ pub fn classify_import(content: &str) -> ImportGroup {
         ImportGroup::Local
     } else {
         ImportGroup::External
+    }
+}
+
+/// Whether to color stdout (or stderr, with `is_err`). `NO_COLOR` turns color off and wins;
+/// otherwise `FORCE_COLOR` turns it on; otherwise color goes only to a terminal.
+pub fn color_enabled(is_err: bool) -> bool {
+    let set = |name: &str| env::var_os(name).is_some_and(|value| !value.is_empty());
+    if set("NO_COLOR") {
+        return false;
+    }
+    if set("FORCE_COLOR") {
+        return true;
+    }
+    if is_err {
+        std::io::stderr().is_terminal()
+    } else {
+        std::io::stdout().is_terminal()
     }
 }
 

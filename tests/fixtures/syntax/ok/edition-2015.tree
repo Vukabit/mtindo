@@ -10,10 +10,9 @@ SOURCE_FILE@0..124
       L_PAREN@25..26 "("
       R_PAREN@26..27 ")"
     WHITESPACE@27..28 " "
-    OPAQUE_BLOCK@28..30
-      TOKEN_TREE@28..30
-        L_BRACE@28..29 "{"
-        R_BRACE@29..30 "}"
+    BLOCK_EXPR@28..30
+      L_BRACE@28..29 "{"
+      R_BRACE@29..30 "}"
   WHITESPACE@30..31 "\n"
   TRAIT@31..70
     TRAIT_KW@31..36 "trait"

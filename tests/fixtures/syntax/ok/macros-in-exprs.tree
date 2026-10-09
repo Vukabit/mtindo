@@ -1,0 +1,146 @@
+SOURCE_FILE@0..177
+  FN@0..176
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..176
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..13 "\n    "
+      LET_STMT@13..35
+        LET_KW@13..16 "let"
+        WHITESPACE@16..17 " "
+        IDENT_PAT@17..18
+          NAME@17..18
+            IDENT@17..18 "v"
+        WHITESPACE@18..19 " "
+        EQ@19..20 "="
+        WHITESPACE@20..21 " "
+        MACRO_EXPR@21..34
+          MACRO_CALL@21..34
+            PATH@21..24
+              PATH_SEGMENT@21..24
+                NAME_REF@21..24
+                  IDENT@21..24 "vec"
+            BANG@24..25 "!"
+            TOKEN_TREE@25..34
+              L_BRACK@25..26 "["
+              INT_NUMBER@26..27 "1"
+              COMMA@27..28 ","
+              WHITESPACE@28..29 " "
+              INT_NUMBER@29..30 "2"
+              COMMA@30..31 ","
+              WHITESPACE@31..32 " "
+              INT_NUMBER@32..33 "3"
+              R_BRACK@33..34 "]"
+        SEMICOLON@34..35 ";"
+      WHITESPACE@35..40 "\n    "
+      EXPR_STMT@40..64
+        MACRO_EXPR@40..63
+          MACRO_CALL@40..63
+            PATH@40..47
+              PATH_SEGMENT@40..47
+                NAME_REF@40..47
+                  IDENT@40..47 "println"
+            BANG@47..48 "!"
+            TOKEN_TREE@48..63
+              L_PAREN@48..49 "("
+              STRING@49..53 "\"{}\""
+              COMMA@53..54 ","
+              WHITESPACE@54..55 " "
+              IDENT@55..56 "v"
+              DOT@56..57 "."
+              IDENT@57..60 "len"
+              TOKEN_TREE@60..62
+                L_PAREN@60..61 "("
+                R_PAREN@61..62 ")"
+              R_PAREN@62..63 ")"
+        SEMICOLON@63..64 ";"
+      WHITESPACE@64..69 "\n    "
+      EXPR_STMT@69..97
+        MACRO_EXPR@69..96
+          MACRO_CALL@69..96
+            PATH@69..75
+              PATH_SEGMENT@69..75
+                NAME_REF@69..75
+                  IDENT@69..75 "assert"
+            BANG@75..76 "!"
+            TOKEN_TREE@76..96
+              L_PAREN@76..77 "("
+              IDENT@77..84 "matches"
+              BANG@84..85 "!"
+              TOKEN_TREE@85..95
+                L_PAREN@85..86 "("
+                IDENT@86..87 "x"
+                COMMA@87..88 ","
+                WHITESPACE@88..89 " "
+                IDENT@89..90 "A"
+                WHITESPACE@90..91 " "
+                PIPE@91..92 "|"
+                WHITESPACE@92..93 " "
+                IDENT@93..94 "B"
+                R_PAREN@94..95 ")"
+              R_PAREN@95..96 ")"
+        SEMICOLON@96..97 ";"
+      WHITESPACE@97..102 "\n    "
+      EXPR_STMT@102..149
+        MACRO_EXPR@102..149
+          MACRO_CALL@102..149
+            PATH@102..114
+              PATH_SEGMENT@102..114
+                NAME_REF@102..114
+                  IDENT@102..114 "thread_local"
+            BANG@114..115 "!"
+            WHITESPACE@115..116 " "
+            TOKEN_TREE@116..149
+              L_BRACE@116..117 "{"
+              WHITESPACE@117..126 "\n        "
+              IDENT@126..132 "static"
+              WHITESPACE@132..133 " "
+              IDENT@133..134 "K"
+              COLON@134..135 ":"
+              WHITESPACE@135..136 " "
+              IDENT@136..138 "u8"
+              WHITESPACE@138..139 " "
+              EQ@139..140 "="
+              WHITESPACE@140..141 " "
+              INT_NUMBER@141..142 "0"
+              SEMICOLON@142..143 ";"
+              WHITESPACE@143..148 "\n    "
+              R_BRACE@148..149 "}"
+      WHITESPACE@149..154 "\n    "
+      LET_STMT@154..174
+        LET_KW@154..157 "let"
+        WHITESPACE@157..158 " "
+        IDENT_PAT@158..159
+          NAME@158..159
+            IDENT@158..159 "n"
+        WHITESPACE@159..160 " "
+        EQ@160..161 "="
+        WHITESPACE@161..162 " "
+        METHOD_CALL_EXPR@162..173
+          MACRO_EXPR@162..167
+            MACRO_CALL@162..167
+              PATH@162..163
+                PATH_SEGMENT@162..163
+                  NAME_REF@162..163
+                    IDENT@162..163 "m"
+              BANG@163..164 "!"
+              TOKEN_TREE@164..167
+                L_PAREN@164..165 "("
+                IDENT@165..166 "x"
+                R_PAREN@166..167 ")"
+          DOT@167..168 "."
+          NAME_REF@168..171
+            IDENT@168..171 "len"
+          ARG_LIST@171..173
+            L_PAREN@171..172 "("
+            R_PAREN@172..173 ")"
+        SEMICOLON@173..174 ";"
+      WHITESPACE@174..175 "\n"
+      R_BRACE@175..176 "}"
+  WHITESPACE@176..177 "\n"

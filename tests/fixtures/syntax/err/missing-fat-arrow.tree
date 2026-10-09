@@ -1,0 +1,42 @@
+SOURCE_FILE@0..44
+  FN@0..43
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..43
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..13 "\n    "
+      MATCH_EXPR@13..41
+        MATCH_KW@13..18 "match"
+        WHITESPACE@18..19 " "
+        PATH_EXPR@19..20
+          PATH@19..20
+            PATH_SEGMENT@19..20
+              NAME_REF@19..20
+                IDENT@19..20 "x"
+        WHITESPACE@20..21 " "
+        MATCH_ARM_LIST@21..41
+          L_BRACE@21..22 "{"
+          WHITESPACE@22..31 "\n        "
+          MATCH_ARM@31..35
+            IDENT_PAT@31..32
+              NAME@31..32
+                IDENT@31..32 "A"
+            WHITESPACE@32..33 " "
+            PATH_EXPR@33..34
+              PATH@33..34
+                PATH_SEGMENT@33..34
+                  NAME_REF@33..34
+                    IDENT@33..34 "B"
+            COMMA@34..35 ","
+          WHITESPACE@35..40 "\n    "
+          R_BRACE@40..41 "}"
+      WHITESPACE@41..42 "\n"
+      R_BRACE@42..43 "}"
+  WHITESPACE@43..44 "\n"
+error@33..33: expected `=>`

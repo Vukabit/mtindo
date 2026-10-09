@@ -43,10 +43,9 @@ SOURCE_FILE@0..71
       L_PAREN@44..45 "("
       R_PAREN@45..46 ")"
     WHITESPACE@46..47 " "
-    OPAQUE_BLOCK@47..49
-      TOKEN_TREE@47..49
-        L_BRACE@47..48 "{"
-        R_BRACE@48..49 "}"
+    BLOCK_EXPR@47..49
+      L_BRACE@47..48 "{"
+      R_BRACE@48..49 "}"
   WHITESPACE@49..50 "\n"
   MACRO_CALL@50..70
     PATH@50..55

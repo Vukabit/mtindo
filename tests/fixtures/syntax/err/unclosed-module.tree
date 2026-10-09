@@ -17,9 +17,8 @@ SOURCE_FILE@0..22
           L_PAREN@16..17 "("
           R_PAREN@17..18 ")"
         WHITESPACE@18..19 " "
-        OPAQUE_BLOCK@19..21
-          TOKEN_TREE@19..21
-            L_BRACE@19..20 "{"
-            R_BRACE@20..21 "}"
+        BLOCK_EXPR@19..21
+          L_BRACE@19..20 "{"
+          R_BRACE@20..21 "}"
   WHITESPACE@21..22 "\n"
 error@22..22: expected `}`

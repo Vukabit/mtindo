@@ -12,13 +12,17 @@ SOURCE_FILE@0..135
     WHITESPACE@11..12 " "
     EQ@12..13 "="
     WHITESPACE@13..14 " "
-    OPAQUE@14..27
-      IDENT@14..20 "assert"
-      BANG@20..21 "!"
-      TOKEN_TREE@21..27
-        L_PAREN@21..22 "("
-        IDENT@22..26 "true"
-        R_PAREN@26..27 ")"
+    MACRO_EXPR@14..27
+      MACRO_CALL@14..27
+        PATH@14..20
+          PATH_SEGMENT@14..20
+            NAME_REF@14..20
+              IDENT@14..20 "assert"
+        BANG@20..21 "!"
+        TOKEN_TREE@21..27
+          L_PAREN@21..22 "("
+          IDENT@22..26 "true"
+          R_PAREN@26..27 ")"
     SEMICOLON@27..28 ";"
   WHITESPACE@28..29 "\n"
   CONST@29..75
@@ -39,26 +43,35 @@ SOURCE_FILE@0..135
     WHITESPACE@51..52 " "
     EQ@52..53 "="
     WHITESPACE@53..54 " "
-    OPAQUE@54..74
-      TOKEN_TREE@54..74
-        L_BRACE@54..55 "{"
-        WHITESPACE@55..56 " "
-        IDENT@56..59 "let"
+    BLOCK_EXPR@54..74
+      L_BRACE@54..55 "{"
+      WHITESPACE@55..56 " "
+      LET_STMT@56..66
+        LET_KW@56..59 "let"
         WHITESPACE@59..60 " "
-        IDENT@60..61 "x"
+        IDENT_PAT@60..61
+          NAME@60..61
+            IDENT@60..61 "x"
         WHITESPACE@61..62 " "
         EQ@62..63 "="
         WHITESPACE@63..64 " "
-        INT_NUMBER@64..65 "1"
+        LITERAL@64..65
+          INT_NUMBER@64..65 "1"
         SEMICOLON@65..66 ";"
-        WHITESPACE@66..67 " "
-        IDENT@67..68 "x"
+      WHITESPACE@66..67 " "
+      BIN_EXPR@67..72
+        PATH_EXPR@67..68
+          PATH@67..68
+            PATH_SEGMENT@67..68
+              NAME_REF@67..68
+                IDENT@67..68 "x"
         WHITESPACE@68..69 " "
         PLUS@69..70 "+"
         WHITESPACE@70..71 " "
-        INT_NUMBER@71..72 "1"
-        WHITESPACE@72..73 " "
-        R_BRACE@73..74 "}"
+        LITERAL@71..72
+          INT_NUMBER@71..72 "1"
+      WHITESPACE@72..73 " "
+      R_BRACE@73..74 "}"
     SEMICOLON@74..75 ";"
   WHITESPACE@75..76 "\n"
   STATIC@76..102
@@ -78,7 +91,7 @@ SOURCE_FILE@0..135
     WHITESPACE@97..98 " "
     EQ@98..99 "="
     WHITESPACE@99..100 " "
-    OPAQUE@100..101
+    LITERAL@100..101
       INT_NUMBER@100..101 "0"
     SEMICOLON@101..102 ";"
   WHITESPACE@102..103 "\n"
@@ -106,14 +119,15 @@ SOURCE_FILE@0..135
     WHITESPACE@122..123 " "
     EQ@123..124 "="
     WHITESPACE@124..125 " "
-    OPAQUE@125..133
-      PIPE@125..126 "|"
-      PIPE@126..127 "|"
+    CLOSURE_EXPR@125..133
+      PARAM_LIST@125..127
+        PIPE2@125..127 "||"
       WHITESPACE@127..128 " "
-      TOKEN_TREE@128..133
+      BLOCK_EXPR@128..133
         L_BRACE@128..129 "{"
         WHITESPACE@129..130 " "
-        INT_NUMBER@130..131 "1"
+        LITERAL@130..131
+          INT_NUMBER@130..131 "1"
         WHITESPACE@131..132 " "
         R_BRACE@132..133 "}"
     SEMICOLON@133..134 ";"

@@ -1,0 +1,33 @@
+SOURCE_FILE@0..20
+  FN@0..19
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..19
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..9 " "
+      EXPR_STMT@9..17
+        METHOD_CALL_EXPR@9..16
+          PATH_EXPR@9..10
+            PATH@9..10
+              PATH_SEGMENT@9..10
+                NAME_REF@9..10
+                  IDENT@9..10 "x"
+          DOT@10..11 "."
+          NAME_REF@11..12
+            IDENT@11..12 "f"
+          GENERIC_ARG_LIST@12..14
+            COLON2@12..14 "::"
+          ARG_LIST@14..16
+            L_PAREN@14..15 "("
+            R_PAREN@15..16 ")"
+        SEMICOLON@16..17 ";"
+      WHITESPACE@17..18 " "
+      R_BRACE@18..19 "}"
+  WHITESPACE@19..20 "\n"
+error@14..14: expected `<`

@@ -1,6 +1,6 @@
 //! Types.
 
-use super::{abi, generics, opaque_until, params, paths, token_tree};
+use super::{abi, expressions, generics, params, paths, token_tree};
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::{CompletedMarker, Parser};
 
@@ -55,7 +55,7 @@ fn array_or_slice(p: &mut Parser) {
     p.bump(SyntaxKind::LBrack);
     type_(p);
     let kind = if p.eat(SyntaxKind::Semi) {
-        opaque_until(p, &[SyntaxKind::RBrack]);
+        expressions::expr(p);
         SyntaxKind::ArrayType
     } else {
         SyntaxKind::SliceType
@@ -207,6 +207,11 @@ fn type_inner(p: &mut Parser, allow_bounds: bool) {
             list.complete(p, SyntaxKind::TypeBoundList);
             m.complete(p, SyntaxKind::DynTraitType);
         }
+    } else if p.at(SyntaxKind::Lifetime) && allow_bounds {
+        // A bare trait object led by a lifetime: `'static + Trait` (2015 style).
+        let m = p.start();
+        generics::bounds(p);
+        m.complete(p, SyntaxKind::DynTraitType);
     } else if p.at_kw("impl") {
         let m = p.start();
         p.bump_remap(SyntaxKind::ImplKw);

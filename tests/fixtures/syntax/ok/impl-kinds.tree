@@ -167,8 +167,9 @@ SOURCE_FILE@0..219
         PARAM_LIST@150..162
           L_PAREN@150..151 "("
           PARAM@151..161
-            OPAQUE@151..152
-              IDENT@151..152 "s"
+            IDENT_PAT@151..152
+              NAME@151..152
+                IDENT@151..152 "s"
             COLON@152..153 ":"
             WHITESPACE@153..154 " "
             REF_TYPE@154..161
@@ -191,13 +192,16 @@ SOURCE_FILE@0..219
                 NAME_REF@166..170
                   SELF_TYPE_KW@166..170 "Self"
         WHITESPACE@170..171 " "
-        OPAQUE_BLOCK@171..188
-          TOKEN_TREE@171..188
-            L_BRACE@171..172 "{"
-            WHITESPACE@172..181 "\n        "
-            IDENT@181..182 "S"
-            WHITESPACE@182..187 "\n    "
-            R_BRACE@187..188 "}"
+        BLOCK_EXPR@171..188
+          L_BRACE@171..172 "{"
+          WHITESPACE@172..181 "\n        "
+          PATH_EXPR@181..182
+            PATH@181..182
+              PATH_SEGMENT@181..182
+                NAME_REF@181..182
+                  IDENT@181..182 "S"
+          WHITESPACE@182..187 "\n    "
+          R_BRACE@187..188 "}"
       WHITESPACE@188..189 "\n"
       R_BRACE@189..190 "}"
   WHITESPACE@190..191 "\n"

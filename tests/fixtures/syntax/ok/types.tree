@@ -44,7 +44,7 @@ SOURCE_FILE@0..418
                 IDENT@40..42 "u8"
         SEMICOLON@42..43 ";"
         WHITESPACE@43..44 " "
-        OPAQUE@44..45
+        LITERAL@44..45
           INT_NUMBER@44..45 "4"
         R_BRACK@45..46 "]"
     SEMICOLON@46..47 ";"
@@ -130,8 +130,9 @@ SOURCE_FILE@0..418
         COMMA@124..125 ","
         WHITESPACE@125..126 " "
         PARAM@126..131
-          OPAQUE@126..127
-            IDENT@126..127 "x"
+          IDENT_PAT@126..127
+            NAME@126..127
+              IDENT@126..127 "x"
           COLON@127..128 ":"
           WHITESPACE@128..129 " "
           PATH_TYPE@129..131

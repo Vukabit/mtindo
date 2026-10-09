@@ -1,0 +1,28 @@
+SOURCE_FILE@0..21
+  FN@0..20
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..20
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..13 "\n    "
+      EXPR_STMT@13..18
+        BIN_EXPR@13..16
+          PATH_EXPR@13..14
+            PATH@13..14
+              PATH_SEGMENT@13..14
+                NAME_REF@13..14
+                  IDENT@13..14 "x"
+          WHITESPACE@14..15 " "
+          PLUS@15..16 "+"
+        WHITESPACE@16..17 " "
+        SEMICOLON@17..18 ";"
+      WHITESPACE@18..19 "\n"
+      R_BRACE@19..20 "}"
+  WHITESPACE@20..21 "\n"
+error@17..17: expected an expression

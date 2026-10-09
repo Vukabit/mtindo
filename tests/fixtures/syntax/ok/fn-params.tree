@@ -22,10 +22,9 @@ SOURCE_FILE@0..212
             SELF_KW@18..22 "self"
           R_PAREN@22..23 ")"
         WHITESPACE@23..24 " "
-        OPAQUE_BLOCK@24..26
-          TOKEN_TREE@24..26
-            L_BRACE@24..25 "{"
-            R_BRACE@25..26 "}"
+        BLOCK_EXPR@24..26
+          L_BRACE@24..25 "{"
+          R_BRACE@25..26 "}"
       WHITESPACE@26..31 "\n    "
       FN@31..55
         FN_KW@31..33 "fn"
@@ -41,8 +40,9 @@ SOURCE_FILE@0..212
           COMMA@44..45 ","
           WHITESPACE@45..46 " "
           PARAM@46..51
-            OPAQUE@46..47
-              IDENT@46..47 "x"
+            IDENT_PAT@46..47
+              NAME@46..47
+                IDENT@46..47 "x"
             COLON@47..48 ":"
             WHITESPACE@48..49 " "
             PATH_TYPE@49..51
@@ -52,10 +52,9 @@ SOURCE_FILE@0..212
                     IDENT@49..51 "u8"
           R_PAREN@51..52 ")"
         WHITESPACE@52..53 " "
-        OPAQUE_BLOCK@53..55
-          TOKEN_TREE@53..55
-            L_BRACE@53..54 "{"
-            R_BRACE@54..55 "}"
+        BLOCK_EXPR@53..55
+          L_BRACE@53..54 "{"
+          R_BRACE@54..55 "}"
       WHITESPACE@55..60 "\n    "
       FN@60..74
         FN_KW@60..62 "fn"
@@ -69,10 +68,9 @@ SOURCE_FILE@0..212
             SELF_KW@66..70 "self"
           R_PAREN@70..71 ")"
         WHITESPACE@71..72 " "
-        OPAQUE_BLOCK@72..74
-          TOKEN_TREE@72..74
-            L_BRACE@72..73 "{"
-            R_BRACE@73..74 "}"
+        BLOCK_EXPR@72..74
+          L_BRACE@72..73 "{"
+          R_BRACE@73..74 "}"
       WHITESPACE@74..79 "\n    "
       FN@79..100
         FN_KW@79..81 "fn"
@@ -90,10 +88,9 @@ SOURCE_FILE@0..212
             SELF_KW@92..96 "self"
           R_PAREN@96..97 ")"
         WHITESPACE@97..98 " "
-        OPAQUE_BLOCK@98..100
-          TOKEN_TREE@98..100
-            L_BRACE@98..99 "{"
-            R_BRACE@99..100 "}"
+        BLOCK_EXPR@98..100
+          L_BRACE@98..99 "{"
+          R_BRACE@99..100 "}"
       WHITESPACE@100..105 "\n    "
       FN@105..129
         FN_KW@105..107 "fn"
@@ -122,10 +119,9 @@ SOURCE_FILE@0..212
                     R_ANGLE@124..125 ">"
           R_PAREN@125..126 ")"
         WHITESPACE@126..127 " "
-        OPAQUE_BLOCK@127..129
-          TOKEN_TREE@127..129
-            L_BRACE@127..128 "{"
-            R_BRACE@128..129 "}"
+        BLOCK_EXPR@127..129
+          L_BRACE@127..128 "{"
+          R_BRACE@128..129 "}"
       WHITESPACE@129..134 "\n    "
       FN@134..209
         FN_KW@134..136 "fn"
@@ -142,14 +138,17 @@ SOURCE_FILE@0..212
           COMMA@148..149 ","
           WHITESPACE@149..150 " "
           PARAM@150..166
-            OPAQUE@150..156
-              TOKEN_TREE@150..156
-                L_PAREN@150..151 "("
-                IDENT@151..152 "a"
-                COMMA@152..153 ","
-                WHITESPACE@153..154 " "
-                IDENT@154..155 "b"
-                R_PAREN@155..156 ")"
+            TUPLE_PAT@150..156
+              L_PAREN@150..151 "("
+              IDENT_PAT@151..152
+                NAME@151..152
+                  IDENT@151..152 "a"
+              COMMA@152..153 ","
+              WHITESPACE@153..154 " "
+              IDENT_PAT@154..155
+                NAME@154..155
+                  IDENT@154..155 "b"
+              R_PAREN@155..156 ")"
             COLON@156..157 ":"
             WHITESPACE@157..158 " "
             TUPLE_TYPE@158..166
@@ -170,7 +169,7 @@ SOURCE_FILE@0..212
           COMMA@166..167 ","
           WHITESPACE@167..168 " "
           PARAM@168..173
-            OPAQUE@168..169
+            WILDCARD_PAT@168..169
               IDENT@168..169 "_"
             COLON@169..170 ":"
             WHITESPACE@170..171 " "
@@ -182,17 +181,24 @@ SOURCE_FILE@0..212
           COMMA@173..174 ","
           WHITESPACE@174..175 " "
           PARAM@175..193
-            OPAQUE@175..188
-              IDENT@175..178 "Foo"
+            RECORD_PAT@175..188
+              PATH@175..178
+                PATH_SEGMENT@175..178
+                  NAME_REF@175..178
+                    IDENT@175..178 "Foo"
               WHITESPACE@178..179 " "
-              TOKEN_TREE@179..188
+              RECORD_PAT_FIELD_LIST@179..188
                 L_BRACE@179..180 "{"
                 WHITESPACE@180..181 " "
-                IDENT@181..182 "x"
+                RECORD_PAT_FIELD@181..182
+                  IDENT_PAT@181..182
+                    NAME@181..182
+                      IDENT@181..182 "x"
                 COMMA@182..183 ","
                 WHITESPACE@183..184 " "
-                DOT@184..185 "."
-                DOT@185..186 "."
+                RECORD_PAT_FIELD@184..186
+                  REST_PAT@184..186
+                    DOT2@184..186 ".."
                 WHITESPACE@186..187 " "
                 R_BRACE@187..188 "}"
             COLON@188..189 ":"
@@ -205,14 +211,20 @@ SOURCE_FILE@0..212
           COMMA@193..194 ","
           WHITESPACE@194..195 " "
           PARAM@195..205
-            OPAQUE@195..202
-              IDENT@195..196 "E"
-              COLON2@196..198 "::"
-              IDENT@198..199 "A"
-              TOKEN_TREE@199..202
-                L_PAREN@199..200 "("
-                IDENT@200..201 "y"
-                R_PAREN@201..202 ")"
+            TUPLE_STRUCT_PAT@195..202
+              PATH@195..199
+                PATH_SEGMENT@195..196
+                  NAME_REF@195..196
+                    IDENT@195..196 "E"
+                COLON2@196..198 "::"
+                PATH_SEGMENT@198..199
+                  NAME_REF@198..199
+                    IDENT@198..199 "A"
+              L_PAREN@199..200 "("
+              IDENT_PAT@200..201
+                NAME@200..201
+                  IDENT@200..201 "y"
+              R_PAREN@201..202 ")"
             COLON@202..203 ":"
             WHITESPACE@203..204 " "
             PATH_TYPE@204..205
@@ -222,10 +234,9 @@ SOURCE_FILE@0..212
                     IDENT@204..205 "E"
           R_PAREN@205..206 ")"
         WHITESPACE@206..207 " "
-        OPAQUE_BLOCK@207..209
-          TOKEN_TREE@207..209
-            L_BRACE@207..208 "{"
-            R_BRACE@208..209 "}"
+        BLOCK_EXPR@207..209
+          L_BRACE@207..208 "{"
+          R_BRACE@208..209 "}"
       WHITESPACE@209..210 "\n"
       R_BRACE@210..211 "}"
   WHITESPACE@211..212 "\n"

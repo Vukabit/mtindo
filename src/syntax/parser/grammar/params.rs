@@ -1,7 +1,7 @@
 //! Parameter lists of functions and function pointer types.
 
 use super::attributes::outer_attrs;
-use super::{at_open_delim, token_tree, types};
+use super::{patterns, types};
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::Parser;
 
@@ -19,9 +19,7 @@ pub(super) fn param_list(p: &mut Parser, flavor: Flavor) {
     p.bump(SyntaxKind::LParen);
     let mut first = true;
     while !p.at(SyntaxKind::RParen) && !p.is_eof() {
-        if first && flavor == Flavor::FnDef && at_self_param(p) {
-            self_param(p);
-        } else if !param(p) {
+        if !param(p, first && flavor == Flavor::FnDef) {
             break;
         }
         first = false;
@@ -53,16 +51,22 @@ fn at_self_param(p: &Parser) -> bool {
 }
 
 /// One parameter: `pattern: Type`, a bare `Type`, or a C-variadic `...`.
-fn param(p: &mut Parser) -> bool {
+/// One parameter, or a `self` parameter when `allow_self`; attributes may precede either.
+fn param(p: &mut Parser, allow_self: bool) -> bool {
     let m = p.start();
     outer_attrs(p);
+    if allow_self && at_self_param(p) {
+        self_param_body(p);
+        m.complete(p, SyntaxKind::SelfParam);
+        return true;
+    }
     if p.eat(SyntaxKind::Dot3) {
         m.complete(p, SyntaxKind::Param);
         return true;
     }
     if pattern_before_colon(p) {
-        pattern_placeholder(p);
-        p.bump(SyntaxKind::Colon);
+        patterns::pattern_single(p);
+        p.expect(SyntaxKind::Colon);
         if !p.eat(SyntaxKind::Dot3) {
             types::type_(p);
         }
@@ -106,21 +110,7 @@ fn pattern_before_colon(p: &Parser) -> bool {
     }
 }
 
-/// The pattern of a parameter, kept unparsed until patterns are parsed (stage 1 M5).
-fn pattern_placeholder(p: &mut Parser) {
-    let m = p.start();
-    while !p.is_eof() && !(p.at(SyntaxKind::Colon) && !p.at(SyntaxKind::Colon2)) {
-        if at_open_delim(p) {
-            token_tree(p);
-        } else if !p.eat(SyntaxKind::Colon2) {
-            p.bump_any();
-        }
-    }
-    m.complete(p, SyntaxKind::Opaque);
-}
-
-fn self_param(p: &mut Parser) {
-    let m = p.start();
+fn self_param_body(p: &mut Parser) {
     if p.eat(SyntaxKind::Amp) && p.at(SyntaxKind::Lifetime) {
         p.bump_any();
     }
@@ -129,5 +119,4 @@ fn self_param(p: &mut Parser) {
     if p.eat(SyntaxKind::Colon) {
         types::type_(p);
     }
-    m.complete(p, SyntaxKind::SelfParam);
 }

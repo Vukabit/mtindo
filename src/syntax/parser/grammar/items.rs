@@ -2,204 +2,16 @@
 //! macros, plus the fields, variants and `use` trees inside them.
 
 use super::attributes::{inner_attrs, outer_attrs};
+use super::expressions;
 use super::{
-    abi, at_open_delim, error_bump, generics, name, name_ref, nth_at_name, opaque_block,
-    opaque_until, params, paths, token_tree, types, visibility,
+    abi, at_open_delim, error_bump, generics, name, name_ref, nth_at_name, params, paths,
+    token_tree, types, visibility,
 };
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::Parser;
 
-/// Items until the end of the file, or until `}` when inside braces.
-pub(super) fn item_list_contents(p: &mut Parser, in_braces: bool) {
-    loop {
-        if p.is_eof() {
-            return;
-        }
-        if p.at(SyntaxKind::RBrace) {
-            if in_braces {
-                return;
-            }
-            error_bump(p, "unmatched `}`");
-            continue;
-        }
-        item_or_recover(p);
-    }
-}
-
-/// True if an item could start here; used to resynchronise after an error.
-fn at_item_start(p: &Parser) -> bool {
-    const KEYWORDS: &[&str] = &[
-        "pub", "fn", "struct", "enum", "trait", "impl", "type", "const", "static", "use", "mod",
-        "extern", "unsafe", "async",
-    ];
-    matches!(
-        p.current(),
-        SyntaxKind::Pound | SyntaxKind::OuterLineDoc | SyntaxKind::OuterBlockDoc
-    ) || KEYWORDS.iter().any(|kw| p.at_kw(kw))
-        || (p.at_contextual_kw("union") && nth_at_name(p, 1))
-        || (p.at_contextual_kw("auto") && p.nth_at_kw(1, "trait"))
-        || (p.at_contextual_kw("macro_rules") && p.nth(1) == SyntaxKind::Bang)
-        || at_macro_call(p)
-}
-
-/// `path!` followed by a delimiter, at item position.
-fn at_macro_call(p: &Parser) -> bool {
-    let mut n = 0;
-    if p.nth_at(0, SyntaxKind::Colon2) {
-        n = 2;
-    }
-    loop {
-        let segment = nth_at_name(p, n)
-            || p.nth_at_kw(n, "self")
-            || p.nth_at_kw(n, "super")
-            || p.nth_at_kw(n, "crate");
-        if !segment {
-            return false;
-        }
-        n += 1;
-        if p.nth_at(n, SyntaxKind::Colon2) {
-            n += 2;
-            continue;
-        }
-        break;
-    }
-    p.nth(n) == SyntaxKind::Bang
-        && matches!(
-            p.nth(n + 1),
-            SyntaxKind::LParen | SyntaxKind::LBrack | SyntaxKind::LBrace
-        )
-}
-
-/// `const NAME: Type = value;` (also `const _`).
-fn const_item(p: &mut Parser) -> SyntaxKind {
-    p.bump_remap(SyntaxKind::ConstKw);
-    name(p);
-    if p.at(SyntaxKind::Lt) {
-        generics::generic_param_list(p);
-    }
-    if p.eat(SyntaxKind::Colon) {
-        types::type_(p);
-    }
-    if p.eat(SyntaxKind::Eq) {
-        opaque_until(p, &[SyntaxKind::Semi]);
-    }
-    generics::where_clause(p);
-    p.expect(SyntaxKind::Semi);
-    SyntaxKind::Const
-}
-
-fn enum_item(p: &mut Parser) -> SyntaxKind {
-    p.bump_remap(SyntaxKind::EnumKw);
-    name(p);
-    if p.at(SyntaxKind::Lt) {
-        generics::generic_param_list(p);
-    }
-    generics::where_clause(p);
-    if p.at(SyntaxKind::LBrace) {
-        variant_list(p);
-    } else {
-        p.error("expected `{`");
-    }
-    SyntaxKind::Enum
-}
-
-/// `extern { ... }` or `unsafe extern "C" { ... }`.
-fn extern_block(p: &mut Parser) -> SyntaxKind {
-    p.eat_kw("unsafe", SyntaxKind::UnsafeKw);
-    abi(p);
-    item_list(p, SyntaxKind::ExternItemList);
-    SyntaxKind::ExternBlock
-}
-
-/// `extern crate name;` or `extern crate name as alias;`.
-fn extern_crate(p: &mut Parser) -> SyntaxKind {
-    p.bump_remap(SyntaxKind::ExternKw);
-    p.bump_remap(SyntaxKind::CrateKw);
-    name_ref(p);
-    rename(p);
-    p.expect(SyntaxKind::Semi);
-    SyntaxKind::ExternCrate
-}
-
-/// A function with any of `const`, `async`, `unsafe`, `safe` and `extern "abi"` before `fn`.
-fn fn_item(p: &mut Parser) -> SyntaxKind {
-    loop {
-        if p.eat_kw("const", SyntaxKind::ConstKw)
-            || p.eat_kw("async", SyntaxKind::AsyncKw)
-            || p.eat_kw("unsafe", SyntaxKind::UnsafeKw)
-            || p.eat_contextual_kw("safe", SyntaxKind::SafeKw)
-        {
-            continue;
-        }
-        if p.at_kw("extern") {
-            abi(p);
-            continue;
-        }
-        break;
-    }
-    if !p.eat_kw("fn", SyntaxKind::FnKw) {
-        p.error("expected `fn`");
-        return SyntaxKind::Fn;
-    }
-    name(p);
-    if p.at(SyntaxKind::Lt) {
-        generics::generic_param_list(p);
-    }
-    if p.at(SyntaxKind::LParen) {
-        params::param_list(p, params::Flavor::FnDef);
-    } else {
-        p.error("expected `(`");
-    }
-    if p.at(SyntaxKind::ThinArrow) {
-        types::ret_type(p);
-    }
-    generics::where_clause(p);
-    if p.at(SyntaxKind::LBrace) {
-        opaque_block(p);
-    } else {
-        p.expect(SyntaxKind::Semi);
-    }
-    SyntaxKind::Fn
-}
-
-/// After `impl`: whether `<` opens generic parameters (`impl<T> X`) rather than a qualified
-/// path (`impl <T as Trait>::Assoc`).
-fn impl_generics_follow(p: &Parser) -> bool {
-    if !p.at(SyntaxKind::Lt) {
-        return false;
-    }
-    if matches!(p.nth(1), SyntaxKind::Gt | SyntaxKind::Pound) || p.nth_at_kw(1, "const") {
-        return true;
-    }
-    (p.nth(1) == SyntaxKind::Lifetime || nth_at_name(p, 1))
-        && matches!(
-            p.nth(2),
-            SyntaxKind::Gt | SyntaxKind::Comma | SyntaxKind::Colon | SyntaxKind::Eq
-        )
-}
-
-/// `impl<T> Trait for Type where ... { ... }`, also `unsafe`, `const` and negative impls.
-fn impl_item(p: &mut Parser) -> SyntaxKind {
-    p.eat_kw("unsafe", SyntaxKind::UnsafeKw);
-    p.bump_remap(SyntaxKind::ImplKw);
-    if impl_generics_follow(p) {
-        generics::generic_param_list(p);
-    }
-    p.eat_kw("const", SyntaxKind::ConstKw);
-    if p.at(SyntaxKind::Bang) && paths::nth_at_path_start(p, 1) {
-        p.bump(SyntaxKind::Bang);
-    }
-    types::type_no_bounds(p);
-    if p.eat_kw("for", SyntaxKind::ForKw) {
-        types::type_no_bounds(p);
-    }
-    generics::where_clause(p);
-    item_list(p, SyntaxKind::AssocItemList);
-    SyntaxKind::Impl
-}
-
 /// The item that follows any attributes, or `None` if no item starts here.
-fn item(p: &mut Parser) -> Option<SyntaxKind> {
+pub(super) fn item(p: &mut Parser) -> Option<SyntaxKind> {
     if p.at_contextual_kw("macro_rules") && p.nth(1) == SyntaxKind::Bang && nth_at_name(p, 2) {
         return Some(macro_rules(p));
     }
@@ -299,6 +111,195 @@ fn item(p: &mut Parser) -> Option<SyntaxKind> {
     Some(kind)
 }
 
+/// Items until the end of the file, or until `}` when inside braces.
+pub(super) fn item_list_contents(p: &mut Parser, in_braces: bool) {
+    loop {
+        if p.is_eof() {
+            return;
+        }
+        if p.at(SyntaxKind::RBrace) {
+            if in_braces {
+                return;
+            }
+            error_bump(p, "unmatched `}`");
+            continue;
+        }
+        item_or_recover(p);
+    }
+}
+
+/// True if an item could start here; used to resynchronise after an error.
+fn at_item_start(p: &Parser) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "pub", "fn", "struct", "enum", "trait", "impl", "type", "const", "static", "use", "mod",
+        "extern", "unsafe", "async",
+    ];
+    matches!(
+        p.current(),
+        SyntaxKind::Pound | SyntaxKind::OuterLineDoc | SyntaxKind::OuterBlockDoc
+    ) || KEYWORDS.iter().any(|kw| p.at_kw(kw))
+        || (p.at_contextual_kw("union") && nth_at_name(p, 1))
+        || (p.at_contextual_kw("auto") && p.nth_at_kw(1, "trait"))
+        || (p.at_contextual_kw("macro_rules") && p.nth(1) == SyntaxKind::Bang)
+        || at_macro_call(p)
+}
+
+/// `path!` followed by a delimiter, at item position.
+fn at_macro_call(p: &Parser) -> bool {
+    let mut n = 0;
+    if p.nth_at(0, SyntaxKind::Colon2) {
+        n = 2;
+    }
+    loop {
+        let segment = nth_at_name(p, n)
+            || p.nth_at_kw(n, "self")
+            || p.nth_at_kw(n, "super")
+            || p.nth_at_kw(n, "crate");
+        if !segment {
+            return false;
+        }
+        n += 1;
+        if p.nth_at(n, SyntaxKind::Colon2) {
+            n += 2;
+            continue;
+        }
+        break;
+    }
+    p.nth(n) == SyntaxKind::Bang
+        && matches!(
+            p.nth(n + 1),
+            SyntaxKind::LParen | SyntaxKind::LBrack | SyntaxKind::LBrace
+        )
+}
+
+/// `const NAME: Type = value;` (also `const _`).
+fn const_item(p: &mut Parser) -> SyntaxKind {
+    p.bump_remap(SyntaxKind::ConstKw);
+    name(p);
+    if p.at(SyntaxKind::Lt) {
+        generics::generic_param_list(p);
+    }
+    if p.eat(SyntaxKind::Colon) {
+        types::type_(p);
+    }
+    if p.eat(SyntaxKind::Eq) {
+        expressions::expr(p);
+    }
+    generics::where_clause(p);
+    p.expect(SyntaxKind::Semi);
+    SyntaxKind::Const
+}
+
+fn enum_item(p: &mut Parser) -> SyntaxKind {
+    p.bump_remap(SyntaxKind::EnumKw);
+    name(p);
+    if p.at(SyntaxKind::Lt) {
+        generics::generic_param_list(p);
+    }
+    generics::where_clause(p);
+    if p.at(SyntaxKind::LBrace) {
+        variant_list(p);
+    } else {
+        p.error("expected `{`");
+    }
+    SyntaxKind::Enum
+}
+
+/// `extern { ... }` or `unsafe extern "C" { ... }`.
+fn extern_block(p: &mut Parser) -> SyntaxKind {
+    p.eat_kw("unsafe", SyntaxKind::UnsafeKw);
+    abi(p);
+    item_list(p, SyntaxKind::ExternItemList);
+    SyntaxKind::ExternBlock
+}
+
+/// `extern crate name;` or `extern crate name as alias;`.
+fn extern_crate(p: &mut Parser) -> SyntaxKind {
+    p.bump_remap(SyntaxKind::ExternKw);
+    p.bump_remap(SyntaxKind::CrateKw);
+    name_ref(p);
+    rename(p);
+    p.expect(SyntaxKind::Semi);
+    SyntaxKind::ExternCrate
+}
+
+/// A function with any of `const`, `async`, `unsafe`, `safe` and `extern "abi"` before `fn`.
+fn fn_item(p: &mut Parser) -> SyntaxKind {
+    loop {
+        if p.eat_kw("const", SyntaxKind::ConstKw)
+            || p.eat_kw("async", SyntaxKind::AsyncKw)
+            || p.eat_kw("unsafe", SyntaxKind::UnsafeKw)
+            || p.eat_contextual_kw("safe", SyntaxKind::SafeKw)
+        {
+            continue;
+        }
+        if p.at_kw("extern") {
+            abi(p);
+            continue;
+        }
+        break;
+    }
+    if !p.eat_kw("fn", SyntaxKind::FnKw) {
+        p.error("expected `fn`");
+        return SyntaxKind::Fn;
+    }
+    name(p);
+    if p.at(SyntaxKind::Lt) {
+        generics::generic_param_list(p);
+    }
+    if p.at(SyntaxKind::LParen) {
+        params::param_list(p, params::Flavor::FnDef);
+    } else {
+        p.error("expected `(`");
+    }
+    if p.at(SyntaxKind::ThinArrow) {
+        types::ret_type(p);
+    }
+    generics::where_clause(p);
+    if p.at(SyntaxKind::LBrace) {
+        expressions::block_expr(p);
+    } else {
+        p.expect(SyntaxKind::Semi);
+    }
+    SyntaxKind::Fn
+}
+
+/// After `impl`: whether `<` opens generic parameters (`impl<T> X`) rather than a qualified
+/// path (`impl <T as Trait>::Assoc`).
+fn impl_generics_follow(p: &Parser) -> bool {
+    if !p.at(SyntaxKind::Lt) {
+        return false;
+    }
+    if matches!(p.nth(1), SyntaxKind::Gt | SyntaxKind::Pound) || p.nth_at_kw(1, "const") {
+        return true;
+    }
+    (p.nth(1) == SyntaxKind::Lifetime || nth_at_name(p, 1))
+        && matches!(
+            p.nth(2),
+            SyntaxKind::Gt | SyntaxKind::Comma | SyntaxKind::Colon | SyntaxKind::Eq
+        )
+}
+
+/// `impl<T> Trait for Type where ... { ... }`, also `unsafe`, `const` and negative impls.
+fn impl_item(p: &mut Parser) -> SyntaxKind {
+    p.eat_kw("unsafe", SyntaxKind::UnsafeKw);
+    p.bump_remap(SyntaxKind::ImplKw);
+    if impl_generics_follow(p) {
+        generics::generic_param_list(p);
+    }
+    p.eat_kw("const", SyntaxKind::ConstKw);
+    if p.at(SyntaxKind::Bang) && paths::nth_at_path_start(p, 1) {
+        p.bump(SyntaxKind::Bang);
+    }
+    types::type_no_bounds(p);
+    if p.eat_kw("for", SyntaxKind::ForKw) {
+        types::type_no_bounds(p);
+    }
+    generics::where_clause(p);
+    item_list(p, SyntaxKind::AssocItemList);
+    SyntaxKind::Impl
+}
+
 /// `{ inner attributes, items }`, completed as `kind`.
 fn item_list(p: &mut Parser, kind: SyntaxKind) {
     if !p.at(SyntaxKind::LBrace) {
@@ -336,7 +337,7 @@ fn item_or_recover(p: &mut Parser) {
 /// `path!(...)`, `path![...];` or `path! { ... }` at item position.
 fn macro_call(p: &mut Parser) -> SyntaxKind {
     paths::path(p, paths::Mode::Simple);
-    p.bump(SyntaxKind::Bang);
+    p.expect(SyntaxKind::Bang);
     let braced = p.at(SyntaxKind::LBrace);
     token_tree(p);
     if !braced {
@@ -400,7 +401,7 @@ fn record_field_list(p: &mut Parser) {
         p.expect(SyntaxKind::Colon);
         types::type_(p);
         if p.eat(SyntaxKind::Eq) {
-            opaque_until(p, &[SyntaxKind::Comma, SyntaxKind::RBrace]);
+            expressions::expr(p);
         }
         f.complete(p, SyntaxKind::RecordField);
         if !p.eat(SyntaxKind::Comma) {
@@ -448,7 +449,7 @@ fn static_item(p: &mut Parser) -> SyntaxKind {
     p.expect(SyntaxKind::Colon);
     types::type_(p);
     if p.eat(SyntaxKind::Eq) {
-        opaque_until(p, &[SyntaxKind::Semi]);
+        expressions::expr(p);
     }
     p.expect(SyntaxKind::Semi);
     SyntaxKind::Static
@@ -627,7 +628,7 @@ fn variant_list(p: &mut Parser) {
             tuple_field_list(p);
         }
         if p.eat(SyntaxKind::Eq) {
-            opaque_until(p, &[SyntaxKind::Comma, SyntaxKind::RBrace]);
+            expressions::expr(p);
         }
         v.complete(p, SyntaxKind::Variant);
         if !p.eat(SyntaxKind::Comma) {

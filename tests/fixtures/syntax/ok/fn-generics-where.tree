@@ -86,8 +86,9 @@ SOURCE_FILE@0..200
     PARAM_LIST@77..87
       L_PAREN@77..78 "("
       PARAM@78..86
-        OPAQUE@78..79
-          IDENT@78..79 "t"
+        IDENT_PAT@78..79
+          NAME@78..79
+            IDENT@78..79 "t"
         COLON@79..80 ":"
         WHITESPACE@80..81 " "
         REF_TYPE@81..86
@@ -213,15 +214,19 @@ SOURCE_FILE@0..200
             LIFETIME@180..182 "'a"
       COMMA@182..183 ","
     WHITESPACE@183..184 "\n"
-    OPAQUE_BLOCK@184..199
-      TOKEN_TREE@184..199
-        L_BRACE@184..185 "{"
-        WHITESPACE@185..190 "\n    "
-        IDENT@190..194 "todo"
-        BANG@194..195 "!"
-        TOKEN_TREE@195..197
-          L_PAREN@195..196 "("
-          R_PAREN@196..197 ")"
-        WHITESPACE@197..198 "\n"
-        R_BRACE@198..199 "}"
+    BLOCK_EXPR@184..199
+      L_BRACE@184..185 "{"
+      WHITESPACE@185..190 "\n    "
+      MACRO_EXPR@190..197
+        MACRO_CALL@190..197
+          PATH@190..194
+            PATH_SEGMENT@190..194
+              NAME_REF@190..194
+                IDENT@190..194 "todo"
+          BANG@194..195 "!"
+          TOKEN_TREE@195..197
+            L_PAREN@195..196 "("
+            R_PAREN@196..197 ")"
+      WHITESPACE@197..198 "\n"
+      R_BRACE@198..199 "}"
   WHITESPACE@199..200 "\n"

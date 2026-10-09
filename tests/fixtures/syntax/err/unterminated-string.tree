@@ -16,7 +16,7 @@ SOURCE_FILE@0..21
     WHITESPACE@13..14 " "
     EQ@14..15 "="
     WHITESPACE@15..16 " "
-    OPAQUE@16..21
+    LITERAL@16..21
       STRING@16..21 "\"abc\n"
 error@16..21: string is not closed
 error@21..21: expected `;`

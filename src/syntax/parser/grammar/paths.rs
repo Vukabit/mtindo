@@ -11,6 +11,9 @@ pub(super) enum Mode {
     Simple,
     /// Type paths: generic arguments, `Fn(A) -> B` sugar and `<T as Trait>` qualifiers.
     Type,
+    /// Expression and pattern paths: generic arguments only after `::` (the turbofish),
+    /// and `<T as Trait>` qualifiers.
+    Expr,
     /// Paths inside `use` trees: segments only, stopping before `::*` and `::{`.
     Use,
 }
@@ -33,7 +36,7 @@ pub(super) fn nth_at_path_start(p: &Parser, n: usize) -> bool {
 /// A whole path.
 pub(super) fn path(p: &mut Parser, mode: Mode) {
     let m = p.start();
-    if mode == Mode::Type && p.at(SyntaxKind::Lt) {
+    if matches!(mode, Mode::Type | Mode::Expr) && p.at(SyntaxKind::Lt) {
         qualified_segment(p);
     } else {
         p.eat(SyntaxKind::Colon2);
@@ -88,10 +91,18 @@ fn segment(p: &mut Parser, mode: Mode) {
     } else {
         name_ref(p);
     }
+    if mode == Mode::Expr && p.at(SyntaxKind::Colon2) && p.nth(2) == SyntaxKind::Lt {
+        generics::generic_arg_list(p);
+    }
     if mode == Mode::Type {
-        if p.at(SyntaxKind::Lt) || (p.at(SyntaxKind::Colon2) && p.nth(2) == SyntaxKind::Lt) {
+        // `<=` never opens generic arguments: `x as u8 <= y` compares.
+        let opens_args = p.at(SyntaxKind::Lt) && !p.at(SyntaxKind::LtEq);
+        if opens_args || (p.at(SyntaxKind::Colon2) && p.nth(2) == SyntaxKind::Lt) {
             generics::generic_arg_list(p);
         } else if p.at(SyntaxKind::LParen) {
+            parenthesized_args(p);
+        } else if p.at(SyntaxKind::Colon2) && p.nth(2) == SyntaxKind::LParen {
+            p.bump(SyntaxKind::Colon2);
             parenthesized_args(p);
         }
     }
@@ -103,6 +114,6 @@ fn segment_follows_colon2(p: &Parser, mode: Mode) -> bool {
     match mode {
         Mode::Use => nth_at_path_start(p, 2) && !p.nth_at(2, SyntaxKind::Colon2),
         Mode::Type => nth_at_path_start(p, 2) || p.nth(2) == SyntaxKind::Lt,
-        Mode::Simple => nth_at_path_start(p, 2),
+        Mode::Simple | Mode::Expr => nth_at_path_start(p, 2),
     }
 }

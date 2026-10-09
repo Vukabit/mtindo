@@ -1,0 +1,194 @@
+SOURCE_FILE@0..182
+  FN@0..181
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..181
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..13 "\n    "
+      EXPR_STMT@13..25
+        IF_EXPR@13..25
+          IF_KW@13..15 "if"
+          WHITESPACE@15..16 " "
+          BIN_EXPR@16..22
+            PATH_EXPR@16..17
+              PATH@16..17
+                PATH_SEGMENT@16..17
+                  NAME_REF@16..17
+                    IDENT@16..17 "x"
+            WHITESPACE@17..18 " "
+            EQ2@18..20 "=="
+            WHITESPACE@20..21 " "
+            PATH_EXPR@21..22
+              PATH@21..22
+                PATH_SEGMENT@21..22
+                  NAME_REF@21..22
+                    IDENT@21..22 "S"
+          WHITESPACE@22..23 " "
+          BLOCK_EXPR@23..25
+            L_BRACE@23..24 "{"
+            R_BRACE@24..25 "}"
+      WHITESPACE@25..30 "\n    "
+      EXPR_STMT@30..47
+        IF_EXPR@30..47
+          IF_KW@30..32 "if"
+          WHITESPACE@32..33 " "
+          BIN_EXPR@33..44
+            PAREN_EXPR@33..39
+              L_PAREN@33..34 "("
+              RECORD_EXPR@34..38
+                PATH@34..35
+                  PATH_SEGMENT@34..35
+                    NAME_REF@34..35
+                      IDENT@34..35 "S"
+                WHITESPACE@35..36 " "
+                RECORD_EXPR_FIELD_LIST@36..38
+                  L_BRACE@36..37 "{"
+                  R_BRACE@37..38 "}"
+              R_PAREN@38..39 ")"
+            WHITESPACE@39..40 " "
+            EQ2@40..42 "=="
+            WHITESPACE@42..43 " "
+            PATH_EXPR@43..44
+              PATH@43..44
+                PATH_SEGMENT@43..44
+                  NAME_REF@43..44
+                    IDENT@43..44 "s"
+          WHITESPACE@44..45 " "
+          BLOCK_EXPR@45..47
+            L_BRACE@45..46 "{"
+            R_BRACE@46..47 "}"
+      WHITESPACE@47..52 "\n    "
+      LET_STMT@52..82
+        LET_KW@52..55 "let"
+        WHITESPACE@55..56 " "
+        IDENT_PAT@56..57
+          NAME@56..57
+            IDENT@56..57 "s"
+        WHITESPACE@57..58 " "
+        EQ@58..59 "="
+        WHITESPACE@59..60 " "
+        RECORD_EXPR@60..81
+          PATH@60..61
+            PATH_SEGMENT@60..61
+              NAME_REF@60..61
+                IDENT@60..61 "S"
+          WHITESPACE@61..62 " "
+          RECORD_EXPR_FIELD_LIST@62..81
+            L_BRACE@62..63 "{"
+            WHITESPACE@63..64 " "
+            RECORD_EXPR_FIELD@64..68
+              NAME_REF@64..65
+                IDENT@64..65 "a"
+              COLON@65..66 ":"
+              WHITESPACE@66..67 " "
+              LITERAL@67..68
+                INT_NUMBER@67..68 "1"
+            COMMA@68..69 ","
+            WHITESPACE@69..70 " "
+            RECORD_EXPR_FIELD@70..71
+              NAME_REF@70..71
+                IDENT@70..71 "b"
+            COMMA@71..72 ","
+            WHITESPACE@72..73 " "
+            DOT2@73..75 ".."
+            PATH_EXPR@75..79
+              PATH@75..79
+                PATH_SEGMENT@75..79
+                  NAME_REF@75..79
+                    IDENT@75..79 "base"
+            WHITESPACE@79..80 " "
+            R_BRACE@80..81 "}"
+        SEMICOLON@81..82 ";"
+      WHITESPACE@82..87 "\n    "
+      LET_STMT@87..100
+        LET_KW@87..90 "let"
+        WHITESPACE@90..91 " "
+        IDENT_PAT@91..92
+          NAME@91..92
+            IDENT@91..92 "t"
+        WHITESPACE@92..93 " "
+        EQ@93..94 "="
+        WHITESPACE@94..95 " "
+        CALL_EXPR@95..99
+          PATH_EXPR@95..96
+            PATH@95..96
+              PATH_SEGMENT@95..96
+                NAME_REF@95..96
+                  IDENT@95..96 "T"
+          ARG_LIST@96..99
+            L_PAREN@96..97 "("
+            LITERAL@97..98
+              INT_NUMBER@97..98 "1"
+            R_PAREN@98..99 ")"
+        SEMICOLON@99..100 ";"
+      WHITESPACE@100..105 "\n    "
+      EXPR_STMT@105..154
+        MATCH_EXPR@105..154
+          MATCH_KW@105..110 "match"
+          WHITESPACE@110..111 " "
+          PATH_EXPR@111..116
+            PATH@111..116
+              PATH_SEGMENT@111..116
+                NAME_REF@111..116
+                  IDENT@111..116 "point"
+          WHITESPACE@116..117 " "
+          MATCH_ARM_LIST@117..154
+            L_BRACE@117..118 "{"
+            WHITESPACE@118..127 "\n        "
+            MATCH_ARM@127..148
+              RECORD_PAT@127..142
+                PATH@127..132
+                  PATH_SEGMENT@127..132
+                    NAME_REF@127..132
+                      IDENT@127..132 "Point"
+                WHITESPACE@132..133 " "
+                RECORD_PAT_FIELD_LIST@133..142
+                  L_BRACE@133..134 "{"
+                  WHITESPACE@134..135 " "
+                  RECORD_PAT_FIELD@135..136
+                    IDENT_PAT@135..136
+                      NAME@135..136
+                        IDENT@135..136 "x"
+                  COMMA@136..137 ","
+                  WHITESPACE@137..138 " "
+                  RECORD_PAT_FIELD@138..140
+                    REST_PAT@138..140
+                      DOT2@138..140 ".."
+                  WHITESPACE@140..141 " "
+                  R_BRACE@141..142 "}"
+              WHITESPACE@142..143 " "
+              FAT_ARROW@143..145 "=>"
+              WHITESPACE@145..146 " "
+              BLOCK_EXPR@146..148
+                L_BRACE@146..147 "{"
+                R_BRACE@147..148 "}"
+            WHITESPACE@148..153 "\n    "
+            R_BRACE@153..154 "}"
+      WHITESPACE@154..159 "\n    "
+      FOR_EXPR@159..179
+        FOR_KW@159..162 "for"
+        WHITESPACE@162..163 " "
+        IDENT_PAT@163..167
+          NAME@163..167
+            IDENT@163..167 "item"
+        WHITESPACE@167..168 " "
+        IN_KW@168..170 "in"
+        WHITESPACE@170..171 " "
+        PATH_EXPR@171..176
+          PATH@171..176
+            PATH_SEGMENT@171..176
+              NAME_REF@171..176
+                IDENT@171..176 "items"
+        WHITESPACE@176..177 " "
+        BLOCK_EXPR@177..179
+          L_BRACE@177..178 "{"
+          R_BRACE@178..179 "}"
+      WHITESPACE@179..180 "\n"
+      R_BRACE@180..181 "}"
+  WHITESPACE@181..182 "\n"

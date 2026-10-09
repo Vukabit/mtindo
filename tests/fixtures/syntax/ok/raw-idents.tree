@@ -8,10 +8,9 @@ SOURCE_FILE@0..31
       L_PAREN@10..11 "("
       R_PAREN@11..12 ")"
     WHITESPACE@12..13 " "
-    OPAQUE_BLOCK@13..15
-      TOKEN_TREE@13..15
-        L_BRACE@13..14 "{"
-        R_BRACE@14..15 "}"
+    BLOCK_EXPR@13..15
+      L_BRACE@13..14 "{"
+      R_BRACE@14..15 "}"
   WHITESPACE@15..16 "\n"
   STRUCT@16..30
     STRUCT_KW@16..22 "struct"

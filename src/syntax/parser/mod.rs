@@ -20,9 +20,14 @@ const STEP_LIMIT: u32 = 10_000_000;
 #[derive(Clone, Copy)]
 pub(crate) struct CompletedMarker {
     pos: u32,
+    kind: SyntaxKind,
 }
 
 impl CompletedMarker {
+    pub(crate) fn kind(&self) -> SyntaxKind {
+        self.kind
+    }
+
     /// Starts a new node that will become this node's parent.
     pub(crate) fn precede(self, p: &mut Parser) -> Marker {
         let parent = p.start();
@@ -64,7 +69,10 @@ impl Marker {
             other => unreachable!("marker points at {:?}", other),
         }
         p.events.push(Event::Finish);
-        CompletedMarker { pos: self.pos }
+        CompletedMarker {
+            pos: self.pos,
+            kind,
+        }
     }
 }
 
@@ -121,9 +129,14 @@ impl<'t> Parser<'t> {
         self.nth_at_kw(0, keyword)
     }
 
-    /// Consumes the current tokens as `kind`. Panics if they do not form it.
+    /// Consumes the current tokens as `kind`, which the caller has already checked for.
+    /// A mismatch is a parser bug: debug builds (tests, fuzzing) panic so it gets found;
+    /// release builds report an error instead of crashing on the user's file.
     pub(crate) fn bump(&mut self, kind: SyntaxKind) {
-        assert!(self.eat(kind), "expected {:?}", kind);
+        if !self.eat(kind) {
+            debug_assert!(false, "parser bug: expected {:?}", kind);
+            self.error(format!("expected {}", describe(kind)));
+        }
     }
 
     /// Consumes the current token as it is.
@@ -320,6 +333,11 @@ pub(crate) fn describe(kind: SyntaxKind) -> String {
         K::Eq => "=",
         K::Bang => "!",
         K::ThinArrow => "->",
+        K::FatArrow => "=>",
+        K::Pipe => "|",
+        K::Dot2 => "..",
+        K::At => "@",
+        K::Pound => "#",
         K::Ident => return "an identifier".to_string(),
         other => return other.name().to_lowercase(),
     };

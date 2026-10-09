@@ -1,0 +1,170 @@
+SOURCE_FILE@0..157
+  FN@0..156
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    NAME@3..4
+      IDENT@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..156
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..13 "\n    "
+      LET_STMT@13..24
+        LET_KW@13..16 "let"
+        WHITESPACE@16..17 " "
+        IDENT_PAT@17..18
+          NAME@17..18
+            IDENT@17..18 "a"
+        WHITESPACE@18..19 " "
+        EQ@19..20 "="
+        WHITESPACE@20..21 " "
+        RANGE_EXPR@21..23
+          DOT2@21..23 ".."
+        SEMICOLON@23..24 ";"
+      WHITESPACE@24..29 "\n    "
+      LET_STMT@29..41
+        LET_KW@29..32 "let"
+        WHITESPACE@32..33 " "
+        IDENT_PAT@33..34
+          NAME@33..34
+            IDENT@33..34 "b"
+        WHITESPACE@34..35 " "
+        EQ@35..36 "="
+        WHITESPACE@36..37 " "
+        RANGE_EXPR@37..40
+          PATH_EXPR@37..38
+            PATH@37..38
+              PATH_SEGMENT@37..38
+                NAME_REF@37..38
+                  IDENT@37..38 "x"
+          DOT2@38..40 ".."
+        SEMICOLON@40..41 ";"
+      WHITESPACE@41..46 "\n    "
+      LET_STMT@46..58
+        LET_KW@46..49 "let"
+        WHITESPACE@49..50 " "
+        IDENT_PAT@50..51
+          NAME@50..51
+            IDENT@50..51 "c"
+        WHITESPACE@51..52 " "
+        EQ@52..53 "="
+        WHITESPACE@53..54 " "
+        RANGE_EXPR@54..57
+          DOT2@54..56 ".."
+          PATH_EXPR@56..57
+            PATH@56..57
+              PATH_SEGMENT@56..57
+                NAME_REF@56..57
+                  IDENT@56..57 "y"
+        SEMICOLON@57..58 ";"
+      WHITESPACE@58..63 "\n    "
+      LET_STMT@63..76
+        LET_KW@63..66 "let"
+        WHITESPACE@66..67 " "
+        IDENT_PAT@67..68
+          NAME@67..68
+            IDENT@67..68 "d"
+        WHITESPACE@68..69 " "
+        EQ@69..70 "="
+        WHITESPACE@70..71 " "
+        RANGE_EXPR@71..75
+          PATH_EXPR@71..72
+            PATH@71..72
+              PATH_SEGMENT@71..72
+                NAME_REF@71..72
+                  IDENT@71..72 "x"
+          DOT2@72..74 ".."
+          PATH_EXPR@74..75
+            PATH@74..75
+              PATH_SEGMENT@74..75
+                NAME_REF@74..75
+                  IDENT@74..75 "y"
+        SEMICOLON@75..76 ";"
+      WHITESPACE@76..81 "\n    "
+      LET_STMT@81..95
+        LET_KW@81..84 "let"
+        WHITESPACE@84..85 " "
+        IDENT_PAT@85..86
+          NAME@85..86
+            IDENT@85..86 "e"
+        WHITESPACE@86..87 " "
+        EQ@87..88 "="
+        WHITESPACE@88..89 " "
+        RANGE_EXPR@89..94
+          PATH_EXPR@89..90
+            PATH@89..90
+              PATH_SEGMENT@89..90
+                NAME_REF@89..90
+                  IDENT@89..90 "x"
+          DOT2EQ@90..93 "..="
+          PATH_EXPR@93..94
+            PATH@93..94
+              PATH_SEGMENT@93..94
+                NAME_REF@93..94
+                  IDENT@93..94 "y"
+        SEMICOLON@94..95 ";"
+      WHITESPACE@95..100 "\n    "
+      LET_STMT@100..113
+        LET_KW@100..103 "let"
+        WHITESPACE@103..104 " "
+        IDENT_PAT@104..105
+          NAME@104..105
+            IDENT@104..105 "g"
+        WHITESPACE@105..106 " "
+        EQ@106..107 "="
+        WHITESPACE@107..108 " "
+        RANGE_EXPR@108..112
+          DOT2EQ@108..111 "..="
+          PATH_EXPR@111..112
+            PATH@111..112
+              PATH_SEGMENT@111..112
+                NAME_REF@111..112
+                  IDENT@111..112 "y"
+        SEMICOLON@112..113 ";"
+      WHITESPACE@113..118 "\n    "
+      EXPR_STMT@118..134
+        FOR_EXPR@118..134
+          FOR_KW@118..121 "for"
+          WHITESPACE@121..122 " "
+          IDENT_PAT@122..123
+            NAME@122..123
+              IDENT@122..123 "i"
+          WHITESPACE@123..124 " "
+          IN_KW@124..126 "in"
+          WHITESPACE@126..127 " "
+          RANGE_EXPR@127..131
+            LITERAL@127..128
+              INT_NUMBER@127..128 "0"
+            DOT2@128..130 ".."
+            PATH_EXPR@130..131
+              PATH@130..131
+                PATH_SEGMENT@130..131
+                  NAME_REF@130..131
+                    IDENT@130..131 "n"
+          WHITESPACE@131..132 " "
+          BLOCK_EXPR@132..134
+            L_BRACE@132..133 "{"
+            R_BRACE@133..134 "}"
+      WHITESPACE@134..139 "\n    "
+      FOR_EXPR@139..154
+        FOR_KW@139..142 "for"
+        WHITESPACE@142..143 " "
+        IDENT_PAT@143..144
+          NAME@143..144
+            IDENT@143..144 "j"
+        WHITESPACE@144..145 " "
+        IN_KW@145..147 "in"
+        WHITESPACE@147..148 " "
+        RANGE_EXPR@148..151
+          LITERAL@148..149
+            INT_NUMBER@148..149 "0"
+          DOT2@149..151 ".."
+        WHITESPACE@151..152 " "
+        BLOCK_EXPR@152..154
+          L_BRACE@152..153 "{"
+          R_BRACE@153..154 "}"
+      WHITESPACE@154..155 "\n"
+      R_BRACE@155..156 "}"
+  WHITESPACE@156..157 "\n"

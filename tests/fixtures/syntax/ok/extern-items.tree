@@ -42,8 +42,9 @@ SOURCE_FILE@0..241
         PARAM_LIST@88..109
           L_PAREN@88..89 "("
           PARAM@89..103
-            OPAQUE@89..92
-              IDENT@89..92 "fmt"
+            IDENT_PAT@89..92
+              NAME@89..92
+                IDENT@89..92 "fmt"
             COLON@92..93 ":"
             WHITESPACE@93..94 " "
             PTR_TYPE@94..103
@@ -111,8 +112,9 @@ SOURCE_FILE@0..241
         PARAM_LIST@182..190
           L_PAREN@182..183 "("
           PARAM@183..189
-            OPAQUE@183..184
-              IDENT@183..184 "x"
+            IDENT_PAT@183..184
+              NAME@183..184
+                IDENT@183..184 "x"
             COLON@184..185 ":"
             WHITESPACE@185..186 " "
             PATH_TYPE@186..189

@@ -1,6 +1,7 @@
 //! Attributes (`#[...]`, `#![...]`) and doc comments, which are attributes too.
 
-use super::{opaque_until, paths, token_tree};
+use super::expressions::expr;
+use super::{paths, skip_until, token_tree};
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::Parser;
 
@@ -57,7 +58,7 @@ fn attr(p: &mut Parser, inner: bool) {
     }
     if !p.eat(SyntaxKind::RBrack) {
         p.error("expected `]` to close the attribute");
-        opaque_until(p, &[SyntaxKind::RBrack]);
+        skip_until(p, &[SyntaxKind::RBrack]);
         p.eat(SyntaxKind::RBrack);
     }
     m.complete(p, SyntaxKind::Attr);
@@ -73,7 +74,7 @@ fn meta(p: &mut Parser) {
     ) {
         token_tree(p);
     } else if p.eat(SyntaxKind::Eq) {
-        opaque_until(p, &[SyntaxKind::RBrack]);
+        expr(p);
     }
     m.complete(p, SyntaxKind::Meta);
 }

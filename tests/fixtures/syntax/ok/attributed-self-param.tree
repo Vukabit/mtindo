@@ -1,0 +1,103 @@
+SOURCE_FILE@0..131
+  IMPL@0..130
+    IMPL_KW@0..4 "impl"
+    WHITESPACE@4..5 " "
+    PATH_TYPE@5..6
+      PATH@5..6
+        PATH_SEGMENT@5..6
+          NAME_REF@5..6
+            IDENT@5..6 "S"
+    WHITESPACE@6..7 " "
+    ASSOC_ITEM_LIST@7..130
+      L_BRACE@7..8 "{"
+      WHITESPACE@8..13 "\n    "
+      FN@13..128
+        FN_KW@13..15 "fn"
+        WHITESPACE@15..16 " "
+        NAME@16..17
+          IDENT@16..17 "f"
+        PARAM_LIST@17..125
+          L_PAREN@17..18 "("
+          WHITESPACE@18..27 "\n        "
+          SELF_PARAM@27..93
+            ATTR@27..60
+              POUND@27..28 "#"
+              L_BRACK@28..29 "["
+              META@29..59
+                PATH@29..37
+                  PATH_SEGMENT@29..37
+                    NAME_REF@29..37
+                      IDENT@29..37 "cfg_attr"
+                TOKEN_TREE@37..59
+                  L_PAREN@37..38 "("
+                  IDENT@38..39 "a"
+                  COMMA@39..40 ","
+                  WHITESPACE@40..41 " "
+                  IDENT@41..46 "allow"
+                  TOKEN_TREE@46..58
+                    L_PAREN@46..47 "("
+                    IDENT@47..57 "unused_mut"
+                    R_PAREN@57..58 ")"
+                  R_PAREN@58..59 ")"
+              R_BRACK@59..60 "]"
+            WHITESPACE@60..69 "\n        "
+            MUT_KW@69..72 "mut"
+            WHITESPACE@72..73 " "
+            SELF_KW@73..77 "self"
+            COLON@77..78 ":"
+            WHITESPACE@78..79 " "
+            PATH_TYPE@79..93
+              PATH@79..93
+                PATH_SEGMENT@79..93
+                  NAME_REF@79..82
+                    IDENT@79..82 "Pin"
+                  GENERIC_ARG_LIST@82..93
+                    L_ANGLE@82..83 "<"
+                    TYPE_ARG@83..92
+                      REF_TYPE@83..92
+                        AMP@83..84 "&"
+                        MUT_KW@84..87 "mut"
+                        WHITESPACE@87..88 " "
+                        PATH_TYPE@88..92
+                          PATH@88..92
+                            PATH_SEGMENT@88..92
+                              NAME_REF@88..92
+                                SELF_TYPE_KW@88..92 "Self"
+                    R_ANGLE@92..93 ">"
+          COMMA@93..94 ","
+          WHITESPACE@94..103 "\n        "
+          PARAM@103..118
+            ATTR@103..112
+              POUND@103..104 "#"
+              L_BRACK@104..105 "["
+              META@105..111
+                PATH@105..108
+                  PATH_SEGMENT@105..108
+                    NAME_REF@105..108
+                      IDENT@105..108 "cfg"
+                TOKEN_TREE@108..111
+                  L_PAREN@108..109 "("
+                  IDENT@109..110 "x"
+                  R_PAREN@110..111 ")"
+              R_BRACK@111..112 "]"
+            WHITESPACE@112..113 " "
+            IDENT_PAT@113..114
+              NAME@113..114
+                IDENT@113..114 "y"
+            COLON@114..115 ":"
+            WHITESPACE@115..116 " "
+            PATH_TYPE@116..118
+              PATH@116..118
+                PATH_SEGMENT@116..118
+                  NAME_REF@116..118
+                    IDENT@116..118 "u8"
+          COMMA@118..119 ","
+          WHITESPACE@119..124 "\n    "
+          R_PAREN@124..125 ")"
+        WHITESPACE@125..126 " "
+        BLOCK_EXPR@126..128
+          L_BRACE@126..127 "{"
+          R_BRACE@127..128 "}"
+      WHITESPACE@128..129 "\n"
+      R_BRACE@129..130 "}"
+  WHITESPACE@130..131 "\n"

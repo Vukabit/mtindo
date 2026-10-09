@@ -50,7 +50,7 @@ SOURCE_FILE@0..179
         WHITESPACE@99..100 " "
         EQ@100..101 "="
         WHITESPACE@101..102 " "
-        OPAQUE@102..112
+        LITERAL@102..112
           STRING@102..112 "\"explicit\""
       R_BRACK@112..113 "]"
     WHITESPACE@113..114 "\n"
@@ -91,8 +91,7 @@ SOURCE_FILE@0..179
       L_PAREN@173..174 "("
       R_PAREN@174..175 ")"
     WHITESPACE@175..176 " "
-    OPAQUE_BLOCK@176..178
-      TOKEN_TREE@176..178
-        L_BRACE@176..177 "{"
-        R_BRACE@177..178 "}"
+    BLOCK_EXPR@176..178
+      L_BRACE@176..177 "{"
+      R_BRACE@177..178 "}"
   WHITESPACE@178..179 "\n"

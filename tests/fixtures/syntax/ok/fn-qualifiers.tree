@@ -20,10 +20,9 @@ SOURCE_FILE@0..152
       L_PAREN@32..33 "("
       R_PAREN@33..34 ")"
     WHITESPACE@34..35 " "
-    OPAQUE_BLOCK@35..37
-      TOKEN_TREE@35..37
-        L_BRACE@35..36 "{"
-        R_BRACE@36..37 "}"
+    BLOCK_EXPR@35..37
+      L_BRACE@35..36 "{"
+      R_BRACE@36..37 "}"
   WHITESPACE@37..38 "\n"
   FN@38..66
     ASYNC_KW@38..43 "async"
@@ -45,13 +44,13 @@ SOURCE_FILE@0..152
             NAME_REF@54..56
               IDENT@54..56 "u8"
     WHITESPACE@56..57 " "
-    OPAQUE_BLOCK@57..66
-      TOKEN_TREE@57..66
-        L_BRACE@57..58 "{"
-        WHITESPACE@58..63 "\n    "
+    BLOCK_EXPR@57..66
+      L_BRACE@57..58 "{"
+      WHITESPACE@58..63 "\n    "
+      LITERAL@63..64
         INT_NUMBER@63..64 "0"
-        WHITESPACE@64..65 "\n"
-        R_BRACE@65..66 "}"
+      WHITESPACE@64..65 "\n"
+      R_BRACE@65..66 "}"
   WHITESPACE@66..67 "\n"
   FN@67..82
     CONST_KW@67..72 "const"
@@ -64,10 +63,9 @@ SOURCE_FILE@0..152
       L_PAREN@77..78 "("
       R_PAREN@78..79 ")"
     WHITESPACE@79..80 " "
-    OPAQUE_BLOCK@80..82
-      TOKEN_TREE@80..82
-        L_BRACE@80..81 "{"
-        R_BRACE@81..82 "}"
+    BLOCK_EXPR@80..82
+      L_BRACE@80..81 "{"
+      R_BRACE@81..82 "}"
   WHITESPACE@82..83 "\n"
   FN@83..110
     VISIBILITY@83..93
@@ -87,10 +85,9 @@ SOURCE_FILE@0..152
       L_PAREN@105..106 "("
       R_PAREN@106..107 ")"
     WHITESPACE@107..108 " "
-    OPAQUE_BLOCK@108..110
-      TOKEN_TREE@108..110
-        L_BRACE@108..109 "{"
-        R_BRACE@109..110 "}"
+    BLOCK_EXPR@108..110
+      L_BRACE@108..109 "{"
+      R_BRACE@109..110 "}"
   WHITESPACE@110..111 "\n"
   FN@111..151
     ABI@111..121
@@ -105,8 +102,9 @@ SOURCE_FILE@0..152
     PARAM_LIST@126..134
       L_PAREN@126..127 "("
       PARAM@127..133
-        OPAQUE@127..128
-          IDENT@127..128 "x"
+        IDENT_PAT@127..128
+          NAME@127..128
+            IDENT@127..128 "x"
         COLON@128..129 ":"
         WHITESPACE@129..130 " "
         PATH_TYPE@130..133
@@ -125,11 +123,14 @@ SOURCE_FILE@0..152
             NAME_REF@138..141
               IDENT@138..141 "i32"
     WHITESPACE@141..142 " "
-    OPAQUE_BLOCK@142..151
-      TOKEN_TREE@142..151
-        L_BRACE@142..143 "{"
-        WHITESPACE@143..148 "\n    "
-        IDENT@148..149 "x"
-        WHITESPACE@149..150 "\n"
-        R_BRACE@150..151 "}"
+    BLOCK_EXPR@142..151
+      L_BRACE@142..143 "{"
+      WHITESPACE@143..148 "\n    "
+      PATH_EXPR@148..149
+        PATH@148..149
+          PATH_SEGMENT@148..149
+            NAME_REF@148..149
+              IDENT@148..149 "x"
+      WHITESPACE@149..150 "\n"
+      R_BRACE@150..151 "}"
   WHITESPACE@151..152 "\n"

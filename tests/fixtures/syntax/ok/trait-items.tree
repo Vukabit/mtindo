@@ -103,7 +103,7 @@ SOURCE_FILE@0..297
         WHITESPACE@137..138 " "
         EQ@138..139 "="
         WHITESPACE@139..140 " "
-        OPAQUE@140..141
+        LITERAL@140..141
           INT_NUMBER@140..141 "3"
         SEMICOLON@141..142 ";"
       WHITESPACE@142..147 "\n    "
@@ -212,13 +212,13 @@ SOURCE_FILE@0..297
                   NAME_REF@267..270
                     IDENT@267..270 "str"
         WHITESPACE@270..271 " "
-        OPAQUE_BLOCK@271..294
-          TOKEN_TREE@271..294
-            L_BRACE@271..272 "{"
-            WHITESPACE@272..281 "\n        "
+        BLOCK_EXPR@271..294
+          L_BRACE@271..272 "{"
+          WHITESPACE@272..281 "\n        "
+          LITERAL@281..288
             STRING@281..288 "\"shape\""
-            WHITESPACE@288..293 "\n    "
-            R_BRACE@293..294 "}"
+          WHITESPACE@288..293 "\n    "
+          R_BRACE@293..294 "}"
       WHITESPACE@294..295 "\n"
       R_BRACE@295..296 "}"
   WHITESPACE@296..297 "\n"

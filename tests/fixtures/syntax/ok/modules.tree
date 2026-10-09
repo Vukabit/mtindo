@@ -56,10 +56,9 @@ SOURCE_FILE@0..98
           L_PAREN@90..91 "("
           R_PAREN@91..92 ")"
         WHITESPACE@92..93 " "
-        OPAQUE_BLOCK@93..95
-          TOKEN_TREE@93..95
-            L_BRACE@93..94 "{"
-            R_BRACE@94..95 "}"
+        BLOCK_EXPR@93..95
+          L_BRACE@93..94 "{"
+          R_BRACE@94..95 "}"
       WHITESPACE@95..96 "\n"
       R_BRACE@96..97 "}"
   WHITESPACE@97..98 "\n"

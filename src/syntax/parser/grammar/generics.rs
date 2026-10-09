@@ -1,7 +1,8 @@
 //! Generic parameters and arguments, `where` clauses, trait bounds and `for<'a>` binders.
 
 use super::attributes::outer_attrs;
-use super::{name, name_ref, nth_at_name, opaque_block, paths, types};
+use super::expressions::block_expr;
+use super::{name, name_ref, nth_at_name, paths, types};
 use crate::syntax::SyntaxKind;
 use crate::syntax::parser::Parser;
 
@@ -53,7 +54,11 @@ pub(super) fn for_binder(p: &mut Parser) {
 pub(super) fn generic_arg_list(p: &mut Parser) {
     let m = p.start();
     p.eat(SyntaxKind::Colon2);
-    p.bump(SyntaxKind::Lt);
+    if !p.eat(SyntaxKind::Lt) {
+        p.error("expected `<`");
+        m.complete(p, SyntaxKind::GenericArgList);
+        return;
+    }
     while !p.at(SyntaxKind::Gt) && !p.is_eof() {
         if !generic_arg(p) {
             break;
@@ -196,7 +201,7 @@ fn generic_arg(p: &mut Parser) -> bool {
         p.bump_any();
         SyntaxKind::LifetimeArg
     } else if p.at(SyntaxKind::LBrace) {
-        opaque_block(p);
+        block_expr(p);
         SyntaxKind::ConstArg
     } else if p.current().is_literal() || p.at_kw("true") || p.at_kw("false") {
         bump_literal(p);
@@ -213,11 +218,11 @@ fn generic_arg(p: &mut Parser) -> bool {
         if p.eat(SyntaxKind::Colon) {
             bounds(p);
         } else {
-            p.bump(SyntaxKind::Eq);
+            p.expect(SyntaxKind::Eq);
             if p.at(SyntaxKind::LBrace) || p.current().is_literal() {
                 let c = p.start();
                 if p.at(SyntaxKind::LBrace) {
-                    opaque_block(p);
+                    block_expr(p);
                 } else {
                     p.bump_any();
                 }
@@ -257,10 +262,14 @@ fn generic_param(p: &mut Parser) -> bool {
         if p.eat(SyntaxKind::Eq) {
             let c = p.start();
             if p.at(SyntaxKind::LBrace) {
-                opaque_block(p);
+                block_expr(p);
             } else if p.at(SyntaxKind::Minus) {
                 p.bump(SyntaxKind::Minus);
                 p.bump_any();
+            } else if paths::at_path_start(p) {
+                let path = p.start();
+                paths::path(p, paths::Mode::Expr);
+                path.complete(p, SyntaxKind::PathExpr);
             } else {
                 p.bump_any();
             }

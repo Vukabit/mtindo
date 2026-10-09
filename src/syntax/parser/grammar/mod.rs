@@ -2,10 +2,12 @@
 //! parser after it; on unexpected input it reports an error and recovers without looping.
 
 mod attributes;
+mod expressions;
 mod generics;
 mod items;
 mod params;
 mod paths;
+mod patterns;
 mod types;
 
 use crate::syntax::SyntaxKind;
@@ -106,24 +108,9 @@ fn nth_at_name(p: &Parser, n: usize) -> bool {
     }
 }
 
-/// A `{ ... }` body kept unparsed (function bodies until expressions are parsed).
-fn opaque_block(p: &mut Parser) -> CompletedMarker {
-    let tree = token_tree(p);
-    match tree {
-        Some(done) => {
-            let m = done.precede(p);
-            m.complete(p, SyntaxKind::OpaqueBlock)
-        }
-        None => {
-            let m = p.start();
-            m.complete(p, SyntaxKind::Error)
-        }
-    }
-}
-
-/// Tokens up to (not including) one of `terminators` at nesting depth 0, kept unparsed in an
-/// `OPAQUE` node. Stops early at an unmatched closing delimiter. Returns false if empty.
-fn opaque_until(p: &mut Parser, terminators: &[SyntaxKind]) -> bool {
+/// Error recovery: skips tokens up to (not including) one of `terminators` at nesting depth
+/// 0, inside an `ERROR` node. Stops early at an unmatched closing delimiter.
+fn skip_until(p: &mut Parser, terminators: &[SyntaxKind]) -> bool {
     let m = p.start();
     let mut consumed = false;
     while !p.is_eof() && !terminators.iter().any(|kind| p.at(*kind)) {
@@ -140,7 +127,7 @@ fn opaque_until(p: &mut Parser, terminators: &[SyntaxKind]) -> bool {
         consumed = true;
     }
     if consumed {
-        m.complete(p, SyntaxKind::Opaque);
+        m.complete(p, SyntaxKind::Error);
     } else {
         m.abandon(p);
     }

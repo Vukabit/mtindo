@@ -202,7 +202,9 @@ pub(super) static SETTINGS: &[Setting] = &[
         default_2024: None,
         summary: "Sort imports by path",
         doc: "Sort `use` declarations: by group when `import_grouping` is on, then `self`, \
-              `super` and `crate` paths ahead of the rest, then by path.",
+              `super` and `crate` paths ahead of the rest, then by path. When off, imports \
+              keep the order they were written in; pair it with rustfmt's \
+              `reorder_imports = false`, or rustfmt sorts them.",
         channels: None,
         hidden: false,
         replaced_by: None,

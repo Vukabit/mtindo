@@ -163,13 +163,18 @@ fn cfg_variants(previous: &Unit, next: &Unit) -> bool {
 
 /// The text of `pieces` (element ranges) in order. A gap of one line break or less is kept
 /// as written; a gap with a blank line becomes `apart`, the configured spacing, as between
-/// units, so the result does not depend on where an element sat before.
+/// units, so the result does not depend on where an element sat before. It keeps at least
+/// one blank line, even when the spacing is none: a comment set apart from the item below
+/// it must not come to touch it, or it would attach to that item.
 fn joined(text: &str, pieces: &[(usize, usize)], apart: &str) -> String {
     let mut out = String::new();
     for (idx, (start, end)) in pieces.iter().enumerate() {
         if idx > 0 {
             let gap = &text[pieces[idx - 1].1..*start];
             if gap.matches('\n').count() >= 2 {
+                if apart.matches('\n').count() < 2 {
+                    out.push('\n');
+                }
                 out.push_str(apart);
             } else {
                 out.push_str(gap);
@@ -271,11 +276,24 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
         indent
     );
     let line = format!("{}{}", "\n".repeat(config.blank_lines_tight + 1), indent);
+    // At least one blank line, whatever `blank_lines_between_blocks` says, where touching
+    // would change what the text means to a reader or to rustfmt.
+    let parted = format!(
+        "{}{}",
+        "\n".repeat(config.blank_lines_between_blocks.max(1) + 1),
+        indent
+    );
     let header = split.header.trim_start();
     if !header.is_empty() {
         output.push_str(header);
         if !units.is_empty() || !split.tail.is_empty() {
-            output.push_str(&apart);
+            let comment_last = header.trim_end().ends_with("*/")
+                || header
+                    .trim_end()
+                    .lines()
+                    .last()
+                    .is_some_and(|l| l.trim_start().starts_with("//"));
+            output.push_str(if comment_last { &parted } else { &apart });
         }
     }
     let mut previous: Option<&Unit> = None;
@@ -287,11 +305,14 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
                 && prev.import_group != unit.import_group;
             // A `#[cfg(test)] mod tests;` sorted last stands apart, or rustfmt would sort it
             // back among the declarations above it.
-            let both_declarations = prev.module_declaration
-                && unit.module_declaration
-                && prev.test_module == unit.test_module;
+            let declarations = prev.module_declaration && unit.module_declaration;
+            let both_declarations = declarations && prev.test_module == unit.test_module;
             if (both_imports && !new_group) || both_declarations {
                 output.push_str(&line);
+            } else if both_imports || declarations {
+                // rustfmt sorts imports, and `mod` declarations, within runs not broken by
+                // a blank line, so groups touching would be sorted into one.
+                output.push_str(&parted);
             } else {
                 output.push_str(&apart);
             }
@@ -301,7 +322,8 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
     }
     if !split.tail.is_empty() {
         if !units.is_empty() {
-            output.push_str(&apart);
+            // The tail is what follows the last item: comments that belong to no item.
+            output.push_str(&parted);
         }
         output.push_str(&split.tail);
     }

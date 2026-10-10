@@ -3,7 +3,8 @@
 //!
 //! 1. `#[cfg(test)]` modules last;
 //! 2. imports, when `sort_imports` is on: by group (standard library, external, this crate)
-//!    when `import_grouping` is on, then as rustfmt sorts them ([`super::imports`]);
+//!    when `import_grouping` is on, then as rustfmt sorts them ([`super::imports`]); when it
+//!    is off, in the order they were written;
 //! 3. `type_order`, with an impl ranked as the type it is for when `group_impls` is on;
 //! 4. with `group_impls`, a type's impls next to it, types ordered by name; impls of one
 //!    type: its own first (as written), then trait impls by `trait_impl_order` and
@@ -57,6 +58,11 @@ fn compare(
     }
     if a.test_module != b.test_module {
         return a.test_module.cmp(&b.test_module);
+    }
+    if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && !config.sort_imports {
+        // Unsorted imports keep their written order; sorting them by name would read
+        // names from text that rustfmt rewrites, so the order would not settle.
+        return a.index.cmp(&b.index);
     }
     if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && config.sort_imports {
         if config.import_grouping && a.import_group != b.import_group {

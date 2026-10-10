@@ -388,7 +388,8 @@ cargo xtask corpus bench [--markdown]
 # Move every corpus pin to its repository's current HEAD
 cargo xtask corpus update
 # Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's
-# own test inputs, drawn live; --markdown for a shareable table
+# own test inputs, and mto's layout settings one by one, drawn live;
+# --markdown for a shareable table
 cargo xtask race [--rounds N] [--filter TEXT]
 # Regenerate src/options/rustfmt.rs, rustfmt's settings table, from the
 # releases pinned in compat/rustfmt-surface.txt; --check only compares

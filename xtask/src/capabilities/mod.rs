@@ -20,7 +20,7 @@
 mod binary;
 pub(crate) mod fetch;
 pub(crate) mod manifest;
-mod mto;
+pub(crate) mod mto;
 mod report;
 pub(crate) mod source;
 pub(crate) mod surface;

@@ -25,6 +25,14 @@
 //!   shown as `≈0`: the row measures start-up, not formatting, and gets no speed-up.
 //! - `file_lines` inputs are left out: that option can only be given on rustfmt's command
 //!   line, not in a config file.
+//! - **Layout rows** time mto's own features, which rustfmt does not have: `layout
+//!   (defaults)`, then one row per non-default value of each layout setting
+//!   ([`LAYOUT_ROWS`]), each on the default row's inputs and the real-code row's, with
+//!   `layout = true`. rustfmt's cells there are its times on the same inputs at its
+//!   defaults, as a yardstick. mto's ✓ means every input passes three checks, run once:
+//!   mto exits cleanly (its verifier passed), a second run changes nothing, and after
+//!   rustfmt formats mto's output (nightly with `reorder_impl_items` for that row), mto
+//!   reorders nothing. Inputs mto finds syntax errors in are left out of these rows.
 //!
 //! **Live view:** on a terminal the table is redrawn in place, at most every 150 ms. Every
 //! frame is fitted to the terminal's current size (read each frame, so resizing is safe):
@@ -67,6 +75,88 @@ const FIXED_COLUMNS: usize = 58;
 
 /// Keys in rustfmt's test headers that steer its test runner rather than set options.
 const HARNESS_DIRECTIVES: &[&str] = &["target", "stable", "unstable"];
+
+/// The first layout row: every layout setting at its default.
+const LAYOUT_DEFAULTS_ROW: &str = "layout (defaults)";
+
+/// mto's layout settings no row varies: `layout` is on in every row, and `ignore_dirs` only
+/// steers directory walks, which the race does not do.
+#[cfg(test)]
+const LAYOUT_EXEMPT: &[&str] = &["layout", "ignore_dirs"];
+
+/// The layout rows after the first: (label, the `mto.toml` lines it adds to `layout = true`,
+/// the rustfmt settings someone using it would pair it with, which the agreement check
+/// formats with). `reorder_impl_items` is nightly-only, so that row's check runs nightly.
+const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
+    (
+        "layout + blank_lines_between_blocks=0",
+        "blank_lines_between_blocks = 0",
+        "",
+    ),
+    ("layout + group_impls=false", "group_impls = false", ""),
+    (
+        "layout + impl_method_order=trait",
+        "impl_method_order = \"trait\"",
+        "",
+    ),
+    (
+        "layout + import_grouping=false",
+        "import_grouping = false",
+        "",
+    ),
+    ("layout + import_sort=2015", "import_sort = \"2015\"", ""),
+    (
+        "layout + import_sort=2024",
+        "import_sort = \"2024\"",
+        "style_edition = \"2024\"",
+    ),
+    ("layout + name_sort=bytes", "name_sort = \"bytes\"", ""),
+    (
+        "layout + name_sort=case_insensitive",
+        "name_sort = \"case_insensitive\"",
+        "",
+    ),
+    (
+        "layout + reorder_impl_items=true",
+        "reorder_impl_items = true",
+        "reorder_impl_items = true",
+    ),
+    (
+        "layout + sort_alphabetically=false",
+        "sort_alphabetically = false",
+        "",
+    ),
+    (
+        "layout + sort_imports=false",
+        "sort_imports = false",
+        "reorder_imports = false",
+    ),
+    (
+        "layout + test_module=in_place",
+        "test_module = \"in_place\"",
+        "",
+    ),
+    (
+        "layout + trait_impl_order=Default,Clone,Debug",
+        "trait_impl_order = [\"Default\", \"Clone\", \"Debug\"]",
+        "",
+    ),
+    (
+        "layout + trait_impl_sort=original",
+        "trait_impl_sort = \"original\"",
+        "",
+    ),
+    (
+        "layout + type_order=functions first",
+        "type_order = [\"FnDecl\", \"ImplBlock\", \"StructDecl\", \"EnumDecl\", \"TraitDecl\", \"UseDecl\", \"ModDecl\"]",
+        "",
+    ),
+    (
+        "layout + visibility_order=private first",
+        "visibility_order = [\"Private\", \"PubSuper\", \"PubIn\", \"PubCrate\", \"Pub\"]",
+        "",
+    ),
+];
 
 /// Lines of the live view that are not table rows: title, note, progress, blank, header,
 /// rule.
@@ -138,6 +228,14 @@ struct Input {
     config: Option<PathBuf>,
     /// From the corpus, for the real-code row, rather than from rustfmt's tests.
     real: bool,
+    /// For a layout row: the input this is a copy of, whose rustfmt times stand in for
+    /// rustfmt's cells.
+    base: Option<usize>,
+    /// For a layout row: the `mto.toml` mto runs with.
+    mto_config: Option<PathBuf>,
+    /// For a layout row: the config rustfmt formats mto's output with in the agreement
+    /// check, and whether that is nightly's.
+    check: Option<(Option<PathBuf>, bool)>,
 }
 
 struct Options {
@@ -187,8 +285,14 @@ struct Race {
     failed: BTreeMap<Tool, BTreeSet<usize>>,
     /// Inputs left out because rustfmt failed on them.
     excluded: BTreeSet<usize>,
-    /// Rows mto supports according to the capabilities manifest.
+    /// Rows mto supports according to the capabilities manifest, and the layout rows.
     mto_rows: BTreeSet<String>,
+    /// The layout rows' labels.
+    layout_rows: BTreeSet<String>,
+    /// Whether each layout input passed its checks (see the module documentation).
+    layout_ok: BTreeMap<usize, bool>,
+    /// Layout inputs left out because mto found syntax errors in them.
+    unparsed: BTreeSet<usize>,
     versions: BTreeMap<Tool, String>,
     /// Totals instead of net times (`--gross`).
     gross: bool,
@@ -288,6 +392,18 @@ fn cell(race: &Race, label: &str, members: &[usize], tool: Tool, current: Option
     if tool == Tool::Mto && !race.mto_rows.contains(label) {
         return Cell::Missing;
     }
+    // A layout row's rustfmt cells are rustfmt's times on the inputs it copies.
+    let layout = race.layout_rows.contains(label);
+    let bases: Vec<usize>;
+    let members = if layout && tool != Tool::Mto {
+        bases = members
+            .iter()
+            .map(|i| race.inputs[*i].base.unwrap_or(*i))
+            .collect();
+        bases.as_slice()
+    } else {
+        members
+    };
     if members.iter().any(|i| race.failed[&tool].contains(i)) {
         return Cell::Failed;
     }
@@ -310,6 +426,9 @@ fn cell(race: &Race, label: &str, members: &[usize], tool: Tool, current: Option
         (median - startup * members.len() as f64).max(0.0)
     };
     let matches = (tool == Tool::Mto).then(|| {
+        if layout {
+            return members.iter().all(|i| race.layout_ok.get(i) == Some(&true));
+        }
         let reference = if stable_runs(race, label) {
             Tool::Stable
         } else {
@@ -371,6 +490,75 @@ fn cell_text_short(cell: &Cell, baseline: Option<(f64, f64)>) -> String {
             )
         }
         other => cell_text(other, None),
+    }
+}
+
+/// The layout rows' checks, once per input on its warm-up output: mto exited cleanly, a
+/// second run changes nothing, and after rustfmt formats the output mto reorders nothing.
+/// Nothing here is timed, so the inputs are checked on every core at once.
+fn check_layout(root: &Path, race: &mut Race, todo: &[usize], log: &Logger) {
+    // (input, mto's output, mto's config, rustfmt's config, nightly)
+    type Work = (usize, String, Option<PathBuf>, Option<PathBuf>, bool);
+    let work: Vec<Work> = todo
+        .iter()
+        .filter(|idx| !race.unparsed.contains(idx) && !race.failed[&Tool::Mto].contains(idx))
+        .filter_map(|&idx| {
+            let input = &race.inputs[idx];
+            let (rustfmt_config, nightly) = input.check.clone()?;
+            Some((
+                idx,
+                race.outputs[&Tool::Mto][idx].clone(),
+                input.mto_config.clone(),
+                rustfmt_config,
+                nightly,
+            ))
+        })
+        .collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let results: Vec<(usize, Option<&'static str>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let at = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some((idx, output, mto_config, rustfmt_config, nightly)) = work.get(at)
+                        else {
+                            break;
+                        };
+                        let problem = layout_problem(
+                            root,
+                            output,
+                            mto_config.as_deref(),
+                            rustfmt_config.as_deref(),
+                            *nightly,
+                        );
+                        done.push((*idx, problem));
+                    }
+                    done
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    });
+    for (idx, problem) in results {
+        if let Some(problem) = problem {
+            log.warning(&format!(
+                "layout check failed on {} ({}): {}",
+                race.inputs[idx].name,
+                race.inputs[idx]
+                    .mto_config
+                    .as_ref()
+                    .map(|c| c.display().to_string())
+                    .unwrap_or_default(),
+                problem
+            ));
+        }
+        race.layout_ok.insert(idx, problem.is_none());
     }
 }
 
@@ -481,10 +669,21 @@ fn exclude_failures(race: &mut Race) {
         .union(&race.failed[&Tool::Nightly])
         .copied()
         .collect();
+    // A layout copy goes with the input it copies, and with mto's syntax errors.
+    let mut failed = failed;
+    for (idx, input) in race.inputs.iter().enumerate() {
+        if input.base.is_some_and(|b| failed.contains(&b)) || race.unparsed.contains(&idx) {
+            failed.insert(idx);
+        }
+    }
     if failed.is_empty() {
         return;
     }
-    race.excluded.extend(failed.iter().copied());
+    for idx in failed.iter() {
+        if !race.unparsed.contains(idx) && race.inputs[*idx].base.is_none() {
+            race.excluded.insert(*idx);
+        }
+    }
     for (_, members) in race.rows.iter_mut() {
         members.retain(|i| !failed.contains(i));
     }
@@ -572,6 +771,30 @@ fn largest_sources(corpus: &Path, count: usize) -> Vec<PathBuf> {
     sized.into_iter().take(count).map(|(_, p)| p).collect()
 }
 
+/// What is wrong with mto's layout `output`, if anything: a second run changes it, or mto
+/// reorders what rustfmt made of it.
+fn layout_problem(
+    root: &Path,
+    output: &str,
+    mto_config: Option<&Path>,
+    rustfmt_config: Option<&Path>,
+    nightly: bool,
+) -> Option<&'static str> {
+    let (code, again, _) = run_tool_full(root, Tool::Mto, output, mto_config);
+    if code != Some(0) || again != output {
+        return Some("a second run changes it");
+    }
+    let tool = if nightly { Tool::Nightly } else { Tool::Stable };
+    let (code, formatted, _) = run_tool_full(root, tool, output, rustfmt_config);
+    // rustfmt failing on mto's output is rustfmt's limit, not a layout fault, as in the
+    // corpus checks.
+    if code != Some(0) {
+        return None;
+    }
+    let (code, relaid, _) = run_tool_full(root, Tool::Mto, &formatted, mto_config);
+    (code != Some(0) || relaid != formatted).then_some("mto reorders what rustfmt formatted")
+}
+
 fn measure(root: &Path, race: &mut Race, options: &Options, live: bool, color: bool, log: &Logger) {
     let todo = needed(race);
     let total_rounds = options.rounds + 1;
@@ -600,19 +823,45 @@ fn measure(root: &Path, race: &mut Race, options: &Options, live: bool, color: b
             if race.excluded.contains(&idx) {
                 continue;
             }
+            if race.unparsed.contains(&idx) {
+                continue;
+            }
             for tool in rotated(round + done) {
                 if tool == Tool::Mto && !mto_runs(race, idx) {
                     continue;
                 }
                 let input = &race.inputs[idx];
+                let copy = input.base.is_some();
+                // A layout copy is mto's alone; rustfmt's times come from its original.
+                if copy && tool != Tool::Mto {
+                    continue;
+                }
+                // mto runs the other rows as before, with no config: they time it, not
+                // its settings.
+                let config = if copy {
+                    input.mto_config.as_deref()
+                } else if tool == Tool::Mto {
+                    None
+                } else {
+                    input.config.as_deref()
+                };
                 let begin = Instant::now();
-                let (code, output, stderr) =
-                    run_tool_full(root, tool, &input.text, input.config.as_deref());
+                let (code, output, stderr) = run_tool_full(root, tool, &input.text, config);
                 let seconds = begin.elapsed().as_secs_f64();
                 if warm_up && tool == Tool::Stable {
                     for key in refused_settings(&stderr) {
                         race.refused.insert(key);
                     }
+                }
+                if copy && code == Some(3) {
+                    // Syntax errors by mto's reckoning: not a layout result either way.
+                    if race.unparsed.insert(idx) {
+                        log.info(&format!(
+                            "mto found syntax errors in {}; left out of the layout rows",
+                            race.inputs[idx].name
+                        ));
+                    }
+                    continue;
                 }
                 if code != Some(0) {
                     let first_new = race.failed.get_mut(&tool).is_some_and(|f| f.insert(idx));
@@ -669,6 +918,9 @@ fn measure(root: &Path, race: &mut Race, options: &Options, live: bool, color: b
                 options.rounds,
                 started.elapsed().as_secs()
             );
+        }
+        if warm_up {
+            check_layout(root, race, &todo, log);
         }
         exclude_failures(race);
         log.info(&format!("round {} of {} done", round, options.rounds));
@@ -747,6 +999,8 @@ fn needed(race: &Race) -> Vec<usize> {
     let mut set = BTreeSet::new();
     for (_, members) in race.rows.iter() {
         set.extend(members.iter().copied());
+        // A layout copy needs its original timed by rustfmt too.
+        set.extend(members.iter().filter_map(|i| race.inputs[*i].base));
     }
     set.into_iter().collect()
 }
@@ -949,6 +1203,9 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
             settings,
             config,
             real: false,
+            base: None,
+            mto_config: None,
+            check: None,
         });
     }
     if skipped_configs > 0 {
@@ -983,6 +1240,9 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
                 settings: Vec::new(),
                 config,
                 real: true,
+                base: None,
+                mto_config: None,
+                check: None,
             });
         }
     }
@@ -1013,6 +1273,49 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
             rows.push((fixed.to_string(), members));
         }
     }
+    // The layout rows: copies of the default and real-code rows' inputs, each with an
+    // mto.toml that turns layout on and sets the row's value.
+    let bases: Vec<usize> = rows.iter().flat_map(|(_, m)| m.iter().copied()).collect();
+    let mut layout_rows = BTreeSet::new();
+    let variants =
+        std::iter::once((LAYOUT_DEFAULTS_ROW, "", "")).chain(LAYOUT_ROWS.iter().copied());
+    for (n, (label, lines, rustfmt_lines)) in variants.enumerate() {
+        let mut members = Vec::new();
+        for &base in &bases {
+            let original = &inputs[base];
+            let edition = original
+                .real
+                .then_some(original.config.as_ref())
+                .flatten()
+                .and_then(|c| fs::read_to_string(c).ok())
+                .unwrap_or_default();
+            let mto_file = config_dir.join(format!("layout-{}-{}.toml", n, base));
+            fs::write(&mto_file, format!("layout = true\n{}\n{}", lines, edition))
+                .map_err(|e| e.to_string())?;
+            let check = if rustfmt_lines.is_empty() {
+                (original.config.clone(), false)
+            } else {
+                let file = config_dir.join(format!("layout-{}-{}-rustfmt.toml", n, base));
+                fs::write(&file, format!("{}\n{}", rustfmt_lines, edition))
+                    .map_err(|e| e.to_string())?;
+                (Some(file), rustfmt_lines.contains("reorder_impl_items"))
+            };
+            members.push(inputs.len());
+            let copy = Input {
+                name: original.name.clone(),
+                text: original.text.clone(),
+                settings: original.settings.clone(),
+                config: original.config.clone(),
+                real: original.real,
+                base: Some(base),
+                mto_config: Some(mto_file),
+                check: Some(check),
+            };
+            inputs.push(copy);
+        }
+        layout_rows.insert(label.to_string());
+        rows.push((label.to_string(), members));
+    }
     let mut rest: Vec<(String, Vec<usize>)> = by_row.into_iter().collect();
     rest.sort_by(|a, b| natural_cmp(&a.0, &b.0));
     rows.extend(rest);
@@ -1028,7 +1331,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     };
     let mut stable_rows = BTreeMap::new();
     for (label, _) in rows.iter() {
-        if label == DEFAULTS_ROW || label == REAL_ROW {
+        if label == DEFAULTS_ROW || label == REAL_ROW || layout_rows.contains(label) {
             stable_rows.insert(label.clone(), true);
             continue;
         }
@@ -1064,6 +1367,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     let mut mto_rows = BTreeSet::new();
     mto_rows.insert(DEFAULTS_ROW.to_string());
     mto_rows.insert(REAL_ROW.to_string());
+    mto_rows.extend(layout_rows.iter().cloned());
     for (label, _) in rows.iter() {
         if let Some((key, value)) = label.split_once('=')
             && (usable(supported.get(&(Kind::Value, format!("{}={}", key, value))))
@@ -1097,6 +1401,9 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
         failed: TOOLS.iter().map(|t| (*t, BTreeSet::new())).collect(),
         excluded: BTreeSet::new(),
         mto_rows,
+        layout_rows,
+        layout_ok: BTreeMap::new(),
+        unparsed: BTreeSet::new(),
         versions,
         gross: options.gross,
     })
@@ -1502,6 +1809,9 @@ fn run_tool_full(
         Tool::Mto => {
             let mut c = Command::new(mto_binary(root));
             c.arg("-").current_dir(std::env::temp_dir());
+            if let Some(config) = config {
+                c.arg("--config-path").arg(config);
+            }
             c
         }
         Tool::Stable | Tool::Nightly => {
@@ -1681,6 +1991,9 @@ fn summary(race: &Race, elapsed: u64, options: &Options) -> String {
     let mut supported = 0;
     let mut matching = 0;
     let mut speedups = Vec::new();
+    let mut layout_rows = 0;
+    let mut layout_passing = 0;
+    let mut layout_speedups = Vec::new();
     let mut noisy = 0;
     let mut errors = 0;
     for (label, members) in race.rows.iter() {
@@ -1693,6 +2006,23 @@ fn summary(race: &Race, elapsed: u64, options: &Options) -> String {
             .iter()
             .filter(|c| matches!(c, Cell::Time { spread, .. } if *spread > NOISY_PERCENT))
             .count();
+        if race.layout_rows.contains(label) {
+            layout_rows += 1;
+            if let Cell::Time {
+                matches: Some(true),
+                ..
+            } = &cells[2]
+            {
+                layout_passing += 1;
+                if let (Cell::Time { median, net, .. }, _) | (_, Cell::Time { median, net, .. }) =
+                    (&cells[0], &cells[1])
+                    && let Some(ratio) = speedup(&cells[2], Some((*median, *net)))
+                {
+                    layout_speedups.push(ratio);
+                }
+            }
+            continue;
+        }
         if let Cell::Time { matches, .. } = &cells[2] {
             supported += 1;
             if *matches == Some(true) {
@@ -1711,6 +2041,8 @@ fn summary(race: &Race, elapsed: u64, options: &Options) -> String {
     }
     speedups.sort_by(|a, b| a.total_cmp(b));
     let median_speedup = speedups.get(speedups.len() / 2).copied();
+    layout_speedups.sort_by(|a, b| a.total_cmp(b));
+    let layout_speedup = layout_speedups.get(layout_speedups.len() / 2).copied();
     let mut out = String::new();
     let lead = if options.markdown { "\n" } else { "\n " };
     out.push_str(&format!(
@@ -1731,17 +2063,44 @@ fn summary(race: &Race, elapsed: u64, options: &Options) -> String {
             String::new()
         }
     ));
+    let formatting_rows = race.rows.len() - layout_rows;
     out.push_str(&format!(
-        "{}mto runs {} of {} rows; its output matches rustfmt on {}{}\n",
+        "{}mto runs {} of {} formatting rows; its output matches rustfmt on {}{}\n",
         if options.markdown { "" } else { " " },
         supported,
-        race.rows.len(),
+        formatting_rows,
         matching,
         match median_speedup {
             Some(s) => format!("; median speed-up where it matches: {:.1}×", s),
             None => String::new(),
         }
     ));
+    if layout_rows > 0 {
+        out.push_str(&format!(
+            "{}layout rows: {} of {} pass the checks (verifier, a second run, rustfmt reorders \
+             nothing){}\n",
+            if options.markdown { "" } else { " " },
+            layout_passing,
+            layout_rows,
+            match layout_speedup {
+                Some(s) => format!("; median speed-up over rustfmt's formatting: {:.1}×", s),
+                None => String::new(),
+            }
+        ));
+    }
+    if !race.unparsed.is_empty() {
+        let inputs: BTreeSet<&str> = race
+            .unparsed
+            .iter()
+            .map(|i| race.inputs[*i].name.as_str())
+            .collect();
+        out.push_str(&format!(
+            "{}{} inputs left out of the layout rows: mto found syntax errors in them (see \
+             logs/race.log)\n",
+            if options.markdown { "" } else { " " },
+            inputs.len()
+        ));
+    }
     if !race.excluded.is_empty() {
         out.push_str(&format!(
             "{}{} inputs left out: rustfmt exited with an error on them (see logs/race.log)\n",
@@ -1951,6 +2310,9 @@ mod tests {
                 .collect(),
             config: None,
             real: false,
+            base: None,
+            mto_config: None,
+            check: None,
         };
         let inputs = vec![
             input("a.rs", vec![]),
@@ -1981,6 +2343,9 @@ mod tests {
             excluded: BTreeSet::new(),
             gross: false,
             mto_rows: [DEFAULTS_ROW.to_string()].into_iter().collect(),
+            layout_rows: BTreeSet::new(),
+            layout_ok: BTreeMap::new(),
+            unparsed: BTreeSet::new(),
             versions: TOOLS.iter().map(|t| (*t, "1.0".to_string())).collect(),
             inputs,
         };
@@ -2095,6 +2460,34 @@ mod tests {
         );
         assert_eq!(log.count, 3);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_every_layout_setting_has_a_row() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let table = fs::read_to_string(root.join("src/options/mto.rs")).unwrap();
+        let keys = crate::capabilities::mto::config_keys(&table).unwrap();
+        for key in keys {
+            if LAYOUT_EXEMPT.contains(&key.as_str()) {
+                continue;
+            }
+            assert!(
+                LAYOUT_ROWS
+                    .iter()
+                    .any(|(label, _, _)| label.starts_with(&format!("layout + {}=", key))),
+                "no layout row varies `{}`; add one to LAYOUT_ROWS or LAYOUT_EXEMPT",
+                key
+            );
+        }
+        // Every row's line sets the key its label names.
+        for (label, line, _) in LAYOUT_ROWS {
+            let key = label
+                .trim_start_matches("layout + ")
+                .split('=')
+                .next()
+                .unwrap();
+            assert!(line.starts_with(&format!("{} = ", key)), "{}", label);
+        }
     }
 
     /// An input rustfmt fails on leaves every row; an mto failure shows `error`.

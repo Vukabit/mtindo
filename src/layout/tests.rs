@@ -353,6 +353,48 @@ fn test_section_comments_move_with_their_item() {
 }
 
 #[test]
+fn test_spacing_zero_keeps_loose_comments_loose() {
+    let config = LayoutConfig {
+        blank_lines_between_blocks: 0,
+        ..LayoutConfig::default()
+    };
+    let cases = [
+        // A header comment.
+        (
+            "// licence\n\nfn b() {}\n\nfn a() {}\n",
+            "// licence\n\nfn a() {}\nfn b() {}\n",
+        ),
+        // A section comment inside a unit.
+        (
+            "fn z() {}\n\n// section\n\nfn a() {}\n",
+            "// section\n\nfn a() {}\nfn z() {}\n",
+        ),
+        // Import groups: rustfmt would sort touching groups into one.
+        (
+            "use crate::b;\nuse std::a;\nfn f() {}\n",
+            "use std::a;\n\nuse crate::b;\nfn f() {}\n",
+        ),
+        // A test module declaration sorted last, likewise.
+        (
+            "#[cfg(test)]\nmod tests;\nmod b;\nmod a;\n",
+            "mod a;\nmod b;\n\n#[cfg(test)]\nmod tests;\n",
+        ),
+        // Comments after the last item.
+        (
+            "fn b() {}\n\nfn a() {}\n\n// the end\n",
+            "fn a() {}\nfn b() {}\n\n// the end\n",
+        ),
+    ];
+    for (source, expected) in cases {
+        let laid = layout(source, &config).unwrap();
+        assert_eq!(laid.text, expected);
+        let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
+        assert!(violations.is_empty(), "{:?}", violations);
+        assert_eq!(layout(&laid.text, &config).unwrap().text, laid.text);
+    }
+}
+
+#[test]
 fn test_test_module_last_or_in_place() {
     let source = "fn b() {}\n#[cfg(test)]\nmod tests {}\nfn a() {}\n";
     assert_eq!(
@@ -376,4 +418,18 @@ fn test_trailing_comments_stay_last() {
         arranged(source),
         "fn a() {}\n\nfn b() {}\n\n// the end   \n"
     );
+}
+
+/// With no blank lines between items, a comment that stood apart from the item below it
+/// still keeps one blank line, since touching the item would attach it there; so do import
+/// groups, which rustfmt would otherwise sort into one. Found by the race's
+/// layout rows on rustfmt's test inputs, which the verifier refused to write.
+#[test]
+fn test_unsorted_imports_keep_their_written_order() {
+    let config = LayoutConfig {
+        sort_imports: false,
+        ..LayoutConfig::default()
+    };
+    let source = "use foo::{bar};\nuse crate::x;\nuse foo::{\n    bar, // abc\n};\nuse std::a;\n";
+    assert_eq!(layout(source, &config).unwrap().text, source);
 }

@@ -20,7 +20,9 @@
 //! text-scanning engine and the syntax-tree engine of stage 2 alike. [`report`] turns
 //! violations into a bug report with the smallest input that still shows them.
 
+pub mod format;
 pub mod report;
+pub mod rewrites;
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -64,6 +66,9 @@ pub enum Rule {
     /// An item that came after a macro definition now comes before it, where the macro is
     /// not yet defined.
     MacroUserMoved,
+    /// Formatted output's tokens differ from the input's beyond the allowed rewrites: the
+    /// program's meaning may have changed.
+    MeaningChanged,
     /// The byte-order mark was added or removed.
     BomChanged,
     /// The line endings changed style (`\n` against `\r\n`).
@@ -84,6 +89,7 @@ impl Rule {
             Rule::OtherChanged => "other-changed",
             Rule::MacroOrderChanged => "macro-order-changed",
             Rule::MacroUserMoved => "macro-user-moved",
+            Rule::MeaningChanged => "meaning-changed",
             Rule::BomChanged => "bom-changed",
             Rule::LineEndingsChanged => "line-endings-changed",
         }
@@ -298,6 +304,56 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
     violations
 }
 
+/// A few entries, each cut to its first line, for a violation's detail.
+pub(super) fn describe_list(entries: &[String]) -> String {
+    if entries.is_empty() {
+        return "nothing".to_string();
+    }
+    let mut shown: Vec<String> = entries
+        .iter()
+        .take(3)
+        .map(|e| {
+            let line = e
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim();
+            let cut: String = line.chars().take(60).collect();
+            if cut.chars().count() < line.chars().count() {
+                format!("`{}...`", cut)
+            } else {
+                format!("`{}`", cut)
+            }
+        })
+        .collect();
+    if entries.len() > 3 {
+        shown.push(format!("and {} more", entries.len() - 3));
+    }
+    shown.join(", ")
+}
+
+/// (in `a` but not `b`, in `b` but not `a`), counting repeats.
+pub(super) fn difference(a: &[String], b: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut counts: BTreeMap<&str, i64> = BTreeMap::new();
+    for x in a {
+        *counts.entry(x.as_str()).or_insert(0) += 1;
+    }
+    for x in b {
+        *counts.entry(x.as_str()).or_insert(0) -= 1;
+    }
+    let mut only_a = Vec::new();
+    let mut only_b = Vec::new();
+    for (text, n) in counts {
+        for _ in 0..n.max(0) {
+            only_a.push(text.to_string());
+        }
+        for _ in 0..(-n).max(0) {
+            only_b.push(text.to_string());
+        }
+    }
+    (only_a, only_b)
+}
+
 /// The entries of each scope in order, scopes sorted: what is compared when only the order
 /// within a scope matters.
 fn by_scope(entries: &[(String, String)]) -> Vec<String> {
@@ -427,56 +483,6 @@ fn core_text(node: &SyntaxNode, text: &str) -> String {
     let from = first.text_range().start as usize;
     let to = last.text_range().end as usize;
     text[from..to].to_string()
-}
-
-/// A few entries, each cut to its first line, for a violation's detail.
-fn describe_list(entries: &[String]) -> String {
-    if entries.is_empty() {
-        return "nothing".to_string();
-    }
-    let mut shown: Vec<String> = entries
-        .iter()
-        .take(3)
-        .map(|e| {
-            let line = e
-                .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("")
-                .trim();
-            let cut: String = line.chars().take(60).collect();
-            if cut.chars().count() < line.chars().count() {
-                format!("`{}...`", cut)
-            } else {
-                format!("`{}`", cut)
-            }
-        })
-        .collect();
-    if entries.len() > 3 {
-        shown.push(format!("and {} more", entries.len() - 3));
-    }
-    shown.join(", ")
-}
-
-/// (in `a` but not `b`, in `b` but not `a`), counting repeats.
-fn difference(a: &[String], b: &[String]) -> (Vec<String>, Vec<String>) {
-    let mut counts: BTreeMap<&str, i64> = BTreeMap::new();
-    for x in a {
-        *counts.entry(x.as_str()).or_insert(0) += 1;
-    }
-    for x in b {
-        *counts.entry(x.as_str()).or_insert(0) -= 1;
-    }
-    let mut only_a = Vec::new();
-    let mut only_b = Vec::new();
-    for (text, n) in counts {
-        for _ in 0..n.max(0) {
-            only_a.push(text.to_string());
-        }
-        for _ in 0..(-n).max(0) {
-            only_b.push(text.to_string());
-        }
-    }
-    (only_a, only_b)
 }
 
 fn line_endings(text: &str) -> LineEndings {

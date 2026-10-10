@@ -57,6 +57,12 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         root.join("compat/cache/diff").display().to_string(),
         "--record".into(),
         root.join("compat/compatibility.txt").display().to_string(),
+        "--meaning-log".into(),
+        root.join("logs/diff-meaning.txt").display().to_string(),
+        "--exceptions".into(),
+        root.join("compat/meaning-exceptions.txt")
+            .display()
+            .to_string(),
     ];
     forwarded.extend(args.iter().cloned());
     for pin in pins.iter().filter(|p| !p.opt_in) {

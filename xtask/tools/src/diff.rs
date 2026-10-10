@@ -91,6 +91,10 @@ struct Options {
     update: bool,
     markdown: bool,
     repos: Vec<(String, PathBuf)>,
+    /// Where the files the meaning check flags are listed.
+    meaning_log: Option<PathBuf>,
+    /// The files whose flags are known: the formatter's bugs, each with its reason.
+    exceptions: Option<PathBuf>,
 }
 
 /// One scored case.
@@ -103,6 +107,8 @@ struct Score {
     matched_lines: usize,
     /// For a mismatch: the first differing line (1-based) and the syntax kind there.
     first: Option<(usize, String)>,
+    /// The meaning check (S3-3) run on the answer itself: what it reports, if anything.
+    meaning: Option<String>,
 }
 
 /// The numbers for one set: files matched of scored, lines matched of the answers' lines.
@@ -156,6 +162,61 @@ pub fn run(args: &[String]) -> ExitCode {
         "{}",
         report(&tallies, &kinds, &options.reference, options.markdown)
     );
+    // The meaning check on the standard formatter's own output: anything it flags is a
+    // rewrite the allowed list lacks, or a bug of the formatter's (F2).
+    let flagged: Vec<String> = cases
+        .iter()
+        .zip(&scores)
+        .filter_map(|(case, score)| {
+            score
+                .meaning
+                .as_ref()
+                .map(|m| format!("{} [{}]: {}", case.name, case.set.key(), m))
+        })
+        .collect();
+    let checked = scores.iter().filter(|s| !s.skipped).count();
+    if let Some(log) = &options.meaning_log {
+        let _ = fs::write(log, flagged.join("\n") + "\n");
+    }
+    let known = options
+        .exceptions
+        .as_ref()
+        .map(|path| exceptions(path))
+        .unwrap_or_default();
+    let keys: Vec<String> = flagged
+        .iter()
+        .map(|f| f.split("]:").next().unwrap_or(f).to_string() + "]")
+        .collect();
+    let unexpected: Vec<&String> = flagged
+        .iter()
+        .zip(&keys)
+        .filter(|(_, key)| !known.contains(key))
+        .map(|(line, _)| line)
+        .collect();
+    let stale: Vec<&String> = known.iter().filter(|k| !keys.contains(k)).collect();
+    println!(
+        "\nmeaning check on the standard formatter's output: {} of {} files flagged, {} \
+         of them listed in compat/meaning-exceptions.txt",
+        flagged.len(),
+        checked,
+        flagged.len() - unexpected.len()
+    );
+    for entry in &stale {
+        println!("  listed but no longer flagged (remove it): {}", entry);
+    }
+    if !unexpected.is_empty() {
+        println!(
+            "the meaning check flags the standard formatter's output in {} file(s) that \
+             compat/meaning-exceptions.txt does not list: a rewrite the allowed list lacks \
+             (src/verify/rewrites.rs), or a bug of the formatter's to list with its reason:",
+            unexpected.len()
+        );
+        for line in unexpected.iter().take(20) {
+            println!("  {}", line.chars().take(200).collect::<String>());
+        }
+        let _ = ratchet(&options, &tallies);
+        return ExitCode::from(1);
+    }
     ratchet(&options, &tallies)
 }
 
@@ -301,6 +362,18 @@ fn edition_year(edition: Edition) -> &'static str {
     }
 }
 
+/// The `PATH [SET]` keys listed in the exceptions file.
+fn exceptions(path: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| l.find(']').map(|end| l[..=end].to_string()))
+        .collect()
+}
+
 /// The kind of the outermost syntax node that starts where line `line` (0-based) of `text`
 /// starts its text, an expression statement standing for its expression; `end of file` past
 /// the end. A line starting inside a node (a continuation) gives the innermost node holding
@@ -370,6 +443,8 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
         update: false,
         markdown: false,
         repos: Vec::new(),
+        meaning_log: None,
+        exceptions: None,
     };
     let mut i = 0;
     while i < args.len() {
@@ -379,6 +454,8 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             "--reference" => options.reference = value(i)?,
             "--cache" => options.cache = PathBuf::from(value(i)?),
             "--record" => options.record = PathBuf::from(value(i)?),
+            "--meaning-log" => options.meaning_log = Some(PathBuf::from(value(i)?)),
+            "--exceptions" => options.exceptions = Some(PathBuf::from(value(i)?)),
             "--update" => {
                 options.update = true;
                 i += 1;
@@ -677,6 +754,16 @@ fn score(case: &Case, options: &Options, home: &Path) -> Score {
             ..Score::default()
         };
     };
+    let meaning = {
+        let found = mtindo::verify::format::verify_format(&case.input, &answer, case.edition);
+        (!found.is_empty()).then(|| {
+            found
+                .iter()
+                .map(|v| format!("{}: {}", v.rule.name(), v.detail))
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+    };
     let output = mto_output(&case.input, case.edition);
     let expected: Vec<&str> = answer.split('\n').collect();
     let got: Vec<&str> = output.split('\n').collect();
@@ -700,6 +787,7 @@ fn score(case: &Case, options: &Options, home: &Path) -> Score {
         lines: expected.len(),
         matched_lines,
         first,
+        meaning,
     }
 }
 

@@ -1,14 +1,15 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+use mtindo::cli::history::{self, PruneArgs};
 use mtindo::config::{self, Config, Environment, FileKind, Overrides, Resolver, Source};
-use mtindo::options::{self, File};
+use mtindo::options::File;
 use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::tree::debug_dump;
 use mtindo::syntax::{Edition, parse};
 use mtindo::{
-    Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, c_green, c_red, c_reset, c_yellow,
-    collect_jobs, print_warnings, process_init, process_stdin, restore_backup, run_jobs,
+    Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, Writes, c_green, c_red, c_reset,
+    c_yellow, collect_jobs, print_warnings, process_init, process_stdin, run_jobs,
 };
 
 /// Arguments that are not flags: (name, value, help).
@@ -29,6 +30,16 @@ const COMMANDS: &[(&str, &str, &str)] = &[
         "Show the configuration files, or the settings, that apply in DIR",
     ),
     (
+        "history",
+        "[show <RUN> | prune]",
+        "List the runs that wrote files, show one, or prune old ones",
+    ),
+    (
+        "restore",
+        "<RUN> [FILE...]",
+        "Undo a run (last, last~N, or a handle from mto history)",
+    ),
+    (
         "debug",
         "tokens|tree <FILE> [--edition YEAR]",
         "Print the tokens or syntax tree mto sees (unstable output, for bug reports)",
@@ -43,16 +54,21 @@ const EXAMPLES: &[&str] = &[
     "cat src/main.rs | mto -",
     "mto --config max_width=80,hard_tabs=true src/",
     "mto config print --minimal",
-    "mto --restore /tmp/mtindo_backups/123.bak src/main.rs",
+    "mto restore last",
+    "mto history show last~1",
 ];
 
 const EXIT_CODES: &[(&str, &str)] = &[
     ("0", "success"),
-    ("1", "--check found files that would change"),
+    (
+        "1",
+        "--check found files that would change; restore skipped files changed since",
+    ),
     ("2", "bad arguments or configuration"),
     (
         "3",
-        "a file could not be read, written, or parsed (it has syntax errors)",
+        "a file could not be read, written, or parsed (it has syntax errors), or the git \
+         guard kept it",
     ),
     (
         "4",
@@ -223,11 +239,39 @@ const FLAGS: &[FlagSpec] = &[
         help: "Also follow symlinked files and directories",
     },
     FlagSpec {
-        flag: Flag::Restore,
-        short: Some("-r"),
-        long: "--restore",
-        value: "<BACKUP> <TARGET>",
-        help: "Atomically replace TARGET with the BACKUP copy",
+        flag: Flag::NoHistory,
+        short: None,
+        long: "--no-history",
+        value: "",
+        help: "Do not record this run in history (it cannot be restored)",
+    },
+    FlagSpec {
+        flag: Flag::AllowDirty,
+        short: None,
+        long: "--allow-dirty",
+        value: "",
+        help: "With history off, rewrite files that have uncommitted changes",
+    },
+    FlagSpec {
+        flag: Flag::Force,
+        short: None,
+        long: "--force",
+        value: "",
+        help: "restore: also files changed since the run, and missing ones",
+    },
+    FlagSpec {
+        flag: Flag::OlderThan,
+        short: None,
+        long: "--older-than",
+        value: "<DAYS>",
+        help: "history prune: remove runs this old (30, 2w, 12h)",
+    },
+    FlagSpec {
+        flag: Flag::Keep,
+        short: None,
+        long: "--keep",
+        value: "<N>",
+        help: "history prune: keep only the newest N runs",
     },
     FlagSpec {
         flag: Flag::Dbg,
@@ -283,8 +327,8 @@ under `// mto: pin` keep their place, and `#[cfg]` variants of one item move
 together.
 *   **Atomic Writes:** Files are replaced by an OS-level rename of a synced
 sibling temp file. Permissions are kept and symlinked files stay symlinks.
-*   **Backups:** Every changed file is first copied to the system temporary
-directory, and the undo command is printed.
+*   **History:** Every run that writes files is recorded, with each file's
+contents before and after; `mto restore last` undoes the last one.
 *   **CI/CD Check Mode:** Prints a diff for every file that would change and
 exits with status 1.
 *   **Stdin/Stdout Filtering:** `mto -` reads source from stdin and writes the
@@ -297,15 +341,28 @@ cargo install --path .
 "#;
 
 /// The manual's closing: how writes are kept safe and how to keep text in place.
-const MAN_SAFETY: &str = r#"## Safety and Backups
-1. Before a file is modified, an exact copy is saved to
-`/tmp/mtindo_backups/` (or your OS equivalent).
-2. The reordered source is written to a synced sibling temp file.
-3. An atomic rename replaces the original file.
-To revert a file, run the undo command printed after formatting:
+const MAN_SAFETY: &str = r#"## Safety and History
+1. The new text is verified against the original before anything is written.
+2. With history on (the default), the file's contents before and after are
+stored, and synced, in the history folder (`mto config path` shows it), each
+content once however many runs share it.
+3. The new text is written to a synced sibling temp file, and an atomic
+rename replaces the original file.
+Each run that writes files is recorded under an id, shown by a short handle:
 ```bash
-mto --restore /tmp/mtindo_backups/1700000000000_123_0_main.rs.bak main.rs
+mto history            # the runs, newest first
+mto history show last  # one run's files, and where each stands now
+mto restore last       # undo the last run
+mto restore 3f9a src/lib.rs
 ```
+A restore puts back only files that still hold what the run wrote; `--force`
+restores changed and missing files too. A restore is a run of its own, so it
+can be undone. Runs are pruned after each run by the user config's `[history]`
+settings, or with `mto history prune`.
+With history off (`--no-history`, or `enabled = false` under `[history]`),
+there is no undo, so mto leaves alone any file git sees uncommitted changes in,
+unless `--allow-dirty` (or `allow_dirty = true` under `[safety]`). git is used
+only if it is installed.
 Text between `// mto: off` and `// mto: on` is never moved or changed. An item
 directly under `// mto: on` stays inside the region; a region with no
 `// mto: on` runs to the end of the file.
@@ -316,7 +373,8 @@ const USAGE_LINES: &[&str] = &[
     "mto [OPTIONS] - [--stdin-filepath PATH]",
     "mto --print-config default|minimal|current [PATH]",
     "cargo mto [OPTIONS] [-- <MTO OPTIONS>...]",
-    "mto --restore <BACKUP> <TARGET>",
+    "mto history [show <RUN> | prune [--older-than DAYS] [--keep N]]",
+    "mto restore <RUN> [FILE...] [--force]",
     "mto init [DIR]",
     "mto config path|print [OPTIONS] [DIR]",
     "mto debug tokens|tree <FILE> [--edition YEAR]",
@@ -343,9 +401,13 @@ enum CliAction {
         dir: PathBuf,
         overrides: Overrides,
     },
+    History {
+        view: HistoryView,
+    },
     Restore {
-        backup_path: PathBuf,
-        target_path: PathBuf,
+        run: String,
+        files: Vec<PathBuf>,
+        force: bool,
     },
     Init {
         target_path: Option<PathBuf>,
@@ -399,10 +461,20 @@ enum Flag {
     Man,
     Minimal,
     Recursive,
-    Restore,
+    NoHistory,
+    AllowDirty,
+    Force,
+    OlderThan,
+    Keep,
     StyleEdition,
     User,
     Version,
+}
+
+enum HistoryView {
+    List,
+    Show(String),
+    Prune(PruneArgs),
 }
 
 /// `--print-config default|minimal|current`.
@@ -465,6 +537,16 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     let broken = count(Outcome::SyntaxError);
     let failed = count(Outcome::Failed);
     let unsafe_writes = count(Outcome::VerifierFailed);
+    let dirty = count(Outcome::Dirty);
+    if dirty > 0 {
+        eprintln!(
+            "{}{} file(s) with uncommitted changes left alone: history is off, so nothing \
+             could undo the change. Commit them, turn history on, or pass --allow-dirty.{}",
+            c_yellow(true),
+            dirty,
+            c_reset(true)
+        );
+    }
     if off > 0 && !opts.quiet {
         eprintln!(
             "{}{} file(s) left alone: layout is off. Run `mto init` to write an mto.toml \
@@ -499,7 +581,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
         );
         return 4;
     }
-    if failed > 0 || broken > 0 {
+    if failed > 0 || broken > 0 || dirty > 0 {
         return 3;
     }
     if opts.check {
@@ -523,6 +605,20 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
         }
     }
     0
+}
+
+/// The user's history settings, and the history folder (which is read even with history
+/// off, so earlier runs can still be restored).
+fn history_store() -> Result<(history::Settings, mtindo::history::History), i32> {
+    let resolver = resolver(&Overrides::default()).map_err(|e| report_error(&e))?;
+    let settings =
+        history::Settings::read(&resolver, false).map_err(|e| report_error(&MtoError::Usage(e)))?;
+    let dir = config::user::history_dir(resolver.env()).ok_or_else(|| {
+        report_error(&MtoError::Usage(
+            "there is no history: no home folder to keep it in".into(),
+        ))
+    })?;
+    Ok((settings, mtindo::history::History::new(dir)))
 }
 
 /// The name a configuration file kind is shown with.
@@ -579,30 +675,8 @@ fn main() {
             }
             Err(e) => report_error(&e),
         },
-        CliAction::Restore {
-            backup_path,
-            target_path,
-        } => {
-            if !backup_path.exists() {
-                report_error(&MtoError::Usage(format!(
-                    "backup file {} does not exist",
-                    backup_path.display()
-                )))
-            } else {
-                match restore_backup(&backup_path, &target_path) {
-                    Ok(_) => {
-                        println!(
-                            "{}Successfully restored {} from backup.{}",
-                            c_green(),
-                            target_path.display(),
-                            c_reset(false)
-                        );
-                        0
-                    }
-                    Err(e) => report_error(&MtoError::Io(format!("failed to restore file: {}", e))),
-                }
-            }
-        }
+        CliAction::History { view } => run_history(view),
+        CliAction::Restore { run, files, force } => run_restore(&run, &files, force),
         CliAction::Format {
             paths,
             overrides,
@@ -625,6 +699,8 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         }
         "debug" => return parse_debug_args(&args[1..]).map(Some),
         "config" => return parse_config_args(&args[1..]).map(Some),
+        "history" => return parse_history_args(&args[1..]).map(Some),
+        "restore" => return parse_restore_args(&args[1..]).map(Some),
         _ => {}
     }
     let mut paths: Vec<PathBuf> = Vec::new();
@@ -651,8 +727,14 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         };
         if arg == "--backup" {
             return usage_error(
-                "--backup is not needed: mto saves a copy of every file it changes and prints \
-                 how to undo it",
+                "--backup is not needed: every run that writes files is recorded, and \
+                 `mto restore last` undoes it",
+            );
+        }
+        if arg == "--restore" || arg == "-r" {
+            return usage_error(
+                "--restore was removed: `mto restore last` undoes the last run, and \
+                 `mto history` lists the others",
             );
         }
         if let Some(spec) = FLAGS
@@ -735,14 +817,13 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
                         spec.long
                     ));
                 }
-                Flag::Restore => {
-                    if i + 2 >= args.len() {
-                        return usage_error("--restore needs <BACKUP> <TARGET>");
-                    }
-                    return Ok(Some(CliAction::Restore {
-                        backup_path: PathBuf::from(&args[i + 1]),
-                        target_path: PathBuf::from(&args[i + 2]),
-                    }));
+                Flag::NoHistory => opts.no_history = true,
+                Flag::AllowDirty => opts.allow_dirty = true,
+                Flag::Force | Flag::OlderThan | Flag::Keep => {
+                    return usage_error(&format!(
+                        "{} only goes with `mto restore` or `mto history prune`",
+                        spec.long
+                    ));
                 }
             }
         } else if arg == "-" && !read_stdin {
@@ -891,6 +972,81 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
     }
 }
 
+fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
+    let usage =
+        || usage_error("usage: mto history [show <RUN> | prune [--older-than DAYS] [--keep N]]");
+    let view = match args.first().map(String::as_str) {
+        None => HistoryView::List,
+        Some("show") => match &args[1..] {
+            [run] => HistoryView::Show(run.clone()),
+            _ => return usage(),
+        },
+        Some("prune") => {
+            let mut prune = PruneArgs::default();
+            let mut i = 1;
+            while i < args.len() {
+                let (arg, inline) = match args[i].split_once('=') {
+                    Some((flag, value)) => (flag, Some(value.to_string())),
+                    None => (args[i].as_str(), None),
+                };
+                let value = inline.or_else(|| {
+                    i += 1;
+                    args.get(i).cloned()
+                });
+                match (arg, value) {
+                    ("--older-than", Some(text)) => match history::days(&text) {
+                        Some(days) => prune.older_than_days = Some(days),
+                        None => {
+                            return usage_error(&format!(
+                                "--older-than takes days (30), weeks (2w) or hours (12h), \
+                                 not `{}`",
+                                text
+                            ));
+                        }
+                    },
+                    ("--keep", Some(text)) => match text.parse() {
+                        Ok(keep) => prune.keep = Some(keep),
+                        Err(_) => {
+                            return usage_error(&format!(
+                                "--keep takes a number of runs, not `{}`",
+                                text
+                            ));
+                        }
+                    },
+                    _ => return usage(),
+                }
+                i += 1;
+            }
+            HistoryView::Prune(prune)
+        }
+        Some("list") if args.len() == 1 => HistoryView::List,
+        _ => return usage(),
+    };
+    Ok(CliAction::History { view })
+}
+
+fn parse_restore_args(args: &[String]) -> Result<CliAction, ()> {
+    let mut run = None;
+    let mut files = Vec::new();
+    let mut force = false;
+    for arg in args {
+        match arg.as_str() {
+            "--force" => force = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unexpected argument '{}'", other));
+            }
+            other if run.is_none() => run = Some(other.to_string()),
+            other => files.push(PathBuf::from(other)),
+        }
+    }
+    match run {
+        Some(run) => Ok(CliAction::Restore { run, files, force }),
+        None => usage_error(
+            "usage: mto restore <RUN> [FILE...] [--force]; RUN is last, last~N, or a handle from `mto history`",
+        ),
+    }
+}
+
 fn print_help() {
     print!("{}", render_help(mtindo::color_enabled(false)));
 }
@@ -937,8 +1093,7 @@ fn print_man_page() {
                     .replace("cargo install", "\x1b[32mcargo install\x1b[0m")
                     .replace("[OPTIONS]", "\x1b[36m[OPTIONS]\x1b[0m")
                     .replace("[TARGET_PATH]", "\x1b[36m[TARGET_PATH]\x1b[0m")
-                    .replace("--path .", "\x1b[33m--path .\x1b[0m")
-                    .replace("--restore", "\x1b[33m--restore\x1b[0m");
+                    .replace("--path .", "\x1b[33m--path .\x1b[0m");
                 println!("{}", colored);
             } else {
                 println!("{}", line);
@@ -992,9 +1147,15 @@ fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String
         if config.files().is_empty() {
             out.push_str("no configuration files; every setting is at its default\n");
         }
+        if let Some(history) = config::user::history_dir(env) {
+            out.push_str(&format!("history: {}\n", history.display()));
+        }
         return out;
     }
-    out.push_str(&format!("# style edition {}\n", config.style_edition()));
+    if view != ConfigView::User {
+        out.push_str(&format!("# style edition {}\n", config.style_edition()));
+    }
+    let mut section = "";
     for (setting, value, source) in config.values() {
         let shown = match view {
             ConfigView::Default => !setting.hidden && setting.file != File::User,
@@ -1011,7 +1172,18 @@ fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String
         if !shown {
             continue;
         }
-        if view == ConfigView::Default {
+        if view == ConfigView::User {
+            // As the user config holds them: `[history]`, then `enabled = ...`.
+            let (heading, key) = setting.name.split_once('.').unwrap_or(("", setting.name));
+            if heading != section {
+                if !section.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&format!("[{}]\n", heading));
+                section = heading;
+            }
+            out.push_str(&format!("{} = {}  # {}\n", key, value.to_toml(), source));
+        } else if view == ConfigView::Default {
             let default = setting.default_for(config.style_edition());
             out.push_str(&format!("{} = {}\n", setting.name, default));
         } else {
@@ -1023,9 +1195,7 @@ fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String
             ));
         }
     }
-    if view == ConfigView::User && !options::all().any(|s| s.file == File::User) {
-        out.push_str("# mto has no user settings yet\n");
-    }
+
     out
 }
 
@@ -1164,7 +1334,14 @@ fn resolver(overrides: &Overrides) -> Result<Resolver, MtoError> {
     if let Err(e) = config::user::create_if_missing(&env) {
         eprintln!("{}warning: {}{}", c_yellow(true), e, c_reset(true));
     }
-    Ok(Resolver::new(overrides, env)?)
+    let resolver = Resolver::new(overrides, env)?;
+    let color = resolver.user_value("output.color");
+    mtindo::text::color::set_configured_color(match color.as_ref().and_then(|v| v.as_text()) {
+        Some("always") => Some(true),
+        Some("never") => Some(false),
+        _ => None,
+    });
+    Ok(resolver)
 }
 
 fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) -> i32 {
@@ -1249,8 +1426,70 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
     for problem in problems {
         eprintln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
     }
-    let done = run_jobs(&jobs, opts);
+    let settings = match history::Settings::read(&resolver, opts.no_history) {
+        Ok(settings) => settings,
+        Err(e) => return report_error(&MtoError::Usage(e)),
+    };
+    let mut writes = Writes::default();
+    let writing = opts.emit == Emit::Files && !opts.check && !opts.dry_run;
+    if writing {
+        if let Some(note) = &settings.note
+            && !opts.quiet
+        {
+            eprintln!("{}note: {}{}", c_yellow(true), note, c_reset(true));
+        }
+        match &settings.history {
+            Some(store) => {
+                let cwd = env::current_dir().unwrap_or_default();
+                writes.recorder = Some(store.recorder(&history::command_line(), &cwd, None));
+            }
+            None if !opts.allow_dirty && !settings.allow_dirty => {
+                let files: Vec<PathBuf> = jobs
+                    .iter()
+                    .filter(|(_, config)| config.is_some())
+                    .map(|(path, _)| std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
+                    .collect();
+                let dirty = mtindo::history::git::dirty(&files);
+                if let Some(reason) = dirty.skipped
+                    && !opts.quiet
+                {
+                    eprintln!(
+                        "{}note: {}; files with uncommitted changes are not protected{}",
+                        c_yellow(true),
+                        reason,
+                        c_reset(true)
+                    );
+                }
+                writes.dirty = Some(dirty.files);
+            }
+            None => {}
+        }
+    }
+    let done = run_jobs(&jobs, opts, &mut writes);
+    if let Some(recorder) = writes.recorder.as_mut() {
+        history::finish_record(recorder, settings.limits, opts.quiet);
+    }
     finish(&done, opts)
+}
+
+/// `mto history`: lists, shows or prunes the runs.
+fn run_history(view: HistoryView) -> i32 {
+    let (settings, store) = match history_store() {
+        Ok(found) => found,
+        Err(code) => return code,
+    };
+    let result = match view {
+        HistoryView::List => history::list(&store),
+        HistoryView::Show(run) => history::show(&store, &run),
+        HistoryView::Prune(args) => history::prune(&store, settings.limits, args),
+    };
+    match result {
+        Ok(text) => {
+            print!("{}", text);
+            0
+        }
+        Err(e) => report_error(&MtoError::Usage(e)),
+    }
 }
 
 /// `--print-config`, as rustfmt prints it: rustfmt's settings as TOML, ready for a
@@ -1300,6 +1539,18 @@ fn run_print_config(kind: PrintKind, path: Option<&Path>, overrides: &Overrides)
         _ => print!("{}", text),
     }
     0
+}
+
+/// `mto restore`.
+fn run_restore(run: &str, files: &[PathBuf], force: bool) -> i32 {
+    let (settings, store) = match history_store() {
+        Ok(found) => found,
+        Err(code) => return code,
+    };
+    match history::restore(&settings, &store, run, files, force) {
+        Ok(code) => code,
+        Err(e) => report_error(&MtoError::Usage(e)),
+    }
 }
 
 fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) -> i32 {

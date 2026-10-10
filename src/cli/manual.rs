@@ -190,6 +190,7 @@ fn type_name(setting: &Setting) -> &'static str {
         Kind::Bool => "`true` or `false`",
         Kind::Integer => "a whole number, zero or more",
         Kind::Text => "a string",
+        Kind::Size => "a size such as `\"256MB\"`",
         Kind::Choice(_) => "one of the values below, as a string",
         Kind::List => "an array of strings",
         Kind::Sequence(_) => "an array of the values below, each at most once",

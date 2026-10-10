@@ -200,7 +200,9 @@ flag    rustfmt:--version                                supported    # tests/do
 mto     command:-                                        supported    # tests/domain_8_cli.rs
 mto     command:config                                   supported    # tests/domain_8_cli.rs
 mto     command:debug                                    supported    # tests/domain_8_cli.rs
+mto     command:history                                  supported    # tests/domain_8_cli.rs
 mto     command:init                                     supported    # tests/domain_8_cli.rs
+mto     command:restore                                  supported    # tests/domain_8_cli.rs
 mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
 mto     config:group_impls                               supported    # tests/domain_2_golden.rs
 mto     config:ignore_dirs                               supported    # tests/domain_9_config_hierarchy.rs
@@ -216,6 +218,7 @@ mto     config:trait_impl_order                          supported    # src/layo
 mto     config:trait_impl_sort                           supported    # src/layout/tests.rs
 mto     config:type_order                                supported    # tests/domain_1_unit.rs
 mto     config:visibility_order                          supported    # src/layout/tests.rs
+mto     flag:--allow-dirty                               supported    # tests/domain_8_cli.rs
 mto     flag:--check                                     supported    # tests/domain_8_cli.rs
 mto     flag:--color                                     supported    # tests/domain_8_cli.rs
 mto     flag:--config                                    supported    # tests/domain_8_cli.rs
@@ -228,13 +231,16 @@ mto     flag:--edition                                   supported    # tests/do
 mto     flag:--emit                                      supported    # tests/domain_8_cli.rs
 mto     flag:--files-with-diff                           supported    # tests/domain_8_cli.rs
 mto     flag:--follow-links                              supported    # tests/domain_10_polyrepo.rs
+mto     flag:--force                                     supported    # tests/domain_8_cli.rs
 mto     flag:--help                                      supported    # tests/domain_8_cli.rs
+mto     flag:--keep                                      supported    # tests/domain_8_cli.rs
 mto     flag:--man                                       supported    # tests/domain_8_cli.rs
 mto     flag:--minimal                                   supported    # tests/domain_8_cli.rs
+mto     flag:--no-history                                supported    # tests/domain_8_cli.rs
+mto     flag:--older-than                                supported    # tests/domain_8_cli.rs
 mto     flag:--print-config                              supported    # tests/domain_8_cli.rs
 mto     flag:--quiet                                     supported    # tests/domain_8_cli.rs
 mto     flag:--recursive                                 supported    # tests/domain_12_scale.rs
-mto     flag:--restore                                   supported    # tests/domain_8_cli.rs
 mto     flag:--skip-children                             supported    # tests/domain_8_cli.rs
 mto     flag:--stdin-filepath                            supported    # tests/domain_8_cli.rs
 mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs

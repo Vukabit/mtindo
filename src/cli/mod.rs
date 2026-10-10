@@ -1,5 +1,6 @@
 //! Layer 5: what the command line shows, built from the lower layers' tables.
 
+pub mod history;
 pub mod manual;
 pub mod modules;
 
@@ -32,6 +33,16 @@ pub const CARGO_MTO_OPTIONS: &[(&str, &str, &str)] = &[
         "--message-format",
         "<short|json|human>",
         "short: name the files (-l); json: rustfmt's JSON report (--emit json)",
+    ),
+    (
+        "--no-history",
+        "",
+        "Do not record this run in history (it cannot be restored)",
+    ),
+    (
+        "--allow-dirty",
+        "",
+        "With history off, rewrite files that have uncommitted changes",
     ),
     (
         "-q, --quiet",

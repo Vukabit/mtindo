@@ -84,6 +84,18 @@ pub(super) fn check(setting: &Setting, value: &toml::Value) -> Result<Option<Val
                     .ok_or_else(|| wrong_type("a string"))?
                     .to_string(),
             ),
+            Kind::Size => {
+                let text = value
+                    .as_str()
+                    .ok_or_else(|| wrong_type("a size such as \"256MB\""))?;
+                if options::user::bytes(text).is_none() {
+                    return Err(format!(
+                        "`{}` must be a number of bytes, or one with KB, MB or GB, not `{}`",
+                        setting.name, text
+                    ));
+                }
+                Value::Text(text.to_string())
+            }
             Kind::Choice(_) => {
                 let text = value.as_str().ok_or_else(|| {
                     format!(
@@ -139,7 +151,7 @@ pub(super) fn from_command_line(setting: &Setting, text: &str) -> Result<Option<
         .and_then(|table| table.get("v").cloned())
         .unwrap_or_else(|| toml::Value::String(text.to_string()));
     let parsed = match (&setting.kind, &parsed) {
-        (Kind::Text | Kind::Choice(_), value) if value.as_str().is_none() => {
+        (Kind::Text | Kind::Size | Kind::Choice(_), value) if value.as_str().is_none() => {
             toml::Value::String(text.to_string())
         }
         _ => parsed,

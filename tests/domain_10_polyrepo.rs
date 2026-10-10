@@ -43,34 +43,11 @@ fn test_distributed_rollback() {
         assert_ne!(&formatted_content, original_content);
     }
 
-    let output_str = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let mut executed_restores = 0;
-
-    for line in output_str.lines() {
-        if line.contains("Undo: mto --restore") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 5 {
-                let backup_path = parts[3];
-                let target_path = parts[4];
-
-                let mut restore_cmd = env.mto_cmd();
-                restore_cmd
-                    .arg("--restore")
-                    .arg(backup_path)
-                    .arg(target_path);
-                restore_cmd.assert().success();
-
-                executed_restores += 1;
-            }
-        }
-    }
-
-    assert_eq!(executed_restores, 50);
+    // One run wrote all 50 files across both repositories; one restore undoes it.
+    let restore = env.mto_cmd().args(["restore", "last"]).output().unwrap();
+    assert!(restore.status.success(), "{:?}", restore);
+    let restored = String::from_utf8_lossy(&restore.stdout);
+    assert_eq!(restored.matches("Restored").count(), 50, "{}", restored);
 
     for file_data in &original_files {
         let path = &file_data.0;

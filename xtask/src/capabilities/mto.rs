@@ -105,7 +105,8 @@ mod tests {
         let items = surface(root).unwrap();
         for expected in [
             "flag:--check",
-            "flag:--restore",
+            "flag:--no-history",
+            "command:restore",
             "command:init",
             "command:-",
             "config:sort_imports",

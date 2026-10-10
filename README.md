@@ -39,8 +39,9 @@ No more scrolling past 800 lines of helper functions just to find the main
 * **Atomic Writes:** Files are replaced by an OS-level rename of a fully
   written, synced sibling temp file. Permissions are kept, and a symlinked file
   stays a symlink.
-* **Backups:** Before a file is changed, an exact copy is saved to the system
-  temporary directory and the undo command is printed.
+* **History:** Every run that writes files is recorded, so
+  `mto restore last` undoes it. See [History and
+  restore](#history-and-restore).
 * **Safe Directory Walks:** Symlinked directories are skipped unless
   `--follow-links` is given, and every real path is visited at most once, so
   symlink cycles cannot cause repeated work.
@@ -125,15 +126,17 @@ editors. Several paths may be given. A file brings the modules it declares
 * `-d, --dry-run`: List the files that would change without writing to disk.
 * `-R, --recursive`: Lay out every `.rs` file under the current directory.
 * `--follow-links`: Also follow symlinked files and directories.
-* `-r, --restore <BACKUP> <TARGET>`: Atomically replace the target file with a
-  backup.
+* `--no-history`: Do not record this run, so it cannot be restored.
+* `--allow-dirty`: With history off, rewrite files that have uncommitted
+  changes.
 * `--dbg`: Print how each file was split into items.
 * `--man`: Print the manual, which documents every setting and its values.
 * `-h, --help`: Print the short help menu.
 * `-V, --version`: Print the version.
 
-rustfmt's `--backup` is refused with an explanation: `mto` keeps a copy of
-every file it changes on its own.
+rustfmt's `--backup` is refused with an explanation: every run is recorded in
+history instead. The old `--restore BACKUP TARGET` is gone too; `mto restore`
+replaces it.
 
 Output is colored only when it goes to a terminal, unless `--color` says
 otherwise. Set `NO_COLOR` to turn color off, or `FORCE_COLOR` to turn it on;
@@ -155,15 +158,15 @@ cargo mto -- --config max_width=80   # options after -- go to mto
 ```
 
 It also takes `--manifest-path`, `--message-format short|json|human`, `-q` and
-`-v`, as `cargo fmt` does.
+`-v`, as `cargo fmt` does, and `--no-history` and `--allow-dirty`.
 
 ### Exit Codes
 | Code | Meaning |
 |---|---|
 | 0 | Success |
-| 1 | `--check` found files that would change |
+| 1 | `--check` found files that would change; `mto restore` skipped files |
 | 2 | Bad arguments or configuration |
-| 3 | A file could not be read, written, or parsed (it has syntax errors) |
+| 3 | A file could not be read, written or parsed, or the git guard kept it |
 | 4 | The verifier stopped a write: a bug in mto; the file is unchanged |
 
 ## Every write is checked
@@ -267,17 +270,66 @@ rustfmt applies it. `tab_width` was renamed `tab_spaces`, rustfmt's name.
 
 1. **Refusal:** If a file has syntax errors, or cannot be split into items with
    certainty, it is skipped and left byte-for-byte unchanged.
-2. **Snapshot:** Before a file is changed, a complete copy is saved to
-   `/tmp/mtindo_backups/` (or your OS equivalent).
-3. **Atomic Write:** The new content is written to a synced temp file next to
+2. **Verification:** The new text must hold exactly the original items, byte
+   for byte with their comments; anything else stops the write.
+3. **Record:** The file's contents before and after are stored, and synced, in
+   history.
+4. **Atomic Write:** The new content is written to a synced temp file next to
    the target, then renamed over it in one step.
 
-Unchanged files are never rewritten. To revert a file, run the undo command
-printed after it was formatted:
+Unchanged files are never rewritten.
+
+### History and restore
+
+Every run that writes files is recorded under an id, shown by a short handle
+(the end of the id). Contents are stored once however many runs share them.
 
 ```bash
-mto --restore /tmp/mtindo_backups/1700000000000_123_0_main.rs.bak main.rs
+mto history                  # the runs, newest first
+mto history show last        # one run's files, and where each stands now
+mto restore last             # undo the last run
+mto restore last~1           # the one before it
+mto restore 3f9a src/lib.rs  # one file of run 3f9a
+mto history prune --keep 10  # also --older-than 30 (days; or 2w, 12h)
 ```
+
+A restore puts back only the files that still hold what the run wrote; one
+edited or deleted since is skipped (exit code `1`) unless `--force`. A restore
+is a run of its own, so it can be undone too.
+
+History lives in `~/.local/state/mtindo/history` (`$XDG_STATE_HOME` is
+honored; `%LOCALAPPDATA%\mtindo\history` on Windows); `mto config path` shows
+it. After each run it is pruned to the user config's limits.
+
+With history off there is nothing to undo a run with, so `mto` leaves alone any
+file that git sees uncommitted changes in, and says so (exit code `3`).
+`--allow-dirty` lets it through. git is used only if it is installed;
+without it, the guard is skipped with a note.
+
+### The user config
+
+How `mto` behaves for you, on every project, is set in
+`~/.config/mtindo/config.toml` (`$XDG_CONFIG_HOME` is honored;
+`%APPDATA%\mtindo\config.toml` on Windows; `MTINDO_CONFIG` names another
+file). It is created on the first run, with every setting commented out at its
+default, except when `CI` is set. It holds no layout or formatting settings,
+and project files cannot hold its settings.
+
+```toml
+[history]
+enabled = true      # record every run that writes files
+keep_days = 30      # 0: no limit; the newest run is always kept
+keep_runs = 100
+max_size = "256MB"  # bytes, or KB, MB, GB
+
+[output]
+color = "auto"      # always, never; --color, NO_COLOR, FORCE_COLOR win
+
+[safety]
+allow_dirty = false # with history off, overwrite uncommitted changes
+```
+
+`mto config print --user` shows each value and where it came from.
 
 ## Where it's headed
 

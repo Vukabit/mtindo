@@ -4,7 +4,8 @@
 //! settings checks:
 //!
 //! - every flag, command and exit code in `-h` is in the manual;
-//! - every key `config print --default` prints has an entry (`#### \`key\``);
+//! - every key `config print --default` and `config print --user` print has an entry
+//!   (`#### \`key\``; a user key as `section.key`);
 //! - every entry is a key mto knows (printed by `config print`, or one of rustfmt's hidden
 //!   options in `compat/rustfmt-surface.txt`);
 //! - every `--flag` the manual mentions is an mto flag, or a rustfmt or cargo-fmt flag that
@@ -40,11 +41,15 @@ pub fn check_manual(root: &Path) -> Vec<String> {
         run(&["--man"]),
         run(&["--help"]),
         run(&["config", "print", "--default"]),
+        run(&["config", "print", "--user"]),
     );
     let (manual, help, defaults) = match outputs {
-        (Ok(m), Ok(h), Ok(d)) => (m, h, d),
-        (m, h, d) => {
-            return [m.err(), h.err(), d.err()].into_iter().flatten().collect();
+        (Ok(m), Ok(h), Ok(d), Ok(u)) => (m, h, format!("{}{}", d, user_keys(&u))),
+        (m, h, d, u) => {
+            return [m.err(), h.err(), d.err(), u.err()]
+                .into_iter()
+                .flatten()
+                .collect();
         }
     };
     let surface = fs::read_to_string(root.join("compat/rustfmt-surface.txt")).unwrap_or_default();
@@ -196,6 +201,20 @@ fn problems(manual: &str, help: &str, defaults: &str, surface: &str) -> Vec<Stri
     problems
 }
 
+/// `config print --user`'s keys as `section.key = value` lines, as the defaults print theirs.
+fn user_keys(printed: &str) -> String {
+    let mut section = "";
+    let mut out = String::new();
+    for line in printed.lines() {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            section = name;
+        } else if let Some((key, value)) = line.split_once(" = ") {
+            out.push_str(&format!("{}.{} = {}\n", section, key, value));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +248,16 @@ mod tests {
                 "the manual mentions --gone, which is not a flag",
                 "the manual mentions `tab_width`, which is neither a key nor a value",
             ]
+        );
+    }
+
+    #[test]
+    fn test_user_keys_are_read_with_their_section() {
+        let printed =
+            "[history]\nenabled = true  # default\n\n[output]\ncolor = \"auto\"  # default\n";
+        assert_eq!(
+            user_keys(printed),
+            "history.enabled = true  # default\noutput.color = \"auto\"  # default\n"
         );
     }
 }

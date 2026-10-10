@@ -356,6 +356,21 @@ impl Resolver {
         Ok(config)
     }
 
+    /// The environment the resolver reads.
+    pub fn env(&self) -> &Environment {
+        &self.env
+    }
+
+    /// A per-user setting: the user config's value, else the default.
+    pub fn user_value(&self, name: &str) -> Option<Value> {
+        let setting = options::find(name).filter(|s| s.file == File::User)?;
+        self.user
+            .as_ref()
+            .and_then(|user| user.values.iter().find(|(s, _, _)| s.name == name))
+            .map(|(_, value, _)| value.clone())
+            .or_else(|| value::default_of(setting, 2015))
+    }
+
     /// Warnings found since the last call, each given once per run.
     pub fn take_warnings(&mut self) -> Vec<String> {
         std::mem::take(&mut self.warnings)

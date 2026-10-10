@@ -43,6 +43,22 @@ pub fn create_if_missing(env: &Environment) -> Result<Option<PathBuf>, String> {
     Ok(Some(path))
 }
 
+/// The folder run history is kept in: `$XDG_STATE_HOME/mtindo/history`, else
+/// `~/.local/state/mtindo/history` on macOS and Linux and `%LOCALAPPDATA%\mtindo\history` on
+/// Windows.
+pub fn history_dir(env: &Environment) -> Option<PathBuf> {
+    let base = if let Some(xdg) = &env.xdg_state_home {
+        Some(xdg.clone())
+    } else if cfg!(windows) {
+        env.local_app_data.clone()
+    } else {
+        env.home
+            .as_ref()
+            .map(|home| home.join(".local").join("state"))
+    };
+    base.map(|base| base.join("mtindo").join("history"))
+}
+
 /// The user config file, if the environment names a place for one.
 pub fn path(env: &Environment) -> Result<Option<PathBuf>, Error> {
     if let Some(path) = &env.mtindo_config {

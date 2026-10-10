@@ -42,6 +42,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("text", 0),
     ("syntax", 1),
     ("options", 1),
+    ("history", 1),
     ("verify", 2),
     ("layout", 3),
     ("format", 3),

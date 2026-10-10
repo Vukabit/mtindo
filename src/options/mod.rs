@@ -9,6 +9,7 @@
 pub mod layout;
 mod mto;
 mod rustfmt;
+pub mod user;
 
 pub use rustfmt::RUSTFMT_VERSION;
 
@@ -31,6 +32,8 @@ pub enum Kind {
     Integer,
     /// Any string.
     Text,
+    /// A size in bytes, written as a string such as `"256MB"` (see [`user::bytes`]).
+    Size,
     /// One of a fixed set of strings.
     Choice(&'static [Choice]),
     /// An array of strings.
@@ -107,9 +110,12 @@ impl Setting {
     }
 }
 
-/// Every setting: rustfmt's in name order, then mto's own.
+/// Every setting: rustfmt's in name order, then mto's own, then the per-user ones.
 pub fn all() -> impl Iterator<Item = &'static Setting> {
-    rustfmt::SETTINGS.iter().chain(mto::SETTINGS.iter())
+    rustfmt::SETTINGS
+        .iter()
+        .chain(mto::SETTINGS.iter())
+        .chain(user::SETTINGS.iter())
 }
 
 pub fn find(name: &str) -> Option<&'static Setting> {

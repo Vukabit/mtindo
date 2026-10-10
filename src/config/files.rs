@@ -23,6 +23,10 @@ pub struct Environment {
     pub xdg_config_home: Option<PathBuf>,
     /// `%APPDATA%` (Windows).
     pub app_data: Option<PathBuf>,
+    /// `$XDG_STATE_HOME`, when set to an absolute path.
+    pub xdg_state_home: Option<PathBuf>,
+    /// `%LOCALAPPDATA%` (Windows).
+    pub local_app_data: Option<PathBuf>,
     /// `$MTINDO_CONFIG`: the exact user config file.
     pub mtindo_config: Option<PathBuf>,
     /// `$CI` is set: never create files outside the project.
@@ -54,6 +58,8 @@ impl Environment {
             os_config_dir,
             xdg_config_home,
             app_data,
+            xdg_state_home: path("XDG_STATE_HOME").filter(|p| p.is_absolute()),
+            local_app_data: path("LOCALAPPDATA"),
             mtindo_config: path("MTINDO_CONFIG"),
             ci: env::var_os("CI").is_some(),
         }

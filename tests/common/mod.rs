@@ -47,8 +47,30 @@ impl TestEnvironment {
             .env("HOME", self.dir.path().join(".home"))
             .env("CI", "1")
             .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env_remove("MTINDO_COMMAND")
             .env_remove("MTINDO_CONFIG");
         cmd
+    }
+
+    /// Runs git in `sub_dir`, quietly, as a fixed author; panics if it fails.
+    pub fn git(&self, sub_dir: &str, args: &[&str]) {
+        let status = StdCommand::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(self.dir.path().join(sub_dir))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {:?}", args);
     }
 
     pub fn git_init(&self, sub_dir: &str) {

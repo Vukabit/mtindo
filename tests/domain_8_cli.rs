@@ -2,9 +2,13 @@ mod common;
 
 use common::TestEnvironment;
 
+const SORTED: &str = "fn a() {}\n\nfn b() {}\n";
+
 /// Debug builds of mto add a stray comment to their output when `MTINDO_INJECT_FAULT` is
 /// set, so the verifier must stop the write.
 const SOURCE: &str = "fn b() {}\n\nfn a() {}\n";
+
+const UNSORTED: &str = "fn b() {}\n\nfn a() {}\n";
 
 fn help_output(
     env: &TestEnvironment,
@@ -22,6 +26,16 @@ fn help_output(
     (
         output.status.code(),
         String::from_utf8(output.stdout).unwrap(),
+    )
+}
+
+/// Runs mto in `env` with `args`; returns (exit code, stdout, stderr).
+fn mto(env: &TestEnvironment, args: &[&str]) -> (i32, String, String) {
+    let output = env.mto_cmd().args(args).output().unwrap();
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
     )
 }
 
@@ -62,6 +76,20 @@ fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
         changed,
         ["/src/a.rs", "/src/lib.rs", "/src/main.rs", "/tests/it.rs"]
     );
+    // A write is recorded under the command as typed, not mto's file list.
+    let output = assert_cmd::Command::cargo_bin("cargo-mto")
+        .unwrap()
+        .current_dir(env.dir.path())
+        .env("HOME", env.dir.path().join(".home"))
+        .env("CI", "1")
+        .env_remove("XDG_STATE_HOME")
+        .args(["mto", "-q"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let history = env.mto_cmd().arg("history").output().unwrap();
+    let history = String::from_utf8(history.stdout).unwrap();
+    assert!(history.contains("4 files  cargo mto -q\n"), "{}", history);
 }
 
 #[test]
@@ -227,7 +255,8 @@ fn test_cli_config_path_and_print() {
             "user config",
             "rustfmt config",
             "mto config",
-            "Cargo.toml (edition)"
+            "Cargo.toml (edition)",
+            "history"
         ],
         "{}",
         stdout
@@ -296,7 +325,12 @@ fn test_cli_config_path_and_print() {
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
-        stdout.ends_with("# mto has no user settings yet\n"),
+        stdout.starts_with("[history]\nenabled = true  # default\n"),
+        "{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\n\n[safety]\nallow_dirty = false  # default\n"),
         "{}",
         stdout
     );
@@ -538,6 +572,56 @@ fn test_cli_help_color_follows_no_color_and_force_color() {
 }
 
 #[test]
+fn test_cli_history_off_and_the_git_guard() {
+    let env = TestEnvironment::new();
+    env.git_init("repo");
+    env.write_file("repo/mto.toml", "layout = true\n");
+    env.write_file("repo/clean.rs", UNSORTED);
+    env.write_file("repo/dirty.rs", UNSORTED);
+    env.git("repo", &["add", "."]);
+    env.git("repo", &["commit", "-q", "-m", "x"]);
+    env.write_file("repo/dirty.rs", &format!("{}// edited\n", UNSORTED));
+    // With history on, the guard stays out of the way.
+    let (code, _, stderr) = mto(&env, &["--dry-run", "repo"]);
+    assert_eq!(code, 0, "{}", stderr);
+    // With history off, the uncommitted file is left alone; the run is not recorded.
+    let (code, _, stderr) = mto(&env, &["--no-history", "repo"]);
+    assert_eq!(code, 3, "{}", stderr);
+    assert!(stderr.contains("uncommitted changes"), "{}", stderr);
+    assert!(!stderr.contains("Recorded"), "{}", stderr);
+    assert_eq!(env.read_file("repo/clean.rs"), SORTED);
+    assert!(env.read_file("repo/dirty.rs").starts_with(UNSORTED));
+    let (_, stdout, _) = mto(&env, &["history"]);
+    assert!(stdout.contains("No runs"), "{}", stdout);
+    // --allow-dirty, or the user config, lets it through.
+    let (code, _, stderr) = mto(&env, &["--no-history", "--allow-dirty", "repo"]);
+    assert_eq!(code, 0, "{}", stderr);
+    assert!(env.read_file("repo/dirty.rs").starts_with(SORTED));
+}
+
+#[test]
+fn test_cli_history_prune_and_removed_flags() {
+    let env = TestEnvironment::new();
+    for i in 0..3 {
+        env.write_file("main.rs", &format!("fn b{}() {{}}\n\nfn a() {{}}\n", i));
+        assert_eq!(mto(&env, &["main.rs"]).0, 0);
+    }
+    let (code, stdout, _) = mto(&env, &["history", "prune", "--keep", "1"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("Removed 2 run(s)"), "{}", stdout);
+    let (_, stdout, _) = mto(&env, &["history"]);
+    assert_eq!(stdout.lines().count(), 2, "{}", stdout);
+    assert_eq!(
+        mto(&env, &["history", "prune", "--older-than", "soon"]).0,
+        2
+    );
+    let (code, _, stderr) = mto(&env, &["--restore", "a", "b"]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("mto restore last"), "{}", stderr);
+    assert_eq!(mto(&env, &["--force", "main.rs"]).0, 2);
+}
+
+#[test]
 fn test_cli_init_success_and_failure() {
     let env = TestEnvironment::new();
     std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
@@ -696,18 +780,58 @@ fn test_cli_quiet_verbose_color_and_unstable_features() {
 }
 
 #[test]
-fn test_cli_restore_contract() {
+fn test_cli_restore_skips_files_edited_since_unless_forced() {
     let env = TestEnvironment::new();
-    let backup_path = env.write_file("backup.bak", "fn original() {}");
-    env.write_file("main.rs", "fn corrupted() {}");
+    env.write_file("a.rs", UNSORTED);
+    env.write_file("b.rs", UNSORTED);
+    assert_eq!(mto(&env, &["a.rs", "b.rs"]).0, 0);
+    env.write_file("a.rs", "fn edited() {}\n");
+    std::fs::remove_file(env.dir.path().join("b.rs")).unwrap();
+    let (code, _, stderr) = mto(&env, &["restore", "last"]);
+    assert_eq!(code, 1, "{}", stderr);
+    assert!(stderr.contains("changed since run"), "{}", stderr);
+    assert!(stderr.contains("no longer exists"), "{}", stderr);
+    assert_eq!(env.read_file("a.rs"), "fn edited() {}\n");
+    // Only the files named, and every file named must be the run's.
+    assert_eq!(mto(&env, &["restore", "last", "c.rs"]).0, 2);
+    let (code, _, stderr) = mto(&env, &["restore", "last", "a.rs", "--force"]);
+    assert_eq!(code, 0, "{}", stderr);
+    assert_eq!(env.read_file("a.rs"), UNSORTED);
+    assert!(!env.dir.path().join("b.rs").exists());
+    // The forced restore recorded the edit, so it can be had back.
+    assert_eq!(mto(&env, &["restore", "last"]).0, 0);
+    assert_eq!(env.read_file("a.rs"), "fn edited() {}\n");
+}
 
-    let mut cmd = env.mto_cmd();
-    cmd.arg("--restore").arg(&backup_path).arg("main.rs");
-
-    cmd.assert().success();
-
-    let restored = env.read_file("main.rs");
-    assert_eq!(restored, "fn original() {}");
+#[test]
+fn test_cli_restore_undoes_the_last_run() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", UNSORTED);
+    let (code, _, stderr) = mto(&env, &["main.rs"]);
+    assert_eq!(code, 0, "{}", stderr);
+    assert!(stderr.contains("Recorded as run "), "{}", stderr);
+    assert_eq!(env.read_file("main.rs"), SORTED);
+    let (code, stdout, _) = mto(&env, &["history"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("1 file") && stdout.contains("mto main.rs"),
+        "{}",
+        stdout
+    );
+    let (code, stdout, stderr) = mto(&env, &["restore", "last"]);
+    assert_eq!(code, 0, "{}", stderr);
+    assert!(stdout.contains("Restored"), "{}", stdout);
+    assert_eq!(env.read_file("main.rs"), UNSORTED);
+    // The restore is a run too: undoing it lays the file out again.
+    let (code, stdout, _) = mto(&env, &["history"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("(restores "), "{}", stdout);
+    assert_eq!(mto(&env, &["restore", "last"]).0, 0);
+    assert_eq!(env.read_file("main.rs"), SORTED);
+    // last~2 is the first run again; the file already holds what that run wrote.
+    let (code, stdout, _) = mto(&env, &["history", "show", "last~2"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("as written"), "{}", stdout);
 }
 
 #[test]
@@ -769,6 +893,29 @@ fn test_cli_unknown_argument_exits_two() {
         .assert()
         .failure()
         .code(2);
+}
+
+#[test]
+fn test_cli_user_config_turns_history_off() {
+    let env = TestEnvironment::new();
+    env.write_file(
+        ".home/.config/mtindo/config.toml",
+        "[history]\nenabled = false\n[safety]\nallow_dirty = true\n",
+    );
+    env.write_file("main.rs", UNSORTED);
+    let (code, _, stderr) = mto(&env, &["main.rs"]);
+    assert_eq!(code, 0, "{}", stderr);
+    assert!(!stderr.contains("Recorded"), "{}", stderr);
+    let (code, _, stderr) = mto(&env, &["restore", "last"]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("history is empty"), "{}", stderr);
+    env.write_file(
+        ".home/.config/mtindo/config.toml",
+        "[history]\nmax_size = \"lots\"\n",
+    );
+    let (code, _, stderr) = mto(&env, &["main.rs"]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("max_size"), "{}", stderr);
 }
 
 #[test]

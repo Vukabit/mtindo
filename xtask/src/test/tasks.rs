@@ -79,7 +79,7 @@ pub const TEST_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "domain_6_io",
-        "File I/O: backups, atomic writes, permissions, symlinks",
+        "File I/O: atomic writes, permissions, symlinks",
         "tests",
     ),
     (
@@ -89,7 +89,7 @@ pub const TEST_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "domain_8_cli",
-        "Command line: check, dry run, exit codes, stdin",
+        "Command line: check, dry run, exit codes, stdin, history and restore",
         "tests",
     ),
     ("domain_9_config_hierarchy", "Config hierarchy", "tests"),

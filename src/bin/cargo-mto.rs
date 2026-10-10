@@ -102,6 +102,20 @@ fn main() -> ExitCode {
         }
     }
     let mut command = Command::new(mto_binary());
+    // History records the command as it was typed, not the file list mto is given.
+    let typed: Vec<String> = env::args().skip(1).collect();
+    let typed = match typed.first().map(String::as_str) {
+        Some("mto") => &typed[1..],
+        _ => &typed[..],
+    };
+    command.env(
+        "MTINDO_COMMAND",
+        ["cargo mto".to_string()]
+            .into_iter()
+            .chain(typed.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
     command.args(&args.mto);
     if args.check && !args.mto.iter().any(|a| a == "--check") {
         command.arg("--check");
@@ -172,6 +186,7 @@ fn parse(raw: &[String]) -> Result<Parsed, String> {
                 return Ok(Parsed::Exit(0));
             }
             "--check" => args.check = true,
+            "--no-history" | "--allow-dirty" => args.mto.push(arg.to_string()),
             "--all" => args.selection_all = true,
             "-q" | "--quiet" => args.quiet = true,
             "-v" | "--verbose" => args.verbose = true,
@@ -244,6 +259,7 @@ mod tests {
         assert!(args.check);
         assert_eq!(args.packages, ["a", "b"]);
         assert_eq!(args.mto, ["-l", "--config", "max_width=80"]);
+        assert_eq!(run(&["--no-history"]).mto, ["--no-history"]);
         assert!(parse(&["-q".into(), "-v".into()]).is_err());
         assert!(parse(&["--manifest-path".into(), "x.toml".into()]).is_err());
     }

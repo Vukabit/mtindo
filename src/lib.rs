@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod config;
+pub mod history;
 pub mod layout;
 pub mod options;
 pub mod syntax;
@@ -15,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use layout::import_group_of_text as classify_import;
 pub use options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
@@ -100,6 +100,8 @@ pub enum Outcome {
     LayoutOff,
     /// Left untouched because it has syntax errors (exit code 3).
     SyntaxError,
+    /// Left untouched by the git guard: it has uncommitted changes and history is off.
+    Dirty,
 }
 
 /// How one job ended: its outcome, and its `--emit json` entry.
@@ -118,6 +120,8 @@ pub struct FileReport {
     pub stderr: String,
     /// The file's entry in `--emit json`'s report, when it would change.
     pub json: Option<String>,
+    /// The file as written, for the run's history record.
+    pub written: Option<history::Entry>,
 }
 
 impl FileReport {
@@ -160,6 +164,28 @@ pub struct RunOptions {
     pub verbose: bool,
     /// `--skip-children`: a file argument is that file alone, not its modules.
     pub skip_children: bool,
+    /// `--no-history`: do not record this run.
+    pub no_history: bool,
+    /// `--allow-dirty`: with history off, rewrite files with uncommitted changes.
+    pub allow_dirty: bool,
+}
+
+/// What [`run_file`] needs to write a file: where its contents are recorded, and which files
+/// the git guard keeps.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WriteContext<'a> {
+    pub history: Option<&'a history::History>,
+    pub dirty: Option<&'a HashSet<PathBuf>>,
+}
+
+/// What a run that writes files records and guards.
+#[derive(Debug, Default)]
+pub struct Writes {
+    /// Records the run in history; `None` with history off.
+    pub recorder: Option<history::Recorder>,
+    /// With history off: the files (absolute, symlinks resolved) git sees uncommitted
+    /// changes in, which are not rewritten. `None` when the guard is off.
+    pub dirty: Option<HashSet<PathBuf>>,
 }
 
 pub fn c_cyan() -> &'static str {
@@ -235,28 +261,6 @@ pub fn collect_jobs(
         }
     }
     Ok((jobs, problems))
-}
-
-pub fn create_backup(file_path: &Path, content: &str) -> Result<PathBuf, std::io::Error> {
-    let mut backup_dir = env::temp_dir();
-    backup_dir.push("mtindo_backups");
-    fs::create_dir_all(&backup_dir)?;
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let unique = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let safe_name = file_path.to_string_lossy().replace(['/', '\\'], "_");
-    let backup_filename = format!(
-        "{}_{}_{}_{}.bak",
-        timestamp,
-        std::process::id(),
-        unique,
-        safe_name
-    );
-    let backup_path = backup_dir.join(backup_filename);
-    write_atomic(&backup_path, content)?;
-    Ok(backup_path)
 }
 
 /// The `mto.toml` that `mto init` writes: every mto setting at its default, with its
@@ -398,15 +402,15 @@ pub fn reorganize_file(source: String, config: &LayoutConfig, dbg: bool) -> Stri
     }
 }
 
-pub fn restore_backup(backup_path: &Path, target_path: &Path) -> Result<(), std::io::Error> {
-    let content = fs::read_to_string(backup_path)?;
-    write_atomic(target_path, &content)
-}
-
 /// Lays out one file: reads, arranges, verifies, then shows the diff (`--check`), names the
-/// file (`--dry-run`), or writes it. Nothing is printed; the report holds the output, so
+/// file (`--dry-run`), or records and writes it. Nothing is printed; the report holds the output, so
 /// files can be processed in parallel and still print in order.
-pub fn run_file(file_path: &Path, config: &LayoutConfig, opts: &RunOptions) -> FileReport {
+pub fn run_file(
+    file_path: &Path,
+    config: &LayoutConfig,
+    opts: &RunOptions,
+    ctx: WriteContext,
+) -> FileReport {
     let mut report = FileReport::default();
     let shown = file_path.display().to_string();
     let source = match fs::read_to_string(file_path) {
@@ -506,39 +510,59 @@ pub fn run_file(file_path: &Path, config: &LayoutConfig, opts: &RunOptions) -> F
         ));
         return report.with(Outcome::Changed);
     }
-    let backup_path = match create_backup(file_path, &source) {
-        Ok(path) => {
-            if opts.debug {
-                report.stdout.push_str(&format!(
-                    "{}--- [DBG] Created backup at: {} ---\n",
-                    c_cyan(),
-                    path.display()
-                ));
-            }
-            path
-        }
-        Err(e) => {
+    if let Some(dirty) = ctx.dirty {
+        let real = fs::canonicalize(file_path).unwrap_or_else(|_| file_path.to_path_buf());
+        if dirty.contains(&real) {
             report.stderr = format!(
-                "{}Failed to create backup, aborting {}: {}{}\n",
-                c_red(),
+                "{}Left {} alone: it has uncommitted changes and history is off.{}\n",
+                c_yellow(true),
                 shown,
-                e,
                 c_reset(true)
             );
-            return report.with(Outcome::Failed);
+            return report.with(Outcome::Dirty);
         }
-    };
+    }
+    // The contents are stored, and synced, before the file is replaced: what history
+    // records, it can give back.
+    let mut written = None;
+    if let Some(history) = ctx.history {
+        let stored = history.store(source.as_bytes()).and_then(|before| {
+            let after = history.store(reorganized.as_bytes())?;
+            Ok((before, after))
+        });
+        match stored {
+            Ok((before, after)) => {
+                written = Some(history::Entry {
+                    path: std::path::absolute(file_path).unwrap_or_else(|_| file_path.into()),
+                    before,
+                    after,
+                });
+            }
+            Err(e) => {
+                report.stderr = format!(
+                    "{}Left {} alone: cannot record it in history ({}): {}; --no-history \
+                     writes without a record{}\n",
+                    c_red(),
+                    shown,
+                    history.dir().display(),
+                    e,
+                    c_reset(true)
+                );
+                return report.with(Outcome::Failed);
+            }
+        }
+    }
     if let Err(e) = write_atomic(file_path, &reorganized) {
         report.stderr = format!(
-            "{}Atomic write failed for {}: {}. Auto-restoring...{}\n",
+            "{}Cannot write {}: {}; it is unchanged{}\n",
             c_red(),
             shown,
             e,
             c_reset(true)
         );
-        let _ = restore_backup(&backup_path, file_path);
         return report.with(Outcome::Failed);
     }
+    report.written = written;
     if opts.files_with_diff {
         report.stdout.push_str(&format!("{}\n", shown));
         return report.with(Outcome::Changed);
@@ -547,13 +571,9 @@ pub fn run_file(file_path: &Path, config: &LayoutConfig, opts: &RunOptions) -> F
         return report.with(Outcome::Changed);
     }
     report.stdout.push_str(&format!(
-        "{}Formatted:{} {}\n  {}Undo:{} mto --restore {} {}\n",
+        "{}Formatted:{} {}\n",
         c_green(),
         c_reset(false),
-        shown,
-        c_cyan(),
-        c_reset(false),
-        backup_path.display(),
         shown
     ));
     report.with(Outcome::Changed)
@@ -561,7 +581,8 @@ pub fn run_file(file_path: &Path, config: &LayoutConfig, opts: &RunOptions) -> F
 
 /// Runs every job on a pool of threads, printing each report as soon as every report
 /// before it has been printed, so the output is the same as one thread's.
-pub fn run_jobs(jobs: &[Job], opts: &RunOptions) -> Vec<Done> {
+/// Each file written is added to the run's history record as its report arrives.
+pub fn run_jobs(jobs: &[Job], opts: &RunOptions, writes: &mut Writes) -> Vec<Done> {
     let workers = thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
@@ -569,6 +590,12 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions) -> Vec<Done> {
     let next = AtomicUsize::new(0);
     let (sender, receiver) = mpsc::channel::<(usize, FileReport)>();
     let mut outcomes = Vec::with_capacity(jobs.len());
+    let history = writes.recorder.as_ref().map(|r| r.history().clone());
+    let ctx = WriteContext {
+        history: history.as_ref(),
+        dirty: writes.dirty.as_ref(),
+    };
+    let recorder = &mut writes.recorder;
     thread::scope(|scope| {
         for _ in 0..workers {
             let sender = sender.clone();
@@ -580,7 +607,7 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions) -> Vec<Done> {
                         break;
                     };
                     let report = match config {
-                        Some(config) => run_file(path, config, opts),
+                        Some(config) => run_file(path, config, opts, ctx),
                         None => FileReport::default().with(Outcome::LayoutOff),
                     };
                     if sender.send((idx, report)).is_err() {
@@ -595,6 +622,17 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions) -> Vec<Done> {
             waiting.insert(idx, report);
             while let Some(report) = waiting.remove(&outcomes.len()) {
                 report.print();
+                if let (Some(recorder), Some(entry)) = (recorder.as_mut(), &report.written)
+                    && let Err(e) = recorder.record(entry)
+                {
+                    eprintln!(
+                        "{}warning: cannot add {} to the history record: {}{}",
+                        c_yellow(true),
+                        entry.path.display(),
+                        e,
+                        c_reset(true)
+                    );
+                }
                 outcomes.push(Done {
                     outcome: report.outcome,
                     json: report.json,
@@ -652,14 +690,15 @@ pub fn try_reorganize(source: &str, config: &LayoutConfig, dbg: bool) -> Result<
 }
 
 /// Lays out every `.rs` file under `dir`, each with the settings of its own folder. Files
-/// are processed in parallel and their output printed in walk order.
+/// are processed in parallel and their output printed in walk order. Nothing is recorded
+/// in history.
 pub fn walk_directory(
     dir: &Path,
     resolver: &mut config::Resolver,
     opts: &RunOptions,
 ) -> Result<Vec<Outcome>, MtoError> {
     let (jobs, _) = collect_jobs(&[dir.to_path_buf()], resolver, opts)?;
-    Ok(run_jobs(&jobs, opts)
+    Ok(run_jobs(&jobs, opts, &mut Writes::default())
         .into_iter()
         .map(|d| d.outcome)
         .collect())

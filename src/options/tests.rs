@@ -21,7 +21,7 @@ fn test_defaults_are_legal_values() {
             match setting.kind {
                 Kind::Bool => assert!(default == "true" || default == "false", "{}", setting.name),
                 Kind::Integer => assert!(default.parse::<u64>().is_ok(), "{}", setting.name),
-                Kind::Text => assert!(default.starts_with('"'), "{}", setting.name),
+                Kind::Text | Kind::Size => assert!(default.starts_with('"'), "{}", setting.name),
                 Kind::Choice(_) => assert!(
                     names.contains(&default.trim_matches('"')),
                     "{} = {}",

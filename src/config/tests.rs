@@ -371,13 +371,34 @@ fn test_user_config_location_and_template() {
         ..Environment::default()
     };
     assert!(user::path(&env).unwrap_err().message.contains("not a file"));
-    // There are no user settings yet, so nothing is created.
     let env = Environment {
         home: Some(tree.0.clone()),
         ..Environment::default()
     };
+    let created = tree.0.join(".config/mtindo/config.toml");
+    assert_eq!(user::create_if_missing(&env), Ok(Some(created.clone())));
+    // Never twice, and never over a file.
     assert_eq!(user::create_if_missing(&env), Ok(None));
-    assert!(user::template().starts_with("# mto's user configuration"));
+    let template = fs::read_to_string(&created).unwrap();
+    assert!(template.starts_with("# mto's user configuration"));
+    assert!(
+        template.contains("[history]\n# Record every run"),
+        "{}",
+        template
+    );
+    assert!(template.contains("# keep_days = 30\n"), "{}", template);
+    // Every line is a comment, a section or blank: the defaults stay the program's.
+    let table = toml::parse(&template).unwrap();
+    assert!(
+        table
+            .entries()
+            .iter()
+            .all(|e| matches!(&e.value, toml::Value::Table(t) if t.entries().is_empty()))
+    );
+    // The CI never gets one.
+    let ci = Environment { ci: true, ..env };
+    fs::remove_file(&created).unwrap();
+    assert_eq!(user::create_if_missing(&ci), Ok(None));
 }
 
 #[test]

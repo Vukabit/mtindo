@@ -1,0 +1,425 @@
+//! Layer 2: proves mto's output is safe before it is written.
+//!
+//! In layout mode, mto may only move whole top-level items and change the whitespace
+//! between them. [`verify_layout`] parses the input and the output and checks, rule by
+//! rule ([`Rule`]):
+//!
+//! - every item comes out with exactly its original bytes, its attached comments included
+//!   (items are compared as a multiset, so order is free);
+//! - every comment, attached or not, is still there, byte for byte;
+//! - the header (shebang, frontmatter, inner attributes and inner doc comments) is
+//!   unchanged and still before every item;
+//! - anything else at the top level (damaged text, stray tokens) is unchanged;
+//! - `macro_rules!` definitions keep their order relative to each other, because a macro
+//!   is only visible below its definition;
+//! - the output parses at least as well as the input;
+//! - the byte-order mark and the line-ending style are kept.
+//!
+//! The verifier does not know which engine produced the output, so it checks today's
+//! text-scanning engine and the syntax-tree engine of stage 2 alike. [`report`] turns
+//! violations into a bug report with the smallest input that still shows them.
+
+pub mod report;
+
+use std::collections::BTreeMap;
+
+use crate::syntax::ast::{Attr, Item, ItemKind};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LineEndings {
+    None,
+    Lf,
+    Crlf,
+    Mixed,
+}
+
+/// One way the output can be unsafe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Rule {
+    /// The output has syntax errors the input did not have.
+    OutputBroken,
+    /// An item of the input is missing from the output, or comes out changed.
+    ItemLost,
+    /// The output has an item the input did not have, or more copies of one.
+    ItemAdded,
+    /// An item comes out unchanged except for the comments attached to it: a comment
+    /// that described it came loose, or one that described something else attached to it.
+    CommentReattached,
+    /// A comment of the input is missing from the output.
+    CommentLost,
+    /// The output has a comment the input did not have.
+    CommentAdded,
+    /// The header changed, or is no longer before every item.
+    HeaderChanged,
+    /// Something that is neither an item, a comment, the header nor whitespace changed.
+    OtherChanged,
+    /// `macro_rules!` definitions changed order relative to each other.
+    MacroOrderChanged,
+    /// The byte-order mark was added or removed.
+    BomChanged,
+    /// The line endings changed style (`\n` against `\r\n`).
+    LineEndingsChanged,
+}
+
+impl Rule {
+    /// The rule's short name, used in bug reports and logs.
+    pub fn name(self) -> &'static str {
+        match self {
+            Rule::OutputBroken => "output-broken",
+            Rule::ItemLost => "item-lost",
+            Rule::ItemAdded => "item-added",
+            Rule::CommentReattached => "comment-reattached",
+            Rule::CommentLost => "comment-lost",
+            Rule::CommentAdded => "comment-added",
+            Rule::HeaderChanged => "header-changed",
+            Rule::OtherChanged => "other-changed",
+            Rule::MacroOrderChanged => "macro-order-changed",
+            Rule::BomChanged => "bom-changed",
+            Rule::LineEndingsChanged => "line-endings-changed",
+        }
+    }
+}
+
+/// The parts of a file the rules compare.
+#[derive(Debug, Default)]
+struct Parts {
+    /// Shebang, frontmatter, inner attributes and inner doc comments, in order.
+    header: Vec<String>,
+    /// Whether every header element comes before the first item.
+    header_first: bool,
+    /// Each top-level item: (exact text, core text without attached comments).
+    items: Vec<(String, String)>,
+    /// Every plain comment anywhere in the file.
+    comments: Vec<String>,
+    /// Everything else at the top level that is not whitespace.
+    others: Vec<String>,
+    /// `macro_rules!` names in order.
+    macros: Vec<String>,
+    errors: usize,
+}
+
+/// One broken rule, with what was seen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Violation {
+    pub rule: Rule,
+    pub detail: String,
+}
+
+/// Every rule the output breaks; empty when it is safe to write.
+pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let mut add = |rule: Rule, detail: String| violations.push(Violation { rule, detail });
+
+    if input.starts_with('\u{feff}') != output.starts_with('\u{feff}') {
+        add(
+            Rule::BomChanged,
+            if input.starts_with('\u{feff}') {
+                "the byte-order mark was removed".to_string()
+            } else {
+                "a byte-order mark was added".to_string()
+            },
+        );
+    }
+    let (before, after) = (line_endings(input), line_endings(output));
+    let changed = matches!(
+        (before, after),
+        (LineEndings::Lf, LineEndings::Crlf | LineEndings::Mixed)
+            | (LineEndings::Crlf, LineEndings::Lf | LineEndings::Mixed)
+    );
+    if changed {
+        add(
+            Rule::LineEndingsChanged,
+            format!("{:?} line endings became {:?}", before, after),
+        );
+    }
+
+    let old = parts(input, edition);
+    let new = parts(output, edition);
+    if new.errors > old.errors {
+        add(
+            Rule::OutputBroken,
+            format!(
+                "the output has {} syntax error(s), the input {}",
+                new.errors, old.errors
+            ),
+        );
+    }
+    if old.header != new.header {
+        let trimmed = |h: &[String]| {
+            h.iter()
+                .map(|e| e.trim_end().to_string())
+                .collect::<Vec<_>>()
+        };
+        let detail = if trimmed(&old.header) == trimmed(&new.header) {
+            format!(
+                "header differs only in trailing whitespace: {}",
+                describe_list(&old.header)
+            )
+        } else {
+            format!(
+                "header was {}, is {}",
+                describe_list(&old.header),
+                describe_list(&new.header)
+            )
+        };
+        add(Rule::HeaderChanged, detail);
+    } else if old.header_first && !new.header_first {
+        add(
+            Rule::HeaderChanged,
+            "a header element now comes after an item".to_string(),
+        );
+    }
+
+    // Items: a multiset by exact text. A lost and an added item with the same core are one
+    // item whose attached comments changed.
+    let full =
+        |items: &[(String, String)]| items.iter().map(|(f, _)| f.clone()).collect::<Vec<_>>();
+    let (mut lost, mut added) = difference(&full(&old.items), &full(&new.items));
+    let core_of = |text: &str, items: &[(String, String)]| {
+        items
+            .iter()
+            .find(|(f, _)| f == text)
+            .map(|(_, c)| c.clone())
+            .unwrap_or_default()
+    };
+    let mut reattached = Vec::new();
+    lost.retain(|l| {
+        let core = core_of(l, &old.items);
+        match added.iter().position(|a| core_of(a, &new.items) == core) {
+            Some(at) => {
+                added.remove(at);
+                reattached.push(core);
+                false
+            }
+            None => true,
+        }
+    });
+    // Items are shown by their own code, not by the comments attached above them.
+    let cores = |texts: &[String], items: &[(String, String)]| -> Vec<String> {
+        texts.iter().map(|t| core_of(t, items)).collect()
+    };
+    if !lost.is_empty() {
+        add(
+            Rule::ItemLost,
+            format!(
+                "{} item(s) lost or changed: {}",
+                lost.len(),
+                describe_list(&cores(&lost, &old.items))
+            ),
+        );
+    }
+    if !added.is_empty() {
+        add(
+            Rule::ItemAdded,
+            format!(
+                "{} item(s) not in the input: {}",
+                added.len(),
+                describe_list(&cores(&added, &new.items))
+            ),
+        );
+    }
+    if !reattached.is_empty() {
+        add(
+            Rule::CommentReattached,
+            format!(
+                "{} item(s) gained or lost attached comments: {}",
+                reattached.len(),
+                describe_list(&reattached)
+            ),
+        );
+    }
+
+    let (lost, added) = difference(&old.comments, &new.comments);
+    if !lost.is_empty() {
+        add(
+            Rule::CommentLost,
+            format!("{} comment(s) lost: {}", lost.len(), describe_list(&lost)),
+        );
+    }
+    if !added.is_empty() {
+        add(
+            Rule::CommentAdded,
+            format!(
+                "{} comment(s) added: {}",
+                added.len(),
+                describe_list(&added)
+            ),
+        );
+    }
+    let (lost, added) = difference(&old.others, &new.others);
+    if !lost.is_empty() || !added.is_empty() {
+        add(
+            Rule::OtherChanged,
+            format!(
+                "lost {}, added {}",
+                describe_list(&lost),
+                describe_list(&added)
+            ),
+        );
+    }
+    if old.macros != new.macros {
+        add(
+            Rule::MacroOrderChanged,
+            format!(
+                "macro_rules! order was {}, is {}",
+                old.macros.join(", "),
+                new.macros.join(", ")
+            ),
+        );
+    }
+    violations
+}
+
+/// The text from a node's first significant token to its last, without the comments and
+/// whitespace attached around it.
+fn core_text(node: &SyntaxNode) -> String {
+    let tokens: Vec<_> = node
+        .descendants_with_tokens()
+        .into_iter()
+        .filter_map(|e| match e {
+            SyntaxElement::Token(t) => Some(t),
+            SyntaxElement::Node(_) => None,
+        })
+        .collect();
+    let significant = |t: &&crate::syntax::SyntaxToken| !t.kind().is_trivia();
+    let (Some(first), Some(last)) = (
+        tokens.iter().find(significant),
+        tokens.iter().rfind(significant),
+    ) else {
+        return String::new();
+    };
+    let text = node.text();
+    let base = node.text_range().start;
+    let from = (first.text_range().start - base) as usize;
+    let to = (last.text_range().end - base) as usize;
+    text[from..to].to_string()
+}
+
+/// A few entries, each cut to its first line, for a violation's detail.
+fn describe_list(entries: &[String]) -> String {
+    if entries.is_empty() {
+        return "nothing".to_string();
+    }
+    let mut shown: Vec<String> = entries
+        .iter()
+        .take(3)
+        .map(|e| {
+            let line = e
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim();
+            let cut: String = line.chars().take(60).collect();
+            if cut.chars().count() < line.chars().count() {
+                format!("`{}...`", cut)
+            } else {
+                format!("`{}`", cut)
+            }
+        })
+        .collect();
+    if entries.len() > 3 {
+        shown.push(format!("and {} more", entries.len() - 3));
+    }
+    shown.join(", ")
+}
+
+/// (in `a` but not `b`, in `b` but not `a`), counting repeats.
+fn difference(a: &[String], b: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut counts: BTreeMap<&str, i64> = BTreeMap::new();
+    for x in a {
+        *counts.entry(x.as_str()).or_insert(0) += 1;
+    }
+    for x in b {
+        *counts.entry(x.as_str()).or_insert(0) -= 1;
+    }
+    let mut only_a = Vec::new();
+    let mut only_b = Vec::new();
+    for (text, n) in counts {
+        for _ in 0..n.max(0) {
+            only_a.push(text.to_string());
+        }
+        for _ in 0..(-n).max(0) {
+            only_b.push(text.to_string());
+        }
+    }
+    (only_a, only_b)
+}
+
+fn line_endings(text: &str) -> LineEndings {
+    let crlf = text.matches("\r\n").count();
+    let lf = text.matches('\n').count();
+    match (crlf, lf) {
+        (_, 0) => LineEndings::None,
+        (0, _) => LineEndings::Lf,
+        (c, l) if c == l => LineEndings::Crlf,
+        _ => LineEndings::Mixed,
+    }
+}
+
+/// The parts of a file. Line endings are compared by their own rule, so here every
+/// `\r\n` reads as `\n` and one changed line ending is not also every item changed.
+fn parts(text: &str, edition: Edition) -> Parts {
+    let text = text.replace("\r\n", "\n");
+    let parsed = parse(&text, edition);
+    let tree = parsed.syntax_node();
+    let mut parts = Parts {
+        errors: parsed.errors().len(),
+        header_first: true,
+        ..Parts::default()
+    };
+    for element in tree.descendants_with_tokens() {
+        if let SyntaxElement::Token(token) = element
+            && matches!(
+                token.kind(),
+                SyntaxKind::LineComment | SyntaxKind::BlockComment
+            )
+        {
+            parts.comments.push(token.text().to_string());
+        }
+    }
+    let mut seen_item = false;
+    for element in tree.children_with_tokens() {
+        let (kind, text) = match &element {
+            SyntaxElement::Node(node) => (node.kind(), node.text()),
+            SyntaxElement::Token(token) => (token.kind(), token.text().to_string()),
+        };
+        let header = match &element {
+            SyntaxElement::Token(_) => matches!(
+                kind,
+                SyntaxKind::Shebang
+                    | SyntaxKind::Frontmatter
+                    | SyntaxKind::InnerLineDoc
+                    | SyntaxKind::InnerBlockDoc
+            ),
+            SyntaxElement::Node(node) => {
+                kind == SyntaxKind::Attr && Attr::cast(node.clone()).is_some_and(|a| a.is_inner())
+            }
+        };
+        if header {
+            parts.header.push(text);
+            if seen_item {
+                parts.header_first = false;
+            }
+            continue;
+        }
+        if let SyntaxElement::Node(node) = &element
+            && let Some(item) = Item::cast(node.clone())
+        {
+            seen_item = true;
+            if item.kind() == ItemKind::MacroRules {
+                parts.macros.push(item.name().unwrap_or_default());
+            }
+            parts.items.push((text, core_text(node)));
+            continue;
+        }
+        if kind.is_trivia() {
+            continue;
+        }
+        parts.others.push(text);
+    }
+    parts
+}
+
+#[cfg(test)]
+mod tests;

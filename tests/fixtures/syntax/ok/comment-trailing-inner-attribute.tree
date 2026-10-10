@@ -1,0 +1,51 @@
+SOURCE_FILE@0..115
+  LINE_COMMENT@0..16 "// edition: 2021"
+  WHITESPACE@16..17 "\n"
+  ATTR@17..37
+    POUND@17..18 "#"
+    BANG@18..19 "!"
+    L_BRACK@19..20 "["
+    META@20..36
+      PATH@20..25
+        PATH_SEGMENT@20..25
+          NAME_REF@20..25
+            IDENT@20..25 "allow"
+      TOKEN_TREE@25..36
+        L_PAREN@25..26 "("
+        IDENT@26..35 "dead_code"
+        R_PAREN@35..36 ")"
+    R_BRACK@36..37 "]"
+  WHITESPACE@37..38 " "
+  LINE_COMMENT@38..66 "// why the attribute is here"
+  WHITESPACE@66..67 "\n"
+  USE@67..79
+    USE_KW@67..70 "use"
+    WHITESPACE@70..71 " "
+    USE_TREE@71..78
+      PATH@71..78
+        PATH_SEGMENT@71..74
+          NAME_REF@71..74
+            IDENT@71..74 "std"
+        COLON2@74..76 "::"
+        PATH_SEGMENT@76..78
+          NAME_REF@76..78
+            IDENT@76..78 "io"
+    SEMICOLON@78..79 ";"
+  WHITESPACE@79..80 "\n"
+  FN@80..114
+    LINE_COMMENT@80..90 "// about b"
+    WHITESPACE@90..91 "\n"
+    FN_KW@91..93 "fn"
+    WHITESPACE@93..94 " "
+    NAME@94..95
+      IDENT@94..95 "b"
+    PARAM_LIST@95..97
+      L_PAREN@95..96 "("
+      R_PAREN@96..97 ")"
+    WHITESPACE@97..98 " "
+    BLOCK_EXPR@98..100
+      L_BRACE@98..99 "{"
+      R_BRACE@99..100 "}"
+    WHITESPACE@100..101 " "
+    LINE_COMMENT@101..114 "// trailing b"
+  WHITESPACE@114..115 "\n"

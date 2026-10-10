@@ -104,6 +104,17 @@ off, or `FORCE_COLOR` to turn it on; `NO_COLOR` wins if both are set.
 | 1 | `--check` found files that would change |
 | 2 | Bad arguments or configuration |
 | 3 | A file could not be read or written |
+| 4 | The verifier stopped a write: a bug in mto; the file is unchanged |
+
+## Every write is checked
+
+Before `mto` writes a file, it parses the old and the new text and checks that
+only the order of items and the blank lines between them changed: every item
+keeps its exact text and its comments, every comment survives, the file header
+stays first, `macro_rules!` keep their order, and the byte-order mark and line
+endings are kept. If anything else would change, the file is left alone, `mto`
+prints a bug report with the smallest part of the file that shows the problem,
+and it exits with code `4`.
 
 ## What mto never moves
 

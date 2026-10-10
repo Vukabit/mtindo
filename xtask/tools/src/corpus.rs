@@ -11,6 +11,8 @@
 //!   new parser must cut the file into the same top-level items, with the same kind, name,
 //!   visibility and impl target. Differences are reported by cause, not failed: they are
 //!   what stage 2 must know before it swaps the scanner for the parser.
+//! - **Verifier:** what today's engine would write is checked by `verify::verify_layout`;
+//!   findings are reported by rule but do not fail the check until stage 2's N1.
 //! - **Speed:** bytes per second for lexing alone and for lexing plus parsing, single
 //!   threaded; `--baseline` records them in `compat/baseline.txt`.
 //!
@@ -27,6 +29,7 @@ use mtindo::syntax::ast::{Item, ItemKind, SourceFile, Visibility};
 use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::{Edition, SyntaxElement, SyntaxKind, parse};
 use mtindo::text::source::normalize;
+use mtindo::verify::verify_layout;
 use mtindo::{
     CodeBlock, ItemKind as OldKind, LayoutConfig, Visibility as OldVisibility, extract_blocks,
     split_header, try_reorganize,
@@ -66,6 +69,9 @@ struct Totals {
     split_broken: usize,
     split_agree: usize,
     split_causes: BTreeMap<String, Vec<String>>,
+    /// Files the stage 0 engine changes, and the verifier's findings on them by rule.
+    verified: usize,
+    verify_findings: BTreeMap<&'static str, Vec<String>>,
 }
 
 pub fn run(root: &Path, args: &[String]) -> ExitCode {
@@ -155,6 +161,25 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         ),
         &totals.lexer,
     );
+    let findings: Vec<String> = totals
+        .verify_findings
+        .iter()
+        .flat_map(|(rule, examples)| examples.iter().map(move |e| format!("{}: {}", rule, e)))
+        .collect();
+    // Report-only until stage 2's N1 replaces the old text scanner, whose known mistakes
+    // these are; N1's done-when requires zero.
+    let _ = section(
+        &log,
+        "verifier",
+        &format!(
+            "every change today's engine makes passes the verifier ({} files changed)",
+            totals.verified
+        ),
+        &findings,
+    );
+    for (rule, examples) in totals.verify_findings.iter() {
+        println!("  {:>5}  {}", examples.len(), rule);
+    }
     println!(
         "splitters: {} of {} files stage 0 processes agree ({} skipped for `// mto: off`, {} with syntax errors not compared)",
         totals.split_agree, totals.split_files, totals.split_skipped, totals.split_broken
@@ -251,6 +276,20 @@ fn check_file(path: &Path, shown: &str, totals: &mut Totals) {
     totals.lexer_expected += expected.len();
     for difference in unexplained {
         totals.lexer.push(format!("{}: {}", shown, difference));
+    }
+
+    // The verifier on what today's engine would write.
+    if let Ok(output) = try_reorganize(&text, &LayoutConfig::default(), false)
+        && output != text
+    {
+        totals.verified += 1;
+        for violation in verify_layout(&text, &output, edition) {
+            totals
+                .verify_findings
+                .entry(violation.rule.name())
+                .or_default()
+                .push(format!("{}: {}", shown, violation.detail));
+        }
     }
 
     if !parsed.errors().is_empty() {

@@ -171,7 +171,14 @@ impl<'a> Sink<'a> {
         }
         let trivia = self.pending_trivia();
         let attached = if kind.is_attachable() {
-            attach::leading(&trivia)
+            // Code just before the trivia (not a line break or the byte-order mark) means the
+            // trivia starts on that code's line.
+            let after_code = self.pos > 0
+                && !matches!(
+                    self.tokens[self.pos - 1].kind,
+                    SyntaxKind::Whitespace | SyntaxKind::Bom
+                );
+            attach::leading(&trivia, after_code)
         } else {
             0
         };

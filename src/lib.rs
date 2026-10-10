@@ -1,5 +1,6 @@
 pub mod syntax;
 pub mod text;
+pub mod verify;
 
 use std::collections::HashSet;
 use std::env;
@@ -101,6 +102,8 @@ pub enum Outcome {
     /// Left untouched because it could not be split into items safely.
     Skipped,
     Failed,
+    /// Left untouched because the verifier found the new text unsafe: a bug in mto.
+    VerifierFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -671,6 +674,14 @@ pub fn process_file(file_path: &Path, config: &LayoutConfig, opts: &RunOptions) 
     if reorganized == source {
         return Outcome::Unchanged;
     }
+    if !verified(
+        &source,
+        &reorganized,
+        config,
+        &file_path.display().to_string(),
+    ) {
+        return Outcome::VerifierFailed;
+    }
     if opts.check {
         println!("Diff in {}:", file_path.display());
         print!(
@@ -800,6 +811,12 @@ pub fn process_stdin(config_path: Option<PathBuf>, check: bool) -> Result<Outcom
             return Ok(Outcome::Skipped);
         }
     };
+    if reorganized != source && !verified(&source, &reorganized, &config, "<stdin>") {
+        if !check {
+            print!("{}", source);
+        }
+        return Ok(Outcome::VerifierFailed);
+    }
     let outcome = if reorganized == source {
         Outcome::Unchanged
     } else {
@@ -1845,6 +1862,29 @@ fn sync_dir(dir: &Path) {
 
 #[cfg(not(unix))]
 fn sync_dir(_dir: &Path) {}
+
+/// Checks the new text with the verifier before anything is written or shown. On a
+/// violation, prints the bug report (with the smallest part of the input that still
+/// fails) to stderr and returns false.
+fn verified(source: &str, output: &str, config: &LayoutConfig, path: &str) -> bool {
+    let edition = syntax::Edition::E2021;
+    let violations = verify::verify_layout(source, output, edition);
+    if violations.is_empty() {
+        return true;
+    }
+    let fails = |candidate: &str| match try_reorganize(candidate, config, false) {
+        Ok(out) => !verify::verify_layout(candidate, &out, edition).is_empty(),
+        Err(_) => false,
+    };
+    let minimal = verify::report::minimize(source, edition, &fails);
+    eprint!(
+        "{}{}{}",
+        c_red(),
+        verify::report::bug_report(path, &violations, Some(&minimal)),
+        c_reset(true)
+    );
+    false
+}
 
 fn walk_inner(
     dir: &Path,

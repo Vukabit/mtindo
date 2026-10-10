@@ -6,9 +6,21 @@ use crate::syntax::SyntaxKind;
 /// How many tokens at the end of `trivia` (the trivia just before an attachable node) belong
 /// inside that node: the comments directly above it, with no blank line between them and the
 /// node, plus the whitespace between those comments and the node.
-pub(super) fn leading(trivia: &[(SyntaxKind, &str)]) -> usize {
+///
+/// `after_code` says the run starts right after code on the same line. A comment before the
+/// run's first line break then trails that code (`#![allow(x)] // why`) and is never taken,
+/// nor is anything before it.
+pub(super) fn leading(trivia: &[(SyntaxKind, &str)], after_code: bool) -> usize {
+    let first_break = trivia
+        .iter()
+        .position(|(kind, text)| *kind == SyntaxKind::Whitespace && text.contains('\n'))
+        .unwrap_or(trivia.len());
     let mut attached = 0;
     for (count, (kind, text)) in trivia.iter().rev().enumerate() {
+        let index = trivia.len() - 1 - count;
+        if after_code && index < first_break {
+            break;
+        }
         match kind {
             SyntaxKind::Whitespace if text.matches('\n').count() >= 2 => break,
             SyntaxKind::Whitespace => {}
@@ -51,14 +63,20 @@ mod tests {
 
     #[test]
     fn test_leading_takes_comments_directly_above() {
-        assert_eq!(leading(&[(LineComment, "// a"), (Whitespace, "\n")]), 2);
         assert_eq!(
-            leading(&[
-                (LineComment, "// a"),
-                (Whitespace, "\n"),
-                (LineComment, "// b"),
-                (Whitespace, "\n")
-            ]),
+            leading(&[(LineComment, "// a"), (Whitespace, "\n")], false),
+            2
+        );
+        assert_eq!(
+            leading(
+                &[
+                    (LineComment, "// a"),
+                    (Whitespace, "\n"),
+                    (LineComment, "// b"),
+                    (Whitespace, "\n")
+                ],
+                false
+            ),
             4
         );
     }
@@ -71,18 +89,46 @@ mod tests {
             (LineComment, "// b"),
             (Whitespace, "\n"),
         ];
-        assert_eq!(leading(&trivia), 2);
-        assert_eq!(leading(&[(LineComment, "// a"), (Whitespace, "\n\n")]), 0);
+        assert_eq!(leading(&trivia, false), 2);
+        assert_eq!(
+            leading(&[(LineComment, "// a"), (Whitespace, "\n\n")], false),
+            0
+        );
     }
 
     #[test]
     fn test_leading_ignores_plain_whitespace_and_file_start_tokens() {
-        assert_eq!(leading(&[(Whitespace, "\n    ")]), 0);
+        assert_eq!(leading(&[(Whitespace, "\n    ")], false), 0);
         assert_eq!(
-            leading(&[(SyntaxKind::Shebang, "#!/x"), (Whitespace, "\n")]),
+            leading(&[(SyntaxKind::Shebang, "#!/x"), (Whitespace, "\n")], false),
             0
         );
-        assert_eq!(leading(&[]), 0);
+        assert_eq!(leading(&[], false), 0);
+    }
+
+    /// `#![allow(x)] // why` then `use a;` on the next line: the comment trails the
+    /// attribute, so `use a;` does not take it; a comment on its own line below still goes.
+    #[test]
+    fn test_leading_never_takes_a_comment_trailing_earlier_code() {
+        let trivia = [
+            (Whitespace, " "),
+            (LineComment, "// why"),
+            (Whitespace, "\n"),
+        ];
+        assert_eq!(leading(&trivia, true), 0);
+        assert_eq!(
+            leading(&trivia, false),
+            2,
+            "at the start of a file it is above the item"
+        );
+        let trivia = [
+            (Whitespace, " "),
+            (LineComment, "// why"),
+            (Whitespace, "\n"),
+            (LineComment, "// about a"),
+            (Whitespace, "\n"),
+        ];
+        assert_eq!(leading(&trivia, true), 2);
     }
 
     #[test]

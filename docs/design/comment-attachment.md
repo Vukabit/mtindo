@@ -43,6 +43,14 @@ Only the run touching the node attaches. A blank line ends the run:
 fn b() {}
 ```
 
+A comment that shares its line with code before it trails that code, so it is
+never part of the run, and neither is anything before it:
+
+```rust
+#![allow(dead_code)] // Belongs to the file, not to `c`.
+fn c() {}
+```
+
 The byte-order mark and the shebang line never attach; they stay at the top of
 the file.
 

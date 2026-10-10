@@ -41,6 +41,10 @@ const EXIT_CODES: &[(&str, &str)] = &[
     ("1", "--check found files that would change"),
     ("2", "bad arguments or configuration"),
     ("3", "a file could not be read or written"),
+    (
+        "4",
+        "the verifier stopped a write (a bug in mto); the file is unchanged",
+    ),
 ];
 
 const FLAGS: &[FlagSpec] = &[
@@ -183,6 +187,9 @@ syntax tree mto sees in a file, for bug reports. The output format is unstable.
 *   `1`: `--check` found files that would change.
 *   `2`: bad arguments or configuration.
 *   `3`: a file could not be read or written.
+*   `4`: the verifier stopped a write: the new text would have lost or changed
+something other than the order of items and the blank lines between them. The
+file is left unchanged and a bug report is printed. This is a bug in mto.
 ## Configuration (mto.toml)
 `mto` looks for configuration in this order and uses the first file found:
 1. The path passed via `--config`.
@@ -312,6 +319,7 @@ fn main() {
             edition,
         } => run_debug(view, &path, edition),
         CliAction::Stdin { config_path, check } => match process_stdin(config_path, check) {
+            Ok(Outcome::VerifierFailed) => 4,
             Ok(Outcome::Changed) if check => 1,
             Ok(_) => 0,
             Err(e) => report_error(&e),
@@ -733,6 +741,10 @@ fn run_format(target_path: PathBuf, config_path: Option<PathBuf>, opts: &RunOpti
     let changed = outcomes.iter().filter(|o| **o == Outcome::Changed).count();
     let skipped = outcomes.iter().filter(|o| **o == Outcome::Skipped).count();
     let failed = outcomes.iter().filter(|o| **o == Outcome::Failed).count();
+    let unsafe_writes = outcomes
+        .iter()
+        .filter(|o| **o == Outcome::VerifierFailed)
+        .count();
     if skipped > 0 {
         eprintln!(
             "{}{} file(s) skipped because they could not be split safely.{}",
@@ -740,6 +752,15 @@ fn run_format(target_path: PathBuf, config_path: Option<PathBuf>, opts: &RunOpti
             skipped,
             c_reset(true)
         );
+    }
+    if unsafe_writes > 0 {
+        eprintln!(
+            "{}{} file(s) left unchanged by the verifier: a bug in mto, reported above.{}",
+            c_red(),
+            unsafe_writes,
+            c_reset(true)
+        );
+        return 4;
     }
     if failed > 0 {
         return 3;

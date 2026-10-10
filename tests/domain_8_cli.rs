@@ -2,6 +2,9 @@ mod common;
 
 use common::TestEnvironment;
 
+/// Today's engine cuts `{ 1 }` inside generics in half; the verifier must stop the write.
+const UNSAFE_FOR_STAGE_0: &str = "fn b() {}\n\nstruct A<const N: i32 = { 1 }>;\n\nfn a() {}\n";
+
 fn help_output(
     env: &TestEnvironment,
     args: &[&str],
@@ -336,6 +339,45 @@ fn test_cli_unknown_argument_exits_two() {
         .assert()
         .failure()
         .code(2);
+}
+
+#[test]
+fn test_cli_verifier_on_stdin_passes_the_input_through() {
+    let env = TestEnvironment::new();
+    let output = env
+        .mto_cmd()
+        .arg("-")
+        .write_stdin(UNSAFE_FOR_STAGE_0)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        UNSAFE_FOR_STAGE_0
+    );
+}
+
+#[test]
+fn test_cli_verifier_stops_an_unsafe_write() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", UNSAFE_FOR_STAGE_0);
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(env.read_file("main.rs"), UNSAFE_FOR_STAGE_0);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("the verifier stopped the write"),
+        "{}",
+        stderr
+    );
+    assert!(stderr.contains("output-broken"), "{}", stderr);
+    // The minimized input is the one item that shows the problem.
+    assert!(
+        stderr.contains("  struct A<const N: i32 = { 1 }>;\n"),
+        "{}",
+        stderr
+    );
+    assert!(!stderr.contains("fn b()"), "{}", stderr);
 }
 
 #[test]

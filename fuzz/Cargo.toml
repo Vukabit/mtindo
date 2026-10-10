@@ -40,3 +40,10 @@ path = "fuzz_targets/verify.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "toml"
+path = "fuzz_targets/toml.rs"
+test = false
+doc = false
+bench = false

@@ -38,7 +38,7 @@ pub const GROUPS: &[(&str, &str)] = &[
     ),
     (
         "heavy",
-        "Real-world crates still compile after formatting, the corpus checks, and the Unicode tables match the generator; needs network access",
+        "Real-world crates still compile after formatting, the corpus and speed checks, the TOML conformance suite, and the settings and Unicode tables match their generators; needs network access",
     ),
     (
         "fuzz",
@@ -266,6 +266,12 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
         "gates",
         Action::Check(super::check_help),
     ));
+    tasks.push(Task::new(
+        "man",
+        "mto --man documents every key, value, flag and command, and nothing else",
+        "gates",
+        Action::Check(super::manual::check_manual),
+    ));
 
     tasks.push(Task::new(
         "build",
@@ -356,6 +362,27 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
             "Speed target: layout per core; end-to-end ratio reported",
             "heavy",
             Action::Command(this_binary.clone(), vec!["corpus".into(), "bench".into()]),
+        )
+        .requires(&["git"]),
+    );
+    tasks.push(
+        Task::new(
+            "settings",
+            "src/options/rustfmt.rs matches the pinned rustfmt releases",
+            "heavy",
+            Action::Command(
+                this_binary.clone(),
+                vec!["settings".into(), "--check".into()],
+            ),
+        )
+        .requires(&["git"]),
+    );
+    tasks.push(
+        Task::new(
+            "toml-test",
+            "TOML parser passes the TOML 1.0.0 conformance suite",
+            "heavy",
+            Action::Command(this_binary.clone(), vec!["toml-test".into()]),
         )
         .requires(&["git"]),
     );

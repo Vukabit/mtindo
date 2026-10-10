@@ -23,7 +23,7 @@ option  control_brace_style                              missing
 option  disable_all_formatting                           missing
 option  doc_comment_code_block_small_heuristics          missing
 option  doc_comment_code_block_width                     missing
-option  edition                                          partial      # the parser reads every edition (tests/fixtures/syntax/ok/editions-2024.rs); mto.toml cannot set it yet
+option  edition                                          partial      # read from --edition, Cargo.toml and config files (src/config/tests.rs); parsing still detects the edition itself
 option  emit_mode                                        missing
 option  empty_item_single_line                           missing
 option  enum_discrim_align_threshold                     missing
@@ -84,7 +84,7 @@ option  struct_field_align_threshold                     missing
 option  struct_lit_single_line                           missing
 option  struct_lit_width                                 missing
 option  struct_variant_width                             missing
-option  style_edition                                    missing
+option  style_edition                                    partial      # resolved as rustfmt resolves it and decides the defaults (src/config/tests.rs); import order follows it from N3
 option  tab_spaces                                       missing      # mto.toml's tab_width is reserved for the formatter
 option  trailing_comma                                   missing
 option  trailing_semicolon                               missing
@@ -94,7 +94,7 @@ option  use_field_init_shorthand                         missing
 option  use_small_heuristics                             missing
 option  use_try_shorthand                                missing
 option  verbose                                          missing
-option  version                                          not-planned  # deprecated in rustfmt in favour of style_edition
+option  version                                          partial      # deprecated in rustfmt; `Two` means style edition 2024, as in rustfmt (src/config/tests.rs)
 option  where_single_line                                missing
 option  width_heuristics                                 missing
 option  wrap_comments                                    missing
@@ -181,9 +181,9 @@ flag    cargo-fmt:--version                              missing
 flag    rustfmt:--backup                                 partial      # mto always backs up until the stage 2 verifier exists (tests/domain_6_io.rs); no flag yet
 flag    rustfmt:--check                                  partial      # mto --check exits 1 and prints a unified diff (tests/domain_8_cli.rs); rustfmt's diff layout differs
 flag    rustfmt:--color                                  missing
-flag    rustfmt:--config                                 missing
-flag    rustfmt:--config-path                            partial      # mto --config reads an mto.toml (tests/domain_8_cli.rs), not rustfmt.toml
-flag    rustfmt:--edition                                missing
+flag    rustfmt:--config                                 supported    # sets and checks any key, as rustfmt does (tests/domain_8_cli.rs)
+flag    rustfmt:--config-path                            supported    # tests/domain_8_cli.rs
+flag    rustfmt:--edition                                partial      # sets the edition behind the style edition (tests/domain_8_cli.rs); parsing still detects the edition itself
 flag    rustfmt:--emit                                   missing
 flag    rustfmt:--error-on-unformatted                   missing
 flag    rustfmt:--file-lines                             missing
@@ -192,30 +192,36 @@ flag    rustfmt:--help                                   partial      # mto -h a
 flag    rustfmt:--print-config                           missing
 flag    rustfmt:--quiet                                  missing
 flag    rustfmt:--skip-children                          missing
-flag    rustfmt:--style-edition                          missing
+flag    rustfmt:--style-edition                          partial      # decides the defaults (tests/domain_8_cli.rs); import order follows it from N3
 flag    rustfmt:--unstable-features                      missing
 flag    rustfmt:--verbose                                missing
 flag    rustfmt:--version                                supported    # tests/domain_8_cli.rs
 
 mto     command:-                                        supported    # tests/domain_8_cli.rs
+mto     command:config                                   supported    # tests/domain_8_cli.rs
 mto     command:debug                                    supported    # tests/domain_8_cli.rs
 mto     command:init                                     supported    # tests/domain_8_cli.rs
 mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
 mto     config:group_impls                               supported    # tests/domain_2_golden.rs
 mto     config:ignore_dirs                               supported    # tests/domain_9_config_hierarchy.rs
 mto     config:import_grouping                           supported    # tests/domain_2_golden.rs
-mto     config:max_width                                 partial      # accepted (tests/domain_1_unit.rs) but unused until the formatter
 mto     config:sort_alphabetically                       supported    # tests/domain_11_matrix.rs
 mto     config:sort_imports                              supported    # tests/domain_2_golden.rs
-mto     config:tab_width                                 partial      # accepted (tests/domain_1_unit.rs) but unused until the formatter
 mto     config:type_order                                supported    # tests/domain_1_unit.rs
 mto     flag:--check                                     supported    # tests/domain_8_cli.rs
 mto     flag:--config                                    supported    # tests/domain_8_cli.rs
+mto     flag:--config-path                               supported    # tests/domain_8_cli.rs
+mto     flag:--current                                   supported    # tests/domain_8_cli.rs
 mto     flag:--dbg                                       supported    # tests/domain_8_cli.rs
+mto     flag:--default                                   supported    # tests/domain_8_cli.rs
 mto     flag:--dry-run                                   supported    # tests/domain_8_cli.rs
+mto     flag:--edition                                   supported    # tests/domain_8_cli.rs
 mto     flag:--follow-links                              supported    # tests/domain_10_polyrepo.rs
 mto     flag:--help                                      supported    # tests/domain_8_cli.rs
 mto     flag:--man                                       supported    # tests/domain_8_cli.rs
+mto     flag:--minimal                                   supported    # tests/domain_8_cli.rs
 mto     flag:--recursive                                 supported    # tests/domain_12_scale.rs
 mto     flag:--restore                                   supported    # tests/domain_8_cli.rs
+mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs
+mto     flag:--user                                      supported    # tests/domain_8_cli.rs
 mto     flag:--version                                   supported    # tests/domain_8_cli.rs

@@ -1,6 +1,7 @@
 //! mto's own surface, read from the repository so it cannot drift from the code:
 //! `flag:` items from `FLAGS` and `command:` items from `COMMANDS` in `src/main.rs`, and
-//! `config:` items from the keys `apply_config_value` accepts in `src/lib.rs`.
+//! `config:` items from mto's own settings table, `SETTINGS` in `src/options/mto.rs`
+//! (rustfmt's keys are tracked as `option` items).
 
 use std::fs;
 use std::path::Path;
@@ -25,17 +26,16 @@ pub fn commands(main: &str) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
-/// The keys matched in `apply_config_value`.
-pub fn config_keys(lib: &str) -> Result<Vec<String>, String> {
-    let body = block(lib, "pub fn apply_config_value", "\n}\n")?;
+/// The `name:` of each setting in mto's `SETTINGS` table.
+pub fn config_keys(table: &str) -> Result<Vec<String>, String> {
+    let body = block(table, "static SETTINGS", "\n];")?;
     let keys: Vec<String> = body
         .lines()
-        .filter_map(|line| line.trim().strip_prefix('"'))
-        .filter_map(|rest| rest.split_once("\" =>"))
-        .map(|(key, _)| key.to_string())
+        .filter_map(|line| line.trim().strip_prefix("name: \""))
+        .map(|rest| rest.trim_end_matches(',').trim_end_matches('"').to_string())
         .collect();
     if keys.is_empty() {
-        return Err("apply_config_value in src/lib.rs matches no keys".to_string());
+        return Err("SETTINGS in src/options/mto.rs lists nothing".to_string());
     }
     Ok(keys)
 }
@@ -57,8 +57,8 @@ pub fn flags(main: &str) -> Result<Vec<String>, String> {
 pub fn surface(root: &Path) -> Result<Vec<String>, String> {
     let main = fs::read_to_string(root.join("src").join("main.rs"))
         .map_err(|e| format!("cannot read src/main.rs: {}", e))?;
-    let lib = fs::read_to_string(root.join("src").join("lib.rs"))
-        .map_err(|e| format!("cannot read src/lib.rs: {}", e))?;
+    let table = fs::read_to_string(root.join("src").join("options").join("mto.rs"))
+        .map_err(|e| format!("cannot read src/options/mto.rs: {}", e))?;
     let mut items = Vec::new();
     for flag in flags(&main)? {
         items.push(format!("flag:{}", flag));
@@ -66,7 +66,7 @@ pub fn surface(root: &Path) -> Result<Vec<String>, String> {
     for command in commands(&main)? {
         items.push(format!("command:{}", command));
     }
-    for key in config_keys(&lib)? {
+    for key in config_keys(&table)? {
         items.push(format!("config:{}", key));
     }
     items.sort();
@@ -115,8 +115,8 @@ mod tests {
         let main = "const COMMANDS: &[(&str, &str, &str)] = &[\n    (\n        \"init\",\n        \"[DIR]\",\n        \"Write\",\n    ),\n];\nconst FLAGS: &[FlagSpec] = &[\n    FlagSpec {\n        long: \"--check\",\n    },\n];\n";
         assert_eq!(commands(main).unwrap(), vec!["init"]);
         assert_eq!(flags(main).unwrap(), vec!["--check"]);
-        let lib = "pub fn apply_config_value(c: &mut C, key: &str) -> bool {\n    match key {\n        \"max_width\" => {}\n        _ => {}\n    }\n}\n";
-        assert_eq!(config_keys(lib).unwrap(), vec!["max_width"]);
+        let table = "pub(super) static SETTINGS: &[Setting] = &[\n    Setting {\n        name: \"group_impls\",\n        file: File::Mto,\n    },\n];\n";
+        assert_eq!(config_keys(table).unwrap(), vec!["group_impls"]);
         assert!(commands("").is_err());
     }
 }

@@ -13,6 +13,7 @@
 //! is measured. Fuzz tasks fail if the machine slept more than a minute: their time limit
 //! is wall-clock time, so sleep would cut the fuzzing short while still passing.
 
+mod manual;
 mod tasks;
 
 use std::collections::HashMap;

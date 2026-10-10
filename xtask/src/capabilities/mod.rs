@@ -22,7 +22,7 @@ pub(crate) mod fetch;
 pub(crate) mod manifest;
 mod mto;
 mod report;
-mod source;
+pub(crate) mod source;
 pub(crate) mod surface;
 
 use std::collections::{BTreeMap, BTreeSet};

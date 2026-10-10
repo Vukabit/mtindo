@@ -1,4 +1,5 @@
-use mtindo::{LayoutConfig, apply_config_value, reorganize_file};
+use mtindo::config::layout_from_settings;
+use mtindo::{LayoutConfig, reorganize_file};
 
 const CORPUS_ATTRIBUTES_AND_MACROS: &str = r#"
 use std::collections::HashMap;
@@ -114,43 +115,16 @@ fn generate_configuration_matrix() -> Vec<LayoutConfig> {
                     for &blank_lines in &blank_lines_options {
                         for &max_width in &max_width_options {
                             for &tab_width in &tab_width_options {
-                                let mut config = LayoutConfig::default();
-
-                                apply_config_value(
-                                    &mut config,
-                                    "sort_alphabetically",
-                                    &sort_alpha.to_string(),
-                                );
-                                apply_config_value(
-                                    &mut config,
-                                    "group_impls",
-                                    &group_impls.to_string(),
-                                );
-                                apply_config_value(
-                                    &mut config,
-                                    "sort_imports",
-                                    &sort_imports.to_string(),
-                                );
-                                apply_config_value(
-                                    &mut config,
-                                    "import_grouping",
-                                    &import_grouping.to_string(),
-                                );
-                                apply_config_value(
-                                    &mut config,
-                                    "blank_lines_between_blocks",
-                                    &blank_lines.to_string(),
-                                );
-                                apply_config_value(
-                                    &mut config,
-                                    "max_width",
-                                    &max_width.to_string(),
-                                );
-                                apply_config_value(
-                                    &mut config,
-                                    "tab_width",
-                                    &tab_width.to_string(),
-                                );
+                                let config = layout_from_settings(&[
+                                    ("sort_alphabetically", &sort_alpha.to_string()),
+                                    ("group_impls", &group_impls.to_string()),
+                                    ("sort_imports", &sort_imports.to_string()),
+                                    ("import_grouping", &import_grouping.to_string()),
+                                    ("blank_lines_between_blocks", &blank_lines.to_string()),
+                                    ("max_width", &max_width.to_string()),
+                                    ("tab_spaces", &tab_width.to_string()),
+                                ])
+                                .unwrap();
 
                                 permutations.push(config);
                             }

@@ -81,7 +81,11 @@ whether or not anything is piped in. Reading stdin always needs the explicit
 `-`.
 
 ### Options
-* `-c, --config <FILE>`: Use a specific `.toml` config file.
+* `--config <KEY=VALUE,...>`: Set settings for this run, as rustfmt's
+  `--config` does: `--config max_width=80,hard_tabs=true`.
+* `--config-path <FILE>`: Use only this configuration file.
+* `--edition <YEAR>`, `--style-edition <YEAR>`: Set the edition and the style
+  edition, which decides the defaults.
 * `-d, --dry-run`: List the files that would change without writing to disk.
 * `--check`: Print a diff for every file that would change, and exit with code
   `1` if there are any (useful in CI).
@@ -90,7 +94,7 @@ whether or not anything is piped in. Reading stdin always needs the explicit
 * `-r, --restore <BACKUP> <TARGET>`: Atomically replace the target file with a
   backup.
 * `--dbg`: Print how each file was split into items.
-* `--man`: Print the embedded manual.
+* `--man`: Print the manual, which documents every setting and its values.
 * `-h, --help`: Print the short help menu.
 * `-V, --version`: Print the version.
 
@@ -141,67 +145,48 @@ Some items depend on their position in the file. `mto` keeps them in place:
   `// mto: on` runs to the end of the file.
 * **A file with syntax errors** is left unchanged.
 
-## Configuration (`mto.toml`)
+## Configuration
 
-`mto` uses the first configuration file it finds, in this order:
+`mto` reads `rustfmt.toml` as rustfmt does, so an existing one works unchanged,
+and its own settings from `mto.toml`. For each folder it formats, the settings
+come from, lowest precedence first:
 
-1. The path passed via `--config`.
-2. `mto.toml` or `.mto.toml` in the target's directory, then each parent
-   directory in turn.
-3. `~/.config/mtindo/mto.toml` or `~/.config/mtindo/.mto.toml`.
-4. `~/mto.toml` or `~/.mto.toml`.
-5. The internal defaults below.
+1. The defaults, for the style edition in effect.
+2. The nearest `.rustfmt.toml` or `rustfmt.toml`, found as rustfmt finds it:
+   the folder, each parent folder, the home folder, then the user's `rustfmt`
+   configuration folder. Only that one file is used.
+3. Every `.mto.toml` or `mto.toml` from the outermost folder down; a nearer
+   file wins key by key, and a file with `root = true` stops the search
+   upwards. An `mto.toml` may also set rustfmt's settings, and wins over
+   `rustfmt.toml` with a warning when they disagree.
+4. The package edition in the nearest `Cargo.toml`, as `cargo fmt` passes it.
+5. The command line: `--config`, `--edition`, `--style-edition`.
 
-Only one file is used; settings are not merged across files. The parser is
-strict: an invalid value stops the run with exit code `2` instead of silently
-falling back.
+`--config-path FILE` replaces steps 2 and 3 with that one file.
+`mto config path` lists the files in effect and `mto config print` shows every
+value with where it came from (`--minimal` shows only what differs from the
+defaults).
 
-Here is the default configuration:
+Unknown keys are warnings. A value of the wrong type or outside the legal
+values stops the run with exit code `2`, naming the file, line and column.
+`mto --man` documents every setting, rustfmt's and mto's, with its legal values
+and defaults. Until `mto` formats code, rustfmt's settings change nothing except
+the style edition.
+
+`mto init` writes an `mto.toml` with mto's own settings at their defaults:
 
 ```toml
-# Blank lines between items.
 blank_lines_between_blocks = 1
-
-# Sort items of the same kind and visibility alphabetically.
-sort_alphabetically = true
-
-# Keep `impl` blocks directly below the struct/enum/trait they implement.
 group_impls = true
-
-# Sort use declarations alphabetically.
-sort_imports = true
-
-# Separate std, external and local (crate/self/super) imports with a blank line.
+ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv"]
 import_grouping = true
-
-# The top-down order of item kinds. Items of an unlisted kind go last.
-type_order = [
-    "ModDecl",
-    "UseDecl",
-    "MacroDecl",
-    "ConstDecl",
-    "StaticDecl",
-    "TraitDecl",
-    "EnumDecl",
-    "StructDecl",
-    "ImplBlock",
-    "FnDecl",
-    "Unknown"
-]
-
-# Directories that are skipped during recursive traversal.
-ignore_dirs = [
-    ".git",
-    "target",
-    "node_modules",
-    "vendor",
-    "dist",
-    ".venv"
-]
+sort_alphabetically = true
+sort_imports = true
+type_order = ["ModDecl", "UseDecl", "MacroDecl", "ConstDecl", "StaticDecl",
+    "TraitDecl", "EnumDecl", "StructDecl", "ImplBlock", "FnDecl", "Unknown"]
 ```
 
-`max_width` and `tab_width` are accepted for forward compatibility but currently
-have no effect; they are reserved for the formatter.
+`tab_width` was renamed `tab_spaces`, rustfmt's name.
 
 Type aliases, `extern` blocks and other items without their own kind are
 classified as `Unknown`.
@@ -277,6 +262,13 @@ cargo xtask corpus update
 # Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's
 # own test inputs, drawn live; --markdown for a shareable table
 cargo xtask race [--rounds N] [--filter TEXT]
+# Regenerate src/options/rustfmt.rs, rustfmt's settings table, from the
+# releases pinned in compat/rustfmt-surface.txt; --check only compares
+cargo xtask settings [--check]
+# Check the TOML parser against the pinned toml-test conformance suite
+# (compat/toml-test.txt): every valid file decodes to the expected
+# values and every invalid one is refused
+cargo xtask toml-test
 # Every command, gate and exit code
 cargo xtask help
 ```

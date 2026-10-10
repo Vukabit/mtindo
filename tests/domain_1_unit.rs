@@ -1,45 +1,60 @@
+use mtindo::config::layout_from_settings;
 use mtindo::layout::{Unit, layout};
-use mtindo::{ItemKind, LayoutConfig, Visibility, apply_config_value, classify_import};
+use mtindo::{ItemKind, LayoutConfig, Visibility, classify_import};
 
 #[test]
 fn test_config_booleans() {
-    let mut config = LayoutConfig::default();
-
-    apply_config_value(&mut config, "sort_alphabetically", "false");
+    let config = layout_from_settings(&[
+        ("sort_alphabetically", "false"),
+        ("group_impls", "false"),
+        ("sort_imports", "false"),
+        ("import_grouping", "true"),
+    ])
+    .unwrap();
     assert!(!config.sort_alphabetically);
-    apply_config_value(&mut config, "group_impls", "\"false\"");
     assert!(!config.group_impls);
-    apply_config_value(&mut config, "sort_imports", "'false'");
     assert!(!config.sort_imports);
-    apply_config_value(&mut config, "import_grouping", " true ");
     assert!(config.import_grouping);
+    // A quoted boolean is a string, which a boolean setting refuses.
+    let error = layout_from_settings(&[("group_impls", "\"false\"")]).unwrap_err();
+    assert_eq!(
+        error.message,
+        "`group_impls` must be true or false, not a string"
+    );
 }
 
 #[test]
 fn test_config_integers() {
-    let mut config = LayoutConfig::default();
-
-    apply_config_value(&mut config, "max_width", "120");
+    let config = layout_from_settings(&[
+        ("max_width", "120"),
+        ("tab_spaces", "8"),
+        ("blank_lines_between_blocks", "2"),
+    ])
+    .unwrap();
     assert_eq!(config.max_width, 120);
-    apply_config_value(&mut config, "tab_width", "8");
     assert_eq!(config.tab_width, 8);
-    apply_config_value(&mut config, "blank_lines_between_blocks", "\"2\"");
     assert_eq!(config.blank_lines_between_blocks, 2);
-    apply_config_value(&mut config, "max_width", "invalid_number");
-    assert_eq!(config.max_width, 120);
+    let error = layout_from_settings(&[("max_width", "invalid_number")]).unwrap_err();
+    assert_eq!(
+        error.message,
+        "`max_width` must be a whole number, not a string"
+    );
+    let error = layout_from_settings(&[("tab_width", "8")]).unwrap_err();
+    assert_eq!(
+        error.message,
+        "unknown key `tab_width` (renamed `tab_spaces`)"
+    );
 }
 
 #[test]
 fn test_config_type_order_arrays() {
-    let mut config = LayoutConfig::default();
-
-    let raw_array = "[ \"StructDecl\", 'FnDecl' , ModDecl]";
-    apply_config_value(&mut config, "type_order", raw_array);
-
-    assert_eq!(config.type_order.len(), 3);
-    assert_eq!(config.type_order[0], ItemKind::StructDecl);
-    assert_eq!(config.type_order[1], ItemKind::FnDecl);
-    assert_eq!(config.type_order[2], ItemKind::ModDecl);
+    let config =
+        layout_from_settings(&[("type_order", "[ \"StructDecl\", 'FnDecl' , \"moddecl\"]")])
+            .unwrap();
+    assert_eq!(
+        config.type_order,
+        vec![ItemKind::StructDecl, ItemKind::FnDecl, ItemKind::ModDecl]
+    );
 }
 
 #[test]

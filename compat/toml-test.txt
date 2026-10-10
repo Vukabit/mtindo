@@ -1,0 +1,3 @@
+# The TOML conformance suite for `cargo xtask toml-test`: NAME URL COMMIT.
+# Only the cases its tests/files-toml-1.0.0 list names are run.
+toml-test https://github.com/toml-lang/toml-test.git ff49d109861c1ad25af53f687f2aef19ab650600

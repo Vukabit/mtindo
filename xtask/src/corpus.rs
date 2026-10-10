@@ -48,8 +48,84 @@ pub fn cache_dir(root: &Path) -> PathBuf {
     root.join("compat").join("cache").join("corpus")
 }
 
+pub fn run(root: &Path, args: &[String]) -> ExitCode {
+    let log = Logger::new(root, "corpus");
+    log.info(&format!("cargo xtask corpus {}", args.join(" ")));
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let with_rust = words.contains(&"--with-rust");
+    let code = match words.first().copied() {
+        Some("update") if words.len() == 1 => update(root, &log),
+        Some("fetch") if words[1..].iter().all(|w| *w == "--with-rust") => {
+            fetch(root, with_rust, &log)
+        }
+        Some("bench") if words.len() == 1 => match fetch(root, false, &log) {
+            0 => bench(root, &log),
+            code => code,
+        },
+        Some("check")
+            if words[1..]
+                .iter()
+                .all(|w| *w == "--with-rust" || *w == "--baseline") =>
+        {
+            match fetch(root, with_rust, &log) {
+                0 => check(root, &words[1..], with_rust, &log),
+                code => code,
+            }
+        }
+        _ => {
+            eprintln!(
+                "Usage: cargo xtask corpus update | fetch [--with-rust] | check [--with-rust] [--baseline] | bench"
+            );
+            2
+        }
+    };
+    log.info(&format!("exit code {}", code));
+    ExitCode::from(code)
+}
+
+/// Checks out one pin into `base/NAME`, or keeps (and cleans) a checkout already at it.
+pub(crate) fn checkout_into(base: &Path, pin: &Pin, log: &Logger) -> Result<&'static str, String> {
+    let dir = base.join(&pin.name);
+    let marker = fs::read_to_string(dir.join(MARKER)).unwrap_or_default();
+    if marker.trim() == pin.commit {
+        let changed = git(&dir, &["status", "--porcelain", "--untracked-files=no"])?;
+        if changed.trim().is_empty() {
+            return Ok("kept");
+        }
+        log.warning(&format!(
+            "{}: modified checkout restored:\n{}",
+            pin.name,
+            changed.trim_end()
+        ));
+        git(&dir, &["checkout", "--quiet", "--", "."])?;
+        return Ok("restored");
+    }
+    if dir.exists() {
+        fs::remove_dir_all(&dir).map_err(|e| format!("cannot clear {}: {}", dir.display(), e))?;
+    }
+    fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
+    let steps: [&[&str]; 4] = [
+        &["init", "--quiet"],
+        &["remote", "add", "origin", &pin.url],
+        &["fetch", "--quiet", "--depth", "1", "origin", &pin.commit],
+        &[
+            "-c",
+            "advice.detachedHead=false",
+            "checkout",
+            "--quiet",
+            "FETCH_HEAD",
+        ],
+    ];
+    for step in steps {
+        log.info(&format!("{}: git {}", pin.name, step.join(" ")));
+        git(&dir, step)?;
+    }
+    fs::write(dir.join(MARKER), format!("{}\n", pin.commit)).map_err(|e| e.to_string())?;
+    Ok("fetched")
+}
+
 /// Parses `compat/corpus.txt`; comments and blank lines are skipped.
-pub fn parse_pins(text: &str) -> Result<Vec<Pin>, String> {
+pub(crate) fn parse_pins(text: &str) -> Result<Vec<Pin>, String> {
     let mut pins = Vec::new();
     for (idx, line) in text.lines().enumerate() {
         let trimmed = line.trim();
@@ -96,41 +172,6 @@ pub fn parse_pins(text: &str) -> Result<Vec<Pin>, String> {
         });
     }
     Ok(pins)
-}
-
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
-    let log = Logger::new(root, "corpus");
-    log.info(&format!("cargo xtask corpus {}", args.join(" ")));
-    let words: Vec<&str> = args.iter().map(String::as_str).collect();
-    let with_rust = words.contains(&"--with-rust");
-    let code = match words.first().copied() {
-        Some("update") if words.len() == 1 => update(root, &log),
-        Some("fetch") if words[1..].iter().all(|w| *w == "--with-rust") => {
-            fetch(root, with_rust, &log)
-        }
-        Some("bench") if words.len() == 1 => match fetch(root, false, &log) {
-            0 => bench(root, &log),
-            code => code,
-        },
-        Some("check")
-            if words[1..]
-                .iter()
-                .all(|w| *w == "--with-rust" || *w == "--baseline") =>
-        {
-            match fetch(root, with_rust, &log) {
-                0 => check(root, &words[1..], with_rust, &log),
-                code => code,
-            }
-        }
-        _ => {
-            eprintln!(
-                "Usage: cargo xtask corpus update | fetch [--with-rust] | check [--with-rust] [--baseline] | bench"
-            );
-            2
-        }
-    };
-    log.info(&format!("exit code {}", code));
-    ExitCode::from(code)
 }
 
 fn bench(root: &Path, log: &Logger) -> u8 {
@@ -298,43 +339,7 @@ fn check(root: &Path, flags: &[&str], with_rust: bool, log: &Logger) -> u8 {
 
 /// Checks out one pin, or keeps (and cleans) a checkout already at it.
 fn checkout(root: &Path, pin: &Pin, log: &Logger) -> Result<&'static str, String> {
-    let dir = cache_dir(root).join(&pin.name);
-    let marker = fs::read_to_string(dir.join(MARKER)).unwrap_or_default();
-    if marker.trim() == pin.commit {
-        let changed = git(&dir, &["status", "--porcelain", "--untracked-files=no"])?;
-        if changed.trim().is_empty() {
-            return Ok("kept");
-        }
-        log.warning(&format!(
-            "{}: modified checkout restored:\n{}",
-            pin.name,
-            changed.trim_end()
-        ));
-        git(&dir, &["checkout", "--quiet", "--", "."])?;
-        return Ok("restored");
-    }
-    if dir.exists() {
-        fs::remove_dir_all(&dir).map_err(|e| format!("cannot clear {}: {}", dir.display(), e))?;
-    }
-    fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
-    let steps: [&[&str]; 4] = [
-        &["init", "--quiet"],
-        &["remote", "add", "origin", &pin.url],
-        &["fetch", "--quiet", "--depth", "1", "origin", &pin.commit],
-        &[
-            "-c",
-            "advice.detachedHead=false",
-            "checkout",
-            "--quiet",
-            "FETCH_HEAD",
-        ],
-    ];
-    for step in steps {
-        log.info(&format!("{}: git {}", pin.name, step.join(" ")));
-        git(&dir, step)?;
-    }
-    fs::write(dir.join(MARKER), format!("{}\n", pin.commit)).map_err(|e| e.to_string())?;
-    Ok("fetched")
+    checkout_into(&cache_dir(root), pin, log)
 }
 
 /// Every `.rs` file under `dir`, without `.git` and `target` folders.

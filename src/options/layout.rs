@@ -50,6 +50,7 @@ pub enum Visibility {
 }
 
 /// How items are arranged in a file.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LayoutConfig {
     /// Reserved for the formatter. Has no effect on layout.
     pub max_width: usize,

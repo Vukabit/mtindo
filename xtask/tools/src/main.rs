@@ -10,6 +10,7 @@ mod lexdiff;
 #[path = "../../src/common/log.rs"]
 mod log;
 mod parsecheck;
+mod toml_test;
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,7 @@ fn main() -> ExitCode {
         Some("parsecheck") => parsecheck::run(&root, &args[1..]),
         Some("corpus-check") => corpus::run(&root, &args[1..]),
         Some("corpus-speed") => corpus::speed(&args[1..]),
+        Some("toml-test") => toml_test::run(&args[1..]),
         Some("cases") if args.len() == 2 => {
             let summary = cases::run(Path::new(&args[1]));
             println!(

@@ -39,7 +39,13 @@ impl TestEnvironment {
 
     pub fn mto_cmd(&self) -> Command {
         let mut cmd = Command::cargo_bin("mto").unwrap();
-        cmd.current_dir(self.dir.path());
+        // Hermetic: no rustfmt.toml or user config from the developer's home, and no user
+        // config created.
+        cmd.current_dir(self.dir.path())
+            .env("HOME", self.dir.path().join(".home"))
+            .env("CI", "1")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("MTINDO_CONFIG");
         cmd
     }
 

@@ -125,20 +125,170 @@ fn test_cli_check_reports_every_drifted_file() {
 }
 
 #[test]
-fn test_cli_config_flag_uses_the_given_file() {
+fn test_cli_config_path_and_print() {
+    let env = TestEnvironment::new();
+    env.write_file("rustfmt.toml", "max_width = 80\n");
+    env.write_file("mto.toml", "group_impls = false\n");
+    env.write_file(
+        "Cargo.toml",
+        "[package]\nname = \"x\"\nedition = \"2024\"\n",
+    );
+    env.create_dir("src");
+
+    let output = env
+        .mto_cmd()
+        .args(["config", "path", "src"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let names: Vec<&str> = stdout
+        .lines()
+        .map(|line| line.split(": ").next().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "user config",
+            "rustfmt config",
+            "mto config",
+            "Cargo.toml (edition)"
+        ],
+        "{}",
+        stdout
+    );
+
+    let output = env
+        .mto_cmd()
+        .args(["config", "print", "--minimal", "--config", "hard_tabs=true"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines[0], "# style edition 2024");
+    assert!(lines[1].starts_with("edition = \"2024\"  # "), "{}", stdout);
+    assert!(
+        lines.contains(&"hard_tabs = true  # command line"),
+        "{}",
+        stdout
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("max_width = 80  # ")),
+        "{}",
+        stdout
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("group_impls = false  # ")),
+        "{}",
+        stdout
+    );
+    assert_eq!(lines.len(), 5, "{}", stdout);
+
+    let output = env
+        .mto_cmd()
+        .args(["config", "print", "--default", "--style-edition", "2024"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("\nversion = \"Two\"\n"), "{}", stdout);
+    assert!(stdout.contains("\nmax_width = 100\n"), "{}", stdout);
+
+    // --edition beats Cargo.toml; --current shows every setting with its source.
+    let output = env
+        .mto_cmd()
+        .args(["config", "print", "--current", "--edition", "2021"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.starts_with("# style edition 2021\n"), "{}", stdout);
+    assert!(
+        stdout.contains("\nedition = \"2021\"  # command line\n"),
+        "{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\nhard_tabs = false  # default\n"),
+        "{}",
+        stdout
+    );
+
+    let output = env
+        .mto_cmd()
+        .args(["config", "print", "--user"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.ends_with("# mto has no user settings yet\n"),
+        "{}",
+        stdout
+    );
+}
+
+#[test]
+fn test_cli_config_path_uses_the_given_file() {
     let env = TestEnvironment::new();
     env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
     env.write_file("custom.toml", "sort_alphabetically = false\n");
 
     let output = env
         .mto_cmd()
-        .args(["--config", "custom.toml", "--check", "main.rs"])
+        .args(["--config-path", "custom.toml", "--check", "main.rs"])
         .output()
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(output.status.code(), Some(1));
     // Unsorted, so `b` stays first and only a blank line is added.
     assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
+}
+
+#[test]
+fn test_cli_config_sets_values_and_refuses_a_file() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
+
+    let output = env
+        .mto_cmd()
+        .args([
+            "--config",
+            "sort_alphabetically=false,type_order=[\"FnDecl\",\"UseDecl\"]",
+            "--check",
+            "main.rs",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}", stdout);
+    assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
+
+    // rustfmt's meaning: `--config FILE` is a mistake for `--config-path FILE` (S2-12).
+    let output = env
+        .mto_cmd()
+        .args(["--config", "custom.toml", "main.rs"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr.contains("did you mean `--config-path custom.toml`?"),
+        "{}",
+        stderr
+    );
+
+    let output = env
+        .mto_cmd()
+        .args(["--config", "newline_style=dos", "main.rs"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr.contains("--config: `newline_style` cannot be `dos`"),
+        "{}",
+        stderr
+    );
 }
 
 #[test]

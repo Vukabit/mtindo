@@ -109,6 +109,31 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+pub(crate) fn rustfmt(source: &str) -> Result<String, String> {
+    let mut child = Command::new("rustfmt")
+        .args(["--edition", "2024", "--emit", "stdout"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run rustfmt: {}", e))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(source.as_bytes())
+            .map_err(|e| format!("cannot write to rustfmt: {}", e))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("rustfmt failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "rustfmt failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    String::from_utf8(output.stdout).map_err(|_| "rustfmt produced invalid UTF-8".to_string())
+}
+
 fn cache_dir(root: &Path, version: &str) -> PathBuf {
     root.join("compat")
         .join("cache")
@@ -342,31 +367,6 @@ fn render_tables(
         ("ident_tables.rs", rustfmt(&ident)?),
         ("width_tables.rs", rustfmt(&width)?),
     ])
-}
-
-fn rustfmt(source: &str) -> Result<String, String> {
-    let mut child = Command::new("rustfmt")
-        .args(["--edition", "2024", "--emit", "stdout"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("cannot run rustfmt: {}", e))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(source.as_bytes())
-            .map_err(|e| format!("cannot write to rustfmt: {}", e))?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("rustfmt failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!(
-            "rustfmt failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    String::from_utf8(output.stdout).map_err(|_| "rustfmt produced invalid UTF-8".to_string())
 }
 
 fn table(doc: &str, name: &str, set: &[bool]) -> String {

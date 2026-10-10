@@ -10,8 +10,10 @@ mod common;
 mod corpus;
 mod gates;
 mod race;
+mod settings;
 mod sha256;
 mod test;
+mod toml_test;
 mod unicode;
 
 use std::env;
@@ -62,6 +64,18 @@ const COMMANDS: &[Command] = &[
         "[--rounds N] [--filter TEXT] [--real N] [--gross] [--markdown]",
         "Time rustfmt, rustfmt nightly and mto feature by feature (net of start-up), drawn live",
         race::run,
+    ),
+    (
+        "settings",
+        "[--check]",
+        "Regenerate src/options/rustfmt.rs from the pinned rustfmt releases; --check only compares",
+        settings::run,
+    ),
+    (
+        "toml-test",
+        "",
+        "Run the TOML conformance suite (compat/toml-test.txt) against mto's parser",
+        toml_test::run,
     ),
     (
         "unicode",

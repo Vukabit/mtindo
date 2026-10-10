@@ -1,3 +1,5 @@
+pub mod cli;
+pub mod config;
 pub mod layout;
 pub mod options;
 pub mod syntax;
@@ -46,6 +48,12 @@ impl fmt::Display for MtoError {
     }
 }
 
+impl From<config::Error> for MtoError {
+    fn from(error: config::Error) -> MtoError {
+        MtoError::Usage(error.message)
+    }
+}
+
 impl MtoError {
     pub fn exit_code(&self) -> i32 {
         match self {
@@ -73,91 +81,6 @@ pub struct RunOptions {
     pub check: bool,
     pub debug: bool,
     pub follow_links: bool,
-}
-
-pub fn apply_config_value(config: &mut LayoutConfig, key: &str, value: &str) -> bool {
-    let cleaned_value = value.trim().trim_matches(|c| c == '"' || c == '\'');
-    match key {
-        "max_width" => {
-            if let Ok(v) = cleaned_value.parse() {
-                config.max_width = v;
-            } else {
-                return false;
-            }
-        }
-        "tab_width" => {
-            if let Ok(v) = cleaned_value.parse() {
-                config.tab_width = v;
-            } else {
-                return false;
-            }
-        }
-        "blank_lines_between_blocks" => {
-            if let Ok(v) = cleaned_value.parse() {
-                config.blank_lines_between_blocks = v;
-            } else {
-                return false;
-            }
-        }
-        "sort_alphabetically" => {
-            if let Ok(v) = cleaned_value.parse() {
-                config.sort_alphabetically = v;
-            } else {
-                return false;
-            }
-        }
-        "group_impls" => {
-            if let Ok(v) = cleaned_value.parse() {
-                config.group_impls = v;
-            } else {
-                return false;
-            }
-        }
-        "sort_imports" => {
-            if let Ok(v) = cleaned_value.parse() {
-                config.sort_imports = v;
-            } else {
-                return false;
-            }
-        }
-        "import_grouping" => {
-            if let Ok(v) = cleaned_value.parse() {
-                config.import_grouping = v;
-            } else {
-                return false;
-            }
-        }
-        "type_order" => {
-            if !value.trim().starts_with('[') || !value.trim().ends_with(']') {
-                return false;
-            }
-            let array_clean = value.trim().trim_matches(|c| c == '[' || c == ']');
-            let parts: Vec<&str> = array_clean.split(',').collect();
-            config.type_order.clear();
-            for part in parts {
-                let p = part.trim().trim_matches(|c| c == '"' || c == '\'');
-                if !p.is_empty() {
-                    config.type_order.push(ItemKind::from_name(p));
-                }
-            }
-        }
-        "ignore_dirs" => {
-            if !value.trim().starts_with('[') || !value.trim().ends_with(']') {
-                return false;
-            }
-            let array_clean = value.trim().trim_matches(|c| c == '[' || c == ']');
-            let parts: Vec<&str> = array_clean.split(',').collect();
-            config.ignore_dirs.clear();
-            for part in parts {
-                let p = part.trim().trim_matches(|c| c == '"' || c == '\'');
-                if !p.is_empty() {
-                    config.ignore_dirs.push(p.to_string());
-                }
-            }
-        }
-        _ => {}
-    }
-    true
 }
 
 pub fn c_cyan() -> &'static str {
@@ -218,76 +141,38 @@ pub fn create_backup(file_path: &Path, content: &str) -> Result<PathBuf, std::io
     Ok(backup_path)
 }
 
+/// The `mto.toml` that `mto init` writes: every mto setting at its default, with its
+/// summary.
+pub fn init_template() -> String {
+    let mut out = String::from("# mto configuration file; `mto --man` explains every setting.\n");
+    for setting in options::all().filter(|s| s.file == options::File::Mto) {
+        out.push_str(&format!(
+            "\n# {}\n{} = {}\n",
+            setting.summary, setting.name, setting.default
+        ));
+    }
+    out
+}
+
+/// Reads the layout settings of one file, as `--config-path` does: no other file is searched
+/// for.
 pub fn parse_toml_config(path: &Path) -> Result<LayoutConfig, MtoError> {
-    let mut config = LayoutConfig::default();
-    let content = fs::read_to_string(path).map_err(|e| {
-        MtoError::Usage(format!(
-            "cannot read configuration {}: {}",
-            path.display(),
-            e
-        ))
-    })?;
-    let invalid = |key: &str| {
-        MtoError::Usage(format!(
-            "invalid configuration value for `{}` in {}",
-            key,
-            path.display()
-        ))
+    let overrides = config::Overrides {
+        config_path: Some(path.to_path_buf()),
+        ..config::Overrides::default()
     };
-    let mut in_array_key: Option<String> = None;
-    let mut array_accumulator = String::new();
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
-            continue;
-        }
-
-        if let Some(ref key) = in_array_key {
-            array_accumulator.push(' ');
-            array_accumulator.push_str(trimmed);
-
-            if trimmed.ends_with(']') {
-                if !apply_config_value(&mut config, key, &array_accumulator) {
-                    return Err(invalid(key));
-                }
-                in_array_key = None;
-                array_accumulator.clear();
-            }
-            continue;
-        }
-
-        if trimmed.starts_with('[') && trimmed.ends_with(']') && !trimmed.contains('=') {
-            continue;
-        }
-
-        let parts: Vec<&str> = trimmed.splitn(2, '=').collect();
-        if parts.len() == 2 {
-            let key = parts[0].trim();
-            let value = parts[1].trim();
-
-            if value.starts_with('[') && !value.ends_with(']') {
-                in_array_key = Some(key.to_string());
-                array_accumulator.push_str(value);
-                continue;
-            }
-
-            if !apply_config_value(&mut config, key, value) {
-                return Err(invalid(key));
-            }
-        }
-    }
-
-    if let Some(key) = in_array_key {
-        return Err(MtoError::Usage(format!(
-            "unterminated array for `{}` in {}",
-            key,
-            path.display()
-        )));
-    }
-
+    let mut resolver = config::Resolver::new(&overrides, config::Environment::default())?;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let config = resolver.config_for(dir)?.layout();
+    print_warnings(&mut resolver);
     Ok(config)
+}
+
+/// Prints the configuration warnings found so far to stderr.
+pub fn print_warnings(resolver: &mut config::Resolver) {
+    for warning in resolver.take_warnings() {
+        eprintln!("{}warning: {}{}", c_yellow(true), warning, c_reset(true));
+    }
 }
 
 pub fn process_file(file_path: &Path, config: &LayoutConfig, opts: &RunOptions) -> Outcome {
@@ -416,36 +301,17 @@ pub fn process_init(target_dir: Option<PathBuf>) -> Result<PathBuf, MtoError> {
             config_file_path.display()
         )));
     }
-    let default_config_template = r#"# mto configuration file
-sort_alphabetically = true
-group_impls = true
-sort_imports = true
-import_grouping = true
-blank_lines_between_blocks = 1
-type_order = [
-  "ModDecl",
-  "UseDecl",
-  "MacroDecl",
-  "ConstDecl",
-  "StaticDecl",
-  "TraitDecl",
-  "EnumDecl",
-  "StructDecl",
-  "ImplBlock",
-  "FnDecl",
-  "Unknown"
-]
-"#;
-    write_atomic(&config_file_path, default_config_template)
+    let default_config_template = init_template();
+    write_atomic(&config_file_path, &default_config_template)
         .map_err(|e| MtoError::Io(format!("cannot write configuration file: {}", e)))?;
     Ok(config_file_path)
 }
 
-pub fn process_stdin(config_path: Option<PathBuf>, check: bool) -> Result<Outcome, MtoError> {
-    let config = match resolve_config_path(config_path, None) {
-        Some(path) => parse_toml_config(&path)?,
-        None => LayoutConfig::default(),
-    };
+pub fn process_stdin(resolver: &mut config::Resolver, check: bool) -> Result<Outcome, MtoError> {
+    let dir = env::current_dir()
+        .map_err(|e| MtoError::Io(format!("cannot read the current directory: {}", e)))?;
+    let config = resolver.config_for(&dir)?.layout();
+    print_warnings(resolver);
     let mut source = String::new();
     io::stdin()
         .read_to_string(&mut source)
@@ -492,60 +358,6 @@ pub fn reorganize_file(source: String, config: &LayoutConfig, dbg: bool) -> Stri
         Ok(text) => text,
         Err(_) => source,
     }
-}
-
-pub fn resolve_config_path(
-    cli_path: Option<PathBuf>,
-    target_path: Option<&Path>,
-) -> Option<PathBuf> {
-    if let Some(path) = cli_path {
-        return Some(path);
-    }
-    let start_dir = match target_path {
-        Some(p) => {
-            if p.is_file() {
-                p.parent()
-                    .map(|s| s.to_path_buf())
-                    .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-            } else {
-                p.to_path_buf()
-            }
-        }
-        None => env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    };
-    let mut current = Some(start_dir.as_path());
-    while let Some(dir) = current {
-        let candidate1 = dir.join("mto.toml");
-        if candidate1.exists() {
-            return Some(candidate1);
-        }
-        let candidate2 = dir.join(".mto.toml");
-        if candidate2.exists() {
-            return Some(candidate2);
-        }
-        current = dir.parent();
-    }
-    let home_env = env::var("HOME").or_else(|_| env::var("USERPROFILE")).ok();
-    if let Some(home_str) = home_env {
-        let home_path = PathBuf::from(home_str);
-        let xdg_config = home_path.join(".config").join("mtindo").join("mto.toml");
-        if xdg_config.exists() {
-            return Some(xdg_config);
-        }
-        let xdg_config_old = home_path.join(".config").join("mtindo").join(".mto.toml");
-        if xdg_config_old.exists() {
-            return Some(xdg_config_old);
-        }
-        let global_config = home_path.join("mto.toml");
-        if global_config.exists() {
-            return Some(global_config);
-        }
-        let global_config_old = home_path.join(".mto.toml");
-        if global_config_old.exists() {
-            return Some(global_config_old);
-        }
-    }
-    None
 }
 
 pub fn restore_backup(backup_path: &Path, target_path: &Path) -> Result<(), std::io::Error> {
@@ -629,11 +441,16 @@ pub fn unified_diff(old: &str, new: &str, label: &str) -> String {
     out
 }
 
-pub fn walk_directory(dir: &Path, config: &LayoutConfig, opts: &RunOptions) -> Vec<Outcome> {
+/// Lays out every `.rs` file under `dir`, each with the settings of its own folder.
+pub fn walk_directory(
+    dir: &Path,
+    resolver: &mut config::Resolver,
+    opts: &RunOptions,
+) -> Result<Vec<Outcome>, MtoError> {
     let mut visited = HashSet::new();
     let mut outcomes = Vec::new();
-    walk_inner(dir, config, opts, &mut visited, &mut outcomes);
-    outcomes
+    walk_inner(dir, resolver, opts, &mut visited, &mut outcomes)?;
+    Ok(outcomes)
 }
 
 /// Replaces `target` atomically: a sibling temp file is written, synced and renamed over it.
@@ -807,29 +624,31 @@ fn verified(
 
 fn walk_inner(
     dir: &Path,
-    config: &LayoutConfig,
+    resolver: &mut config::Resolver,
     opts: &RunOptions,
     visited: &mut HashSet<PathBuf>,
     outcomes: &mut Vec<Outcome>,
-) {
+) -> Result<(), MtoError> {
     let real_dir = match fs::canonicalize(dir) {
         Ok(path) => path,
-        Err(_) => return,
+        Err(_) => return Ok(()),
     };
     if !visited.insert(real_dir) {
-        return;
+        return Ok(());
     }
+    let config = resolver.config_for(dir)?.layout();
+    print_warnings(resolver);
     let dir_name = dir
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
     if config.ignore_dirs.contains(&dir_name) {
-        return;
+        return Ok(());
     }
     let mut entries: Vec<fs::DirEntry> = match fs::read_dir(dir) {
         Ok(entries) => entries.flatten().collect(),
-        Err(_) => return,
+        Err(_) => return Ok(()),
     };
     entries.sort_by_key(|entry| entry.path());
     for entry in entries {
@@ -858,14 +677,15 @@ fn walk_inner(
             if config.ignore_dirs.contains(&child_name) {
                 continue;
             }
-            walk_inner(&path, config, opts, visited, outcomes);
+            walk_inner(&path, resolver, opts, visited, outcomes)?;
         } else if is_file && path.extension().unwrap_or_default() == "rs" {
             if let Ok(real_file) = fs::canonicalize(&path)
                 && !visited.insert(real_file)
             {
                 continue;
             }
-            outcomes.push(process_file(&path, config, opts));
+            outcomes.push(process_file(&path, &config, opts));
         }
     }
+    Ok(())
 }

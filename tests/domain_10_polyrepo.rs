@@ -30,8 +30,9 @@ fn test_distributed_rollback() {
         idx += 1;
     }
 
+    // Each repository named: a walk from `.` would pass over them as other projects.
     let mut format_cmd = env.mto_cmd();
-    format_cmd.arg(".");
+    format_cmd.args(["repo_alpha", "repo_beta"]);
 
     let output = format_cmd.output().unwrap();
     assert!(output.status.success());
@@ -100,8 +101,20 @@ fn test_polyrepo_traversal() {
     let file_b = env.write_file("repo_b/main.rs", "fn d() {}\nfn c() {}");
     let file_c = env.write_file("repo_c/main.rs", "fn f() {}\nfn e() {}");
 
+    // A walk from `.` passes over folders that hold a repository of their own, and says so.
+    let output = env.mto_cmd().arg(".").output().unwrap();
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("passed over 3 folder(s) holding a repository of their own"),
+        "{}",
+        stderr
+    );
+    assert_eq!(fs::read_to_string(&file_a).unwrap(), "fn b() {}\nfn a() {}");
+
+    // Named, each is laid out.
     let mut cmd = env.mto_cmd();
-    cmd.arg(".");
+    cmd.args(["repo_a", "repo_b", "repo_c"]);
 
     cmd.assert().success();
 

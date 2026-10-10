@@ -17,7 +17,9 @@
 //!    `sort_alphabetically` is on.
 //!
 //! A `macro_rules!` is only visible below its definition, and so are the macros of a
-//! `#[macro_use]` module, so no unit that came after a definition may move in front of it. If the sort would do that, it is redone with every
+//! `#[macro_use]` module and of an item macro call that holds definitions (`cfg_if! {
+//! macro_rules! m { ... } }`), so no unit that came after a definition may move in front of
+//! it. If the sort would do that, it is redone with every
 //! macro first; if even that moves one, the file is left alone.
 
 use std::cmp::Ordering;
@@ -173,7 +175,7 @@ fn compare(
 
 /// A `macro_rules!`, or a `#[macro_use]` module, whose macros are visible after it.
 fn defines_macros(unit: &Unit) -> bool {
-    unit.kind == ItemKind::MacroDecl || (unit.kind == ItemKind::ModDecl && unit.macro_use)
+    unit.defines_macros
 }
 
 /// Pinned units at their own positions, the others sorted into the remaining ones.

@@ -44,7 +44,9 @@ No more scrolling past 800 lines of helper functions just to find the main
   restore](#history-and-restore).
 * **Safe Directory Walks:** Symlinked directories are skipped unless
   `--follow-links` is given, and every real path is visited at most once, so
-  symlink cycles cannot cause repeated work.
+  symlink cycles cannot cause repeated work. A folder below the starting one
+  that holds a repository of its own (`.git`) is another project: the walk
+  passes over it and says so; name it to lay it out.
 
 ## Installation
 

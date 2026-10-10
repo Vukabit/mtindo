@@ -4,6 +4,27 @@ use std::process::Command;
 
 use common::TestEnvironment;
 
+/// The layout settings each crate is laid out with, from a clean checkout each time: the
+/// defaults, then two mixes that between them set every layout setting away from its
+/// default.
+const LAYOUT_CONFIGS: &[(&str, &str)] = &[
+    ("defaults", ""),
+    (
+        "mix one",
+        "blank_lines_between_blocks = 0\ngroup_impls = false\nimpl_method_order = \"trait\"\n\
+         import_sort = \"2024\"\nname_sort = \"bytes\"\nreorder_impl_items = true\n\
+         test_module = \"in_place\"\ntrait_impl_order = [\"Default\", \"Clone\", \"Debug\"]\n\
+         type_order = [\"FnDecl\", \"ImplBlock\", \"StructDecl\", \"EnumDecl\", \"TraitDecl\", \
+         \"UseDecl\", \"ModDecl\"]\nvisibility_order = [\"Private\", \"PubSuper\", \"PubIn\", \
+         \"PubCrate\", \"Pub\"]\n",
+    ),
+    (
+        "mix two",
+        "import_grouping = false\nimport_sort = \"2015\"\nname_sort = \"case_insensitive\"\n\
+         sort_alphabetically = false\nsort_imports = false\ntrait_impl_sort = \"original\"\n",
+    ),
+];
+
 const REAL_WORLD_TARGETS: &[(&str, &str)] = &[
     // Small
     (
@@ -64,25 +85,50 @@ fn test_realworld_compilation_invariance() {
             continue;
         }
 
-        let mut format_cmd = env.mto_cmd();
-        format_cmd.arg("-R").arg(".").current_dir(&repo_dir);
-        let format_output = format_cmd.output().unwrap();
-        if !format_output.status.success() {
-            failures.push(format!(
-                "{}: mto exited with {:?}",
-                name,
-                format_output.status.code()
-            ));
-            continue;
+        // Each configuration from a clean checkout: the defaults, then two mixes that
+        // between them turn every layout setting away from its default.
+        for (label, settings) in LAYOUT_CONFIGS {
+            let clean = Command::new("git")
+                .args(["checkout", "--quiet", "--", "."])
+                .current_dir(&repo_dir)
+                .status()
+                .unwrap();
+            assert!(clean.success(), "{}: git checkout failed", name);
+            std::fs::write(
+                repo_dir.join("mto.toml"),
+                format!("root = true\nlayout = true\n{}", settings),
+            )
+            .unwrap();
+            let format_output = env
+                .mto_cmd()
+                .args(["-q", "--no-history", "--allow-dirty", "-R", "."])
+                .current_dir(&repo_dir)
+                .output()
+                .unwrap();
+            // Exit 3 marks files mto leaves alone for syntax errors (test fixtures); the
+            // rest were written.
+            if !matches!(format_output.status.code(), Some(0) | Some(3)) {
+                failures.push(format!(
+                    "{} ({}): mto exited with {:?}: {}",
+                    name,
+                    label,
+                    format_output.status.code(),
+                    String::from_utf8_lossy(&format_output.stderr)
+                ));
+                continue;
+            }
+            let check_post = Command::new("cargo")
+                .args(["check", "--lib", "--quiet"])
+                .current_dir(&repo_dir)
+                .status()
+                .unwrap();
+            if !check_post.success() {
+                failures.push(format!(
+                    "{} ({}): failed post-format compilation",
+                    name, label
+                ));
+            }
         }
-
-        let mut check_post = Command::new("cargo");
-        check_post.args(["check", "--lib"]).current_dir(&repo_dir);
-        if !check_post.status().unwrap().success() {
-            failures.push(format!("{}: failed post-format compilation", name));
-            continue;
-        }
-
         println!(">>> Target {} verified: 100% compilation invariance.", name);
     }
 

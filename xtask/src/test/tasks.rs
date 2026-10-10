@@ -110,7 +110,7 @@ pub const TEST_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "domain_13_rw",
-        "15 real crates still compile after formatting (network)",
+        "15 real crates still compile after layout, in three configurations (network)",
         "heavy",
     ),
 ];

@@ -22,7 +22,7 @@
 
 pub mod report;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::syntax::ast::{Attr, Item, ItemKind};
 use crate::syntax::lexer::tokenize;
@@ -61,6 +61,9 @@ pub enum Rule {
     OtherChanged,
     /// `macro_rules!` definitions changed order relative to each other.
     MacroOrderChanged,
+    /// An item that came after a macro definition now comes before it, where the macro is
+    /// not yet defined.
+    MacroUserMoved,
     /// The byte-order mark was added or removed.
     BomChanged,
     /// The line endings changed style (`\n` against `\r\n`).
@@ -80,6 +83,7 @@ impl Rule {
             Rule::HeaderChanged => "header-changed",
             Rule::OtherChanged => "other-changed",
             Rule::MacroOrderChanged => "macro-order-changed",
+            Rule::MacroUserMoved => "macro-user-moved",
             Rule::BomChanged => "bom-changed",
             Rule::LineEndingsChanged => "line-endings-changed",
         }
@@ -103,6 +107,9 @@ struct Parts {
     /// `macro_rules!` names in order, each with the scope it is visible in; compared scope by
     /// scope. A `#[macro_use]` module's macros also count in its parent's scope.
     macros: Vec<(String, String)>,
+    /// Each item in order as (scope, core text, defines macros): what must stay below a
+    /// macro definition.
+    sequence: Vec<(String, String, bool)>,
     errors: usize,
 }
 
@@ -277,6 +284,17 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
             ),
         );
     }
+    let moved = moved_above_definitions(&old.sequence, &new.sequence);
+    if !moved.is_empty() {
+        add(
+            Rule::MacroUserMoved,
+            format!(
+                "{} item(s) moved above a macro definition they came after: {}",
+                moved.len(),
+                describe_list(&moved)
+            ),
+        );
+    }
     violations
 }
 
@@ -341,6 +359,11 @@ fn collect(container: &SyntaxNode, scope: &str, source: &str, parts: &mut Parts)
                 }
             }
             let core = core_text(node, source);
+            parts.sequence.push((
+                scope.to_string(),
+                format!("{}{}", core, suffix),
+                item.defines_macros(),
+            ));
             match module_body(node) {
                 Some(body) => {
                     let range = body.text_range();
@@ -475,6 +498,43 @@ fn module_body(node: &SyntaxNode) -> Option<SyntaxNode> {
         _ => return None,
     };
     node.children().into_iter().find(|c| c.kind() == body)
+}
+
+/// The items that came after a macro-defining item in the input and come before it in the
+/// output, scope by scope. Items are known by their core text, numbered when it repeats.
+fn moved_above_definitions(
+    old: &[(String, String, bool)],
+    new: &[(String, String, bool)],
+) -> Vec<String> {
+    // Each item as (scope, text, occurrence), with whether it defines macros.
+    fn numbered(sequence: &[(String, String, bool)]) -> Vec<((&str, &str, usize), bool)> {
+        let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
+        sequence
+            .iter()
+            .map(|(scope, text, definer)| {
+                let n = seen.entry((scope.as_str(), text.as_str())).or_default();
+                *n += 1;
+                ((scope.as_str(), text.as_str(), *n), *definer)
+            })
+            .collect()
+    }
+    let (old, new) = (numbered(old), numbered(new));
+    let position: HashMap<_, usize> = new.iter().enumerate().map(|(i, (k, _))| (*k, i)).collect();
+    let mut moved = Vec::new();
+    for (i, (definer, defines)) in old.iter().enumerate() {
+        let Some(&at) = position.get(definer).filter(|_| *defines) else {
+            continue;
+        };
+        for (later, _) in &old[i + 1..] {
+            if later.0 == definer.0
+                && position.get(later).is_some_and(|&p| p < at)
+                && !moved.contains(&later.1.to_string())
+            {
+                moved.push(later.1.to_string());
+            }
+        }
+    }
+    moved
 }
 
 /// The parts of a file. Line endings are compared by their own rule, so here every

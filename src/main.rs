@@ -831,6 +831,7 @@ fn kind_label(kind: FileKind) -> &'static str {
 }
 
 fn main() {
+    quiet_on_closed_pipe();
     let action = match parse_args() {
         Ok(Some(a)) => a,
         Ok(None) => return,
@@ -882,6 +883,29 @@ fn main() {
         } => run_format(&paths, &overrides, &opts),
     };
     std::process::exit(code);
+}
+
+/// The note for folders a walk passed over because each holds a repository of its own: a
+/// few by name, or every one with `-v`.
+fn nested_note(nested: &[PathBuf], verbose: bool) -> String {
+    const SHOWN: usize = 3;
+    let names: Vec<String> = nested
+        .iter()
+        .take(if verbose { nested.len() } else { SHOWN })
+        .map(|p| p.display().to_string())
+        .collect();
+    let more = if nested.len() > names.len() {
+        format!(" and {} more (-v lists them)", nested.len() - names.len())
+    } else {
+        String::new()
+    };
+    format!(
+        "note: passed over {} folder(s) holding a repository of their own: {}{}; name one to \
+         lay it out",
+        nested.len(),
+        names.join(", "),
+        more
+    )
 }
 
 fn parse_args() -> Result<Option<CliAction>, ()> {
@@ -1340,6 +1364,25 @@ fn print_man_page() {
     }
 }
 
+/// Output piped into a reader that stops early (`mto history | head`) ends the run quietly
+/// with 141, the status of a process ended by SIGPIPE, instead of a panic. Rust ignores
+/// SIGPIPE, so the closed pipe surfaces as a failed print; other panics are untouched.
+fn quiet_on_closed_pipe() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let message = info
+            .payload()
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| info.payload().downcast_ref::<&str>().copied())
+            .unwrap_or("");
+        if message.starts_with("failed printing to stdout") && message.contains("Broken pipe") {
+            std::process::exit(141);
+        }
+        default(info);
+    }));
+}
+
 /// A command's help page: `mto history -h`.
 fn render_command_help(command: &CommandSpec, color: bool) -> String {
     let p = HelpPalette::new(color, "mto");
@@ -1502,8 +1545,9 @@ fn render_man() -> String {
     out.push_str("```\n");
     out.push_str(&wrap(
         "`<PATH>`: a single `.rs` file or a directory. Directories are traversed \
-         recursively, skipping `ignore_dirs` and symlinked entries. Running `mto` with \
-         no arguments prints the short help.",
+         recursively, skipping `ignore_dirs`, symlinked entries, and folders that hold a \
+         repository of their own (`.git`), which are named in a note; name one to lay it \
+         out. Running `mto` with no arguments prints the short help.",
         "*   ",
     ));
     out.push_str(&wrap(
@@ -1665,12 +1709,16 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
             missing.display()
         )));
     }
-    let (jobs, problems) = match collect_jobs(paths, &mut resolver, opts) {
+    let collected = match collect_jobs(paths, &mut resolver, opts) {
         Ok(found) => found,
         Err(e) => return report_error(&e),
     };
-    for problem in problems {
+    let jobs = collected.jobs;
+    for problem in collected.problems {
         eprintln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
+    }
+    if !collected.nested.is_empty() && !opts.quiet {
+        eprintln!("{}", nested_note(&collected.nested, opts.verbose));
     }
     let settings = match history::Settings::read(&resolver, opts.no_history) {
         Ok(settings) => settings,

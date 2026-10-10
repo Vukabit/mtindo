@@ -36,6 +36,8 @@ pub(super) fn pinned_region(text: &str, start: usize, end: usize, index: usize) 
         cfg: false,
         test_module: false,
         macro_use: false,
+        // A region left as written may hold definitions too.
+        defines_macros: text[start..end].contains("macro_rules!"),
         module_declaration: false,
         import_group: None,
         use_tree: None,
@@ -109,6 +111,7 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
         cfg: attrs.iter().any(|a| a.path() == "cfg"),
         test_module: is_module && attrs.iter().any(|a| attr_body(a) == "cfg(test)"),
         macro_use: is_module && attrs.iter().any(|a| a.path() == "macro_use"),
+        defines_macros: item.defines_macros(),
         module_declaration: is_module && ends_with_semicolon(item.syntax()),
         import_group: item
             .as_use()

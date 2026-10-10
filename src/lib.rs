@@ -104,6 +104,17 @@ pub enum Outcome {
     Dirty,
 }
 
+/// What collecting the files of a run found.
+#[derive(Debug, Default)]
+pub struct Collected {
+    /// The files to lay out, in order, each once.
+    pub jobs: Vec<Job>,
+    /// Modules whose files could not be found.
+    pub problems: Vec<String>,
+    /// Folders a walk passed over because they hold a repository of their own (`.git`).
+    pub nested: Vec<PathBuf>,
+}
+
 /// How one job ended: its outcome, and its `--emit json` entry.
 #[derive(Debug)]
 pub struct Done {
@@ -170,6 +181,13 @@ pub struct RunOptions {
     pub allow_dirty: bool,
 }
 
+/// The state of a directory walk.
+struct Walk<'a> {
+    visited: &'a mut HashSet<PathBuf>,
+    jobs: &'a mut Vec<Job>,
+    nested: &'a mut Vec<PathBuf>,
+}
+
 /// What [`run_file`] needs to write a file: where its contents are recorded, and which files
 /// the git guard keeps.
 #[derive(Clone, Copy, Debug, Default)]
@@ -225,20 +243,27 @@ pub fn c_yellow(is_err: bool) -> &'static str {
 }
 
 /// The files to lay out for `paths`, in order, each once: a folder is walked; a file brings
-/// the modules it declares, as rustfmt follows them, unless `--skip-children`. Also returns
-/// the modules whose files could not be found.
+/// the modules it declares, as rustfmt follows them, unless `--skip-children`. A walk passes
+/// over folders below its start that hold a repository of their own: another project, laid
+/// out only when named.
 pub fn collect_jobs(
     paths: &[PathBuf],
     resolver: &mut config::Resolver,
     opts: &RunOptions,
-) -> Result<(Vec<Job>, Vec<String>), MtoError> {
+) -> Result<Collected, MtoError> {
     let mut visited = HashSet::new();
     let mut jobs = Vec::new();
     let mut problems = Vec::new();
+    let mut nested = Vec::new();
     for path in paths {
         if path.is_dir() {
             let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-            walk_inner(path, real, resolver, opts, &mut visited, &mut jobs)?;
+            let mut walk = Walk {
+                visited: &mut visited,
+                jobs: &mut jobs,
+                nested: &mut nested,
+            };
+            walk_inner(path, real, resolver, opts, &mut walk)?;
             continue;
         }
         let files = if opts.skip_children {
@@ -260,7 +285,11 @@ pub fn collect_jobs(
             jobs.push((file, config));
         }
     }
-    Ok((jobs, problems))
+    Ok(Collected {
+        jobs,
+        problems,
+        nested,
+    })
 }
 
 /// The `mto.toml` that `mto init` writes: every mto setting at its default, with its
@@ -697,7 +726,7 @@ pub fn walk_directory(
     resolver: &mut config::Resolver,
     opts: &RunOptions,
 ) -> Result<Vec<Outcome>, MtoError> {
-    let (jobs, _) = collect_jobs(&[dir.to_path_buf()], resolver, opts)?;
+    let jobs = collect_jobs(&[dir.to_path_buf()], resolver, opts)?.jobs;
     Ok(run_jobs(&jobs, opts, &mut Writes::default())
         .into_iter()
         .map(|d| d.outcome)
@@ -1154,11 +1183,10 @@ fn walk_inner(
     real: PathBuf,
     resolver: &mut config::Resolver,
     opts: &RunOptions,
-    visited: &mut HashSet<PathBuf>,
-    jobs: &mut Vec<Job>,
+    walk: &mut Walk,
 ) -> Result<(), MtoError> {
     // Without --follow-links, symlinks are skipped, so every path is visited once anyway.
-    if opts.follow_links && !visited.insert(real.clone()) {
+    if opts.follow_links && !walk.visited.insert(real.clone()) {
         return Ok(());
     }
     let resolved = resolver.config_for_absolute(real.clone())?;
@@ -1204,6 +1232,10 @@ fn walk_inner(
             if config.ignore_dirs.contains(&child_name) {
                 continue;
             }
+            if path.join(".git").exists() {
+                walk.nested.push(path);
+                continue;
+            }
             let child_real = if opts.follow_links {
                 match fs::canonicalize(&path) {
                     Ok(real) => real,
@@ -1212,15 +1244,16 @@ fn walk_inner(
             } else {
                 real.join(entry.file_name())
             };
-            walk_inner(&path, child_real, resolver, opts, visited, jobs)?;
+            walk_inner(&path, child_real, resolver, opts, walk)?;
         } else if is_file && path.extension().unwrap_or_default() == "rs" {
             if opts.follow_links
                 && let Ok(real_file) = fs::canonicalize(&path)
-                && !visited.insert(real_file)
+                && !walk.visited.insert(real_file)
             {
                 continue;
             }
-            jobs.push((path, layout_on.then(|| Arc::clone(&config))));
+            walk.jobs
+                .push((path, layout_on.then(|| Arc::clone(&config))));
         }
     }
     Ok(())

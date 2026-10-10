@@ -200,6 +200,30 @@ impl Item {
         item_kind(self.0.kind()).unwrap_or(ItemKind::MacroCall)
     }
 
+    /// Whether the item defines macros that the items after it may use, so nothing after it
+    /// may move in front of it: `macro_rules!`, `macro`, a `#[macro_use]` module, and an
+    /// item macro call whose input holds a `macro_rules!` or `macro` definition (such as
+    /// `cfg_if! { macro_rules! m { ... } }`), which most likely expands to one.
+    pub fn defines_macros(&self) -> bool {
+        match self.kind() {
+            ItemKind::MacroRules | ItemKind::MacroDef => true,
+            ItemKind::Module => self.attrs().iter().any(|a| a.path() == "macro_use"),
+            ItemKind::MacroCall => {
+                let words: Vec<String> = tokens_deep(&self.0)
+                    .iter()
+                    .filter(|t| !t.kind().is_trivia())
+                    .map(|t| t.text().to_string())
+                    .collect();
+                words.windows(2).any(|pair| {
+                    (pair[0] == "macro_rules" && pair[1] == "!")
+                        || (pair[0] == "macro"
+                            && pair[1].starts_with(|c: char| c.is_alphabetic() || c == '_'))
+                })
+            }
+            _ => false,
+        }
+    }
+
     /// An `impl` view, if this item is one.
     pub fn as_impl(&self) -> Option<Impl> {
         Impl::cast(self.0.clone())

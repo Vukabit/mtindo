@@ -304,6 +304,23 @@ fn test_name_sort_and_visibility_order() {
     );
 }
 
+/// Functions first must not lift a function above the macro call that defines the macro
+/// it uses (tokio's `cfg_trace! { macro_rules! trace { ... } }`).
+#[test]
+fn test_nothing_moves_above_a_macro_call_that_defines_macros() {
+    let config = LayoutConfig {
+        type_order: vec![ItemKind::FnDecl, ItemKind::MacroDecl],
+        ..LayoutConfig::default()
+    };
+    let source = "cfg_trace! {\n    macro_rules! trace { () => {} }\n}\n\nfn b() { trace!(); }\n\nfn a() { trace!(); }\n";
+    let laid = layout(source, &config).unwrap();
+    let call = laid.text.find("cfg_trace!").unwrap();
+    assert!(laid.text.find("fn a").unwrap() > call, "{}", laid.text);
+    assert!(laid.text.find("fn b").unwrap() > call, "{}", laid.text);
+    let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
+    assert!(violations.is_empty(), "{:?}", violations);
+}
+
 #[test]
 fn test_pinned_items_keep_their_place() {
     let skip = "fn z() {}\n#[rustfmt::skip]\nfn m() {}\nfn a() {}\n";

@@ -93,6 +93,9 @@ pub struct Unit {
     pub test_module: bool,
     /// `#[macro_use] mod`.
     pub macro_use: bool,
+    /// Defines macros the units after it may use (see `Item::defines_macros`), so no unit
+    /// that came after it may move in front of it.
+    pub defines_macros: bool,
     /// `mod name;`, a module declared without a body.
     pub module_declaration: bool,
     /// For a `use`: standard library, external crate or this crate.

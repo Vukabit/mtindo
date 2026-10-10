@@ -93,6 +93,29 @@ fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
 }
 
 #[test]
+fn test_cli_a_closed_pipe_ends_quietly() {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let env = TestEnvironment::new();
+    let source: String = (0..20_000).map(|i| format!("fn f{}() {{}}\n", i)).collect();
+    let file = env.write_file("big.rs", &source);
+    // Enough output to fill the pipe, read a little, then hang up, as `| head` does.
+    let mut child = Command::new(assert_cmd::cargo::cargo_bin("mto"))
+        .args(["debug", "tokens"])
+        .arg(&file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut first = [0u8; 16];
+    child.stdout.take().unwrap().read_exact(&mut first).unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(141), "{}", stderr);
+    assert!(!stderr.contains("panicked"), "{}", stderr);
+}
+
+#[test]
 fn test_cli_a_file_with_syntax_errors_exits_three() {
     let env = TestEnvironment::new();
     let broken = "fn b() {}\nfn a() {\n    if true {\n";

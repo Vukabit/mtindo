@@ -82,7 +82,25 @@ fn test_inline_modules_are_scopes_of_their_own() {
     // Macro order is kept within each module.
     let macros = "mod m {\n    macro_rules! p { () => {} }\n    macro_rules! q { () => {} }\n}\n";
     let swapped = "mod m {\n    macro_rules! q { () => {} }\n    macro_rules! p { () => {} }\n}\n";
-    assert_eq!(rules(macros, swapped), vec![Rule::MacroOrderChanged]);
+    // `q` came after `p`, so it also moved above a definition it could use.
+    assert_eq!(
+        rules(macros, swapped),
+        vec![Rule::MacroOrderChanged, Rule::MacroUserMoved]
+    );
+}
+
+/// A macro defined inside an item macro call (`cfg_if! { macro_rules! m {...} }`) is as
+/// order-sensitive as one written plainly: what came after the call may not move above it.
+/// Found by laying out tokio with functions first, which then failed to compile.
+#[test]
+fn test_items_stay_below_macros_defined_in_macro_calls() {
+    let input = "cfg_trace! {\n    macro_rules! trace { () => {} }\n}\nfn a() { trace!(); }\n";
+    let moved = "fn a() { trace!(); }\ncfg_trace! {\n    macro_rules! trace { () => {} }\n}\n";
+    assert_eq!(rules(input, moved), vec![Rule::MacroUserMoved]);
+    // A call that defines nothing does not hold items back.
+    let plain = "thread_local! { static X: u8 = 0; }\nfn a() {}\n";
+    let swapped = "fn a() {}\nthread_local! { static X: u8 = 0; }\n";
+    assert_eq!(rules(plain, swapped), vec![]);
 }
 
 #[test]
@@ -93,7 +111,10 @@ fn test_macro_use_modules_count_in_their_parent() {
     assert_eq!(rules(input, swapped), vec![]);
     // A `#[macro_use]` module may not move below a macro defined after it.
     let moved = "macro_rules! n { () => {} }\n#[macro_use]\nmod macros {\n    macro_rules! m { () => {} }\n}\nmod a {\n    macro_rules! p { () => {} }\n}\nmod b {\n    macro_rules! q { () => {} }\n}\n";
-    assert_eq!(rules(input, moved), vec![Rule::MacroOrderChanged]);
+    assert_eq!(
+        rules(input, moved),
+        vec![Rule::MacroOrderChanged, Rule::MacroUserMoved]
+    );
 }
 
 #[test]
@@ -196,7 +217,10 @@ fn test_mutation_macro_order() {
         "macro_rules! first { () => {} }\nmacro_rules! second { () => {} }",
         "macro_rules! second { () => {} }\nmacro_rules! first { () => {} }",
     );
-    assert_eq!(rules(INPUT, &output), vec![Rule::MacroOrderChanged]);
+    assert_eq!(
+        rules(INPUT, &output),
+        vec![Rule::MacroOrderChanged, Rule::MacroUserMoved]
+    );
 }
 
 #[test]

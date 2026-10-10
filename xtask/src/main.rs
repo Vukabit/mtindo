@@ -9,6 +9,7 @@ mod capabilities;
 mod common;
 mod corpus;
 mod gates;
+mod race;
 mod sha256;
 mod test;
 mod unicode;
@@ -55,6 +56,12 @@ const COMMANDS: &[Command] = &[
         "[PATH...]",
         "Parse with each crate's edition; report syntax errors",
         |root, args| forward(root, "parsecheck", args),
+    ),
+    (
+        "race",
+        "[--rounds N] [--filter TEXT] [--real N] [--gross] [--markdown]",
+        "Time rustfmt, rustfmt nightly and mto feature by feature (net of start-up), drawn live",
+        race::run,
     ),
     (
         "unicode",

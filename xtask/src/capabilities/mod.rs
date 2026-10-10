@@ -18,12 +18,12 @@
 //! Every subcommand logs to `logs/capabilities.log`.
 
 mod binary;
-mod fetch;
-mod manifest;
+pub(crate) mod fetch;
+pub(crate) mod manifest;
 mod mto;
 mod report;
 mod source;
-mod surface;
+pub(crate) mod surface;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -38,7 +38,7 @@ use crate::common::color::color_enabled;
 use crate::common::log::Logger;
 use crate::common::process;
 
-const MANIFEST_PATH: &str = "compat/capabilities.txt";
+pub(crate) const MANIFEST_PATH: &str = "compat/capabilities.txt";
 
 const SURFACE_PATH: &str = "compat/rustfmt-surface.txt";
 
@@ -96,6 +96,16 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     };
     log.info(&format!("exit code {}", code));
     ExitCode::from(code)
+}
+
+pub(crate) fn load_surface(root: &Path) -> Result<Surface, String> {
+    let text = fs::read_to_string(root.join(SURFACE_PATH)).map_err(|_| {
+        format!(
+            "{} is missing; run `cargo xtask capabilities refresh`",
+            SURFACE_PATH
+        )
+    })?;
+    Surface::parse(&text).map_err(|e| format!("{}: {}", SURFACE_PATH, e))
 }
 
 /// Where a binary and the source it was built from disagree on names or stability. Values
@@ -214,16 +224,6 @@ fn expected_items(surface: &Surface, mto_items: &[String]) -> BTreeSet<(Kind, St
         expected.insert((Kind::Mto, item.clone()));
     }
     expected
-}
-
-fn load_surface(root: &Path) -> Result<Surface, String> {
-    let text = fs::read_to_string(root.join(SURFACE_PATH)).map_err(|_| {
-        format!(
-            "{} is missing; run `cargo xtask capabilities refresh`",
-            SURFACE_PATH
-        )
-    })?;
-    Surface::parse(&text).map_err(|e| format!("{}: {}", SURFACE_PATH, e))
 }
 
 /// What a line's note must say for its status.

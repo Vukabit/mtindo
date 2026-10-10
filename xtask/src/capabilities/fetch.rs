@@ -23,6 +23,7 @@ const SPARSE_PATHS: &[&str] = &[
     "/src/tools/rustfmt/src/cargo-fmt/main.rs",
     "/src/tools/rustfmt/tests/source/",
     "/src/tools/rustfmt/tests/target/",
+    "/src/tools/rustfmt/tests/config/",
 ];
 
 #[derive(Debug, PartialEq)]
@@ -62,6 +63,17 @@ pub fn cached_checkout(root: &Path, commit: &str, log: &Logger) -> Result<Option
 /// Checks out rustfmt at `commit`, or reuses the cached checkout.
 pub fn checkout(root: &Path, commit: &str, log: &Logger) -> Result<PathBuf, String> {
     if let Some(dir) = cached_checkout(root, commit, log)? {
+        // A checkout made before a path was added to SPARSE_PATHS gets it now; this may
+        // fetch the missing files.
+        let repo = cache_root(root).join(commit);
+        let listed = git(&repo, &["sparse-checkout", "list"])?;
+        let current: Vec<&str> = listed.lines().map(str::trim).collect();
+        if SPARSE_PATHS.iter().any(|p| !current.contains(p)) {
+            log.info(&format!("widening the sparse checkout of {}", commit));
+            let mut set = vec!["sparse-checkout", "set", "--no-cone"];
+            set.extend_from_slice(SPARSE_PATHS);
+            git(&repo, &set)?;
+        }
         log.info(&format!("reusing cached checkout of {}", commit));
         return Ok(dir);
     }

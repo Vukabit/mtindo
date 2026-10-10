@@ -260,6 +260,9 @@ cargo xtask capabilities report [--markdown]
 cargo xtask corpus check
 # Move every corpus pin to its repository's current HEAD
 cargo xtask corpus update
+# Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's
+# own test inputs, drawn live; --markdown for a shareable table
+cargo xtask race [--rounds N] [--filter TEXT]
 # Every command, gate and exit code
 cargo xtask help
 ```

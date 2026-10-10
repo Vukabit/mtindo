@@ -4,6 +4,7 @@
 mod cases;
 mod common;
 mod corpus;
+mod diff;
 mod lexdiff;
 // The same logger as xtask, compiled from its file: logs/NAME.log at the repository root.
 #[allow(dead_code)]
@@ -11,6 +12,7 @@ mod lexdiff;
 mod log;
 mod parsecheck;
 mod toml_test;
+mod unformat;
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -25,6 +27,19 @@ fn main() -> ExitCode {
         Some("corpus-check") => corpus::run(&root, &args[1..]),
         Some("corpus-speed") => corpus::speed(&args[1..]),
         Some("toml-test") => toml_test::run(&args[1..]),
+        Some("diff") => diff::run(&args[1..]),
+        // Prints a file with its whitespace scrambled, as `diff` scrambles it.
+        Some("unformat") if args.len() == 2 => {
+            let path = Path::new(&args[1]);
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            match unformat::unformat(&text, common::edition_for(path, &text)) {
+                Some(messy) => {
+                    print!("{}", messy);
+                    ExitCode::SUCCESS
+                }
+                None => ExitCode::from(1),
+            }
+        }
         Some("cases") if args.len() == 2 => {
             let summary = cases::run(Path::new(&args[1]));
             println!(

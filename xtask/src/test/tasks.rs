@@ -373,6 +373,15 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     );
     tasks.push(
         Task::new(
+            "diff",
+            "Compatibility with the Rust style stays at or above compat/compatibility.txt",
+            "heavy",
+            Action::Command(this_binary.clone(), vec!["diff".into()]),
+        )
+        .requires(&["git", "rustfmt"]),
+    );
+    tasks.push(
+        Task::new(
             "settings",
             "src/options/rustfmt.rs matches the pinned rustfmt releases",
             "heavy",

@@ -460,6 +460,12 @@ mod tests {
     }
 
     #[test]
+    fn test_lower_layer_use_is_allowed() {
+        let content = "use crate::text::LineIndex;\nuse crate::syntax::{parse, Edition};\n";
+        assert!(layer_violations("layout", "src/layout/order.rs", content).is_empty());
+    }
+
+    #[test]
     fn test_naming_allows_only_the_spellings_that_do_work() {
         let text = "// reads rustfmt.toml and .rustfmt.toml\n#[rustfmt::skip]\n\
                     // as rustfmt sorts them\nlet x = Rustfmt;\n";
@@ -473,12 +479,6 @@ mod tests {
             .map(|p| p.split(':').nth(1).unwrap().to_string())
             .collect();
         assert_eq!(lines, ["2", "6"]);
-    }
-
-    #[test]
-    fn test_lower_layer_use_is_allowed() {
-        let content = "use crate::text::LineIndex;\nuse crate::syntax::{parse, Edition};\n";
-        assert!(layer_violations("layout", "src/layout/order.rs", content).is_empty());
     }
 
     #[test]

@@ -124,6 +124,85 @@ pub(crate) fn checkout_into(base: &Path, pin: &Pin, log: &Logger) -> Result<&'st
     Ok("fetched")
 }
 
+pub(crate) fn fetch(root: &Path, with_rust: bool, log: &Logger) -> u8 {
+    let pins = match load_pins(root) {
+        Ok(pins) => pins,
+        Err(e) => {
+            println!("{}", e);
+            return 1;
+        }
+    };
+    let unpinned: Vec<&str> = pins
+        .iter()
+        .filter(|p| p.commit == "-")
+        .map(|p| p.name.as_str())
+        .collect();
+    if !unpinned.is_empty() {
+        println!(
+            "not pinned yet: {}; run `cargo xtask corpus update`",
+            unpinned.join(", ")
+        );
+        return 1;
+    }
+    let queue: Mutex<Vec<&Pin>> = Mutex::new(
+        pins.iter()
+            .filter(|p| with_rust || !p.opt_in)
+            .rev()
+            .collect(),
+    );
+    let results: Mutex<Vec<(String, Result<&'static str, String>)>> = Mutex::new(Vec::new());
+    thread::scope(|scope| {
+        for _ in 0..PARALLEL_FETCHES {
+            scope.spawn(|| {
+                loop {
+                    let next = queue.lock().map(|mut q| q.pop()).unwrap_or(None);
+                    let Some(pin) = next else {
+                        break;
+                    };
+                    let result = checkout(root, pin, log);
+                    if let Ok(mut all) = results.lock() {
+                        all.push((pin.name.clone(), result));
+                    }
+                }
+            });
+        }
+    });
+    let mut results = results.into_inner().unwrap_or_default();
+    results.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut failed = 0;
+    let mut counts = std::collections::BTreeMap::new();
+    for (name, result) in results.iter() {
+        match result {
+            Ok(what) => *counts.entry(*what).or_insert(0) += 1,
+            Err(e) => {
+                failed += 1;
+                println!("{}: {}", name, e);
+                log.error(&format!("{}: {}", name, e));
+            }
+        }
+    }
+    let summary: Vec<String> = counts
+        .iter()
+        .map(|(what, n)| format!("{} {}", n, what))
+        .collect();
+    println!(
+        "corpus fetch: {}{}",
+        summary.join(", "),
+        if failed > 0 {
+            format!(", {} failed", failed)
+        } else {
+            String::new()
+        }
+    );
+    if failed > 0 { 1 } else { 0 }
+}
+
+pub(crate) fn load_pins(root: &Path) -> Result<Vec<Pin>, String> {
+    let text = fs::read_to_string(root.join(PINS_PATH))
+        .map_err(|e| format!("cannot read {}: {}", PINS_PATH, e))?;
+    parse_pins(&text)
+}
+
 /// Parses `compat/corpus.txt`; comments and blank lines are skipped.
 pub(crate) fn parse_pins(text: &str) -> Result<Vec<Pin>, String> {
     let mut pins = Vec::new();
@@ -344,79 +423,6 @@ fn collect_rs(dir: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-fn fetch(root: &Path, with_rust: bool, log: &Logger) -> u8 {
-    let pins = match load_pins(root) {
-        Ok(pins) => pins,
-        Err(e) => {
-            println!("{}", e);
-            return 1;
-        }
-    };
-    let unpinned: Vec<&str> = pins
-        .iter()
-        .filter(|p| p.commit == "-")
-        .map(|p| p.name.as_str())
-        .collect();
-    if !unpinned.is_empty() {
-        println!(
-            "not pinned yet: {}; run `cargo xtask corpus update`",
-            unpinned.join(", ")
-        );
-        return 1;
-    }
-    let queue: Mutex<Vec<&Pin>> = Mutex::new(
-        pins.iter()
-            .filter(|p| with_rust || !p.opt_in)
-            .rev()
-            .collect(),
-    );
-    let results: Mutex<Vec<(String, Result<&'static str, String>)>> = Mutex::new(Vec::new());
-    thread::scope(|scope| {
-        for _ in 0..PARALLEL_FETCHES {
-            scope.spawn(|| {
-                loop {
-                    let next = queue.lock().map(|mut q| q.pop()).unwrap_or(None);
-                    let Some(pin) = next else {
-                        break;
-                    };
-                    let result = checkout(root, pin, log);
-                    if let Ok(mut all) = results.lock() {
-                        all.push((pin.name.clone(), result));
-                    }
-                }
-            });
-        }
-    });
-    let mut results = results.into_inner().unwrap_or_default();
-    results.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut failed = 0;
-    let mut counts = std::collections::BTreeMap::new();
-    for (name, result) in results.iter() {
-        match result {
-            Ok(what) => *counts.entry(*what).or_insert(0) += 1,
-            Err(e) => {
-                failed += 1;
-                println!("{}: {}", name, e);
-                log.error(&format!("{}: {}", name, e));
-            }
-        }
-    }
-    let summary: Vec<String> = counts
-        .iter()
-        .map(|(what, n)| format!("{} {}", n, what))
-        .collect();
-    println!(
-        "corpus fetch: {}{}",
-        summary.join(", "),
-        if failed > 0 {
-            format!(", {} failed", failed)
-        } else {
-            String::new()
-        }
-    );
-    if failed > 0 { 1 } else { 0 }
-}
-
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let owned: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     let (code, output) = process::capture(dir, "git", &owned, &[]);
@@ -428,12 +434,6 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         ));
     }
     Ok(output)
-}
-
-fn load_pins(root: &Path) -> Result<Vec<Pin>, String> {
-    let text = fs::read_to_string(root.join(PINS_PATH))
-        .map_err(|e| format!("cannot read {}: {}", PINS_PATH, e))?;
-    parse_pins(&text)
 }
 
 /// Moves every pin to its repository's current HEAD, keeping the file's comments and order.

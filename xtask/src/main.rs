@@ -9,6 +9,7 @@ mod bench;
 mod capabilities;
 mod common;
 mod corpus;
+mod diff;
 mod gates;
 mod race;
 mod settings;
@@ -41,6 +42,12 @@ const COMMANDS: &[Command] = &[
         "update|fetch|check|bench",
         "Pinned real-world corpus (compat/corpus.txt); --with-rust, check --baseline; bench [--markdown]: speed table against rustfmt",
         corpus::run,
+    ),
+    (
+        "diff",
+        "[--update] [--markdown]",
+        "How much of the Rust style mto reproduces, against compat/compatibility.txt (stage 3)",
+        diff::run,
     ),
     (
         "gates",

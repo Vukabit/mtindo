@@ -395,6 +395,10 @@ cargo xtask corpus check
 # corpus, by wall clock and CPU time, as a table; fails if mto is below
 # twice rustfmt's throughput
 cargo xtask corpus bench [--markdown]
+# How much of the Rust style mto reproduces: files and lines matching
+# rustfmt on its own tests, the corpus and the corpus with scrambled
+# whitespace; fails below compat/compatibility.txt, --update records
+cargo xtask diff [--update] [--markdown]
 # Move every corpus pin to its repository's current HEAD
 cargo xtask corpus update
 # Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's

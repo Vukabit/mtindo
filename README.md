@@ -48,16 +48,17 @@ No more scrolling past 800 lines of helper functions just to find the main
 
 ## Installation
 
-`mtindo` relies entirely on the Rust standard library. Clone this repository,
-navigate to the root directory, and run:
+`mtindo` relies entirely on the Rust standard library and needs Rust 1.88 or
+later to build:
 
 ```bash
-cargo install --path .
+cargo install mtindo
 ```
 
 This builds the `mto` and `cargo-mto` binaries in release mode and places them
 in Cargo's binary directory (`~/.cargo/bin`), which should already be on your
-`PATH`. The second makes `cargo mto` work.
+`PATH`. The second makes `cargo mto` work. To build from a clone of the
+repository instead, run `cargo install --path .` in its root.
 
 ## Turning layout on
 
@@ -401,3 +402,25 @@ cargo xtask toml-test
 # Every command, gate and exit code
 cargo xtask help
 ```
+
+## License
+
+Licensed under either of
+
+* Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+* MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option. The identifier and width tables in `src/text/unicode` are
+derived from the Unicode Character Database, under the terms in
+[LICENSE-UNICODE](LICENSE-UNICODE).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall
+be dual licensed as above, without any additional terms or conditions.
+
+## Credits
+
+`mto` takes its formatting rules, its settings and its command line from
+[rustfmt](https://github.com/rust-lang/rustfmt), the Rust project's formatter,
+and checks itself against rustfmt's own tests. Thanks to its authors and
+maintainers.

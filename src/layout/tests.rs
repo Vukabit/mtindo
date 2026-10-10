@@ -5,6 +5,19 @@ fn arranged(source: &str) -> String {
     layout(source, &LayoutConfig::default()).unwrap().text
 }
 
+/// A comment between two items on one line belongs to neither, so it gets a line of its
+/// own with a blank line after it; at the start of the next item's line it would head that
+/// item. Found by the comment-insertion fuzz target.
+#[test]
+fn test_a_comment_between_items_on_one_line_stays_loose() {
+    let source = "use b::r; /* c */ use crate::b::ba;\n";
+    let laid = layout(source, &LayoutConfig::default()).unwrap();
+    assert_eq!(laid.text, "use b::r;\n\n/* c */\n\nuse crate::b::ba;\n");
+    let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
+    assert!(violations.is_empty(), "{:?}", violations);
+    assert_eq!(arranged(&laid.text), laid.text);
+}
+
 #[test]
 fn test_a_comment_touching_the_first_item_heads_it() {
     // `macro` items do not take attached comments, so the comment above is loose.
@@ -352,6 +365,10 @@ fn test_section_comments_move_with_their_item() {
     );
 }
 
+/// With no blank lines between items, a comment that stood apart from the item below it
+/// still keeps one blank line, since touching the item would attach it there; so do import
+/// groups, which rustfmt would otherwise sort into one. Found by the race's
+/// layout rows on rustfmt's test inputs, which the verifier refused to write.
 #[test]
 fn test_spacing_zero_keeps_loose_comments_loose() {
     let config = LayoutConfig {
@@ -420,10 +437,6 @@ fn test_trailing_comments_stay_last() {
     );
 }
 
-/// With no blank lines between items, a comment that stood apart from the item below it
-/// still keeps one blank line, since touching the item would attach it there; so do import
-/// groups, which rustfmt would otherwise sort into one. Found by the race's
-/// layout rows on rustfmt's test inputs, which the verifier refused to write.
 #[test]
 fn test_unsorted_imports_keep_their_written_order() {
     let config = LayoutConfig {

@@ -47,3 +47,10 @@ path = "fuzz_targets/toml.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "comments"
+path = "fuzz_targets/comments.rs"
+test = false
+doc = false
+bench = false

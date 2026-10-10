@@ -32,6 +32,8 @@ mod impls;
 pub mod imports;
 mod order;
 
+use std::collections::HashSet;
+
 pub use classify::import_group_of_text;
 
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
@@ -166,12 +168,16 @@ fn cfg_variants(previous: &Unit, next: &Unit) -> bool {
 /// units, so the result does not depend on where an element sat before. It keeps at least
 /// one blank line, even when the spacing is none: a comment set apart from the item below
 /// it must not come to touch it, or it would attach to that item.
-fn joined(text: &str, pieces: &[(usize, usize)], apart: &str) -> String {
+///
+/// A comment that shared its line with the code before it (`loose`, by start) belongs to
+/// neither neighbour; on a line of its own it would head what follows, so a blank line
+/// always follows it.
+fn joined(text: &str, pieces: &[(usize, usize)], apart: &str, loose: &HashSet<usize>) -> String {
     let mut out = String::new();
     for (idx, (start, end)) in pieces.iter().enumerate() {
         if idx > 0 {
             let gap = &text[pieces[idx - 1].1..*start];
-            if gap.matches('\n').count() >= 2 {
+            if gap.matches('\n').count() >= 2 || loose.contains(&pieces[idx - 1].0) {
                 if apart.matches('\n').count() < 2 {
                     out.push('\n');
                 }
@@ -370,6 +376,9 @@ fn split_container(
     let mut in_body = false;
     // Loose comments waiting for the item they head, as (start, end).
     let mut pending: Vec<(usize, usize)> = Vec::new();
+    // Comments that shared their line with the code before them, by start.
+    let mut loose: HashSet<usize> = HashSet::new();
+    let mut code_before: Option<usize> = None;
     let mut region_start: Option<usize> = None;
     let mut units: Vec<Unit> = Vec::new();
     let mut last_element_end = 0;
@@ -390,6 +399,10 @@ fn split_container(
         }
         last_element_end = end;
         let comment = matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment);
+        if comment && code_before.is_some_and(|p| !text[p..start].contains('\n')) {
+            loose.insert(start);
+        }
+        code_before = Some(end);
         // Markers: the comment itself, or the comments attached above an item.
         let markers: Vec<String> = match &element {
             SyntaxElement::Token(_) if comment => vec![text[start..end].trim().to_string()],
@@ -479,7 +492,12 @@ fn split_container(
         let mut pieces = std::mem::take(&mut pending);
         pieces.push((start, end));
         let unit_start = pieces[0].0;
-        let mut unit = classify::unit(&item, joined(text, &pieces, apart), units.len(), config);
+        let mut unit = classify::unit(
+            &item,
+            joined(text, &pieces, apart, &loose),
+            units.len(),
+            config,
+        );
         unit.pinned |= pinned_by_comment || (unit.test_module && config.test_module_in_place);
         // An inline module's body is laid out by the same rules; its new text replaces the
         // item's at the end of the unit.
@@ -506,6 +524,7 @@ fn split_container(
                 text,
                 &[(previous_end, previous_end), (start, end)],
                 apart,
+                &loose,
             ));
             previous.text.push_str(&joined_text);
             // The variants render as one block, set apart like a module with a body
@@ -527,7 +546,7 @@ fn split_container(
             units.len(),
         ));
     }
-    let tail = joined(text, &pending, apart);
+    let tail = joined(text, &pending, apart, &loose);
     Ok(Split {
         edition: Edition::E2021,
         skip_file,

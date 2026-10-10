@@ -395,6 +395,22 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
         )
         .requires(&["curl"]),
     );
+    // The oldest Rust the package says it builds with (`rust-version`) must build it.
+    if let Some(version) = rust_version(root) {
+        let toolchain = format!("+{}", version);
+        tasks.push(
+            Task::new(
+                "msrv",
+                &format!("Builds with Rust {}, the package's rust-version", version),
+                "heavy",
+                command(
+                    "cargo",
+                    &[&toolchain, "check", "--quiet", "--lib", "--bins"],
+                ),
+            )
+            .requires(&["rustup"]),
+        );
+    }
     for target in stems(&root.join("fuzz").join("fuzz_targets")) {
         let max_time = format!("-max_total_time={}", fuzz_time);
         tasks.push(
@@ -413,7 +429,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     tasks.push(
         Task::new(
             "fuzz-24h",
-            "Fuzz the lexer and parser side by side for 24 hours (--target only)",
+            "Fuzz every target side by side for 24 hours (--target only)",
             "fuzz",
             Action::Check(fuzz_24h),
         )
@@ -442,7 +458,8 @@ fn command(program: &str, args: &[&str]) -> Action {
 /// [`FUZZ_24H_SECONDS`]. A crash in either is a problem, with the end of its output. Like
 /// every fuzz task, it fails if the machine slept (the runner keeps it awake and checks).
 fn fuzz_24h(root: &Path) -> Vec<String> {
-    let run = |target: &'static str| {
+    let targets = stems(&root.join("fuzz").join("fuzz_targets"));
+    let run = |target: &str| {
         let args: Vec<String> = [
             "+nightly",
             "fuzz",
@@ -455,14 +472,14 @@ fn fuzz_24h(root: &Path) -> Vec<String> {
         .map(|a| a.to_string())
         .collect();
         (
-            target,
+            target.to_string(),
             crate::common::process::capture(root, "cargo", &args, &[]),
         )
     };
     let results = std::thread::scope(|scope| {
-        let handles: Vec<_> = ["lexer", "parser"]
-            .into_iter()
-            .map(|target| scope.spawn(move || run(target)))
+        let handles: Vec<_> = targets
+            .iter()
+            .map(|target| scope.spawn(|| run(target)))
             .collect();
         handles
             .into_iter()
@@ -491,6 +508,21 @@ fn gate(name: &str) -> fn(&Path) -> Vec<String> {
         .find(|(n, _, _)| *n == name)
         .map(|(_, _, check)| *check)
         .unwrap_or(|_| vec!["unknown gate".to_string()])
+}
+
+/// `rust-version` from the root `Cargo.toml`'s `[package]`.
+fn rust_version(root: &Path) -> Option<String> {
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    manifest.lines().find_map(|line| {
+        let value = line.trim().strip_prefix("rust-version")?.trim();
+        Some(
+            value
+                .strip_prefix('=')?
+                .trim()
+                .trim_matches('"')
+                .to_string(),
+        )
+    })
 }
 
 /// File stems of the `.rs` files directly in `dir`, sorted.

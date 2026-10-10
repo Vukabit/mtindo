@@ -6,6 +6,10 @@
 //!   its pin is kept, after undoing any edits made to it.
 //! - `check [--with-rust] [--baseline]` fetches what is missing, then runs the checks in
 //!   `xtask-tools` (which links mtindo) in a release build.
+//! - `bench` measures the stage 2 speed target (S2-1) on this machine: the floor (walking
+//!   and reading every corpus file), `mto --check` over the corpus end to end, and layout's
+//!   single-threaded speed. Layout below [`MIN_LAYOUT_MB_PER_S`] fails; the end-to-end
+//!   ratio is reported, and is enforced once files are processed in parallel (stage 2 N4).
 //!
 //! Everything is logged to `logs/corpus.log`.
 
@@ -20,6 +24,12 @@ use crate::common::process;
 
 /// The marker that records which commit a checkout holds.
 const MARKER: &str = ".mtindo-commit";
+
+/// S2-1's target: `mto --check` over the corpus within this many times the read floor.
+const MAX_FLOOR_RATIO: f64 = 2.0;
+
+/// S2-1's guard: lexing, parsing and layout of one file, per core.
+const MIN_LAYOUT_MB_PER_S: f64 = 30.0;
 
 /// How many repositories are fetched at once.
 const PARALLEL_FETCHES: usize = 8;
@@ -98,6 +108,10 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         Some("fetch") if words[1..].iter().all(|w| *w == "--with-rust") => {
             fetch(root, with_rust, &log)
         }
+        Some("bench") if words.len() == 1 => match fetch(root, false, &log) {
+            0 => bench(root, &log),
+            code => code,
+        },
         Some("check")
             if words[1..]
                 .iter()
@@ -110,13 +124,132 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         }
         _ => {
             eprintln!(
-                "Usage: cargo xtask corpus update | fetch [--with-rust] | check [--with-rust] [--baseline]"
+                "Usage: cargo xtask corpus update | fetch [--with-rust] | check [--with-rust] [--baseline] | bench"
             );
             2
         }
     };
     log.info(&format!("exit code {}", code));
     ExitCode::from(code)
+}
+
+fn bench(root: &Path, log: &Logger) -> u8 {
+    let pins = match load_pins(root) {
+        Ok(pins) => pins,
+        Err(e) => {
+            println!("{}", e);
+            return 1;
+        }
+    };
+    let dirs: Vec<PathBuf> = pins
+        .iter()
+        .filter(|p| !p.opt_in)
+        .map(|p| cache_dir(root).join(&p.name))
+        .collect();
+
+    // The floor: walk and read every file, best of three (files cached by the OS).
+    let mut floor = f64::MAX;
+    let mut bytes = 0;
+    let mut files = 0;
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let mut found = Vec::new();
+        for dir in dirs.iter() {
+            collect_rs(dir, &mut found);
+        }
+        bytes = 0;
+        for file in found.iter() {
+            bytes += fs::read(file).map(|b| b.len()).unwrap_or(0);
+        }
+        files = found.len();
+        floor = floor.min(started.elapsed().as_secs_f64());
+    }
+
+    // End to end: the release binary in check mode over the whole corpus, median of three.
+    println!("building mto (release)...");
+    let build = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
+    if process::capture(root, "cargo", &build, &[]).0 != 0 {
+        println!("cannot build mto");
+        return 1;
+    }
+    let mto = root.join("target").join("release").join("mto");
+    let mut runs = Vec::new();
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let status = std::process::Command::new(&mto)
+            .args(["--check", "."])
+            .current_dir(cache_dir(root))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        runs.push(started.elapsed().as_secs_f64());
+        if let Ok(status) = status
+            && status.code() == Some(4)
+        {
+            println!(
+                "mto reported a verifier failure on the corpus; run `cargo xtask corpus check`"
+            );
+            return 1;
+        }
+    }
+    runs.sort_by(|a, b| a.total_cmp(b));
+    let end_to_end = runs[1];
+
+    // Layout's own speed, from xtask-tools.
+    let mut args: Vec<String> = [
+        "run",
+        "--quiet",
+        "--release",
+        "--package",
+        "xtask-tools",
+        "--",
+        "corpus-speed",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    for pin in pins.iter().filter(|p| !p.opt_in) {
+        args.push(format!(
+            "{}={}",
+            pin.name,
+            cache_dir(root).join(&pin.name).display()
+        ));
+    }
+    let (code, output) = process::capture(root, "cargo", &args, &[]);
+    let layout: f64 = output
+        .lines()
+        .find_map(|l| l.strip_prefix("layout-mb-per-s "))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0.0);
+    if code != 0 || layout == 0.0 {
+        println!("cannot measure layout speed:\n{}", output);
+        return 1;
+    }
+
+    let ratio = end_to_end / floor;
+    println!("corpus: {} files, {:.1} MB", files, bytes as f64 / 1e6);
+    println!("floor (walk and read):      {:.2} s", floor);
+    println!(
+        "mto --check, end to end:    {:.2} s = {:.1}x the floor (target {:.1}x; enforced from stage 2 N4)",
+        end_to_end, ratio, MAX_FLOOR_RATIO
+    );
+    println!(
+        "layout, one thread:         {:.1} MB/s (at least {:.0} required)",
+        layout, MIN_LAYOUT_MB_PER_S
+    );
+    log.info(&format!(
+        "bench: {} files, {} bytes, floor {:.3}s, end-to-end {:.3}s ({:.2}x), layout {:.2} MB/s",
+        files, bytes, floor, end_to_end, ratio, layout
+    ));
+    if layout < MIN_LAYOUT_MB_PER_S {
+        println!(
+            "corpus bench: failed, layout is below {:.0} MB/s",
+            MIN_LAYOUT_MB_PER_S
+        );
+        return 1;
+    }
+    println!("corpus bench: ok");
+    0
 }
 
 fn check(root: &Path, flags: &[&str], with_rust: bool, log: &Logger) -> u8 {
@@ -202,6 +335,25 @@ fn checkout(root: &Path, pin: &Pin, log: &Logger) -> Result<&'static str, String
     }
     fs::write(dir.join(MARKER), format!("{}\n", pin.commit)).map_err(|e| e.to_string())?;
     Ok("fetched")
+}
+
+/// Every `.rs` file under `dir`, without `.git` and `target` folders.
+fn collect_rs(dir: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        if name == ".git" || name == "target" {
+            continue;
+        }
+        if path.is_dir() {
+            collect_rs(&path, files);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            files.push(path);
+        }
+    }
 }
 
 fn fetch(root: &Path, with_rust: bool, log: &Logger) -> u8 {

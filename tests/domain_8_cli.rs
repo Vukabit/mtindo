@@ -2,8 +2,9 @@ mod common;
 
 use common::TestEnvironment;
 
-/// Today's engine cuts `{ 1 }` inside generics in half; the verifier must stop the write.
-const UNSAFE_FOR_STAGE_0: &str = "fn b() {}\n\nstruct A<const N: i32 = { 1 }>;\n\nfn a() {}\n";
+/// Debug builds of mto add a stray comment to their output when `MTINDO_INJECT_FAULT` is
+/// set, so the verifier must stop the write.
+const SOURCE: &str = "fn b() {}\n\nfn a() {}\n";
 
 fn help_output(
     env: &TestEnvironment,
@@ -57,6 +58,22 @@ fn test_cli_bare_invocation_prints_the_same_help_as_dash_h() {
     assert!(
         !bare.contains('\x1b'),
         "help piped to a file must not be colored"
+    );
+}
+
+/// The file that tripped the old text scanner (`{ 1 }` inside generics) now lays out fine.
+#[test]
+fn test_cli_braces_inside_generics_are_laid_out() {
+    let env = TestEnvironment::new();
+    env.write_file(
+        "main.rs",
+        "fn b() {}\n\nstruct A<const N: i32 = { 1 }>;\n\nfn a() {}\n",
+    );
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        env.read_file("main.rs"),
+        "struct A<const N: i32 = { 1 }>;\n\nfn a() {}\n\nfn b() {}\n"
     );
 }
 
@@ -347,37 +364,38 @@ fn test_cli_verifier_on_stdin_passes_the_input_through() {
     let output = env
         .mto_cmd()
         .arg("-")
-        .write_stdin(UNSAFE_FOR_STAGE_0)
+        .env("MTINDO_INJECT_FAULT", "1")
+        .write_stdin(SOURCE)
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(4));
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        UNSAFE_FOR_STAGE_0
-    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), SOURCE);
 }
 
 #[test]
 fn test_cli_verifier_stops_an_unsafe_write() {
     let env = TestEnvironment::new();
-    env.write_file("main.rs", UNSAFE_FOR_STAGE_0);
-    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    env.write_file("main.rs", SOURCE);
+    let output = env
+        .mto_cmd()
+        .arg("main.rs")
+        .env("MTINDO_INJECT_FAULT", "1")
+        .output()
+        .unwrap();
     assert_eq!(output.status.code(), Some(4));
-    assert_eq!(env.read_file("main.rs"), UNSAFE_FOR_STAGE_0);
+    assert_eq!(env.read_file("main.rs"), SOURCE);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("the verifier stopped the write"),
         "{}",
         stderr
     );
-    assert!(stderr.contains("output-broken"), "{}", stderr);
-    // The minimized input is the one item that shows the problem.
+    assert!(stderr.contains("comment-added"), "{}", stderr);
     assert!(
-        stderr.contains("  struct A<const N: i32 = { 1 }>;\n"),
+        stderr.contains("The smallest part of the file that still shows it"),
         "{}",
         stderr
     );
-    assert!(!stderr.contains("fn b()"), "{}", stderr);
 }
 
 #[test]

@@ -344,9 +344,18 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     tasks.push(
         Task::new(
             "corpus",
-            "Pinned corpus: round trip, valid code, tokens, splitters, speed",
+            "Pinned corpus: round trip, valid code, tokens, verifier, speed",
             "heavy",
             Action::Command(this_binary.clone(), vec!["corpus".into(), "check".into()]),
+        )
+        .requires(&["git"]),
+    );
+    tasks.push(
+        Task::new(
+            "speed",
+            "Speed target: layout per core; end-to-end ratio reported",
+            "heavy",
+            Action::Command(this_binary.clone(), vec!["corpus".into(), "bench".into()]),
         )
         .requires(&["git"]),
     );

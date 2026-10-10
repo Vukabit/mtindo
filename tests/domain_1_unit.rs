@@ -1,6 +1,5 @@
-use mtindo::{
-    ItemKind, LayoutConfig, Visibility, apply_config_value, classify_import, parse_block_metadata,
-};
+use mtindo::layout::{Unit, layout};
+use mtindo::{ItemKind, LayoutConfig, Visibility, apply_config_value, classify_import};
 
 #[test]
 fn test_config_booleans() {
@@ -41,6 +40,19 @@ fn test_config_type_order_arrays() {
     assert_eq!(config.type_order[0], ItemKind::StructDecl);
     assert_eq!(config.type_order[1], ItemKind::FnDecl);
     assert_eq!(config.type_order[2], ItemKind::ModDecl);
+}
+
+#[test]
+fn test_files_with_syntax_errors_are_left_alone() {
+    let reason = layout(
+        "fn b() {}
+fn a( {}
+",
+        &LayoutConfig::default(),
+    )
+    .err()
+    .unwrap();
+    assert!(reason.contains("syntax errors"), "{}", reason);
 }
 
 #[test]
@@ -92,56 +104,90 @@ fn test_item_kind_from_name() {
 
 #[test]
 fn test_metadata_impl_targeting() {
-    let standard_impl = parse_block_metadata("impl MyStruct {", false, 0);
+    let standard_impl = unit("impl MyStruct {}");
     assert_eq!(standard_impl.kind, ItemKind::ImplBlock);
     assert_eq!(standard_impl.parent_target, "MyStruct");
     assert_eq!(standard_impl.identifier, "MyStruct");
-    let trait_impl = parse_block_metadata("impl Default for MyStruct {", false, 0);
+    let trait_impl = unit("impl Default for MyStruct {}");
     assert_eq!(trait_impl.kind, ItemKind::ImplBlock);
     assert_eq!(trait_impl.parent_target, "MyStruct");
     assert_eq!(trait_impl.identifier, "Default for MyStruct");
-    let generic_impl = parse_block_metadata("impl<'a> Iterator for MyStruct<'a> {", false, 0);
+    let generic_impl = unit("impl<'a> Iterator for MyStruct<'a> {}");
     assert_eq!(generic_impl.kind, ItemKind::ImplBlock);
     assert_eq!(generic_impl.parent_target, "MyStruct");
+    // The old text scanner read `T>` here; the parser finds the type.
+    let bounded = unit("impl<T: ?Sized + Clone> Wrapper<T> {}");
+    assert_eq!(bounded.parent_target, "Wrapper");
 }
 
 #[test]
 fn test_metadata_macro_extraction() {
-    let block = parse_block_metadata("macro_rules! my_macro {", false, 0);
+    let block = unit("macro_rules! my_macro { () => {} }");
     assert_eq!(block.kind, ItemKind::MacroDecl);
     assert_eq!(block.identifier, "my_macro");
 }
 
 #[test]
 fn test_metadata_skip_logic() {
-    let block = parse_block_metadata("struct Ignored {}", true, 5);
-    assert!(block.skip);
-    assert_eq!(block.kind, ItemKind::Unknown);
-    assert_eq!(block.original_index, 5);
-    assert_eq!(block.identifier, "SkippedBlock");
+    let found = units(
+        "fn a() {}
+
+// mto: off
+struct Ignored {}
+// mto: on
+
+fn b() {}
+",
+    );
+    assert_eq!(found.len(), 3);
+    let region = &found[1];
+    assert!(region.pinned);
+    assert_eq!(region.kind, ItemKind::Unknown);
+    assert_eq!(region.index, 1);
+    assert_eq!(region.identifier, "SkippedBlock");
+    assert!(region.text.starts_with("// mto: off") && region.text.ends_with("// mto: on"));
 }
 
 #[test]
 fn test_metadata_variable_declarations() {
-    let stat = parse_block_metadata("static GLOBAL: usize = 0;", false, 0);
+    let stat = unit("static GLOBAL: usize = 0;");
     assert_eq!(stat.kind, ItemKind::StaticDecl);
     assert_eq!(stat.identifier, "GLOBAL");
-    let mut_stat = parse_block_metadata("static mut UNSAFE_GLOBAL: usize = 0;", false, 0);
+    let mut_stat = unit("static mut UNSAFE_GLOBAL: usize = 0;");
     assert_eq!(mut_stat.kind, ItemKind::StaticDecl);
     assert_eq!(mut_stat.identifier, "UNSAFE_GLOBAL");
-    let con = parse_block_metadata("pub const MAX_SIZE: usize = 100;", false, 0);
+    let con = unit("pub const MAX_SIZE: usize = 100;");
     assert_eq!(con.kind, ItemKind::ConstDecl);
     assert_eq!(con.identifier, "MAX_SIZE");
 }
 
 #[test]
 fn test_metadata_visibility_extraction() {
-    let block1 = parse_block_metadata("pub struct A {}", false, 0);
-    assert_eq!(block1.visibility, Visibility::Pub);
-    let block2 = parse_block_metadata("pub(crate) fn b() {}", false, 0);
-    assert_eq!(block2.visibility, Visibility::PubCrate);
-    let block3 = parse_block_metadata("pub(super) const C: usize = 1;", false, 0);
-    assert_eq!(block3.visibility, Visibility::PubSuper);
-    let block4 = parse_block_metadata("struct D {}", false, 0);
-    assert_eq!(block4.visibility, Visibility::Private);
+    assert_eq!(unit("pub struct A {}").visibility, Visibility::Pub);
+    assert_eq!(
+        unit("pub(crate) fn b() {}").visibility,
+        Visibility::PubCrate
+    );
+    assert_eq!(
+        unit("pub(super) const C: usize = 1;").visibility,
+        Visibility::PubSuper
+    );
+    assert_eq!(unit("struct D {}").visibility, Visibility::Private);
+    // A field's `pub(crate)` is not the struct's visibility (the old scanner misread it).
+    assert_eq!(
+        unit("pub struct Id(pub(crate) u64);").visibility,
+        Visibility::Pub
+    );
+}
+
+/// The one unit layout finds in `code`.
+fn unit(code: &str) -> Unit {
+    let mut found = units(code);
+    assert_eq!(found.len(), 1, "{}", code);
+    found.remove(0)
+}
+
+/// The units layout finds in `code`, in input order.
+fn units(code: &str) -> Vec<Unit> {
+    layout(code, &LayoutConfig::default()).unwrap().before
 }

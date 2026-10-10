@@ -14,6 +14,15 @@ pub enum SyntaxElement {
     Token(SyntaxToken),
 }
 
+impl fmt::Debug for SyntaxElement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SyntaxElement::Node(node) => node.fmt(f),
+            SyntaxElement::Token(token) => token.fmt(f),
+        }
+    }
+}
+
 impl SyntaxElement {
     pub fn kind(&self) -> SyntaxKind {
         match self {
@@ -30,15 +39,6 @@ impl SyntaxElement {
     }
 }
 
-impl fmt::Debug for SyntaxElement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SyntaxElement::Node(node) => node.fmt(f),
-            SyntaxElement::Token(token) => token.fmt(f),
-        }
-    }
-}
-
 struct NodeData {
     green: Rc<GreenNode>,
     parent: Option<SyntaxNode>,
@@ -49,93 +49,15 @@ struct NodeData {
 #[derive(Clone)]
 pub struct SyntaxNode(Rc<NodeData>);
 
-#[derive(Clone)]
-pub struct SyntaxToken {
-    green: Rc<GreenToken>,
-    parent: SyntaxNode,
-    index: u32,
-    offset: u32,
-}
-
-impl Eq for SyntaxToken {}
-
-impl PartialEq for SyntaxToken {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.green, &other.green) && self.offset == other.offset
-    }
-}
-
-impl SyntaxToken {
-    pub fn kind(&self) -> SyntaxKind {
-        self.green.kind()
-    }
-
-    pub fn next_sibling_or_token(&self) -> Option<SyntaxElement> {
-        self.parent
-            .children_with_tokens()
-            .into_iter()
-            .nth(self.index as usize + 1)
-    }
-
-    pub fn parent(&self) -> SyntaxNode {
-        self.parent.clone()
-    }
-
-    pub fn prev_sibling_or_token(&self) -> Option<SyntaxElement> {
-        let index = (self.index as usize).checked_sub(1)?;
-        self.parent.children_with_tokens().into_iter().nth(index)
-    }
-
-    pub fn text(&self) -> &str {
-        self.green.text()
-    }
-
-    pub fn text_range(&self) -> TextRange {
-        TextRange::new(self.offset, self.offset + self.green.text_len())
-    }
-}
-
-impl fmt::Debug for SyntaxToken {
+impl fmt::Debug for SyntaxNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}@{} {:?}",
-            self.kind().name(),
-            self.text_range(),
-            self.text()
-        )
+        write!(f, "{}@{}", self.kind().name(), self.text_range())
     }
 }
 
-/// A byte range `start..end` in the source text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TextRange {
-    pub start: u32,
-    pub end: u32,
-}
-
-impl TextRange {
-    pub fn contains(&self, offset: u32) -> bool {
-        self.start <= offset && offset < self.end
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.start == self.end
-    }
-
-    pub fn len(&self) -> u32 {
-        self.end - self.start
-    }
-
-    pub fn new(start: u32, end: u32) -> Self {
-        assert!(start <= end, "range {}..{} is reversed", start, end);
-        TextRange { start, end }
-    }
-}
-
-impl fmt::Display for TextRange {
+impl fmt::Display for SyntaxNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}..{}", self.start, self.end)
+        f.write_str(&self.text())
     }
 }
 
@@ -292,14 +214,92 @@ impl SyntaxNode {
     }
 }
 
-impl fmt::Debug for SyntaxNode {
+#[derive(Clone)]
+pub struct SyntaxToken {
+    green: Rc<GreenToken>,
+    parent: SyntaxNode,
+    index: u32,
+    offset: u32,
+}
+
+impl fmt::Debug for SyntaxToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}@{}", self.kind().name(), self.text_range())
+        write!(
+            f,
+            "{}@{} {:?}",
+            self.kind().name(),
+            self.text_range(),
+            self.text()
+        )
     }
 }
 
-impl fmt::Display for SyntaxNode {
+impl Eq for SyntaxToken {}
+
+impl PartialEq for SyntaxToken {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.green, &other.green) && self.offset == other.offset
+    }
+}
+
+impl SyntaxToken {
+    pub fn kind(&self) -> SyntaxKind {
+        self.green.kind()
+    }
+
+    pub fn next_sibling_or_token(&self) -> Option<SyntaxElement> {
+        self.parent
+            .children_with_tokens()
+            .into_iter()
+            .nth(self.index as usize + 1)
+    }
+
+    pub fn parent(&self) -> SyntaxNode {
+        self.parent.clone()
+    }
+
+    pub fn prev_sibling_or_token(&self) -> Option<SyntaxElement> {
+        let index = (self.index as usize).checked_sub(1)?;
+        self.parent.children_with_tokens().into_iter().nth(index)
+    }
+
+    pub fn text(&self) -> &str {
+        self.green.text()
+    }
+
+    pub fn text_range(&self) -> TextRange {
+        TextRange::new(self.offset, self.offset + self.green.text_len())
+    }
+}
+
+/// A byte range `start..end` in the source text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TextRange {
+    pub start: u32,
+    pub end: u32,
+}
+
+impl fmt::Display for TextRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.text())
+        write!(f, "{}..{}", self.start, self.end)
+    }
+}
+
+impl TextRange {
+    pub fn contains(&self, offset: u32) -> bool {
+        self.start <= offset && offset < self.end
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+
+    pub fn len(&self) -> u32 {
+        self.end - self.start
+    }
+
+    pub fn new(start: u32, end: u32) -> Self {
+        assert!(start <= end, "range {}..{} is reversed", start, end);
+        TextRange { start, end }
     }
 }

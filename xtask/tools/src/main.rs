@@ -22,6 +22,7 @@ fn main() -> ExitCode {
         Some("lexdiff") => lexdiff::run(&root, &args[1..]),
         Some("parsecheck") => parsecheck::run(&root, &args[1..]),
         Some("corpus-check") => corpus::run(&root, &args[1..]),
+        Some("corpus-speed") => corpus::speed(&args[1..]),
         Some("cases") if args.len() == 2 => {
             let summary = cases::run(Path::new(&args[1]));
             println!(

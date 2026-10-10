@@ -1,4 +1,5 @@
-use mtindo::{LayoutConfig, extract_blocks, reorganize_file};
+use mtindo::layout::layout;
+use mtindo::{LayoutConfig, reorganize_file};
 use proptest::prelude::*;
 
 fn item_strategy() -> impl Strategy<Value = String> {
@@ -18,8 +19,8 @@ fn item_strategy() -> impl Strategy<Value = String> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
     #[test]
-    fn test_extract_blocks_no_panic(ref s in any::<String>()) {
-        let _ = extract_blocks(s);
+    fn test_layout_no_panic(ref s in any::<String>()) {
+        let _ = layout(s, &LayoutConfig::default());
     }
     #[test]
     fn test_reorganize_file_no_panic(ref s in any::<String>()) {

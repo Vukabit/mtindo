@@ -24,6 +24,7 @@ pub mod report;
 use std::collections::BTreeMap;
 
 use crate::syntax::ast::{Attr, Item, ItemKind};
+use crate::syntax::lexer::tokenize;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,28 +272,23 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
     violations
 }
 
-/// The text from a node's first significant token to its last, without the comments and
-/// whitespace attached around it.
-fn core_text(node: &SyntaxNode) -> String {
-    let tokens: Vec<_> = node
-        .descendants_with_tokens()
-        .into_iter()
-        .filter_map(|e| match e {
-            SyntaxElement::Token(t) => Some(t),
-            SyntaxElement::Node(_) => None,
-        })
-        .collect();
-    let significant = |t: &&crate::syntax::SyntaxToken| !t.kind().is_trivia();
+/// The text from a node's first significant child to its last, without the comments and
+/// whitespace attached around it. Attached comments are direct children, so only the
+/// node's own children are looked at.
+fn core_text(node: &SyntaxNode, text: &str) -> String {
+    let children = node.children_with_tokens();
+    let significant = |e: &&SyntaxElement| match e {
+        SyntaxElement::Token(t) => !t.kind().is_trivia(),
+        SyntaxElement::Node(_) => true,
+    };
     let (Some(first), Some(last)) = (
-        tokens.iter().find(significant),
-        tokens.iter().rfind(significant),
+        children.iter().find(significant),
+        children.iter().rfind(significant),
     ) else {
         return String::new();
     };
-    let text = node.text();
-    let base = node.text_range().start;
-    let from = (first.text_range().start - base) as usize;
-    let to = (last.text_range().end - base) as usize;
+    let from = first.text_range().start as usize;
+    let to = last.text_range().end as usize;
     text[from..to].to_string()
 }
 
@@ -361,6 +357,7 @@ fn line_endings(text: &str) -> LineEndings {
 /// `\r\n` reads as `\n` and one changed line ending is not also every item changed.
 fn parts(text: &str, edition: Edition) -> Parts {
     let text = text.replace("\r\n", "\n");
+    let source = text.clone();
     let parsed = parse(&text, edition);
     let tree = parsed.syntax_node();
     let mut parts = Parts {
@@ -368,20 +365,28 @@ fn parts(text: &str, edition: Edition) -> Parts {
         header_first: true,
         ..Parts::default()
     };
-    for element in tree.descendants_with_tokens() {
-        if let SyntaxElement::Token(token) = element
-            && matches!(
-                token.kind(),
-                SyntaxKind::LineComment | SyntaxKind::BlockComment
-            )
-        {
-            parts.comments.push(token.text().to_string());
+    // Comments straight from the lexer: much cheaper than walking every token of the tree.
+    let mut offset = 0;
+    for token in tokenize(&text, edition) {
+        let end = offset + token.len as usize;
+        if matches!(
+            token.kind,
+            SyntaxKind::LineComment | SyntaxKind::BlockComment
+        ) {
+            parts.comments.push(text[offset..end].to_string());
         }
+        offset = end;
     }
     let mut seen_item = false;
     for element in tree.children_with_tokens() {
         let (kind, text) = match &element {
-            SyntaxElement::Node(node) => (node.kind(), node.text()),
+            SyntaxElement::Node(node) => {
+                let range = node.text_range();
+                (
+                    node.kind(),
+                    source[range.start as usize..range.end as usize].to_string(),
+                )
+            }
             SyntaxElement::Token(token) => (token.kind(), token.text().to_string()),
         };
         let header = match &element {
@@ -410,7 +415,7 @@ fn parts(text: &str, edition: Edition) -> Parts {
             if item.kind() == ItemKind::MacroRules {
                 parts.macros.push(item.name().unwrap_or_default());
             }
-            parts.items.push((text, core_text(node)));
+            parts.items.push((text, core_text(node, &source)));
             continue;
         }
         if kind.is_trivia() {

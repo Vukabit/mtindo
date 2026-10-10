@@ -48,6 +48,35 @@ pub(crate) struct Input<'t> {
     joint: Vec<bool>,
 }
 
+impl<'t> Input<'t> {
+    fn new(text: &'t str, tokens: &[Token]) -> Self {
+        let mut kinds = Vec::new();
+        let mut texts = Vec::new();
+        let mut joint = Vec::new();
+        let mut offset = 0;
+        let mut previous_end: Option<usize> = None;
+        for token in tokens.iter() {
+            let end = offset + token.len as usize;
+            if !token.kind.is_trivia() {
+                if let Some(prev) = previous_end {
+                    let last = joint.len() - 1;
+                    joint[last] = prev == offset;
+                }
+                kinds.push(token.kind);
+                texts.push(&text[offset..end]);
+                joint.push(false);
+                previous_end = Some(end);
+            }
+            offset = end;
+        }
+        Input {
+            kinds,
+            texts,
+            joint,
+        }
+    }
+}
+
 /// A started node whose kind is not known yet.
 pub(crate) struct Marker {
     pos: u32,
@@ -82,35 +111,6 @@ pub(crate) struct Parser<'t> {
     events: Vec<Event>,
     edition: Edition,
     steps: std::cell::Cell<u32>,
-}
-
-impl<'t> Input<'t> {
-    fn new(text: &'t str, tokens: &[Token]) -> Self {
-        let mut kinds = Vec::new();
-        let mut texts = Vec::new();
-        let mut joint = Vec::new();
-        let mut offset = 0;
-        let mut previous_end: Option<usize> = None;
-        for token in tokens.iter() {
-            let end = offset + token.len as usize;
-            if !token.kind.is_trivia() {
-                if let Some(prev) = previous_end {
-                    let last = joint.len() - 1;
-                    joint[last] = prev == offset;
-                }
-                kinds.push(token.kind);
-                texts.push(&text[offset..end]);
-                joint.push(false);
-                previous_end = Some(end);
-            }
-            offset = end;
-        }
-        Input {
-            kinds,
-            texts,
-            joint,
-        }
-    }
 }
 
 impl<'t> Parser<'t> {

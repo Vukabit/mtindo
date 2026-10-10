@@ -44,22 +44,6 @@ pub enum Visibility {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Attr(SyntaxNode);
 
-/// An `impl` block.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Impl(SyntaxNode);
-
-/// An item: anything that can stand at the top of a file or module.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Item(SyntaxNode);
-
-/// A whole file.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SourceFile(SyntaxNode);
-
-/// A `use` item.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Use(SyntaxNode);
-
 impl Attr {
     pub fn cast(node: SyntaxNode) -> Option<Attr> {
         (node.kind() == SyntaxKind::Attr).then_some(Attr(node))
@@ -87,6 +71,10 @@ impl Attr {
         &self.0
     }
 }
+
+/// An `impl` block.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Impl(SyntaxNode);
 
 impl Impl {
     pub fn cast(node: SyntaxNode) -> Option<Impl> {
@@ -155,6 +143,10 @@ impl Impl {
         (before, after)
     }
 }
+
+/// An item: anything that can stand at the top of a file or module.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Item(SyntaxNode);
 
 impl Item {
     /// The outer attributes, in order; doc comments are not included (see [`Item::docs`]).
@@ -245,6 +237,10 @@ impl Item {
     }
 }
 
+/// A whole file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceFile(SyntaxNode);
+
 impl SourceFile {
     pub fn cast(node: SyntaxNode) -> Option<SourceFile> {
         (node.kind() == SyntaxKind::SourceFile).then_some(SourceFile(node))
@@ -274,6 +270,10 @@ impl SourceFile {
         &self.0
     }
 }
+
+/// A `use` item.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Use(SyntaxNode);
 
 impl Use {
     pub fn cast(node: SyntaxNode) -> Option<Use> {

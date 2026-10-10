@@ -136,7 +136,10 @@ Some items depend on their position in the file. `mto` keeps them in place:
   position in the file.
 * **A `#[cfg(test)]` module** always goes last.
 * **Anything between `// mto: off` and `// mto: on`** is left exactly as
-  written, in its original position.
+  written, in its original position. An item directly under `// mto: on`
+  (no blank line between) stays inside the region, and a region with no
+  `// mto: on` runs to the end of the file.
+* **A file with syntax errors** is left unchanged.
 
 ## Configuration (`mto.toml`)
 

@@ -35,8 +35,8 @@ const COMMANDS: &[Command] = &[
     ),
     (
         "corpus",
-        "update|fetch|check",
-        "Pinned real-world corpus (compat/corpus.txt); --with-rust, check --baseline",
+        "update|fetch|check|bench",
+        "Pinned real-world corpus (compat/corpus.txt); --with-rust, check --baseline; bench: speed target",
         corpus::run,
     ),
     (

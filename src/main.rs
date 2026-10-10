@@ -236,7 +236,9 @@ To revert a file, run the undo command printed after formatting:
 ```bash
 mto --restore /tmp/mtindo_backups/1700000000000_123_0_src_main.rs.bak src/main.rs
 ```
-Text between `// mto: off` and `// mto: on` is never moved or changed.
+Text between `// mto: off` and `// mto: on` is never moved or changed. An item
+directly under `// mto: on` stays inside the region; a region with no `// mto: on`
+runs to the end of the file. A file with syntax errors is left unchanged.
 "#;
 
 const USAGE_LINES: &[&str] = &[

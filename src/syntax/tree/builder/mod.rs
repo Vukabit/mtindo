@@ -1,6 +1,8 @@
 //! Builds a green tree from parser events, putting every trivia token back in place and
 //! deciding which node owns each comment.
 
+use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
 use crate::syntax::SyntaxKind;
@@ -10,74 +12,41 @@ use crate::syntax::tree::attach;
 use crate::syntax::tree::green::{GreenElement, GreenNode, GreenToken};
 use crate::syntax::tree::red::TextRange;
 
+/// Tokens up to this many bytes are shared through the builder's cache.
+const CACHED_TOKEN_LEN: usize = 16;
+
+/// FNV-1a: a small, fast hash for short keys. The token cache lives for one file and its
+/// keys come from that file, so a hash built to resist attackers is not needed here.
+#[derive(Default)]
+struct Fnv(u64);
+
+impl Hasher for Fnv {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut hash = if self.0 == 0 {
+            0xcbf2_9ce4_8422_2325
+        } else {
+            self.0
+        };
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        self.0 = hash;
+    }
+}
+
 /// Replays events over the token stream.
 struct Sink<'a> {
     text: &'a str,
     tokens: &'a [Token],
     starts: Vec<usize>,
     pos: usize,
-    builder: TreeBuilder,
+    builder: TreeBuilder<'a>,
     errors: Vec<SyntaxError>,
-}
-
-/// A problem found while lexing or parsing, with where it is.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxError {
-    pub message: String,
-    pub range: TextRange,
-}
-
-/// Assembles green nodes bottom-up.
-#[derive(Default)]
-pub struct TreeBuilder {
-    parents: Vec<(SyntaxKind, Vec<GreenElement>)>,
-}
-
-impl TreeBuilder {
-    /// The kind of the innermost open node.
-    pub fn current_kind(&self) -> Option<SyntaxKind> {
-        self.parents.last().map(|(kind, _)| *kind)
-    }
-
-    pub fn depth(&self) -> usize {
-        self.parents.len()
-    }
-
-    /// Closes the root node and returns the tree.
-    pub fn finish(mut self) -> GreenNode {
-        assert_eq!(
-            self.parents.len(),
-            1,
-            "unbalanced nodes: {} open",
-            self.parents.len()
-        );
-        let (kind, children) = self.parents.pop().unwrap();
-        GreenNode::new(kind, children)
-    }
-
-    pub fn finish_node(&mut self) {
-        assert!(self.parents.len() > 1, "finish_node would close the root");
-        let (kind, children) = self.parents.pop().unwrap();
-        let node = GreenNode::new(kind, children);
-        self.parents
-            .last_mut()
-            .unwrap()
-            .1
-            .push(GreenElement::Node(Rc::new(node)));
-    }
-
-    pub fn start_node(&mut self, kind: SyntaxKind) {
-        self.parents.push((kind, Vec::new()));
-    }
-
-    pub fn token(&mut self, kind: SyntaxKind, text: &str) {
-        let token = GreenToken::new(kind, text);
-        self.parents
-            .last_mut()
-            .expect("token outside any node")
-            .1
-            .push(GreenElement::Token(Rc::new(token)));
-    }
 }
 
 impl<'a> Sink<'a> {
@@ -198,6 +167,75 @@ impl<'a> Sink<'a> {
             self.pos += 1;
         }
         self.builder.token(kind, &self.text[start..end]);
+    }
+}
+
+/// A problem found while lexing or parsing, with where it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxError {
+    pub message: String,
+    pub range: TextRange,
+}
+
+/// Assembles green nodes bottom-up.
+///
+/// Allocation dominates building, so: every open node's children sit on one shared stack
+/// and a finished node takes its own with a single, exactly sized allocation; and short
+/// tokens with the same kind and text (`(`, a space, a newline and indentation, `fn`) share
+/// one allocation, which is safe because green tokens never change.
+#[derive(Default)]
+pub struct TreeBuilder<'a> {
+    /// Each open node: its kind and where its children start on `children`.
+    parents: Vec<(SyntaxKind, usize)>,
+    children: Vec<GreenElement>,
+    tokens: HashMap<(SyntaxKind, &'a str), Rc<GreenToken>, BuildHasherDefault<Fnv>>,
+}
+
+impl<'a> TreeBuilder<'a> {
+    /// The kind of the innermost open node.
+    pub fn current_kind(&self) -> Option<SyntaxKind> {
+        self.parents.last().map(|(kind, _)| *kind)
+    }
+
+    pub fn depth(&self) -> usize {
+        self.parents.len()
+    }
+
+    /// Closes the root node and returns the tree.
+    pub fn finish(mut self) -> GreenNode {
+        assert_eq!(
+            self.parents.len(),
+            1,
+            "unbalanced nodes: {} open",
+            self.parents.len()
+        );
+        let (kind, first) = self.parents.pop().unwrap();
+        GreenNode::new(kind, self.children.split_off(first))
+    }
+
+    pub fn finish_node(&mut self) {
+        assert!(self.parents.len() > 1, "finish_node would close the root");
+        let (kind, first) = self.parents.pop().unwrap();
+        let children: Vec<GreenElement> = self.children.drain(first..).collect();
+        let node = GreenNode::new(kind, children);
+        self.children.push(GreenElement::Node(Rc::new(node)));
+    }
+
+    pub fn start_node(&mut self, kind: SyntaxKind) {
+        self.parents.push((kind, self.children.len()));
+    }
+
+    pub fn token(&mut self, kind: SyntaxKind, text: &'a str) {
+        assert!(!self.parents.is_empty(), "token outside any node");
+        let token = if text.len() <= CACHED_TOKEN_LEN {
+            self.tokens
+                .entry((kind, text))
+                .or_insert_with(|| Rc::new(GreenToken::new(kind, text)))
+                .clone()
+        } else {
+            Rc::new(GreenToken::new(kind, text))
+        };
+        self.children.push(GreenElement::Token(token));
     }
 }
 

@@ -65,7 +65,7 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
     let pinned = matches!(
         item.kind(),
         ast::ItemKind::ExternCrate | ast::ItemKind::MacroCall
-    ) || attrs.iter().any(|a| a.path() == "rustfmt::skip");
+    ) || attrs.iter().any(|a| a.is_rustfmt_skip());
     let visibility = match item.visibility() {
         ast::Visibility::Pub => Visibility::Pub,
         ast::Visibility::PubCrate => Visibility::PubCrate,

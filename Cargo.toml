@@ -11,6 +11,10 @@ edition = "2024"
 name = "mto"
 path = "src/main.rs"
 
+[[bin]]
+name = "cargo-mto"
+path = "src/bin/cargo-mto.rs"
+
 [dependencies]
 
 [dev-dependencies]

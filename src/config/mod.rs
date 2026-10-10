@@ -24,6 +24,7 @@ mod files;
 pub mod toml;
 pub mod user;
 mod value;
+pub mod workspace;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -268,6 +269,9 @@ pub struct Resolver {
     user: Option<Rc<Loaded>>,
     loaded: HashMap<PathBuf, Rc<Loaded>>,
     configs: HashMap<PathBuf, Rc<Config>>,
+    /// What each folder holds, and each folder's package edition, found once.
+    folders: HashMap<PathBuf, files::Folder>,
+    editions: HashMap<PathBuf, Result<Option<cargo::Edition>, String>>,
     warnings: Vec<String>,
     warned: HashSet<String>,
 }
@@ -282,6 +286,8 @@ impl Resolver {
             user: None,
             loaded: HashMap::new(),
             configs: HashMap::new(),
+            folders: HashMap::new(),
+            editions: HashMap::new(),
             warnings: Vec::new(),
             warned: HashSet::new(),
         };
@@ -336,7 +342,12 @@ impl Resolver {
 
     /// The settings for files in `dir`.
     pub fn config_for(&mut self, dir: &Path) -> Result<Rc<Config>, Error> {
-        let dir = absolute(dir);
+        self.config_for_absolute(absolute(dir))
+    }
+
+    /// [`Resolver::config_for`] for a folder already absolute, with symlinks resolved: what
+    /// a walk from an absolute root that skips symlinks reaches.
+    pub fn config_for_absolute(&mut self, dir: PathBuf) -> Result<Rc<Config>, Error> {
         if let Some(config) = self.configs.get(&dir) {
             return Ok(Rc::clone(config));
         }
@@ -369,14 +380,23 @@ impl Resolver {
         if let Some(explicit) = &self.explicit {
             layers.push((FileKind::Explicit, Rc::clone(explicit)));
         } else {
-            if let Some(path) = files::rustfmt_file(dir, &self.env) {
+            if let Some(path) = self.rustfmt_file(dir) {
                 layers.push((FileKind::Rustfmt, self.load(&path, FileKind::Rustfmt)?));
             }
             let mut mto_files = Vec::new();
             for folder in dir.ancestors() {
-                let Some(path) = files::mto_file(folder, &mut |w| self.warn(w)) else {
+                let found = self.folder(folder);
+                let Some(path) = found.mto else {
                     continue;
                 };
+                if found.both_mto {
+                    self.warn(format!(
+                        "both {} and {} exist; using {}",
+                        path.display(),
+                        folder.join("mto.toml").display(),
+                        path.display()
+                    ));
+                }
                 let loaded = self.load(&path, FileKind::Mto)?;
                 let root = loaded.root;
                 mto_files.push(loaded);
@@ -388,7 +408,7 @@ impl Resolver {
                 layers.push((FileKind::Mto, loaded));
             }
         }
-        let cargo = match cargo::edition_for(dir) {
+        let cargo = match self.cargo_edition(dir) {
             Ok(Some(found)) => match options::find("edition")
                 .map(|setting| value::from_command_line(setting, &found.edition))
             {
@@ -558,6 +578,54 @@ impl Resolver {
             style_edition,
             files,
         })
+    }
+
+    /// What `folder` holds, looked up once.
+    fn folder(&mut self, folder: &Path) -> files::Folder {
+        if let Some(found) = self.folders.get(folder) {
+            return found.clone();
+        }
+        let found = files::Folder::scan(folder);
+        self.folders.insert(folder.to_path_buf(), found.clone());
+        found
+    }
+
+    /// The package edition for `dir`, each manifest read once.
+    fn cargo_edition(&mut self, dir: &Path) -> Result<Option<cargo::Edition>, String> {
+        if let Some(found) = self.editions.get(dir) {
+            return found.clone();
+        }
+        let here = match self.folder(dir).cargo {
+            Some(manifest) => cargo::manifest_edition(&manifest, dir),
+            None => Ok(None),
+        };
+        let found = match here {
+            Ok(None) => match dir.parent() {
+                Some(parent) => self.cargo_edition(parent),
+                None => Ok(None),
+            },
+            other => other,
+        };
+        self.editions.insert(dir.to_path_buf(), found.clone());
+        found
+    }
+
+    /// The `rustfmt.toml` rustfmt would use for `dir`: the nearest in `dir` or a parent,
+    /// else in the home folder, else in the `rustfmt` configuration folder.
+    fn rustfmt_file(&mut self, dir: &Path) -> Option<PathBuf> {
+        for folder in dir.ancestors() {
+            if let Some(found) = self.folder(folder).rustfmt {
+                return Some(found);
+            }
+        }
+        let fallbacks = [
+            self.env.home.clone(),
+            self.env.os_config_dir.as_ref().map(|d| d.join("rustfmt")),
+        ];
+        fallbacks
+            .into_iter()
+            .flatten()
+            .find_map(|folder| self.folder(&folder).rustfmt)
     }
 
     fn warn(&mut self, warning: String) {

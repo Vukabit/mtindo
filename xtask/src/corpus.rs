@@ -6,10 +6,11 @@
 //!   its pin is kept, after undoing any edits made to it.
 //! - `check [--with-rust] [--baseline]` fetches what is missing, then runs the checks in
 //!   `xtask-tools` (which links mtindo) in a release build.
-//! - `bench` measures the stage 2 speed target (S2-1) on this machine: the floor (walking
-//!   and reading every corpus file), `mto --check` over the corpus end to end, and layout's
-//!   single-threaded speed. Layout below [`MIN_LAYOUT_MB_PER_S`] fails; the end-to-end
-//!   ratio is reported, and is enforced once files are processed in parallel (stage 2 N4).
+//! - `bench [--markdown]` measures the speed target (S2-1) on this machine: a table of
+//!   rustfmt stable and nightly (as `cargo fmt` runs them) and mto, by wall clock and CPU
+//!   time ([`crate::bench`]), the walk-and-read floor for reference, and layout's
+//!   single-threaded speed. mto below twice rustfmt's throughput, or layout below
+//!   [`MIN_LAYOUT_MB_PER_S`], fails.
 //!
 //! Everything is logged to `logs/corpus.log`.
 
@@ -24,9 +25,6 @@ use crate::common::process;
 
 /// The marker that records which commit a checkout holds.
 const MARKER: &str = ".mtindo-commit";
-
-/// S2-1's target: `mto --check` over the corpus within this many times the read floor.
-const MAX_FLOOR_RATIO: f64 = 2.0;
 
 /// S2-1's guard: lexing, parsing and layout of one file, per core.
 const MIN_LAYOUT_MB_PER_S: f64 = 30.0;
@@ -58,10 +56,12 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         Some("fetch") if words[1..].iter().all(|w| *w == "--with-rust") => {
             fetch(root, with_rust, &log)
         }
-        Some("bench") if words.len() == 1 => match fetch(root, false, &log) {
-            0 => bench(root, &log),
-            code => code,
-        },
+        Some("bench") if words.len() == 1 || words[1..] == ["--markdown"] => {
+            match fetch(root, false, &log) {
+                0 => bench(root, words.len() == 2, &log),
+                code => code,
+            }
+        }
         Some("check")
             if words[1..]
                 .iter()
@@ -74,7 +74,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         }
         _ => {
             eprintln!(
-                "Usage: cargo xtask corpus update | fetch [--with-rust] | check [--with-rust] [--baseline] | bench"
+                "Usage: cargo xtask corpus update | fetch [--with-rust] | check [--with-rust] [--baseline] | bench [--markdown]"
             );
             2
         }
@@ -174,7 +174,7 @@ pub(crate) fn parse_pins(text: &str) -> Result<Vec<Pin>, String> {
     Ok(pins)
 }
 
-fn bench(root: &Path, log: &Logger) -> u8 {
+fn bench(root: &Path, markdown: bool, log: &Logger) -> u8 {
     let pins = match load_pins(root) {
         Ok(pins) => pins,
         Err(e) => {
@@ -206,35 +206,18 @@ fn bench(root: &Path, log: &Logger) -> u8 {
         floor = floor.min(started.elapsed().as_secs_f64());
     }
 
-    // End to end: the release binary in check mode over the whole corpus, median of three.
-    println!("building mto (release)...");
-    let build = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
-    if process::capture(root, "cargo", &build, &[]).0 != 0 {
-        println!("cannot build mto");
-        return 1;
-    }
-    let mto = root.join("target").join("release").join("mto");
-    let mut runs = Vec::new();
-    for _ in 0..3 {
-        let started = std::time::Instant::now();
-        let status = std::process::Command::new(&mto)
-            .args(["--check", "."])
-            .current_dir(cache_dir(root))
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-        runs.push(started.elapsed().as_secs_f64());
-        if let Ok(status) = status
-            && status.code() == Some(4)
-        {
-            println!(
-                "mto reported a verifier failure on the corpus; run `cargo xtask corpus check`"
-            );
-            return 1;
-        }
-    }
-    runs.sort_by(|a, b| a.total_cmp(b));
-    let end_to_end = runs[1];
+    println!(
+        "corpus: {} files, {:.1} MB; floor (walk and read, one thread): {:.2} s",
+        files,
+        bytes as f64 / 1e6,
+        floor
+    );
+    let repos: Vec<(String, PathBuf)> = pins
+        .iter()
+        .filter(|p| !p.opt_in)
+        .map(|p| (p.name.clone(), cache_dir(root).join(&p.name)))
+        .collect();
+    let table_failed = crate::bench::run(root, &repos, markdown, log) != 0;
 
     // Layout's own speed, from xtask-tools.
     let mut args: Vec<String> = [
@@ -267,25 +250,25 @@ fn bench(root: &Path, log: &Logger) -> u8 {
         return 1;
     }
 
-    let ratio = end_to_end / floor;
-    println!("corpus: {} files, {:.1} MB", files, bytes as f64 / 1e6);
-    println!("floor (walk and read):      {:.2} s", floor);
-    println!(
-        "mto --check, end to end:    {:.2} s = {:.1}x the floor (target {:.1}x; enforced from stage 2 N4)",
-        end_to_end, ratio, MAX_FLOOR_RATIO
-    );
     println!(
         "layout, one thread:         {:.1} MB/s (at least {:.0} required)",
         layout, MIN_LAYOUT_MB_PER_S
     );
     log.info(&format!(
-        "bench: {} files, {} bytes, floor {:.3}s, end-to-end {:.3}s ({:.2}x), layout {:.2} MB/s",
-        files, bytes, floor, end_to_end, ratio, layout
+        "bench: {} files, {} bytes, floor {:.3}s, layout {:.2} MB/s",
+        files, bytes, floor, layout
     ));
     if layout < MIN_LAYOUT_MB_PER_S {
         println!(
             "corpus bench: failed, layout is below {:.0} MB/s",
             MIN_LAYOUT_MB_PER_S
+        );
+        return 1;
+    }
+    if table_failed {
+        println!(
+            "corpus bench: failed, mto is below {:.0}x rustfmt's throughput (S2-1)",
+            crate::bench::MIN_SPEEDUP
         );
         return 1;
     }

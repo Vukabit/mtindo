@@ -359,7 +359,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     tasks.push(
         Task::new(
             "speed",
-            "Speed target: layout per core; end-to-end ratio reported",
+            "Speed target: mto at least 2x rustfmt's throughput (S2-1); layout per core",
             "heavy",
             Action::Command(this_binary.clone(), vec!["corpus".into(), "bench".into()]),
         )

@@ -66,6 +66,26 @@ fn test_every_item_kind_has_its_place() {
 }
 
 #[test]
+fn test_every_spelling_of_rustfmt_skip_is_honored() {
+    for attr in [
+        "#![rustfmt::skip]",
+        "#![cfg_attr(rustfmt, rustfmt_skip)]",
+        "#![cfg_attr(rustfmt, rustfmt::skip)]",
+    ] {
+        let source = format!("{}\nfn b() {{}}\nfn a() {{}}\n", attr);
+        assert_eq!(arranged(&source), source, "{}", attr);
+    }
+    let item = "fn z() {}\n#[cfg_attr(rustfmt, rustfmt_skip)]\nfn m() {}\nfn a() {}\n";
+    assert_eq!(
+        arranged(item),
+        "fn a() {}\n\n#[cfg_attr(rustfmt, rustfmt_skip)]\nfn m() {}\n\nfn z() {}\n"
+    );
+    // A condition other than `rustfmt` is not a skip.
+    let other = "#![cfg_attr(feature = \"x\", rustfmt_skip)]\nfn b() {}\nfn a() {}\n";
+    assert_ne!(arranged(other), other);
+}
+
+#[test]
 fn test_files_that_cannot_be_laid_out_say_why() {
     let config = LayoutConfig::default();
     assert!(

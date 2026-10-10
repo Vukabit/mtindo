@@ -5,6 +5,7 @@
 //! commands that need mtindo are forwarded to `xtask-tools` (`xtask/tools`). Every
 //! command that keeps a record logs to `logs/NAME.log`.
 
+mod bench;
 mod capabilities;
 mod common;
 mod corpus;
@@ -38,7 +39,7 @@ const COMMANDS: &[Command] = &[
     (
         "corpus",
         "update|fetch|check|bench",
-        "Pinned real-world corpus (compat/corpus.txt); --with-rust, check --baseline; bench: speed target",
+        "Pinned real-world corpus (compat/corpus.txt); --with-rust, check --baseline; bench [--markdown]: speed table against rustfmt",
         corpus::run,
     ),
     (

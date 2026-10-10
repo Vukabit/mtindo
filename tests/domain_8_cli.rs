@@ -26,6 +26,62 @@ fn help_output(
 }
 
 #[test]
+fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
+    let env = TestEnvironment::new();
+    env.write_file(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nedition = \"2021\"\n",
+    );
+    env.write_file("src/lib.rs", "mod a;\nfn z() {}\nfn y() {}\n");
+    env.write_file("src/a.rs", "fn d() {}\nfn c() {}\n");
+    env.write_file("src/main.rs", "fn main() {}\nfn helper() {}\n");
+    env.write_file("tests/it.rs", "fn q() {}\nfn p() {}\n");
+    env.write_file("notes/stray.rs", "fn n() {}\nfn m() {}\n");
+
+    let mut cmd = assert_cmd::Command::cargo_bin("cargo-mto").unwrap();
+    let output = cmd
+        .current_dir(env.dir.path())
+        .env("HOME", env.dir.path().join(".home"))
+        .env("CI", "1")
+        .args(["mto", "--check", "--message-format", "short"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let mut changed: Vec<&str> = stdout
+        .lines()
+        .map(|l| {
+            l.rsplit_once(env.dir.path().file_name().unwrap().to_str().unwrap())
+                .unwrap()
+                .1
+        })
+        .collect();
+    changed.sort();
+    // Every target and its modules; not files no target reaches.
+    assert_eq!(
+        changed,
+        ["/src/a.rs", "/src/lib.rs", "/src/main.rs", "/tests/it.rs"]
+    );
+}
+
+#[test]
+fn test_cli_a_file_with_syntax_errors_exits_three() {
+    let env = TestEnvironment::new();
+    let broken = "fn b() {}\nfn a() {\n    if true {\n";
+    env.write_file("main.rs", broken);
+
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Error in main.rs: the file has syntax errors"),
+        "{}",
+        stderr
+    );
+    assert_eq!(env.read_file("main.rs"), broken);
+}
+
+#[test]
 fn test_cli_bare_invocation_ignores_piped_stdin() {
     let env = TestEnvironment::new();
     let output = env
@@ -51,7 +107,7 @@ fn test_cli_bare_invocation_prints_the_same_help_as_dash_h() {
     assert_eq!(bare, short);
     assert_eq!(short, long);
     assert!(
-        bare.starts_with("usage: mto [OPTIONS] <PATH>\n"),
+        bare.starts_with("usage: mto [OPTIONS] <PATH>...\n"),
         "{}",
         bare
     );
@@ -100,6 +156,21 @@ fn test_cli_check_no_drift() {
 }
 
 #[test]
+fn test_cli_check_prints_rustfmts_diff() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
+    let output = env.mto_cmd().args(["--check", "main.rs"]).output().unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout.starts_with("Diff in main.rs:1:\n"), "{}", stdout);
+    assert!(
+        stdout.contains("\n+\n") || stdout.contains("\n+fn"),
+        "{}",
+        stdout
+    );
+}
+
+#[test]
 fn test_cli_check_reports_every_drifted_file() {
     let env = TestEnvironment::new();
     env.write_file("src/one.rs", "fn b() {}\nfn a() {}");
@@ -113,8 +184,12 @@ fn test_cli_check_reports_every_drifted_file() {
     assert!(stdout.contains("Diff in src/one.rs"), "{}", stdout);
     assert!(stdout.contains("Diff in src/two.rs"), "{}", stdout);
     assert!(!stdout.contains("three.rs"), "{}", stdout);
-    assert!(stdout.contains("-fn b() {}"), "{}", stdout);
-    assert!(stdout.contains("+fn b() {}"), "{}", stdout);
+    // A minimal diff shows one of the two functions moving.
+    let moved = |name: &str| {
+        stdout.contains(&format!("-fn {}() {{}}", name))
+            && stdout.contains(&format!("+fn {}() {{}}", name))
+    };
+    assert!(moved("a") || moved("b"), "{}", stdout);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -374,6 +449,69 @@ fn test_cli_dry_run_contract() {
 }
 
 #[test]
+fn test_cli_emit_stdout_and_json() {
+    let env = TestEnvironment::new();
+    let source = "fn b() {}\nfn a() {}\n";
+    env.write_file("main.rs", source);
+
+    let output = env
+        .mto_cmd()
+        .args(["--emit", "stdout", "main.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "main.rs:\n\nfn a() {}\n\nfn b() {}\n"
+    );
+    assert_eq!(
+        env.read_file("main.rs"),
+        source,
+        "--emit stdout writes nothing"
+    );
+
+    let output = env
+        .mto_cmd()
+        .args(["--emit=json", "main.rs"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.starts_with("[{\"name\":\"main.rs\",\"mismatches\":[{\"original_begin_line\":"),
+        "{}",
+        stdout
+    );
+    assert!(stdout.ends_with("}]}]\n"), "{}", stdout);
+    assert_eq!(env.read_file("main.rs"), source);
+}
+
+#[test]
+fn test_cli_files_bring_their_modules_like_rustfmt() {
+    let env = TestEnvironment::new();
+    env.write_file("src/lib.rs", "mod b;\nmod a;\n");
+    env.write_file("src/a.rs", "fn z() {}\nfn y() {}\n");
+    env.write_file("src/b.rs", "fn d() {}\nfn c() {}\n");
+    env.write_file("other.rs", "fn q() {}\nfn p() {}\n");
+
+    // Several paths; lib.rs brings a.rs and b.rs; -l names the files that would change.
+    let output = env
+        .mto_cmd()
+        .args(["--check", "-l", "src/lib.rs", "other.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout, "src/lib.rs\nsrc/b.rs\nsrc/a.rs\nother.rs\n");
+
+    let output = env
+        .mto_cmd()
+        .args(["--check", "-l", "--skip-children", "src/lib.rs"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "src/lib.rs\n");
+}
+
+#[test]
 fn test_cli_help_color_follows_no_color_and_force_color() {
     let env = TestEnvironment::new();
     let (_, forced) = help_output(&env, &["-h"], &[("FORCE_COLOR", "1")]);
@@ -495,6 +633,69 @@ fn test_cli_options_without_a_path_are_an_error() {
 }
 
 #[test]
+fn test_cli_print_config_like_rustfmt() {
+    let env = TestEnvironment::new();
+    env.write_file("rustfmt.toml", "max_width = 80\n");
+    let output = env
+        .mto_cmd()
+        .args(["--print-config", "minimal"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "max_width = 80\n"
+    );
+    let output = env
+        .mto_cmd()
+        .args(["--print-config", "default"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("\nmax_width = 100\n"), "{}", stdout);
+    assert!(
+        !stdout.contains("type_order"),
+        "only rustfmt's settings: {}",
+        stdout
+    );
+    env.mto_cmd()
+        .args(["--print-config", "default", "out.toml"])
+        .assert()
+        .success();
+    assert!(env.read_file("out.toml").contains("hard_tabs = false"));
+}
+
+#[test]
+fn test_cli_quiet_verbose_color_and_unstable_features() {
+    let env = TestEnvironment::new();
+    env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
+
+    let output = env
+        .mto_cmd()
+        .args(["--check", "-v", "--unstable-features", "main.rs"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.starts_with("Formatting main.rs\nDiff in main.rs:1:\n"),
+        "{}",
+        stdout
+    );
+    assert!(stdout.contains("{}⏎\n"), "-v marks line ends: {}", stdout);
+
+    let output = env
+        .mto_cmd()
+        .args(["--check", "--color", "always", "main.rs"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8(output.stdout).unwrap().contains('\x1b'));
+
+    let output = env.mto_cmd().args(["-q", "main.rs"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(env.read_file("main.rs"), "fn a() {}\n\nfn b() {}\n");
+}
+
+#[test]
 fn test_cli_restore_contract() {
     let env = TestEnvironment::new();
     let backup_path = env.write_file("backup.bak", "fn original() {}");
@@ -510,15 +711,29 @@ fn test_cli_restore_contract() {
 }
 
 #[test]
-fn test_cli_skips_file_it_cannot_split() {
+fn test_cli_stdin_filepath_and_backup() {
     let env = TestEnvironment::new();
-    let broken = "fn b() {}\nfn a() {\n    if true {\n";
-    env.write_file("main.rs", broken);
+    env.write_file(
+        "sub/mto.toml",
+        "layout = true\nsort_alphabetically = false\n",
+    );
+    let output = env
+        .mto_cmd()
+        .args(["-", "--stdin-filepath", "sub/x.rs", "--check"])
+        .write_stdin("fn b() {}\nfn a() {}\n")
+        .output()
+        .unwrap();
+    // sub/mto.toml keeps the order, so only a blank line is added.
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.starts_with("Diff in sub/x.rs:1:\n fn b() {}\n+\n fn a() {}"),
+        "{}",
+        stdout
+    );
 
-    let output = env.mto_cmd().arg("main.rs").output().unwrap();
-    assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Skipped"));
-    assert_eq!(env.read_file("main.rs"), broken);
+    let output = env.mto_cmd().args(["--backup", "x.rs"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--backup is not needed"));
 }
 
 #[test]

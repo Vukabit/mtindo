@@ -39,10 +39,15 @@ use crate::syntax::ast::{Attr, Item};
 use crate::syntax::{Edition, Parse, SyntaxElement, SyntaxKind, SyntaxNode, parse};
 use crate::text::source::normalize;
 
+/// Why a file with syntax errors is left alone.
+pub const SYNTAX_ERRORS: &str = "the file has syntax errors";
+
 /// What one layout pass did: the units as found, as arranged, and the new text.
 pub struct Layout {
     pub before: Vec<Unit>,
     pub after: Vec<Unit>,
+    /// The file tells rustfmt to skip it (`#![rustfmt::skip]`), so it was left as it is.
+    pub skipped: bool,
     pub text: String,
     /// The edition the file was parsed with (see [`parse_any_edition`]).
     pub edition: Edition,
@@ -104,6 +109,7 @@ pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
             edition: split.edition,
             before: split.units.clone(),
             after: split.units,
+            skipped: true,
             text: source.to_string(),
         });
     }
@@ -122,6 +128,7 @@ pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
         edition: split.edition,
         before: split.units,
         after,
+        skipped: false,
         text: normalized.restore(&text),
     })
 }
@@ -311,7 +318,7 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
 fn split(text: &str, apart: &str, config: &LayoutConfig) -> Result<Split, String> {
     let (edition, parsed) = parse_any_edition(text);
     if !parsed.errors().is_empty() {
-        return Err("the file has syntax errors".to_string());
+        return Err(SYNTAX_ERRORS.to_string());
     }
     let tree = parsed.syntax_node();
     // Walking every node is costly, so traits are only gathered when they are used.
@@ -381,7 +388,7 @@ fn split_container(
         };
         if !in_body {
             if let SyntaxElement::Node(node) = &element
-                && Attr::cast(node.clone()).is_some_and(|a| a.path() == "rustfmt::skip")
+                && Attr::cast(node.clone()).is_some_and(|a| a.is_rustfmt_skip())
             {
                 skip_file = true;
             }

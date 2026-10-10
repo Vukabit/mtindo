@@ -169,32 +169,32 @@ value   use_small_heuristics=Off                         missing
 value   version=One                                      not-planned  # the version option is deprecated
 value   version=Two                                      not-planned  # the version option is deprecated
 
-flag    cargo-fmt:--all                                  missing
-flag    cargo-fmt:--check                                missing
-flag    cargo-fmt:--help                                 missing
-flag    cargo-fmt:--manifest-path                        missing
-flag    cargo-fmt:--message-format                       missing
-flag    cargo-fmt:--package                              missing
-flag    cargo-fmt:--quiet                                missing
-flag    cargo-fmt:--verbose                              missing
-flag    cargo-fmt:--version                              missing
-flag    rustfmt:--backup                                 partial      # mto always backs up until the stage 2 verifier exists (tests/domain_6_io.rs); no flag yet
-flag    rustfmt:--check                                  partial      # mto --check exits 1 and prints a unified diff (tests/domain_8_cli.rs); rustfmt's diff layout differs
-flag    rustfmt:--color                                  missing
+flag    cargo-fmt:--all                                  supported    # every member and local path dependencies, as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--check                                supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--help                                 supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--manifest-path                        supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--message-format                       supported    # short and json map to -l and --emit json, as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--package                              supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--quiet                                supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--verbose                              supported    # lists the targets, as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    cargo-fmt:--version                              supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
+flag    rustfmt:--backup                                 not-planned  # S2-11: mto keeps copies itself (history from N5); --backup says so (tests/domain_8_cli.rs)
+flag    rustfmt:--check                                  supported    # rustfmt's `Diff in FILE:LINE:` format and exit code (tests/domain_8_cli.rs; src/lib.rs ports make_diff's tests)
+flag    rustfmt:--color                                  supported    # always, never, auto (tests/domain_8_cli.rs)
 flag    rustfmt:--config                                 supported    # sets and checks any key, as rustfmt does (tests/domain_8_cli.rs)
 flag    rustfmt:--config-path                            supported    # tests/domain_8_cli.rs
 flag    rustfmt:--edition                                partial      # sets the edition behind the style edition (tests/domain_8_cli.rs); parsing still detects the edition itself
-flag    rustfmt:--emit                                   missing
+flag    rustfmt:--emit                                   supported    # files, stdout and json, as rustfmt writes them (tests/domain_8_cli.rs)
 flag    rustfmt:--error-on-unformatted                   missing
 flag    rustfmt:--file-lines                             missing
-flag    rustfmt:--files-with-diff                        partial      # mto --dry-run lists files that would change without writing (tests/domain_8_cli.rs)
+flag    rustfmt:--files-with-diff                        supported    # tests/domain_8_cli.rs
 flag    rustfmt:--help                                   partial      # mto -h and --help (tests/domain_8_cli.rs); no help topics such as --help=config
-flag    rustfmt:--print-config                           missing
-flag    rustfmt:--quiet                                  missing
-flag    rustfmt:--skip-children                          missing
+flag    rustfmt:--print-config                           supported    # default, minimal, current, with PATH (tests/domain_8_cli.rs)
+flag    rustfmt:--quiet                                  supported    # tests/domain_8_cli.rs
+flag    rustfmt:--skip-children                          supported    # file arguments follow `mod` declarations unless given (tests/domain_8_cli.rs)
 flag    rustfmt:--style-edition                          partial      # decides the defaults (tests/domain_8_cli.rs); import order follows it from N3
-flag    rustfmt:--unstable-features                      missing
-flag    rustfmt:--verbose                                missing
+flag    rustfmt:--unstable-features                      supported    # accepted; mto applies every setting on every channel (tests/domain_8_cli.rs)
+flag    rustfmt:--verbose                                partial      # names each file and marks line ends in diffs (tests/domain_8_cli.rs); no timing lines
 flag    rustfmt:--version                                supported    # tests/domain_8_cli.rs
 
 mto     command:-                                        supported    # tests/domain_8_cli.rs
@@ -217,6 +217,7 @@ mto     config:trait_impl_sort                           supported    # src/layo
 mto     config:type_order                                supported    # tests/domain_1_unit.rs
 mto     config:visibility_order                          supported    # src/layout/tests.rs
 mto     flag:--check                                     supported    # tests/domain_8_cli.rs
+mto     flag:--color                                     supported    # tests/domain_8_cli.rs
 mto     flag:--config                                    supported    # tests/domain_8_cli.rs
 mto     flag:--config-path                               supported    # tests/domain_8_cli.rs
 mto     flag:--current                                   supported    # tests/domain_8_cli.rs
@@ -224,12 +225,20 @@ mto     flag:--dbg                                       supported    # tests/do
 mto     flag:--default                                   supported    # tests/domain_8_cli.rs
 mto     flag:--dry-run                                   supported    # tests/domain_8_cli.rs
 mto     flag:--edition                                   supported    # tests/domain_8_cli.rs
+mto     flag:--emit                                      supported    # tests/domain_8_cli.rs
+mto     flag:--files-with-diff                           supported    # tests/domain_8_cli.rs
 mto     flag:--follow-links                              supported    # tests/domain_10_polyrepo.rs
 mto     flag:--help                                      supported    # tests/domain_8_cli.rs
 mto     flag:--man                                       supported    # tests/domain_8_cli.rs
 mto     flag:--minimal                                   supported    # tests/domain_8_cli.rs
+mto     flag:--print-config                              supported    # tests/domain_8_cli.rs
+mto     flag:--quiet                                     supported    # tests/domain_8_cli.rs
 mto     flag:--recursive                                 supported    # tests/domain_12_scale.rs
 mto     flag:--restore                                   supported    # tests/domain_8_cli.rs
+mto     flag:--skip-children                             supported    # tests/domain_8_cli.rs
+mto     flag:--stdin-filepath                            supported    # tests/domain_8_cli.rs
 mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs
+mto     flag:--unstable-features                         supported    # tests/domain_8_cli.rs
 mto     flag:--user                                      supported    # tests/domain_8_cli.rs
+mto     flag:--verbose                                   supported    # tests/domain_8_cli.rs
 mto     flag:--version                                   supported    # tests/domain_8_cli.rs

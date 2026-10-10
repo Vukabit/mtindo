@@ -67,9 +67,15 @@ fn problems(manual: &str, help: &str, defaults: &str, surface: &str) -> Vec<Stri
     };
 
     // -h -> manual.
+    // Only an option's label counts, not its description: the label ends where the
+    // columns are two spaces apart.
     let mto_flags: BTreeSet<&str> = section("options:")
         .iter()
-        .flat_map(|line| line.split_whitespace())
+        .map(|line| {
+            let label = line.trim_start();
+            label.split("  ").next().unwrap_or(label)
+        })
+        .flat_map(|label| label.split_whitespace())
         .map(|word| word.trim_end_matches(','))
         .filter(|word| word.starts_with('-') && word.len() > 1)
         .collect();

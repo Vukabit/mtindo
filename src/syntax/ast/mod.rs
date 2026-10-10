@@ -59,6 +59,25 @@ impl Attr {
             .is_some_and(|e| e.kind() == SyntaxKind::Bang)
     }
 
+    /// Whether it tells rustfmt to leave its item (or, inner, its file) alone, in any of the
+    /// spellings rustfmt honors: `rustfmt::skip`, the older `rustfmt_skip`, and either inside
+    /// `cfg_attr(rustfmt, ...)`.
+    pub fn is_rustfmt_skip(&self) -> bool {
+        match self.path().as_str() {
+            "rustfmt::skip" | "rustfmt_skip" => true,
+            "cfg_attr" => {
+                let text: String = significant_text(&self.0);
+                let inner = text
+                    .split_once("cfg_attr(")
+                    .map_or("", |(_, rest)| rest.trim_end_matches([']', ')']));
+                let mut parts = inner.split(',');
+                parts.next() == Some("rustfmt")
+                    && parts.any(|p| p == "rustfmt::skip" || p == "rustfmt_skip")
+            }
+            _ => false,
+        }
+    }
+
     /// The attribute's path without spaces, such as `derive` or `cfg_attr`.
     pub fn path(&self) -> String {
         let meta = child(&self.0, SyntaxKind::Meta);

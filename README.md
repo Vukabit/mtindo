@@ -54,8 +54,9 @@ navigate to the root directory, and run:
 cargo install --path .
 ```
 
-This builds the `mto` binary in release mode and places it in Cargo's binary
-directory (`~/.cargo/bin`), which should already be on your `PATH`.
+This builds the `mto` and `cargo-mto` binaries in release mode and places them
+in Cargo's binary directory (`~/.cargo/bin`), which should already be on your
+`PATH`. The second makes `cargo mto` work.
 
 ## Turning layout on
 
@@ -97,15 +98,32 @@ whether or not anything is piped in. Reading stdin always needs the explicit
 `-`.
 
 ### Options
+
+`mto` takes rustfmt's flags, so it can stand in for `rustfmt` in scripts and
+editors. Several paths may be given. A file brings the modules it declares
+(`mod name;`, with `#[path]`), as rustfmt follows them; a directory is walked.
+
+* `--check`: Print a diff for every file that would change, in rustfmt's
+  format (`Diff in FILE:LINE:`), and exit with code `1` if there are any.
+* `--emit files|stdout|json`: Write the files (the default), print them, or
+  print rustfmt's JSON report of what would change.
+* `-l, --files-with-diff`: Name the files that change, or would with
+  `--check`, instead of showing how.
+* `--skip-children`: A file argument is that file alone.
 * `--config <KEY=VALUE,...>`: Set settings for this run, as rustfmt's
   `--config` does: `--config max_width=80,hard_tabs=true`.
 * `--config-path <FILE>`: Use only this configuration file.
 * `--edition <YEAR>`, `--style-edition <YEAR>`: Set the edition and the style
   edition, which decides the defaults.
+* `--print-config default|minimal|current [PATH]`: Print rustfmt's settings
+  as rustfmt does (to PATH for `default` and `minimal`).
+* `-q, --quiet`, `-v, --verbose`: Print less, or name each file.
+* `--color always|never|auto`: Color the output.
+* `--unstable-features`: Accepted; mto applies every setting on every channel.
+* `--stdin-filepath <PATH>`: With `-`, where the source belongs, for its
+  settings and in messages.
 * `-d, --dry-run`: List the files that would change without writing to disk.
-* `--check`: Print a diff for every file that would change, and exit with code
-  `1` if there are any (useful in CI).
-* `-R, --recursive`: Format every `.rs` file under the current directory.
+* `-R, --recursive`: Lay out every `.rs` file under the current directory.
 * `--follow-links`: Also follow symlinked files and directories.
 * `-r, --restore <BACKUP> <TARGET>`: Atomically replace the target file with a
   backup.
@@ -114,8 +132,30 @@ whether or not anything is piped in. Reading stdin always needs the explicit
 * `-h, --help`: Print the short help menu.
 * `-V, --version`: Print the version.
 
-Output is colored only when it goes to a terminal. Set `NO_COLOR` to turn color
-off, or `FORCE_COLOR` to turn it on; `NO_COLOR` wins if both are set.
+rustfmt's `--backup` is refused with an explanation: `mto` keeps a copy of
+every file it changes on its own.
+
+Output is colored only when it goes to a terminal, unless `--color` says
+otherwise. Set `NO_COLOR` to turn color off, or `FORCE_COLOR` to turn it on;
+`NO_COLOR` wins if both are set.
+
+### Cargo
+
+`cargo mto` lays out a package or workspace the way `cargo fmt` formats it:
+every member when run from the workspace root, otherwise the current package.
+Each target (library, binaries, examples, tests, benches, build script, as Cargo
+discovers them) brings the modules it declares. `mto` reads the manifests
+itself; Cargo is not run.
+
+```bash
+cargo mto --check          # every target; exit 1 if any file would change
+cargo mto -p mycrate       # one member (repeatable)
+cargo mto --all            # also local path dependencies outside the workspace
+cargo mto -- --config max_width=80   # options after -- go to mto
+```
+
+It also takes `--manifest-path`, `--message-format short|json|human`, `-q` and
+`-v`, as `cargo fmt` does.
 
 ### Exit Codes
 | Code | Meaning |
@@ -123,7 +163,7 @@ off, or `FORCE_COLOR` to turn it on; `NO_COLOR` wins if both are set.
 | 0 | Success |
 | 1 | `--check` found files that would change |
 | 2 | Bad arguments or configuration |
-| 3 | A file could not be read or written |
+| 3 | A file could not be read, written, or parsed (it has syntax errors) |
 | 4 | The verifier stopped a write: a bug in mto; the file is unchanged |
 
 ## Every write is checked
@@ -166,7 +206,8 @@ Some items depend on their position in the file. `mto` keeps them in place:
   written, in its original position. An item directly under `// mto: on`
   (no blank line between) stays inside the region, and a region with no
   `// mto: on` runs to the end of the file.
-* **A file with syntax errors** is left unchanged.
+* **A file with syntax errors** is left unchanged, and the run exits with code
+  `3`.
 
 ## Configuration
 
@@ -288,6 +329,10 @@ cargo xtask capabilities report [--markdown]
 # that every file round-trips, parses and lexes like rustc; --baseline
 # records parsing speed in compat/baseline.txt
 cargo xtask corpus check
+# Time rustfmt stable and nightly (as cargo fmt runs them) and mto on the
+# corpus, by wall clock and CPU time, as a table; fails if mto is below
+# twice rustfmt's throughput
+cargo xtask corpus bench [--markdown]
 # Move every corpus pin to its repository's current HEAD
 cargo xtask corpus update
 # Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's

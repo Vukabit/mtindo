@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use mtindo::config::{self, Config, Environment, FileKind, Overrides, Resolver, Source};
 use mtindo::options::{self, File};
@@ -7,8 +7,8 @@ use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::tree::debug_dump;
 use mtindo::syntax::{Edition, parse};
 use mtindo::{
-    HelpPalette, MtoError, Outcome, RunOptions, c_cyan, c_green, c_red, c_reset, c_yellow,
-    print_warnings, process_file, process_init, process_stdin, restore_backup, walk_directory,
+    Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, c_green, c_red, c_reset, c_yellow,
+    collect_jobs, print_warnings, process_init, process_stdin, restore_backup, run_jobs,
 };
 
 /// Arguments that are not flags: (name, value, help).
@@ -38,6 +38,8 @@ const COMMANDS: &[(&str, &str, &str)] = &[
 const EXAMPLES: &[&str] = &[
     "mto src/main.rs",
     "mto -R --check",
+    "mto --check -l src/lib.rs src/main.rs",
+    "mto --emit json --check src/",
     "cat src/main.rs | mto -",
     "mto --config max_width=80,hard_tabs=true src/",
     "mto config print --minimal",
@@ -48,7 +50,10 @@ const EXIT_CODES: &[(&str, &str)] = &[
     ("0", "success"),
     ("1", "--check found files that would change"),
     ("2", "bad arguments or configuration"),
-    ("3", "a file could not be read or written"),
+    (
+        "3",
+        "a file could not be read, written, or parsed (it has syntax errors)",
+    ),
     (
         "4",
         "the verifier stopped a write (a bug in mto); the file is unchanged",
@@ -78,6 +83,69 @@ const FLAGS: &[FlagSpec] = &[
         help: "Print a diff for every file that would change; exit 1 if any",
     },
     FlagSpec {
+        flag: Flag::Emit,
+        short: None,
+        long: "--emit",
+        value: "<files|stdout|json>",
+        help: "Write the files (default), print them, or report changes as JSON",
+    },
+    FlagSpec {
+        flag: Flag::FilesWithDiff,
+        short: Some("-l"),
+        long: "--files-with-diff",
+        value: "",
+        help: "Name the files that change (or would, with --check) instead of showing how",
+    },
+    FlagSpec {
+        flag: Flag::SkipChildren,
+        short: None,
+        long: "--skip-children",
+        value: "",
+        help: "A file argument is that file alone, not the modules it declares",
+    },
+    FlagSpec {
+        flag: Flag::StdinFilepath,
+        short: None,
+        long: "--stdin-filepath",
+        value: "<PATH>",
+        help: "With -: where the source belongs, for its settings and in messages",
+    },
+    FlagSpec {
+        flag: Flag::Quiet,
+        short: Some("-q"),
+        long: "--quiet",
+        value: "",
+        help: "Print only errors and what was asked for",
+    },
+    FlagSpec {
+        flag: Flag::Verbose,
+        short: Some("-v"),
+        long: "--verbose",
+        value: "",
+        help: "Name each file as it is laid out",
+    },
+    FlagSpec {
+        flag: Flag::Color,
+        short: None,
+        long: "--color",
+        value: "<always|never|auto>",
+        help: "Color the output (default: auto, only on a terminal)",
+    },
+    FlagSpec {
+        flag: Flag::PrintConfig,
+        short: None,
+        long: "--print-config",
+        value: "<default|minimal|current> [PATH]",
+        help: "Print rustfmt's settings, as rustfmt does, and exit",
+    },
+    FlagSpec {
+        flag: Flag::UnstableFeatures,
+        short: None,
+        long: "--unstable-features",
+        value: "",
+        help: "Accepted for rustfmt compatibility; mto applies every setting on every channel",
+    },
+    FlagSpec {
         flag: Flag::DryRun,
         short: Some("-d"),
         long: "--dry-run",
@@ -89,7 +157,7 @@ const FLAGS: &[FlagSpec] = &[
         short: Some("-R"),
         long: "--recursive",
         value: "",
-        help: "Format every .rs file under the current directory",
+        help: "Lay out every .rs file under the current directory",
     },
     FlagSpec {
         flag: Flag::Config,
@@ -244,8 +312,10 @@ directly under `// mto: on` stays inside the region; a region with no
 "#;
 
 const USAGE_LINES: &[&str] = &[
-    "mto [OPTIONS] <PATH>",
-    "mto [OPTIONS] -",
+    "mto [OPTIONS] <PATH>...",
+    "mto [OPTIONS] - [--stdin-filepath PATH]",
+    "mto --print-config default|minimal|current [PATH]",
+    "cargo mto [OPTIONS] [-- <MTO OPTIONS>...]",
     "mto --restore <BACKUP> <TARGET>",
     "mto init [DIR]",
     "mto config path|print [OPTIONS] [DIR]",
@@ -254,13 +324,19 @@ const USAGE_LINES: &[&str] = &[
 
 enum CliAction {
     Format {
-        target_path: PathBuf,
+        paths: Vec<PathBuf>,
         overrides: Overrides,
         opts: RunOptions,
     },
     Stdin {
         overrides: Overrides,
-        check: bool,
+        opts: RunOptions,
+        filepath: Option<PathBuf>,
+    },
+    PrintConfig {
+        kind: PrintKind,
+        path: Option<PathBuf>,
+        overrides: Overrides,
     },
     Config {
         view: ConfigView,
@@ -302,6 +378,15 @@ enum DebugView {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Flag {
     Check,
+    Color,
+    Emit,
+    FilesWithDiff,
+    PrintConfig,
+    Quiet,
+    SkipChildren,
+    StdinFilepath,
+    UnstableFeatures,
+    Verbose,
     Config,
     ConfigPath,
     Current,
@@ -318,6 +403,14 @@ enum Flag {
     StyleEdition,
     User,
     Version,
+}
+
+/// `--print-config default|minimal|current`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PrintKind {
+    Default,
+    Minimal,
+    Current,
 }
 
 struct FlagSpec {
@@ -359,6 +452,79 @@ fn config_flag(
     Ok(())
 }
 
+/// Prints the JSON report and the summary for a run, and returns its exit code.
+fn finish(done: &[Done], opts: &RunOptions) -> i32 {
+    let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
+    if opts.emit == Emit::Json {
+        let entries: Vec<&str> = done.iter().filter_map(|d| d.json.as_deref()).collect();
+        println!("[{}]", entries.join(","));
+    }
+    let changed = count(Outcome::Changed);
+    let off = count(Outcome::LayoutOff);
+    let skipped = count(Outcome::Skipped);
+    let broken = count(Outcome::SyntaxError);
+    let failed = count(Outcome::Failed);
+    let unsafe_writes = count(Outcome::VerifierFailed);
+    if off > 0 && !opts.quiet {
+        eprintln!(
+            "{}{} file(s) left alone: layout is off. Run `mto init` to write an mto.toml \
+             with `layout = true`.{}",
+            c_yellow(true),
+            off,
+            c_reset(true)
+        );
+    }
+    if skipped > 0 && !opts.quiet {
+        eprintln!(
+            "{}{} file(s) skipped because they could not be laid out safely.{}",
+            c_yellow(true),
+            skipped,
+            c_reset(true)
+        );
+    }
+    if broken > 0 {
+        eprintln!(
+            "{}{} file(s) have syntax errors and were left unchanged.{}",
+            c_red(),
+            broken,
+            c_reset(true)
+        );
+    }
+    if unsafe_writes > 0 {
+        eprintln!(
+            "{}{} file(s) left unchanged by the verifier: a bug in mto, reported above.{}",
+            c_red(),
+            unsafe_writes,
+            c_reset(true)
+        );
+        return 4;
+    }
+    if failed > 0 || broken > 0 {
+        return 3;
+    }
+    if opts.check {
+        if changed > 0 {
+            if !opts.quiet {
+                eprintln!(
+                    "{}{} file(s) would be reformatted.{}",
+                    c_red(),
+                    changed,
+                    c_reset(true)
+                );
+            }
+            return 1;
+        }
+        if !opts.quiet && !opts.files_with_diff && opts.emit == Emit::Files {
+            println!(
+                "{}Check passed successfully: no formatting drift detected.{}",
+                c_green(),
+                c_reset(false)
+            );
+        }
+    }
+    0
+}
+
 /// The name a configuration file kind is shown with.
 fn kind_label(kind: FileKind) -> &'static str {
     match kind {
@@ -386,24 +552,16 @@ fn main() {
             path,
             edition,
         } => run_debug(view, &path, edition),
-        CliAction::Stdin { overrides, check } => match resolver(&overrides) {
-            Ok(mut resolver) => match process_stdin(&mut resolver, check) {
-                Ok(Outcome::LayoutOff) => {
-                    eprintln!(
-                        "{}layout is off: no mto.toml with `layout = true` applies here. \
-                         Run `mto init` to turn it on.{}",
-                        c_yellow(true),
-                        c_reset(true)
-                    );
-                    0
-                }
-                Ok(Outcome::VerifierFailed) => 4,
-                Ok(Outcome::Changed) if check => 1,
-                Ok(_) => 0,
-                Err(e) => report_error(&e),
-            },
-            Err(e) => report_error(&e),
-        },
+        CliAction::Stdin {
+            overrides,
+            opts,
+            filepath,
+        } => run_stdin(&overrides, &opts, filepath.as_deref()),
+        CliAction::PrintConfig {
+            kind,
+            path,
+            overrides,
+        } => run_print_config(kind, path.as_deref(), &overrides),
         CliAction::Config {
             view,
             dir,
@@ -446,10 +604,10 @@ fn main() {
             }
         }
         CliAction::Format {
-            target_path,
+            paths,
             overrides,
             opts,
-        } => run_format(target_path, &overrides, &opts),
+        } => run_format(&paths, &overrides, &opts),
     };
     std::process::exit(code);
 }
@@ -469,14 +627,34 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         "config" => return parse_config_args(&args[1..]).map(Some),
         _ => {}
     }
-    let mut target_path = None;
+    let mut paths: Vec<PathBuf> = Vec::new();
     let mut read_stdin = false;
+    let mut filepath = None;
+    let mut print_config = None;
     let mut overrides = Overrides::default();
     let mut recursive = false;
     let mut opts = RunOptions::default();
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
+        // `--flag=value` is read as `--flag value`, as rustfmt allows.
+        let (arg, inline) = match arg.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
+            _ => (arg, None),
+        };
+        let value = |i: &mut usize| -> Option<String> {
+            if inline.is_some() {
+                return inline.clone();
+            }
+            *i += 1;
+            args.get(*i).cloned()
+        };
+        if arg == "--backup" {
+            return usage_error(
+                "--backup is not needed: mto saves a copy of every file it changes and prints \
+                 how to undo it",
+            );
+        }
         if let Some(spec) = FLAGS
             .iter()
             .find(|spec| spec.short == Some(arg) || spec.long == arg)
@@ -496,9 +674,60 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
                 Flag::Dbg => opts.debug = true,
                 Flag::FollowLinks => opts.follow_links = true,
                 Flag::Recursive => recursive = true,
+                Flag::FilesWithDiff => opts.files_with_diff = true,
+                Flag::SkipChildren => opts.skip_children = true,
+                Flag::Quiet => opts.quiet = true,
+                Flag::Verbose => opts.verbose = true,
+                Flag::UnstableFeatures => {}
+                Flag::Emit => {
+                    opts.emit = match value(&mut i).as_deref() {
+                        Some("files") => Emit::Files,
+                        Some("stdout") => Emit::Stdout,
+                        Some("json") => Emit::Json,
+                        Some(other) => {
+                            return usage_error(&format!(
+                                "--emit takes files, stdout or json, not `{}`",
+                                other
+                            ));
+                        }
+                        None => return usage_error("--emit needs files, stdout or json"),
+                    }
+                }
+                Flag::Color => {
+                    let choice = match value(&mut i).as_deref() {
+                        Some("always") => Some(true),
+                        Some("never") => Some(false),
+                        Some("auto") => None,
+                        other => {
+                            return usage_error(&format!(
+                                "--color takes always, never or auto, not `{}`",
+                                other.unwrap_or("")
+                            ));
+                        }
+                    };
+                    mtindo::text::color::set_color(choice);
+                }
+                Flag::StdinFilepath => match value(&mut i) {
+                    Some(path) => filepath = Some(PathBuf::from(path)),
+                    None => return usage_error("--stdin-filepath needs a <PATH>"),
+                },
+                Flag::PrintConfig => {
+                    let kind = match value(&mut i).as_deref() {
+                        Some("default") => PrintKind::Default,
+                        Some("minimal") => PrintKind::Minimal,
+                        Some("current") => PrintKind::Current,
+                        other => {
+                            return usage_error(&format!(
+                                "--print-config takes default, minimal or current, not `{}`",
+                                other.unwrap_or("")
+                            ));
+                        }
+                    };
+                    print_config = Some(kind);
+                }
                 Flag::Config | Flag::ConfigPath | Flag::Edition | Flag::StyleEdition => {
-                    i += 1;
-                    config_flag(spec, args.get(i), &mut overrides)?;
+                    let given = value(&mut i);
+                    config_flag(spec, given.as_ref(), &mut overrides)?;
                 }
                 Flag::Default | Flag::Current | Flag::Minimal | Flag::User => {
                     return usage_error(&format!(
@@ -516,34 +745,51 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
                     }));
                 }
             }
-        } else if arg == "-" && !read_stdin && target_path.is_none() {
+        } else if arg == "-" && !read_stdin {
             read_stdin = true;
-        } else if !arg.starts_with('-') && !read_stdin && target_path.is_none() {
-            target_path = Some(PathBuf::from(arg));
+        } else if !arg.starts_with('-') {
+            paths.push(PathBuf::from(arg));
         } else {
             return usage_error(&format!("unexpected argument '{}'", arg));
         }
         i += 1;
     }
-    if read_stdin {
-        return Ok(Some(CliAction::Stdin {
+    if let Some(kind) = print_config {
+        if paths.len() > 1 {
+            return usage_error("--print-config takes at most one PATH");
+        }
+        return Ok(Some(CliAction::PrintConfig {
+            kind,
+            path: paths.pop(),
             overrides,
-            check: opts.check,
         }));
     }
-    if recursive && target_path.is_none() {
-        target_path = Some(PathBuf::from("."));
-    }
-    match target_path {
-        Some(path) => Ok(Some(CliAction::Format {
-            target_path: path,
+    if read_stdin {
+        if !paths.is_empty() {
+            return usage_error("- reads stdin; it cannot be combined with paths");
+        }
+        return Ok(Some(CliAction::Stdin {
             overrides,
             opts,
-        })),
-        None => usage_error(
-            "no path given: pass a file or directory, -R for the current directory, or - to read stdin",
-        ),
+            filepath,
+        }));
     }
+    if filepath.is_some() {
+        return usage_error("--stdin-filepath only goes with -");
+    }
+    if recursive && paths.is_empty() {
+        paths.push(PathBuf::from("."));
+    }
+    if paths.is_empty() {
+        return usage_error(
+            "no path given: pass files or directories, -R for the current directory, or - to read stdin",
+        );
+    }
+    Ok(Some(CliAction::Format {
+        paths,
+        overrides,
+        opts,
+    }))
 }
 
 fn parse_config_args(args: &[String]) -> Result<CliAction, ()> {
@@ -881,6 +1127,23 @@ fn render_man() -> String {
         };
         out.push_str(&wrap(&format!("`{}`: {}.", usage.trim_end(), help), "*   "));
     }
+    out.push_str("## Cargo\n");
+    out.push_str(&wrap(
+        "`cargo mto` lays out the targets of the current package or workspace, as `cargo fmt` \
+         formats them: every member when run from the workspace root, else the current \
+         package. Each target's root file (library, binaries, examples, tests, benches, build \
+         script, as Cargo discovers them) brings the modules it declares. The manifests are \
+         read directly; Cargo is not run. Options after `--` go to `mto`.",
+        "",
+    ));
+    for (flags, value, help) in mtindo::cli::CARGO_MTO_OPTIONS {
+        let name = if value.is_empty() {
+            flags.to_string()
+        } else {
+            format!("{} {}", flags, value)
+        };
+        out.push_str(&wrap(&format!("`cargo mto {}`: {}.", name, help), "*   "));
+    }
     out.push_str("## Exit Codes\n");
     for (code, meaning) in EXIT_CODES {
         out.push_str(&wrap(&format!("`{}`: {}.", code, meaning), "*   "));
@@ -968,103 +1231,92 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
     0
 }
 
-fn run_format(target_path: PathBuf, overrides: &Overrides, opts: &RunOptions) -> i32 {
+fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i32 {
     let mut resolver = match resolver(overrides) {
         Ok(resolver) => resolver,
         Err(e) => return report_error(&e),
     };
-    if !target_path.exists() {
+    if let Some(missing) = paths.iter().find(|p| !p.exists()) {
         return report_error(&MtoError::Usage(format!(
             "target path '{}' does not exist",
-            target_path.display()
+            missing.display()
         )));
     }
-    let outcomes = if target_path.is_file() {
-        let dir = target_path.parent().unwrap_or(std::path::Path::new("."));
-        let config = match resolver.config_for(dir) {
-            Ok(config) => config,
-            Err(e) => return report_error(&e.into()),
+    let (jobs, problems) = match collect_jobs(paths, &mut resolver, opts) {
+        Ok(found) => found,
+        Err(e) => return report_error(&e),
+    };
+    for problem in problems {
+        eprintln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
+    }
+    let done = run_jobs(&jobs, opts);
+    finish(&done, opts)
+}
+
+/// `--print-config`, as rustfmt prints it: rustfmt's settings as TOML, ready for a
+/// `rustfmt.toml`. `default` and `minimal` go to PATH when given, else stdout; `current`
+/// prints the settings for PATH (a file or folder; the current folder by default).
+fn run_print_config(kind: PrintKind, path: Option<&Path>, overrides: &Overrides) -> i32 {
+    let mut resolver = match resolver(overrides) {
+        Ok(resolver) => resolver,
+        Err(e) => return report_error(&e),
+    };
+    let dir = match (kind, path) {
+        (PrintKind::Current, Some(p)) if p.is_file() => {
+            p.parent().unwrap_or(Path::new(".")).to_path_buf()
+        }
+        (PrintKind::Current, Some(p)) => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let config = match resolver.config_for(&dir) {
+        Ok(config) => config,
+        Err(e) => return report_error(&e.into()),
+    };
+    print_warnings(&mut resolver);
+    let mut text = String::new();
+    for (setting, value, source) in config.values() {
+        if setting.file != File::Format || (setting.hidden && *source == Source::Default) {
+            continue;
+        }
+        let shown = match kind {
+            PrintKind::Default => setting.default_for(config.style_edition()).to_string(),
+            PrintKind::Minimal if matches!(source, Source::Default | Source::Derived(_)) => {
+                continue;
+            }
+            _ => value.to_toml(),
         };
-        print_warnings(&mut resolver);
-        if opts.debug {
-            for (kind, path) in config.files() {
-                eprintln!(
-                    "{}Using {}:{} {}",
-                    c_cyan(),
-                    kind_label(*kind),
-                    c_reset(true),
-                    path.display()
-                );
+        text.push_str(&format!("{} = {}\n", setting.name, shown));
+    }
+    match (kind, path) {
+        (PrintKind::Default | PrintKind::Minimal, Some(file)) => {
+            if let Err(e) = std::fs::write(file, &text) {
+                return report_error(&MtoError::Io(format!(
+                    "cannot write {}: {}",
+                    file.display(),
+                    e
+                )));
             }
         }
-        if config.layout_on() {
-            vec![process_file(&target_path, &config.layout(), opts)]
-        } else {
-            vec![Outcome::LayoutOff]
-        }
-    } else {
-        match walk_directory(&target_path, &mut resolver, opts) {
-            Ok(outcomes) => outcomes,
-            Err(e) => return report_error(&e),
-        }
-    };
-    let changed = outcomes.iter().filter(|o| **o == Outcome::Changed).count();
-    let skipped = outcomes.iter().filter(|o| **o == Outcome::Skipped).count();
-    let failed = outcomes.iter().filter(|o| **o == Outcome::Failed).count();
-    let off = outcomes
-        .iter()
-        .filter(|o| **o == Outcome::LayoutOff)
-        .count();
-    if off > 0 {
-        eprintln!(
-            "{}{} file(s) left alone: layout is off. Run `mto init` to write an mto.toml \
-             with `layout = true`.{}",
-            c_yellow(true),
-            off,
-            c_reset(true)
-        );
-    }
-    let unsafe_writes = outcomes
-        .iter()
-        .filter(|o| **o == Outcome::VerifierFailed)
-        .count();
-    if skipped > 0 {
-        eprintln!(
-            "{}{} file(s) skipped because they could not be split safely.{}",
-            c_yellow(true),
-            skipped,
-            c_reset(true)
-        );
-    }
-    if unsafe_writes > 0 {
-        eprintln!(
-            "{}{} file(s) left unchanged by the verifier: a bug in mto, reported above.{}",
-            c_red(),
-            unsafe_writes,
-            c_reset(true)
-        );
-        return 4;
-    }
-    if failed > 0 {
-        return 3;
-    }
-    if opts.check {
-        if changed > 0 {
-            eprintln!(
-                "{}{} file(s) would be reformatted.{}",
-                c_red(),
-                changed,
-                c_reset(true)
-            );
-            return 1;
-        }
-        println!(
-            "{}Check passed successfully: no formatting drift detected.{}",
-            c_green(),
-            c_reset(false)
-        );
+        _ => print!("{}", text),
     }
     0
+}
+
+fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) -> i32 {
+    let mut resolver = match resolver(overrides) {
+        Ok(resolver) => resolver,
+        Err(e) => return report_error(&e),
+    };
+    let report = match process_stdin(&mut resolver, opts, filepath) {
+        Ok(report) => report,
+        Err(e) => return report_error(&e),
+    };
+    report.print();
+    let done = [Done {
+        outcome: report.outcome,
+        json: report.json,
+    }];
+    finish(&done, opts)
 }
 
 /// The manual with a blank line before every heading, so sections and entries stand apart

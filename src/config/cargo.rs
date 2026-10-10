@@ -1,5 +1,5 @@
 //! The edition of the package a folder belongs to, read from `Cargo.toml` as `cargo fmt`
-//! reads it: the nearest manifest with a `[package]`, whose `edition` may be inherited from
+//! reads it: the nearest manifest with a `[package]` (the resolver walks up the folders), whose `edition` may be inherited from
 //! the workspace (`edition.workspace = true`). A package with no edition is 2015.
 
 use std::fs;
@@ -16,54 +16,51 @@ pub(super) struct Edition {
     pub line: usize,
 }
 
-/// The edition for files in `dir`; `None` outside a package. An error is a manifest that
-/// cannot be read; the caller warns and carries on without an edition.
-pub(super) fn edition_for(dir: &Path) -> Result<Option<Edition>, String> {
-    for folder in dir.ancestors() {
-        let path = folder.join("Cargo.toml");
-        let Some(manifest) = read(&path)? else {
-            continue;
-        };
-        let Some(package) = manifest.entry("package") else {
-            continue;
-        };
-        let Some(table) = package.value.as_table() else {
-            continue;
-        };
-        let found = match table.entry("edition") {
-            None => Edition {
-                edition: "2015".to_string(),
+/// The edition of the package whose manifest is `path` (in `folder`); `None` when there is
+/// no manifest there or it has no `[package]`.
+pub(super) fn manifest_edition(path: &Path, folder: &Path) -> Result<Option<Edition>, String> {
+    let path = path.to_path_buf();
+    let Some(manifest) = read(&path)? else {
+        return Ok(None);
+    };
+    let Some(package) = manifest.entry("package") else {
+        return Ok(None);
+    };
+    let Some(table) = package.value.as_table() else {
+        return Ok(None);
+    };
+    let found = match table.entry("edition") {
+        None => Edition {
+            edition: "2015".to_string(),
+            path,
+            line: package.line,
+        },
+        Some(entry) => match &entry.value {
+            Value::String(edition) => Edition {
+                edition: edition.clone(),
                 path,
-                line: package.line,
+                line: entry.line,
             },
-            Some(entry) => match &entry.value {
-                Value::String(edition) => Edition {
-                    edition: edition.clone(),
-                    path,
-                    line: entry.line,
-                },
-                Value::Table(t) if t.get("workspace").and_then(Value::as_bool) == Some(true) => {
-                    workspace_edition(folder)?.ok_or_else(|| {
-                        format!(
-                            "{}: `edition.workspace = true`, but no workspace above it sets \
+            Value::Table(t) if t.get("workspace").and_then(Value::as_bool) == Some(true) => {
+                workspace_edition(folder)?.ok_or_else(|| {
+                    format!(
+                        "{}: `edition.workspace = true`, but no workspace above it sets \
                              `workspace.package.edition`",
-                            path.display()
-                        )
-                    })?
-                }
-                other => {
-                    return Err(format!(
-                        "{}:{}: `package.edition` must be a string, not a {}",
-                        path.display(),
-                        entry.line,
-                        other.type_name()
-                    ));
-                }
-            },
-        };
-        return Ok(Some(found));
-    }
-    Ok(None)
+                        path.display()
+                    )
+                })?
+            }
+            other => {
+                return Err(format!(
+                    "{}:{}: `package.edition` must be a string, not a {}",
+                    path.display(),
+                    entry.line,
+                    other.type_name()
+                ));
+            }
+        },
+    };
+    Ok(Some(found))
 }
 
 /// The parsed manifest at `path`, or `None` if there is none.

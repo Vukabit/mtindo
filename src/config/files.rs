@@ -60,40 +60,32 @@ impl Environment {
     }
 }
 
-/// The `mto.toml` in `folder`, if any. When both names exist, `.mto.toml` is used, as
-/// rustfmt prefers `.rustfmt.toml`, and `warn` is told.
-pub(super) fn mto_file(folder: &Path, warn: &mut dyn FnMut(String)) -> Option<PathBuf> {
-    let found: Vec<PathBuf> = MTO_NAMES
-        .iter()
-        .map(|name| folder.join(name))
-        .filter(|path| path.is_file())
-        .collect();
-    if found.len() > 1 {
-        warn(format!(
-            "both {} and {} exist; using {}",
-            found[0].display(),
-            found[1].display(),
-            found[0].display()
-        ));
-    }
-    found.into_iter().next()
+/// The configuration files one folder holds, found once per folder and remembered.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Folder {
+    pub rustfmt: Option<PathBuf>,
+    pub mto: Option<PathBuf>,
+    /// Both `.mto.toml` and `mto.toml` exist.
+    pub both_mto: bool,
+    pub cargo: Option<PathBuf>,
 }
 
-/// The `rustfmt.toml` rustfmt would use for files in `dir`: the nearest one in `dir` or a
-/// parent, else one in the home folder, else one in the `rustfmt` configuration folder.
-pub(super) fn rustfmt_file(dir: &Path, env: &Environment) -> Option<PathBuf> {
-    let in_folder = |folder: &Path| {
-        RUSTFMT_NAMES
-            .iter()
-            .map(|name| folder.join(name))
-            .find(|path| path.is_file())
-    };
-    dir.ancestors()
-        .find_map(in_folder)
-        .or_else(|| env.home.as_deref().and_then(in_folder))
-        .or_else(|| {
-            env.os_config_dir
-                .as_ref()
-                .and_then(|d| in_folder(&d.join("rustfmt")))
-        })
+impl Folder {
+    pub fn scan(folder: &Path) -> Folder {
+        let first = |names: &[&str]| -> Vec<PathBuf> {
+            names
+                .iter()
+                .map(|name| folder.join(name))
+                .filter(|path| path.is_file())
+                .collect()
+        };
+        let mto = first(&MTO_NAMES);
+        let cargo = folder.join("Cargo.toml");
+        Folder {
+            rustfmt: first(&RUSTFMT_NAMES).into_iter().next(),
+            both_mto: mto.len() > 1,
+            mto: mto.into_iter().next(),
+            cargo: cargo.is_file().then_some(cargo),
+        }
+    }
 }

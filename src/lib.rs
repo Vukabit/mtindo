@@ -33,7 +33,7 @@ enum DiffOp {
     Insert(usize),
 }
 
-/// What a run produces, as rustfmt's `--emit`.
+/// What a run produces, as the standard formatter's `--emit` says.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Emit {
     /// Write each changed file.
@@ -41,7 +41,7 @@ pub enum Emit {
     Files,
     /// Print each file, laid out, to stdout; write nothing.
     Stdout,
-    /// Print rustfmt's JSON report of the files that would change; write nothing.
+    /// Print the JSON report of the files that would change; write nothing.
     Json,
 }
 
@@ -151,7 +151,7 @@ impl FileReport {
     }
 }
 
-/// One changed region, as rustfmt's `make_diff` groups them.
+/// One changed region, as the standard formatter's diff groups them.
 struct Mismatch {
     /// The first line shown, in the new text and in the original.
     line_number: u32,
@@ -242,10 +242,48 @@ pub fn c_yellow(is_err: bool) -> &'static str {
     }
 }
 
+/// What `--check` prints for a file, exactly as the standard formatter prints it: `Diff in
+/// FILE:LINE:` for each changed region, then its lines, with three lines of context.
+/// `verbose` marks line ends with `⏎`, as the standard formatter's `-v` does.
+pub fn check_diff(old: &str, new: &str, label: &str, verbose: bool) -> String {
+    let end = if verbose { "⏎" } else { "" };
+    let mut out = String::new();
+    for mismatch in mismatches(old, new, 3) {
+        out.push_str(&format!(
+            "Diff in {}:{}:\n",
+            label, mismatch.line_number_orig
+        ));
+        for line in mismatch.lines {
+            match line {
+                MismatchLine::Context(text) => out.push_str(&format!(" {}{}\n", text, end)),
+                MismatchLine::Expected(text) => out.push_str(&format!(
+                    "{}+{}{}{}\n",
+                    c_green(),
+                    text,
+                    end,
+                    c_reset(false)
+                )),
+                MismatchLine::Resulting(text) => out.push_str(&format!(
+                    "{}-{}{}{}\n",
+                    if color_enabled(false) {
+                        "\x1b[1;31m"
+                    } else {
+                        ""
+                    },
+                    text,
+                    end,
+                    c_reset(false)
+                )),
+            }
+        }
+    }
+    out
+}
+
 /// The files to lay out for `paths`, in order, each once: a folder is walked; a file brings
-/// the modules it declares, as rustfmt follows them, unless `--skip-children`. A walk passes
-/// over folders below its start that hold a repository of their own: another project, laid
-/// out only when named.
+/// the modules it declares, as the standard formatter follows them, unless
+/// `--skip-children`. A walk passes over folders below its start that hold a repository of
+/// their own: another project, laid out only when named.
 pub fn collect_jobs(
     paths: &[PathBuf],
     resolver: &mut config::Resolver,
@@ -416,7 +454,7 @@ pub fn process_stdin(
         } else {
             report
                 .stdout
-                .push_str(&rustfmt_diff(&source, &reorganized, &shown, opts.verbose));
+                .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose));
         }
     } else {
         report.stdout.push_str(&reorganized);
@@ -432,8 +470,8 @@ pub fn reorganize_file(source: String, config: &LayoutConfig, dbg: bool) -> Stri
 }
 
 /// Lays out one file: reads, arranges, verifies, then shows the diff (`--check`), names the
-/// file (`--dry-run`), or records and writes it. Nothing is printed; the report holds the output, so
-/// files can be processed in parallel and still print in order.
+/// file (`--dry-run`), or records and writes it. Nothing is printed; the report holds the
+/// output, so files can be processed in parallel and still print in order.
 pub fn run_file(
     file_path: &Path,
     config: &LayoutConfig,
@@ -465,7 +503,8 @@ pub fn run_file(
     let debug = opts.debug.then_some(&mut report.stdout);
     let (reorganized, edition) = match arrange(&source, config, debug) {
         Ok((text, edition, skipped)) => {
-            // Named as rustfmt names them: not the files that tell it to skip them.
+            // Named as the standard formatter names them: not the files that tell it to skip
+            // them.
             if opts.verbose && !skipped {
                 report
                     .stdout
@@ -526,7 +565,7 @@ pub fn run_file(
         } else {
             report
                 .stdout
-                .push_str(&rustfmt_diff(&source, &reorganized, &shown, opts.verbose));
+                .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose));
         }
         return report.with(Outcome::Changed);
     }
@@ -670,44 +709,6 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions, writes: &mut Writes) -> Vec<Don
         }
     });
     outcomes
-}
-
-/// What `--check` prints for a file, exactly as rustfmt prints it: `Diff in FILE:LINE:` for
-/// each changed region, then its lines, with three lines of context. `verbose` marks line
-/// ends with `⏎`, as rustfmt's `-v` does.
-pub fn rustfmt_diff(old: &str, new: &str, label: &str, verbose: bool) -> String {
-    let end = if verbose { "⏎" } else { "" };
-    let mut out = String::new();
-    for mismatch in mismatches(old, new, 3) {
-        out.push_str(&format!(
-            "Diff in {}:{}:\n",
-            label, mismatch.line_number_orig
-        ));
-        for line in mismatch.lines {
-            match line {
-                MismatchLine::Context(text) => out.push_str(&format!(" {}{}\n", text, end)),
-                MismatchLine::Expected(text) => out.push_str(&format!(
-                    "{}+{}{}{}\n",
-                    c_green(),
-                    text,
-                    end,
-                    c_reset(false)
-                )),
-                MismatchLine::Resulting(text) => out.push_str(&format!(
-                    "{}-{}{}{}\n",
-                    if color_enabled(false) {
-                        "\x1b[1;31m"
-                    } else {
-                        ""
-                    },
-                    text,
-                    end,
-                    c_reset(false)
-                )),
-            }
-        }
-    }
-    out
 }
 
 /// Reorders the items of one source file, or explains why the file was left alone.
@@ -946,7 +947,7 @@ fn diff_range(a: &[u32], a_at: usize, b: &[u32], b_at: usize, ops: &mut Vec<Diff
     ops.extend((0..suffix).map(|_| DiffOp::Equal));
 }
 
-/// `--emit stdout`: the file's name, as rustfmt prints it, then its text.
+/// `--emit stdout`: the file's name, as the standard formatter prints it, then its text.
 fn emit_stdout(report: &mut FileReport, shown: &str, text: &str, opts: &RunOptions) {
     if !opts.quiet {
         report.stdout.push_str(&format!("{}:\n\n", shown));
@@ -954,8 +955,8 @@ fn emit_stdout(report: &mut FileReport, shown: &str, text: &str, opts: &RunOptio
     report.stdout.push_str(text);
 }
 
-/// A file's entry in `--emit json`, as rustfmt writes it: its name and each changed block,
-/// with line ranges in the original and the new text.
+/// A file's entry in `--emit json`, as the standard formatter writes it: its name and each
+/// changed block, with line ranges in the original and the new text.
 fn json_report(name: &str, old: &str, new: &str) -> String {
     let mut blocks = Vec::new();
     for mismatch in mismatches(old, new, 0) {
@@ -1018,8 +1019,8 @@ fn json_string(text: &str) -> String {
 }
 
 /// The changed regions between `old` and `new` with `context` lines around each: a port of
-/// rustfmt's `make_diff`, over mto's own line diff. Lines are split as rustfmt's diff splits
-/// them, so a final line break leaves an empty last line.
+/// The standard formatter's diff regions, over mto's own line diff. Lines are split as its
+/// diff splits them, so a final line break leaves an empty last line.
 fn mismatches(old: &str, new: &str, context: usize) -> Vec<Mismatch> {
     let a: Vec<&str> = old.split('\n').collect();
     let b: Vec<&str> = new.split('\n').collect();
@@ -1282,9 +1283,9 @@ mod tests {
             .collect()
     }
 
-    // rustfmt's own tests of `make_diff` (src/rustfmt_diff.rs).
+    // The standard formatter's own tests of its diff, ported.
     #[test]
-    fn test_mismatches_match_rustfmts_make_diff() {
+    fn test_mismatches_match_the_standard_diff() {
         let lines = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
             shape(

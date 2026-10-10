@@ -41,9 +41,9 @@ fn test_defaults_are_legal_values() {
 }
 
 #[test]
-fn test_every_rustfmt_option_is_in_the_table() {
-    // The capabilities reader and the settings generator read rustfmt's source separately;
-    // they must find the same options.
+fn test_every_formatting_option_is_in_the_table() {
+    // The capabilities reader and the settings generator read the standard formatter's
+    // source separately; they must find the same options.
     let surface = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("compat/rustfmt-surface.txt"),
     )

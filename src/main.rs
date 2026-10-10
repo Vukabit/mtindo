@@ -232,7 +232,7 @@ const FLAGS: &[FlagSpec] = &[
         short: None,
         long: "--print-config",
         value: "<default|minimal|current> [PATH]",
-        help: "Print rustfmt's settings, as rustfmt does, and exit",
+        help: "Print the formatting settings as the standard formatter prints them, and exit",
     },
     FlagSpec {
         flag: Flag::StyleEdition,
@@ -248,7 +248,7 @@ const FLAGS: &[FlagSpec] = &[
         short: None,
         long: "--unstable-features",
         value: "",
-        help: "Accepted for rustfmt compatibility; mto applies every setting on every channel",
+        help: "Accepted for compatibility; mto applies every setting on every channel",
     },
     FlagSpec {
         flag: Flag::AllowDirty,
@@ -386,8 +386,8 @@ const HELP_COLUMN: usize = 30;
 /// The manual's opening: what mto is and how it works.
 const MAN_INTRO: &str = r#"# mtindo (mto)
 `mtindo` is a dependency-free layout tool for Rust source files. Its command
-is `mto`. While `rustfmt` handles spacing and line wrapping inside items, `mto`
-reorders the top-level items of a file (modules, imports, macros, constants,
+is `mto`. While the standard formatter handles spacing and line wrapping inside
+items, `mto` reorders the top-level items of a file (modules, imports, macros, constants,
 types with their impls, functions) into a predictable top-down layout.
 It never changes the inside of an item.
 Layout is opt-in: until an `mto.toml` with `layout = true` applies, mto
@@ -402,14 +402,14 @@ new blank lines between them. Anything else stops the write (exit code 4).
 *   **Every level:** the same rules apply inside inline `mod name { ... }`
 blocks, at every level; impl blocks are ordered only when asked
 (`reorder_impl_items`, `impl_method_order`).
-*   **Agrees with rustfmt:** imports and `mod` declarations sort exactly as
-rustfmt sorts them for the style edition, and blank lines stay within rustfmt's
-bounds, so rustfmt leaves the layout alone.
+*   **Keeps to the Rust style:** imports and `mod` declarations sort exactly as
+the standard formatter sorts them for the style edition, and blank lines stay
+within its bounds, so formatting leaves the layout alone.
 *   **Sticky Impl Grouping:** `impl Type` and `impl Trait for Type` blocks are
 kept directly beneath the type they implement, its own impls first.
 *   **Visibility Hierarchy:** Items of the same kind are ordered by visibility
 (`visibility_order`), then by name (`name_sort`); modules are ordered by name
-alone, as rustfmt does.
+alone, as the standard formatter does.
 *   **Order-Sensitive Items Stay Put:** The file header (shebang, `//!`,
 `#![...]`), `macro_rules!` order, `#[macro_use]` modules, `extern crate`, and
 item-position macro calls are never moved past each other; a macro never ends
@@ -602,7 +602,7 @@ impl Group {
             Group::Configuration => "configuration",
             Group::History => "history and safety",
             Group::Output => "output",
-            Group::Compatibility => "rustfmt compatibility",
+            Group::Compatibility => "compatibility",
             Group::General => "general",
             Group::Command => "command options",
         }
@@ -822,7 +822,7 @@ fn history_store() -> Result<(history::Settings, mtindo::history::History), i32>
 /// The name a configuration file kind is shown with.
 fn kind_label(kind: FileKind) -> &'static str {
     match kind {
-        FileKind::Rustfmt => "rustfmt config",
+        FileKind::Standard => "formatting config",
         FileKind::Mto => "mto config",
         FileKind::Explicit => "config (--config-path)",
         FileKind::User => "user config",
@@ -944,7 +944,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
-        // `--flag=value` is read as `--flag value`, as rustfmt allows.
+        // `--flag=value` is read as `--flag value`, as the standard formatter allows.
         let (arg, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
             _ => (arg, None),
@@ -1786,9 +1786,9 @@ fn run_history(view: HistoryView) -> i32 {
     }
 }
 
-/// `--print-config`, as rustfmt prints it: rustfmt's settings as TOML, ready for a
-/// `rustfmt.toml`. `default` and `minimal` go to PATH when given, else stdout; `current`
-/// prints the settings for PATH (a file or folder; the current folder by default).
+/// `--print-config`, as the standard formatter prints it: the formatting settings as TOML,
+/// ready for a `rustfmt.toml`. `default` and `minimal` go to PATH when given, else stdout;
+/// `current` prints the settings for PATH (a file or folder; the current folder by default).
 fn run_print_config(kind: PrintKind, path: Option<&Path>, overrides: &Overrides) -> i32 {
     let mut resolver = match resolver(overrides) {
         Ok(resolver) => resolver,

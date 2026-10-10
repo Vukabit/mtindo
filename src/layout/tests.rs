@@ -93,7 +93,7 @@ fn test_every_spelling_of_rustfmt_skip_is_honored() {
         arranged(item),
         "fn a() {}\n\n#[cfg_attr(rustfmt, rustfmt_skip)]\nfn m() {}\n\nfn z() {}\n"
     );
-    // A condition other than `rustfmt` is not a skip.
+    // Any other `cfg_attr` condition is not a skip.
     let other = "#![cfg_attr(feature = \"x\", rustfmt_skip)]\nfn b() {}\nfn a() {}\n";
     assert_ne!(arranged(other), other);
 }
@@ -202,7 +202,7 @@ fn test_imports_group_and_declarations_stay_together() {
 }
 
 #[test]
-fn test_imports_sort_as_rustfmt_does_for_the_style_edition() {
+fn test_imports_sort_as_the_standard_formatter_does_for_the_style_edition() {
     let source =
         "use x::u16;\nuse x::u8;\nuse x::Z;\nuse x::a;\nuse super::*;\nuse super::m::{Y, Z};\n";
     let with = |style_edition: u16, import_sort: Option<u16>| {
@@ -241,7 +241,7 @@ fn test_inline_modules_are_laid_out_at_every_level() {
 }
 
 #[test]
-fn test_modules_sort_as_rustfmt_does() {
+fn test_modules_sort_as_the_standard_formatter_does() {
     // Without `r#`, by bytes; a test module declared last stands apart from the others.
     let source = "#[cfg(test)]\nmod tests;\nmod r#type;\nmod b;\nmod Z;\n";
     assert_eq!(
@@ -350,7 +350,7 @@ fn test_pinned_items_keep_their_slot() {
 }
 
 #[test]
-fn test_reorder_impl_items_as_rustfmt_does() {
+fn test_reorder_impl_items_as_the_standard_formatter_does() {
     let source = "impl Iterator for D {\n    fn next(&mut self) {}\n    m!();\n    const B: u8 = 1;\n    type Z = impl Sized;\n    type Item = i32;\n    const A: u8 = 0;\n}\n";
     let config = LayoutConfig {
         reorder_impl_items: true,
@@ -384,8 +384,8 @@ fn test_section_comments_move_with_their_item() {
 
 /// With no blank lines between items, a comment that stood apart from the item below it
 /// still keeps one blank line, since touching the item would attach it there; so do import
-/// groups, which rustfmt would otherwise sort into one. Found by the race's
-/// layout rows on rustfmt's test inputs, which the verifier refused to write.
+/// groups, which the standard formatter would otherwise sort into one. Found by the race's
+/// layout rows on the standard formatter's test inputs, which the verifier refused to write.
 #[test]
 fn test_spacing_zero_keeps_loose_comments_loose() {
     let config = LayoutConfig {
@@ -403,7 +403,7 @@ fn test_spacing_zero_keeps_loose_comments_loose() {
             "fn z() {}\n\n// section\n\nfn a() {}\n",
             "// section\n\nfn a() {}\nfn z() {}\n",
         ),
-        // Import groups: rustfmt would sort touching groups into one.
+        // Import groups: the standard formatter would sort touching groups into one.
         (
             "use crate::b;\nuse std::a;\nfn f() {}\n",
             "use std::a;\n\nuse crate::b;\nfn f() {}\n",

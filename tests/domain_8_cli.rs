@@ -207,7 +207,7 @@ fn test_cli_check_no_drift() {
 }
 
 #[test]
-fn test_cli_check_prints_rustfmts_diff() {
+fn test_cli_check_prints_the_standard_diff() {
     let env = TestEnvironment::new();
     env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
     let output = env.mto_cmd().args(["--check", "main.rs"]).output().unwrap();
@@ -276,7 +276,7 @@ fn test_cli_config_path_and_print() {
         names,
         [
             "user config",
-            "rustfmt config",
+            "formatting config",
             "mto config",
             "Cargo.toml (edition)",
             "history"
@@ -420,7 +420,8 @@ fn test_cli_config_sets_values_and_refuses_a_file() {
     assert_eq!(output.status.code(), Some(1), "{}", stdout);
     assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
 
-    // rustfmt's meaning: `--config FILE` is a mistake for `--config-path FILE` (S2-12).
+    // The standard formatter's meaning: `--config FILE` is a mistake for `--config-path
+    // FILE` (S2-12).
     let output = env
         .mto_cmd()
         .args(["--config", "custom.toml", "main.rs"])
@@ -565,7 +566,7 @@ fn test_cli_emit_stdout_and_json() {
 }
 
 #[test]
-fn test_cli_files_bring_their_modules_like_rustfmt() {
+fn test_cli_files_bring_their_modules() {
     let env = TestEnvironment::new();
     env.write_file("src/lib.rs", "mod b;\nmod a;\n");
     env.write_file("src/a.rs", "fn z() {}\nfn y() {}\n");
@@ -762,7 +763,7 @@ fn test_cli_options_without_a_path_are_an_error() {
 }
 
 #[test]
-fn test_cli_print_config_like_rustfmt() {
+fn test_cli_print_config_like_the_standard_formatter() {
     let env = TestEnvironment::new();
     env.write_file("rustfmt.toml", "max_width = 80\n");
     let output = env
@@ -783,7 +784,7 @@ fn test_cli_print_config_like_rustfmt() {
     assert!(stdout.contains("\nmax_width = 100\n"), "{}", stdout);
     assert!(
         !stdout.contains("type_order"),
-        "only rustfmt's settings: {}",
+        "only the standard formatter's settings: {}",
         stdout
     );
     env.mto_cmd()

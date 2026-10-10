@@ -3,16 +3,16 @@
 //!
 //! 1. `#[cfg(test)]` modules last;
 //! 2. imports, when `sort_imports` is on: by group (standard library, external, this crate)
-//!    when `import_grouping` is on, then as rustfmt sorts them ([`super::imports`]); when it
-//!    is off, in the order they were written;
+//!    when `import_grouping` is on, then as the standard formatter sorts them
+//!    ([`super::imports`]); when it is off, in the order they were written;
 //! 3. `type_order`, with an impl ranked as the type it is for when `group_impls` is on;
 //! 4. with `group_impls`, a type's impls next to it, types ordered by name; impls of one
 //!    type: its own first (as written), then trait impls by `trait_impl_order` and
 //!    `trait_impl_sort`;
 //! 5. `type_order` of the unit itself;
 //! 6. `macro_rules!` and `#[macro_use]` modules in their original order;
-//! 7. modules by name, ignoring visibility, as rustfmt orders them (by bytes through
-//!    style edition 2024, by version after it);
+//! 7. modules by name, ignoring visibility, as the standard formatter orders them (by bytes
+//!    through style edition 2024, by version after it);
 //! 8. visibility in `visibility_order`, then name in `name_sort` order when
 //!    `sort_alphabetically` is on.
 //!
@@ -63,7 +63,7 @@ fn compare(
     }
     if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && !config.sort_imports {
         // Unsorted imports keep their written order; sorting them by name would read
-        // names from text that rustfmt rewrites, so the order would not settle.
+        // names from text that the standard formatter rewrites, so the order would not settle.
         return a.index.cmp(&b.index);
     }
     if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && config.sort_imports {
@@ -139,8 +139,8 @@ fn compare(
             return a.index.cmp(&b.index);
         }
         if config.sort_alphabetically {
-            // As rustfmt orders `mod` declarations: by bytes through style edition 2024.
-            // rustfmt compares the names without `r#`.
+            // As the standard formatter orders `mod` declarations: by bytes through style
+            // edition 2024. The standard formatter compares the names without `r#`.
             let (x, y) = (
                 a.identifier.trim_start_matches("r#"),
                 b.identifier.trim_start_matches("r#"),

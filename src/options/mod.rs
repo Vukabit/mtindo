@@ -1,10 +1,10 @@
 //! Layer 1: plain settings types, with no parsing or I/O.
 //!
 //! The settings table: every key mto accepts in a configuration file, with its type, legal
-//! values, defaults and documentation. rustfmt's keys are generated from rustfmt's own source
-//! (`rustfmt.rs`, written by `cargo xtask settings`); mto's own keys are written by hand
-//! (`mto.rs`). The manual, `mto config print` and configuration checking all read this table,
-//! so they cannot disagree.
+//! values, defaults and documentation. The formatting keys are generated from the standard
+//! formatter's own source (the generated `options/rustfmt.rs`, written by `cargo xtask
+//! settings`); mto's own keys are written by hand (`mto.rs`). The manual, `mto config
+//! print` and configuration checking all read this table, so they cannot disagree.
 
 pub mod layout;
 mod mto;
@@ -16,7 +16,8 @@ pub use rustfmt::RUSTFMT_VERSION;
 /// Which configuration files may hold a setting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum File {
-    /// rustfmt's settings: `rustfmt.toml`, `.rustfmt.toml`, `mto.toml` or `.mto.toml`.
+    /// The standard formatter's settings: `rustfmt.toml`, `.rustfmt.toml`, `mto.toml` or
+    /// `.mto.toml`.
     Format,
     /// mto's layout settings: `mto.toml` or `.mto.toml` only.
     Mto,
@@ -40,12 +41,13 @@ pub enum Kind {
     List,
     /// An array of values from a fixed set, in order.
     Sequence(&'static [Choice]),
-    /// A value rustfmt sets itself (on its command line or from other settings); accepted in
-    /// a file for compatibility and otherwise ignored.
+    /// A value the standard formatter sets itself (on its command line or from other
+    /// settings); accepted in a file for compatibility and otherwise ignored.
     Internal,
 }
 
-/// Whether a rustfmt release channel has a setting or value, and whether it calls it stable.
+/// Whether a release channel of the standard formatter has a setting or value, and whether it
+/// calls it stable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stability {
     Absent,
@@ -53,7 +55,7 @@ pub enum Stability {
     Stable,
 }
 
-/// A setting's or value's [`Stability`] in rustfmt's stable and nightly releases.
+/// A setting's or value's [`Stability`] in the standard formatter's stable and nightly releases.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Channels {
     pub stable: Stability,
@@ -86,7 +88,7 @@ pub struct Setting {
     pub doc: &'static str,
     /// `None` for mto's own settings.
     pub channels: Option<Channels>,
-    /// Left out of rustfmt's own listings (deprecated or internal).
+    /// Left out of the standard formatter's own listings (deprecated or internal).
     pub hidden: bool,
     /// The setting that replaces a deprecated one.
     pub replaced_by: Option<&'static str>,
@@ -110,7 +112,7 @@ impl Setting {
     }
 }
 
-/// Every setting: rustfmt's in name order, then mto's own, then the per-user ones.
+/// Every setting: the standard formatter's in name order, then mto's own, then the per-user ones.
 pub fn all() -> impl Iterator<Item = &'static Setting> {
     rustfmt::SETTINGS
         .iter()

@@ -1,9 +1,10 @@
 //! Ordering inside impl blocks, both optional:
 //!
-//! - **`reorder_impl_items`** (rustfmt's setting, honored as rustfmt applies it): associated
-//!   types first (plain ones, then `impl Trait` ones, each by name), then consts by name,
-//!   then macro calls, then functions in their order; items of different kinds, and
-//!   functions, are a blank line apart, while consecutive types or consts are not;
+//! - **`reorder_impl_items`** (the standard formatter's setting, honored as the standard
+//!   formatter applies it): associated types first (plain ones, then `impl Trait` ones,
+//!   each by name), then consts by name, then macro calls, then functions in their order;
+//!   items of different kinds, and functions, are a blank line apart, while consecutive
+//!   types or consts are not;
 //! - **`impl_method_order = "trait"`**: in an impl of a trait declared in the same file
 //!   (under one name only), the functions follow the trait's order. Only the functions swap
 //!   places; everything else, blank lines included, stays where it was.
@@ -96,7 +97,7 @@ pub(super) fn impl_with_items_ordered(
         return None;
     }
     if config.reorder_impl_items {
-        // rustfmt moves macro calls in impls like any other item.
+        // The standard formatter moves macro calls in impls like any other item.
         for unit in units.iter_mut() {
             if unit.macro_call {
                 unit.pinned = false;
@@ -118,7 +119,8 @@ pub(super) fn impl_with_items_ordered(
         place(&units, |a, b| {
             let (ka, kb) = (key(a), key(b));
             ka.cmp(&kb).then_with(|| match ka {
-                // Types and consts by name, as rustfmt sorts them; functions by the trait.
+                // Types and consts by name, as the standard formatter sorts them; functions
+                // by the trait.
                 0..=2 => a.identifier.cmp(&b.identifier),
                 5 => fn_order(a, b),
                 _ => Ordering::Equal,
@@ -181,8 +183,9 @@ fn assoc_list(node: &SyntaxNode) -> Option<SyntaxNode> {
         .find(|c| c.kind() == SyntaxKind::AssocItemList)
 }
 
-/// The unit's place in rustfmt's `reorder_impl_items` order: a plain associated type 0, an
-/// `impl Trait` one 1, a const 2, a macro call 3, anything else 4, a function 5.
+/// The unit's place in the standard formatter's `reorder_impl_items` order: a plain
+/// associated type 0, an `impl Trait` one 1, a const 2, a macro call 3, anything else 4, a
+/// function 5.
 fn impl_item_rank(unit: &Unit, text: &str) -> u8 {
     match unit.kind {
         ItemKind::TypeAlias => {

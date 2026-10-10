@@ -181,7 +181,7 @@ fn article(type_name: &str) -> String {
 }
 
 /// The table's spelling of `text` among the setting's choices, matched without regard to
-/// case as rustfmt does.
+/// case as the standard formatter does.
 fn choice(setting: &Setting, text: &str) -> Result<String, String> {
     setting
         .choices()

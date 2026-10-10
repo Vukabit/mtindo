@@ -60,7 +60,7 @@ fn error(tree: &Tree, sub: &str) -> String {
 }
 
 #[test]
-fn test_blank_lines_stay_within_rustfmt_bounds() {
+fn test_blank_lines_stay_within_the_formatting_bounds() {
     let tree = Tree::new(&[(
         "mto.toml",
         "layout = true\nblank_lines_between_blocks = 2\n",
@@ -69,7 +69,7 @@ fn test_blank_lines_stay_within_rustfmt_bounds() {
     assert_eq!(config.layout().blank_lines_between_blocks, 1);
     assert!(
         warnings[0].contains(
-            "outside rustfmt's blank-line bounds (0 to 1), which rustfmt would undo; mto uses 1"
+            "outside `blank_lines_lower_bound` and `blank_lines_upper_bound` (0 to 1), which formatting keeps to; mto uses 1"
         ),
         "{:?}",
         warnings
@@ -272,7 +272,7 @@ fn test_mto_files_inherit_until_root() {
 }
 
 #[test]
-fn test_mto_toml_wins_over_rustfmt_toml_with_a_warning() {
+fn test_mto_toml_wins_over_the_standard_file_with_a_warning() {
     let tree = Tree::new(&[
         ("rustfmt.toml", "max_width = 80\nhard_tabs = true\n"),
         ("mto.toml", "max_width = 90\nhard_tabs = true\n"),
@@ -289,7 +289,7 @@ fn test_mto_toml_wins_over_rustfmt_toml_with_a_warning() {
 }
 
 #[test]
-fn test_rustfmt_toml_is_found_as_rustfmt_finds_it() {
+fn test_the_standard_file_is_found_as_the_standard_formatter_finds_it() {
     let tree = Tree::new(&[
         ("rustfmt.toml", "max_width = 80\n"),
         ("a/rustfmt.toml", "hard_tabs = true\n"),
@@ -297,7 +297,7 @@ fn test_rustfmt_toml_is_found_as_rustfmt_finds_it() {
         ("home/rustfmt.toml", "max_width = 70\n"),
         ("config/rustfmt/rustfmt.toml", "max_width = 60\n"),
     ]);
-    // The nearest file is used alone: rustfmt does not merge.
+    // The nearest file is used alone: the standard formatter does not merge.
     let (config, _) = config(&tree, "a/b");
     assert_eq!(text(&config, "max_width"), "100");
     assert_eq!(

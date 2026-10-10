@@ -23,6 +23,11 @@ pub const GATES: &[Gate] = &[
         "modules under src/ only use layers below them",
         check_layering,
     ),
+    (
+        "naming",
+        "the reference formatter is named only where the name does work",
+        check_naming,
+    ),
 ];
 
 /// Each manifest and the dependencies it may declare. mtindo is std-only; xtask (the test
@@ -49,6 +54,39 @@ const LAYERS: &[(&str, u8)] = &[
     ("config", 4),
     ("cli", 5),
 ];
+
+/// Where the reference formatter's name may appear anywhere: the tooling that runs it as
+/// the answer key, its recorded surface and capabilities, the settings table generated from
+/// it, and test inputs taken from it.
+const NAMING_ALLOWED_PATHS: &[&str] = &[
+    "xtask/",
+    "compat/",
+    "fuzz/",
+    "src/options/rustfmt.rs",
+    "tests/fixtures/",
+];
+
+/// Spellings of the name that do work wherever they appear: its configuration files, the
+/// attributes that tell formatters to skip an item, and the generated table's module.
+const NAMING_ALLOWED_SPELLINGS: &[&str] = &[
+    ".rustfmt.toml",
+    "rustfmt.toml",
+    "rustfmt::skip",
+    "rustfmt_skip",
+    "cfg_attr(rustfmt",
+    "RUSTFMT_VERSION",
+    "rustfmt::SETTINGS",
+    "mod rustfmt;",
+    "options/rustfmt.rs",
+    "\"rustfmt\"",
+    "rustfmt-surface.txt",
+    "rustfmt::RUSTFMT_VERSION",
+    "config/rustfmt/",
+];
+
+/// README sections where the name is the point: the credits, and the development commands
+/// that run it.
+const NAMING_README_SECTIONS: &[&str] = &["## Credits", "## Development"];
 
 /// Every gate: (name, what it checks, check). `all` runs them in this order.
 /// A gate: (name, what it checks, check returning the problems found).
@@ -131,6 +169,34 @@ pub fn check_layering(root: &Path) -> Vec<String> {
                 &relative.display().to_string(),
                 &content,
             ));
+        }
+    }
+    problems
+}
+
+/// The reference formatter is named only where the name does work (S3-9): elsewhere, prose
+/// says "the Rust style" or "the standard formatter".
+pub fn check_naming(root: &Path) -> Vec<String> {
+    let output = Command::new("git")
+        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+        .current_dir(root)
+        .output();
+    let listing = match output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
+        _ => return vec!["naming: cannot list files with git".to_string()],
+    };
+    let mut files: Vec<&str> = listing.lines().filter(|line| !line.is_empty()).collect();
+    files.sort();
+    files.dedup();
+    let mut problems = Vec::new();
+    for file in files {
+        if NAMING_ALLOWED_PATHS.iter().any(|p| file.starts_with(p)) {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(root.join(file)) {
+            problems.extend(stray_names(file, &text));
         }
     }
     problems
@@ -301,8 +367,42 @@ fn runtime_dependencies(manifest: &str) -> Vec<String> {
     entries
 }
 
-/// The top-level module a file under `src/` belongs to, e.g. `syntax` for `src/syntax/lexer/mod.rs`.
-/// Files directly in `src/` other than `<module>.rs` (such as `lib.rs` and `main.rs`) belong to none.
+/// The lines of `text` that name the reference formatter outside the allowed spellings (and,
+/// in the README, outside the allowed sections).
+fn stray_names(file: &str, text: &str) -> Vec<String> {
+    let readme = file == "README.md";
+    let mut allowed_section = false;
+    let mut problems = Vec::new();
+    for (idx, line) in text.lines().enumerate() {
+        if readme && line.starts_with("## ") {
+            allowed_section = NAMING_README_SECTIONS.contains(&line.trim_end());
+        }
+        if allowed_section {
+            continue;
+        }
+        // Longest first, so a spelling inside a longer one cannot leave part of it behind.
+        let mut spellings = NAMING_ALLOWED_SPELLINGS.to_vec();
+        spellings.sort_by_key(|s| std::cmp::Reverse(s.len()));
+        let mut rest = line.to_string();
+        for spelling in spellings {
+            rest = rest.replace(spelling, "");
+        }
+        if rest.to_ascii_lowercase().contains("rustfmt") {
+            problems.push(format!(
+                "{}:{}: names the reference formatter; say \"the Rust style\" or \"the \
+                 standard formatter\" (S3-9): {}",
+                file,
+                idx + 1,
+                line.trim()
+            ));
+        }
+    }
+    problems
+}
+
+/// The top-level module a file under `src/` belongs to, e.g. `syntax` for
+/// `src/syntax/lexer/mod.rs`. Files directly in `src/` other than `<module>.rs` (such as
+/// `lib.rs` and `main.rs`) belong to none.
 fn top_module(src: &Path, file: &Path) -> Option<String> {
     let relative = file.strip_prefix(src).ok()?;
     let mut components = relative.components();
@@ -357,6 +457,22 @@ mod tests {
             long_lines("README.md", &text),
             vec!["README.md:3: 81 columns (limit 80)"]
         );
+    }
+
+    #[test]
+    fn test_naming_allows_only_the_spellings_that_do_work() {
+        let text = "// reads rustfmt.toml and .rustfmt.toml\n#[rustfmt::skip]\n\
+                    // as rustfmt sorts them\nlet x = Rustfmt;\n";
+        let problems = stray_names("src/a.rs", text);
+        assert_eq!(problems.len(), 2, "{:?}", problems);
+        assert!(problems[0].starts_with("src/a.rs:3:"));
+        // In the README, only the credits and development sections may name it.
+        let readme = "# t\nuses rustfmt\n## Credits\nthanks to rustfmt\n## Usage\nrustfmt\n";
+        let lines: Vec<String> = stray_names("README.md", readme)
+            .iter()
+            .map(|p| p.split(':').nth(1).unwrap().to_string())
+            .collect();
+        assert_eq!(lines, ["2", "6"]);
     }
 
     #[test]

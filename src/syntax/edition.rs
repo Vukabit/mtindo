@@ -10,7 +10,7 @@ pub enum Edition {
 }
 
 impl Edition {
-    /// The edition rustfmt assumes when none is given.
+    /// The edition the standard formatter assumes when none is given.
     pub const DEFAULT: Edition = Edition::E2015;
     pub const LATEST: Edition = Edition::E2024;
 

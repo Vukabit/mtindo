@@ -18,7 +18,8 @@
 //!   `#[cfg(windows)] fn f`) are one unit, so the variants stay together;
 //! - **the tail:** comments after the last item, kept last.
 //!
-//! A file whose header has `#![rustfmt::skip]` is left as it is, as rustfmt leaves it.
+//! A file whose header has `#![rustfmt::skip]` is left as it is, as the standard formatter
+//! leaves it.
 //!
 //! The body of an inline module (`mod name { ... }`) is laid out the same way, at every
 //! level, at its own indentation; a body on one line with its braces is left as written.
@@ -48,7 +49,8 @@ pub const SYNTAX_ERRORS: &str = "the file has syntax errors";
 pub struct Layout {
     pub before: Vec<Unit>,
     pub after: Vec<Unit>,
-    /// The file tells rustfmt to skip it (`#![rustfmt::skip]`), so it was left as it is.
+    /// The file tells the standard formatter to skip it (`#![rustfmt::skip]`), so it was
+    /// left as it is.
     pub skipped: bool,
     pub text: String,
     /// The edition the file was parsed with (see [`parse_any_edition`]).
@@ -100,7 +102,7 @@ pub struct Unit {
     pub module_declaration: bool,
     /// For a `use`: standard library, external crate or this crate.
     pub import_group: Option<ImportGroup>,
-    /// For a `use`: its tree as rustfmt sorts it.
+    /// For a `use`: its tree as the standard formatter sorts it.
     pub use_tree: Option<imports::UseTree>,
 }
 
@@ -286,7 +288,7 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
     );
     let line = format!("{}{}", "\n".repeat(config.blank_lines_tight + 1), indent);
     // At least one blank line, whatever `blank_lines_between_blocks` says, where touching
-    // would change what the text means to a reader or to rustfmt.
+    // would change what the text means to a reader or to the standard formatter.
     let parted = format!(
         "{}{}",
         "\n".repeat(config.blank_lines_between_blocks.max(1) + 1),
@@ -312,15 +314,15 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
             let new_group = config.sort_imports
                 && config.import_grouping
                 && prev.import_group != unit.import_group;
-            // A `#[cfg(test)] mod tests;` sorted last stands apart, or rustfmt would sort it
-            // back among the declarations above it.
+            // A `#[cfg(test)] mod tests;` sorted last stands apart, or the standard
+            // formatter would sort it back among the declarations above it.
             let declarations = prev.module_declaration && unit.module_declaration;
             let both_declarations = declarations && prev.test_module == unit.test_module;
             if (both_imports && !new_group) || both_declarations {
                 output.push_str(&line);
             } else if both_imports || declarations {
-                // rustfmt sorts imports, and `mod` declarations, within runs not broken by
-                // a blank line, so groups touching would be sorted into one.
+                // The standard formatter sorts imports, and `mod` declarations, within runs
+                // not broken by a blank line, so groups touching would be sorted into one.
                 output.push_str(&parted);
             } else {
                 output.push_str(&apart);

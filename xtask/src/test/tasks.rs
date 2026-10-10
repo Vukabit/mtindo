@@ -226,6 +226,12 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
         Action::Check(gate("docs")),
     ));
     tasks.push(Task::new(
+        "naming",
+        "The reference formatter is named only where the name does work",
+        "gates",
+        Action::Check(gate("naming")),
+    ));
+    tasks.push(Task::new(
         "capabilities",
         "Every rustfmt option, value and flag has a status",
         "gates",

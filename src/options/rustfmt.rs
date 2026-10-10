@@ -462,7 +462,7 @@ pub(super) static SETTINGS: &[Setting] = &[
             },
             Choice {
                 name: "Diff",
-                doc: "Checks if a diff can be generated. If so, rustfmt outputs a diff and quits with exit code 1. This option is designed to be run in CI where a non-zero exit signifies non-standard code formatting. Used for `--check`.",
+                doc: "Checks if a diff can be generated. If so, the formatter outputs a diff and quits with exit code 1. This option is designed to be run in CI where a non-zero exit signifies non-standard code formatting. Used for `--check`.",
                 channels: Some(Channels {
                     stable: Stability::Unstable,
                     nightly: Stability::Unstable,
@@ -517,7 +517,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         default: "false",
         default_2024: None,
         summary: "Error if unable to get all lines within max_width.",
-        doc: "Error if Rustfmt is unable to get all lines within `max_width`, except for comments and string literals. If this happens, then it is a bug in Rustfmt. You might be able to work around the bug by refactoring your code to avoid long/complex expressions, usually by extracting a local variable or using a shorter name.",
+        doc: "Error if the formatter is unable to get all lines within `max_width`, except for comments and string literals. If this happens, then it is a bug in the formatter. You might be able to work around the bug by refactoring your code to avoid long/complex expressions, usually by extracting a local variable or using a shorter name.",
         channels: Some(Channels {
             stable: Stability::Unstable,
             nightly: Stability::Unstable,
@@ -1006,7 +1006,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         default: "\"Preserve\"",
         default_2024: None,
         summary: "Merge or split imports to the provided granularity.",
-        doc: "Controls how imports are structured in `use` statements. Imports will be merged or split to the configured level of granularity.\n\nSimilar to other `import` related configuration options, this option operates within the bounds of user-defined groups of imports. See `group_imports` for more information on import groups.\n\nNote that rustfmt will not modify the granularity of imports containing comments if doing so could potentially lose or misplace said comments.",
+        doc: "Controls how imports are structured in `use` statements. Imports will be merged or split to the configured level of granularity.\n\nSimilar to other `import` related configuration options, this option operates within the bounds of user-defined groups of imports. See `group_imports` for more information on import groups.\n\nNote that the formatter will not modify the granularity of imports containing comments if doing so could potentially lose or misplace said comments.",
         channels: Some(Channels {
             stable: Stability::Unstable,
             nightly: Stability::Unstable,
@@ -1461,7 +1461,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         default: "\"1.10.0\"",
         default_2024: None,
         summary: "Require a specific version of rustfmt.",
-        doc: "Require a specific version of rustfmt. If you want to make sure that the specific version of rustfmt is used in your CI, use this option.",
+        doc: "Require a specific version of the formatter. If you want to make sure that the specific version of the formatter is used in your CI, use this option.",
         channels: Some(Channels {
             stable: Stability::Unstable,
             nightly: Stability::Unstable,
@@ -1551,7 +1551,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         default: "[]",
         default_2024: None,
         summary: "Skip formatting the bodies of macros invoked with the following names.",
-        doc: "Skip formatting the bodies of macro invocations with the following names.\n\nrustfmt will not format any macro invocation for macros with names set in this list. Including the special value \"*\" will prevent any macro invocations from being formatted.\n\nNote: This option does not have any impact on how rustfmt formats macro definitions.",
+        doc: "Skip formatting the bodies of macro invocations with the following names.\n\nThe formatter will not format any macro invocation for macros with names set in this list. Including the special value \"*\" will prevent any macro invocations from being formatted.\n\nNote: This option does not have any impact on how the formatter formats macro definitions.",
         channels: Some(Channels {
             stable: Stability::Unstable,
             nightly: Stability::Unstable,
@@ -1953,7 +1953,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         kind: Kind::Choice(&[
             Choice {
                 name: "One",
-                doc: "1.x.y. When specified, rustfmt will format in the same style as 1.0.0.",
+                doc: "1.x.y. When specified, the formatter will format in the same style as 1.0.0.",
                 channels: Some(Channels {
                     stable: Stability::Unstable,
                     nightly: Stability::Unstable,
@@ -1961,7 +1961,7 @@ pub(super) static SETTINGS: &[Setting] = &[
             },
             Choice {
                 name: "Two",
-                doc: "2.x.y. When specified, rustfmt will format in the latest style.",
+                doc: "2.x.y. When specified, the formatter will format in the latest style.",
                 channels: Some(Channels {
                     stable: Stability::Unstable,
                     nightly: Stability::Unstable,

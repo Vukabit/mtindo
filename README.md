@@ -3,8 +3,9 @@
 `mtindo` is a dependency-free layout tool for Rust source files. Its command is
 `mto`.
 
-`rustfmt` handles spacing, indentation and line wrapping inside items, but it
-leaves the vertical organization of a file alone. `mto` handles that part: it
+The standard Rust formatter (see [Credits](#credits)) handles spacing,
+indentation and line wrapping inside items, but it leaves the vertical
+organization of a file alone. `mto` handles that part: it
 reorders the top-level items of a file (modules, imports, macros, constants,
 types with their impls, functions) into a predictable top-down layout. It never
 changes the inside of an item.
@@ -21,17 +22,18 @@ No more scrolling past 800 lines of helper functions just to find the main
   order of items and the blank lines between them change, at the top level and
   inside inline `mod name { ... }` blocks, at every level. Line endings (LF or
   CRLF) and a leading byte-order mark are preserved.
-* **Agrees With rustfmt:** Imports and `mod` declarations are sorted exactly as
-  rustfmt sorts them for the style edition, and blank lines stay within
-  rustfmt's bounds, so running `rustfmt` after `mto` leaves the layout alone.
-  This is checked on 44 real-world repositories.
+* **Keeps to the Rust Style:** Imports and `mod` declarations are sorted
+  exactly as the standard formatter sorts them for the style edition, and blank
+  lines stay within its bounds, so formatting after `mto` leaves the layout
+  alone. This is checked on 44 real-world repositories.
 * **Sticky Impl Grouping:** `impl Target` and `impl Trait for Target` blocks
   stay directly beneath the type they implement: the type's own impls first,
   then trait impls by trait name (or a list of your choice).
 * **Visibility Hierarchy:** Items of the same kind are ordered by visibility,
   widest first (`pub`, `pub(crate)`, `pub(in path)`, `pub(super)`, private),
   then by name with the Rust style guide's version sorting (`u8` before `u16`).
-  Modules are the exception: like rustfmt, mto orders them by name alone.
+  Modules are the exception: like the standard formatter, mto orders them by
+  name alone.
 * **Comments Travel With Their Item:** A comment directly above an item, or at
   the end of its last line, moves with it.
 * **Order-Sensitive Items Stay Put:** See [What mto never
@@ -103,24 +105,27 @@ whether or not anything is piped in. Reading stdin always needs the explicit
 
 ### Options
 
-`mto` takes rustfmt's flags, so it can stand in for `rustfmt` in scripts and
-editors. Several paths may be given. A file brings the modules it declares
-(`mod name;`, with `#[path]`), as rustfmt follows them; a directory is walked.
+`mto` takes the standard formatter's flags, so it can stand in for it in
+scripts and editors. Several paths may be given. A file brings the modules it
+declares (`mod name;`, with `#[path]`), as the formatter follows them; a
+directory is walked.
 
-* `--check`: Print a diff for every file that would change, in rustfmt's
-  format (`Diff in FILE:LINE:`), and exit with code `1` if there are any.
+* `--check`: Print a diff for every file that would change, in the standard
+  formatter's format (`Diff in FILE:LINE:`), and exit with code `1` if there
+  are any.
 * `--emit files|stdout|json`: Write the files (the default), print them, or
-  print rustfmt's JSON report of what would change.
+  print the JSON report of what would change.
 * `-l, --files-with-diff`: Name the files that change, or would with
   `--check`, instead of showing how.
 * `--skip-children`: A file argument is that file alone.
-* `--config <KEY=VALUE,...>`: Set settings for this run, as rustfmt's
-  `--config` does: `--config max_width=80,hard_tabs=true`.
+* `--config <KEY=VALUE,...>`: Set settings for this run:
+  `--config max_width=80,hard_tabs=true`.
 * `--config-path <FILE>`: Use only this configuration file.
 * `--edition <YEAR>`, `--style-edition <YEAR>`: Set the edition and the style
   edition, which decides the defaults.
-* `--print-config default|minimal|current [PATH]`: Print rustfmt's settings
-  as rustfmt does (to PATH for `default` and `minimal`).
+* `--print-config default|minimal|current [PATH]`: Print the formatting
+  settings as the standard formatter does (to PATH for `default` and
+  `minimal`).
 * `-q, --quiet`, `-v, --verbose`: Print less, or name each file.
 * `--color always|never|auto`: Color the output.
 * `--unstable-features`: Accepted; mto applies every setting on every channel.
@@ -137,7 +142,7 @@ editors. Several paths may be given. A file brings the modules it declares
 * `-h, --help`: Print the short help menu.
 * `-V, --version`: Print the version.
 
-rustfmt's `--backup` is refused with an explanation: every run is recorded in
+`--backup` is refused with an explanation: every run is recorded in
 history instead. The old `--restore BACKUP TARGET` is gone too; `mto restore`
 replaces it.
 
@@ -217,17 +222,18 @@ Some items depend on their position in the file. `mto` keeps them in place:
 
 ## Configuration
 
-`mto` reads `rustfmt.toml` as rustfmt does, so an existing one works unchanged,
-and its own settings from `mto.toml`. For each folder it formats, the settings
-come from, lowest precedence first:
+`mto` reads `rustfmt.toml` as the standard formatter does, so an existing one
+works unchanged, and its own settings from `mto.toml`. For each folder it
+formats, the settings come from, lowest precedence first:
 
 1. The defaults, for the style edition in effect.
-2. The nearest `.rustfmt.toml` or `rustfmt.toml`, found as rustfmt finds it:
-   the folder, each parent folder, the home folder, then the user's `rustfmt`
-   configuration folder. Only that one file is used.
+2. The nearest `.rustfmt.toml` or `rustfmt.toml`, found as the standard
+   formatter finds it: the folder, each parent folder, the home folder, then
+   the formatter's folder in the user's configuration folder. Only that one
+   file is used.
 3. Every `.mto.toml` or `mto.toml` from the outermost folder down; a nearer
    file wins key by key, and a file with `root = true` stops the search
-   upwards. An `mto.toml` may also set rustfmt's settings, and wins over
+   upwards. An `mto.toml` may also set the formatting settings, and wins over
    `rustfmt.toml` with a warning when they disagree.
 4. The package edition in the nearest `Cargo.toml`, as `cargo fmt` passes it.
 5. The command line: `--config`, `--edition`, `--style-edition`.
@@ -239,9 +245,9 @@ defaults).
 
 Unknown keys are warnings. A value of the wrong type or outside the legal
 values stops the run with exit code `2`, naming the file, line and column.
-`mto --man` documents every setting, rustfmt's and mto's, with its legal values
-and defaults. Until `mto` formats code, rustfmt's settings change nothing except
-the style edition.
+`mto --man` documents every setting, the formatting settings and mto's, with
+its legal values and defaults. Until `mto` formats code, the formatting
+settings change nothing except the style edition.
 
 `mto init` writes an `mto.toml` with layout on and mto's other settings at
 their defaults, each with a comment; without the comments:
@@ -266,8 +272,8 @@ type_order = ["ModDecl", "UseDecl", "MacroDecl", "MacroDef", "ConstDecl",
 visibility_order = ["Pub", "PubCrate", "PubIn", "PubSuper", "Private"]
 ```
 
-rustfmt's `reorder_impl_items` is honored inside impl blocks, exactly as
-rustfmt applies it. `tab_width` was renamed `tab_spaces`, rustfmt's name.
+`reorder_impl_items` is honored inside impl blocks, exactly as the standard
+formatter applies it. `tab_width` was renamed `tab_spaces`, the standard name.
 
 ## Safety and Recovery
 
@@ -336,10 +342,11 @@ allow_dirty = false # with history off, overwrite uncommitted changes
 
 ## Where it's headed
 
-`mto` is growing into a complete Rust formatter: output identical to `rustfmt`
-by default, plus per-team control over file layout, still with no dependencies
-and nothing else to install. Until then, run `mto` together with `rustfmt`;
-running `rustfmt` after `mto` is expected to leave the layout alone.
+`mto` is growing into a complete Rust formatter: output in the Rust style,
+identical to the standard formatter's by default, plus per-team control over
+file layout, still with no dependencies and nothing else to install. Until
+then, run `mto` together with the standard formatter; formatting after `mto`
+is expected to leave the layout alone.
 
 ## Development
 

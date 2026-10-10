@@ -1,5 +1,6 @@
-//! The files a crate root reaches through `mod name;`, found as rustc and rustfmt find them,
-//! so that `mto src/lib.rs` lays out what `rustfmt src/lib.rs` formats.
+//! The files a crate root reaches through `mod name;`, found as the compiler and the standard
+//! formatter find them, so that `mto src/lib.rs` covers the files formatting `src/lib.rs`
+//! would.
 //!
 //! A file passed in owns its folder: `mod a;` there is `a.rs` or `a/mod.rs` beside it. A
 //! module file `a.rs` owns `a/`, and `a/mod.rs` owns `a/` too. Inline modules add their name
@@ -8,9 +9,9 @@
 //! reached that way owns its own folder. A module whose file cannot be found is reported and
 //! skipped.
 //!
-//! Like rustfmt, every `#[cfg_attr(..., path = "...")]` alternative is followed, the items
-//! inside `cfg_if! { ... }` are looked into, and a module marked `#[rustfmt::skip]` is not
-//! entered.
+//! As the standard formatter does, every `#[cfg_attr(..., path = "...")]` alternative is
+//! followed, the items inside `cfg_if! { ... }` are looked into, and a module marked
+//! `#[rustfmt::skip]` is not entered.
 
 use std::collections::HashSet;
 use std::fs;
@@ -161,8 +162,8 @@ fn declared(
                     let owns = file.parent().unwrap_or(Path::new("")).to_path_buf();
                     found.push((name.clone(), vec![file], Some(owns)));
                 }
-                // When no condition holds, the usual file is the module, as rustfmt
-                // assumes too; it is taken only if it exists.
+                // When no condition holds, the usual file is the module, as the standard
+                // formatter assumes too; it is taken only if it exists.
                 let usual = [
                     owned.join(format!("{}.rs", name)),
                     owned.join(&name).join("mod.rs"),

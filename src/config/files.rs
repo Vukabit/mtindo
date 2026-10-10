@@ -3,11 +3,12 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-/// mto's file names, in the order tried in each folder: the dot file first, as rustfmt does.
+/// mto's file names, in the order tried in each folder: the dot file first, as the
+/// standard formatter tries its own.
 const MTO_NAMES: [&str; 2] = [".mto.toml", "mto.toml"];
 
-/// rustfmt's file names, in the order rustfmt tries them in each folder.
-const RUSTFMT_NAMES: [&str; 2] = [".rustfmt.toml", "rustfmt.toml"];
+/// The standard formatter's file names, in the order it tries them in each folder.
+const STANDARD_NAMES: [&str; 2] = [".rustfmt.toml", "rustfmt.toml"];
 
 /// The parts of the process environment configuration lookup depends on, gathered once so
 /// tests can supply their own.
@@ -15,7 +16,7 @@ const RUSTFMT_NAMES: [&str; 2] = [".rustfmt.toml", "rustfmt.toml"];
 pub struct Environment {
     /// The home folder.
     pub home: Option<PathBuf>,
-    /// The operating system's per-user configuration folder, as rustfmt finds it:
+    /// The operating system's per-user configuration folder, as the standard formatter finds it:
     /// `$XDG_CONFIG_HOME` or `~/.config` on Linux, `~/Library/Application Support` on macOS,
     /// `%APPDATA%` on Windows.
     pub os_config_dir: Option<PathBuf>,
@@ -69,7 +70,8 @@ impl Environment {
 /// The configuration files one folder holds, found once per folder and remembered.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Folder {
-    pub rustfmt: Option<PathBuf>,
+    /// The standard formatter's file, `.rustfmt.toml` or `rustfmt.toml`.
+    pub standard: Option<PathBuf>,
     pub mto: Option<PathBuf>,
     /// Both `.mto.toml` and `mto.toml` exist.
     pub both_mto: bool,
@@ -88,7 +90,7 @@ impl Folder {
         let mto = first(&MTO_NAMES);
         let cargo = folder.join("Cargo.toml");
         Folder {
-            rustfmt: first(&RUSTFMT_NAMES).into_iter().next(),
+            standard: first(&STANDARD_NAMES).into_iter().next(),
             both_mto: mto.len() > 1,
             mto: mto.into_iter().next(),
             cargo: cargo.is_file().then_some(cargo),

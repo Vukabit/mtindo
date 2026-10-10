@@ -37,9 +37,9 @@ pub(super) static SETTINGS: &[Setting] = &[
         default_2024: None,
         summary: "Blank lines between items",
         doc: "The number of blank lines placed between items. Imports of the same group and \
-              `mod name;` declarations stay on consecutive lines. It is kept within rustfmt's \
+              `mod name;` declarations stay on consecutive lines. It is kept within the standard formatter's \
               `blank_lines_lower_bound` and `blank_lines_upper_bound` (0 and 1 by default), \
-              with a warning, so that rustfmt leaves the result alone; imports and \
+              with a warning, so that the standard formatter leaves the result alone; imports and \
               declarations get the lower bound.",
         channels: None,
         hidden: false,
@@ -92,7 +92,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         doc: "The order of the functions inside an impl of a trait declared in the same \
               file. Only the functions trade places; other items and blank lines stay where \
               they are. A trait declared under the same name twice in the file is skipped. \
-              rustfmt's `reorder_impl_items` is honored as well, as rustfmt applies it.",
+              the standard formatter's `reorder_impl_items` is honored as well, as the standard formatter applies it.",
         channels: None,
         hidden: false,
         replaced_by: None,
@@ -118,11 +118,11 @@ pub(super) static SETTINGS: &[Setting] = &[
         kind: Kind::Choice(&[
             choice(
                 "style_edition",
-                "Sort imports as rustfmt does for the style edition in effect.",
+                "Sort imports as the standard formatter does for the style edition in effect.",
             ),
             choice(
                 "2015",
-                "rustfmt's order before style edition 2024: snake_case, then CamelCase, then \
+                "the standard formatter's order before style edition 2024: snake_case, then CamelCase, then \
                  UPPER_SNAKE_CASE, each by bytes, so `a10` comes before `a2`.",
             ),
             choice(
@@ -134,8 +134,8 @@ pub(super) static SETTINGS: &[Setting] = &[
         default: "\"style_edition\"",
         default_2024: None,
         summary: "The style edition imports are sorted by",
-        doc: "Imports are sorted exactly as rustfmt sorts them, so rustfmt leaves them alone. \
-              This picks which of rustfmt's two orders to use when it should differ from the \
+        doc: "Imports are sorted exactly as the standard formatter sorts them, so the standard formatter leaves them alone. \
+              This picks which of the standard formatter's two orders to use when it should differ from the \
               style edition in effect.",
         channels: None,
         hidden: false,
@@ -150,7 +150,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         summary: "Rearrange the items of each file",
         doc: "Turns layout on for the files this mto.toml applies to. Off by default, so \
               mto changes nothing until a project opts in; `mto init` writes an mto.toml \
-              with it on. An mto.toml without it may still override rustfmt's settings.",
+              with it on. An mto.toml without it may still override the standard formatter's settings.",
         channels: None,
         hidden: false,
         replaced_by: None,
@@ -175,7 +175,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         default_2024: None,
         summary: "How items of one kind are sorted by name",
         doc: "How `sort_alphabetically` compares names. Imports and modules are not \
-              affected: they are always sorted exactly as rustfmt sorts them.",
+              affected: they are always sorted exactly as the standard formatter sorts them.",
         channels: None,
         hidden: false,
         replaced_by: None,
@@ -203,8 +203,8 @@ pub(super) static SETTINGS: &[Setting] = &[
         summary: "Sort imports by path",
         doc: "Sort `use` declarations: by group when `import_grouping` is on, then `self`, \
               `super` and `crate` paths ahead of the rest, then by path. When off, imports \
-              keep the order they were written in; pair it with rustfmt's \
-              `reorder_imports = false`, or rustfmt sorts them.",
+              keep the order they were written in; pair it with the standard formatter's \
+              `reorder_imports = false`, or the standard formatter sorts them.",
         channels: None,
         hidden: false,
         replaced_by: None,
@@ -284,7 +284,7 @@ pub(super) static SETTINGS: &[Setting] = &[
         summary: "The order of visibilities within a kind",
         doc: "Within each kind of `type_order`, items are ordered by visibility in this \
               order before they are sorted by name. Visibilities left out go last. Modules \
-              ignore it, as rustfmt does.",
+              ignore it, as the standard formatter does.",
         channels: None,
         hidden: false,
         replaced_by: None,
@@ -296,7 +296,7 @@ pub(super) static VISIBILITIES: &[Choice] = &[
     choice("Pub", "`pub`."),
     choice(
         "PubCrate",
-        "`pub(crate)`, and `pub(in crate)`, which rustfmt writes so.",
+        "`pub(crate)`, and `pub(in crate)`, which the standard formatter writes so.",
     ),
     choice("PubIn", "`pub(in path)` for any other path."),
     choice("PubSuper", "`pub(super)`, and `pub(in super)`."),

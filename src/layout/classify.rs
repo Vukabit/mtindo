@@ -72,7 +72,7 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
         ast::Visibility::Pub => Visibility::Pub,
         ast::Visibility::PubCrate => Visibility::PubCrate,
         ast::Visibility::PubSuper => Visibility::PubSuper,
-        // rustfmt writes `pub(in crate)` as `pub(crate)` and `pub(in super)` as
+        // The standard formatter writes `pub(in crate)` as `pub(crate)` and `pub(in super)` as
         // `pub(super)`, so they must sort alike.
         ast::Visibility::PubIn(path) if path == "crate" => Visibility::PubCrate,
         ast::Visibility::PubIn(path) if path == "super" => Visibility::PubSuper,

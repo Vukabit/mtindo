@@ -3,18 +3,19 @@
 //! The settings for a folder come from, lowest precedence first:
 //!
 //! 1. the defaults in the settings table, for the style edition in effect;
-//! 2. the nearest `.rustfmt.toml` or `rustfmt.toml`, found as rustfmt finds it: in the
-//!    folder, then each parent, then the home folder, then the user's `rustfmt` config folder;
+//! 2. the nearest `.rustfmt.toml` or `rustfmt.toml`, found as the standard formatter finds
+//!    it: in the folder, then each parent, then the home folder, then the standard
+//!    formatter's folder in the user's configuration folder;
 //! 3. every `.mto.toml` or `mto.toml` from the outermost folder down to the folder itself, a
 //!    nearer file winning key by key; the search upwards stops at a file with `root = true`.
-//!    An `mto.toml` may set rustfmt's keys too, and wins over `rustfmt.toml` with a warning
+//!    An `mto.toml` may set the formatting keys too, and wins over `rustfmt.toml` with a warning
 //!    when they disagree;
 //! 4. the edition of the nearest `Cargo.toml`'s package, as `cargo fmt` passes it;
 //! 5. the command line: `--config key=value`, `--edition`, `--style-edition`.
 //!
 //! `--config-path FILE` replaces steps 2 and 3 with that one file. The style edition is
-//! resolved as rustfmt resolves it: `style_edition`, else `version` (`One` is 2015, `Two` is
-//! 2024), else `edition`, else 2015.
+//! resolved as the standard formatter resolves it: `style_edition`, else `version` (`One`
+//! is 2015, `Two` is 2024), else `edition`, else 2015.
 //!
 //! Unknown keys and keys in the wrong file are warnings; a value of the wrong type or outside
 //! the legal values is an error, naming the file, line and column.
@@ -47,9 +48,9 @@ const ROOT_KEY: &str = "root";
 /// The kinds of configuration file, which decide what they may hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind {
-    /// `rustfmt.toml` or `.rustfmt.toml`: rustfmt's settings.
-    Rustfmt,
-    /// `mto.toml` or `.mto.toml`: mto's settings and rustfmt's.
+    /// `rustfmt.toml` or `.rustfmt.toml`: the standard formatter's settings.
+    Standard,
+    /// `mto.toml` or `.mto.toml`: mto's settings and the formatting settings.
     Mto,
     /// The file named by `--config-path`: like an `mto.toml`.
     Explicit,
@@ -62,7 +63,7 @@ pub enum FileKind {
 impl FileKind {
     fn may_hold(self, file: File) -> bool {
         match self {
-            FileKind::Rustfmt => file == File::Format,
+            FileKind::Standard => file == File::Format,
             FileKind::Mto | FileKind::Explicit => file != File::User,
             FileKind::User => file == File::User,
             FileKind::Cargo => false,
@@ -171,8 +172,8 @@ impl Config {
         config
     }
 
-    /// rustfmt's `blank_lines_lower_bound` and `blank_lines_upper_bound`: the blank lines
-    /// between items stay within them, so rustfmt leaves them alone.
+    /// `blank_lines_lower_bound` and `blank_lines_upper_bound`: the blank lines between
+    /// items stay within them, so the standard formatter leaves them alone.
     pub fn blank_line_bounds(&self) -> (usize, usize) {
         let get = |name: &str, fallback: u64| {
             self.get(name)
@@ -395,8 +396,8 @@ impl Resolver {
         if let Some(explicit) = &self.explicit {
             layers.push((FileKind::Explicit, Rc::clone(explicit)));
         } else {
-            if let Some(path) = self.rustfmt_file(dir) {
-                layers.push((FileKind::Rustfmt, self.load(&path, FileKind::Rustfmt)?));
+            if let Some(path) = self.standard_file(dir) {
+                layers.push((FileKind::Standard, self.load(&path, FileKind::Standard)?));
             }
             let mut mto_files = Vec::new();
             for folder in dir.ancestors() {
@@ -490,13 +491,13 @@ impl Resolver {
                 values.insert(setting.name, (value.clone(), source));
             }
         }
-        let mut rustfmt_values: HashMap<&str, (Value, PathBuf)> = HashMap::new();
+        let mut standard_values: HashMap<&str, (Value, PathBuf)> = HashMap::new();
         let mut warnings = Vec::new();
         for (kind, loaded) in &layers {
             for (setting, value, line) in &loaded.values {
-                if *kind == FileKind::Rustfmt {
-                    rustfmt_values.insert(setting.name, (value.clone(), loaded.path.clone()));
-                } else if let Some((theirs, path)) = rustfmt_values.get(setting.name)
+                if *kind == FileKind::Standard {
+                    standard_values.insert(setting.name, (value.clone(), loaded.path.clone()));
+                } else if let Some((theirs, path)) = standard_values.get(setting.name)
                     && theirs != value
                 {
                     warnings.push(format!(
@@ -573,8 +574,9 @@ impl Resolver {
             let used = (*lines).clamp(lower, upper.max(lower));
             if used != *lines {
                 self.warn(format!(
-                    "{}: `blank_lines_between_blocks = {}` is outside rustfmt's blank-line \
-                     bounds ({} to {}), which rustfmt would undo; mto uses {}",
+                    "{}: `blank_lines_between_blocks = {}` is outside `blank_lines_lower_bound` \
+                     and `blank_lines_upper_bound` ({} to {}), which formatting keeps to; mto \
+                     uses {}",
                     source, lines, lower, upper, used
                 ));
             }
@@ -625,11 +627,12 @@ impl Resolver {
         found
     }
 
-    /// The `rustfmt.toml` rustfmt would use for `dir`: the nearest in `dir` or a parent,
-    /// else in the home folder, else in the `rustfmt` configuration folder.
-    fn rustfmt_file(&mut self, dir: &Path) -> Option<PathBuf> {
+    /// The `rustfmt.toml` the standard formatter would use for `dir`: the nearest in `dir`
+    /// or a parent, else in the home folder, else in its folder in the user's configuration
+    /// folder.
+    fn standard_file(&mut self, dir: &Path) -> Option<PathBuf> {
         for folder in dir.ancestors() {
-            if let Some(found) = self.folder(folder).rustfmt {
+            if let Some(found) = self.folder(folder).standard {
                 return Some(found);
             }
         }
@@ -640,7 +643,7 @@ impl Resolver {
         fallbacks
             .into_iter()
             .flatten()
-            .find_map(|folder| self.folder(&folder).rustfmt)
+            .find_map(|folder| self.folder(&folder).standard)
     }
 
     fn warn(&mut self, warning: String) {
@@ -709,7 +712,7 @@ fn distance(a: &str, b: &str) -> usize {
 
 fn file_label(kind: FileKind) -> &'static str {
     match kind {
-        FileKind::Rustfmt => "rustfmt.toml",
+        FileKind::Standard => "rustfmt.toml",
         FileKind::Mto | FileKind::Explicit => "mto.toml",
         FileKind::User => "the user config",
         FileKind::Cargo => "Cargo.toml",
@@ -772,7 +775,7 @@ fn read(path: &Path, text: &str, kind: FileKind) -> Result<Loaded, Error> {
                 key,
                 file_label(kind),
                 file_label(match setting.file {
-                    File::Format => FileKind::Rustfmt,
+                    File::Format => FileKind::Standard,
                     File::Mto => FileKind::Mto,
                     File::User => FileKind::User,
                 })

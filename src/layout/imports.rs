@@ -1,14 +1,14 @@
-//! The order rustfmt gives imports and module declarations, so that rustfmt leaves mto's
-//! layout alone (S2-5). Ported from rustfmt's `imports.rs`, `reorder.rs` and `sort.rs`
-//! (MIT OR Apache-2.0, like mtindo).
+//! The order the standard formatter gives imports and module declarations, so that the
+//! standard formatter leaves mto's layout alone (S2-5). Ported from the standard
+//! formatter's `imports.rs`, `reorder.rs` and `sort.rs` (MIT OR Apache-2.0, like mtindo).
 //!
-//! rustfmt sorts a run of `use` items by their use trees after normalizing them: a sole
-//! braced item loses its braces (`a::{b}` is `a::b`), `a::self` is `a`, and nested lists are
-//! sorted. Visibility and attributes play no part. Segments order as `self`, `super`, `crate`,
-//! names, `*`, then `{...}` lists. Names compare, before style edition 2024, snake_case
-//! first, then CamelCase, then UPPER_SNAKE_CASE, each by bytes; from 2024 by
-//! [`version_sort`], ignoring `r#`. Module declarations compare by bytes through style
-//! edition 2024 and by [`version_sort`] after it.
+//! The standard formatter sorts a run of `use` items by their use trees after normalizing
+//! them: a sole braced item loses its braces (`a::{b}` is `a::b`), `a::self` is `a`, and
+//! nested lists are sorted. Visibility and attributes play no part. Segments order as
+//! `self`, `super`, `crate`, names, `*`, then `{...}` lists. Names compare, before style
+//! edition 2024, snake_case first, then CamelCase, then UPPER_SNAKE_CASE, each by bytes;
+//! from 2024 by [`version_sort`], ignoring `r#`. Module declarations compare by bytes
+//! through style edition 2024 and by [`version_sort`] after it.
 
 use std::cmp::Ordering;
 
@@ -141,7 +141,7 @@ impl<'a> Iterator for Chunks<'a> {
             let (digits, rest) = self.rest.split_at(end);
             self.rest = rest;
             let zeros = digits.chars().take_while(|c| *c == '0').count();
-            // rustfmt stops at a number too big for usize.
+            // The standard formatter stops at a number too big for usize.
             let value = digits.parse::<usize>().ok()?;
             return Some(Chunk::Number(value, zeros, digits));
         }
@@ -155,24 +155,24 @@ impl<'a> Iterator for Chunks<'a> {
     }
 }
 
-/// A use tree as rustfmt models it for sorting.
+/// A use tree as the standard formatter models it for sorting.
 #[derive(Clone, Debug)]
 pub struct UseTree {
     path: Vec<Segment>,
-    /// A comment sits beside this tree inside its list's braces; rustfmt then keeps the
-    /// braces of a list holding only this tree.
+    /// A comment sits beside this tree inside its list's braces; the standard formatter
+    /// then keeps the braces of a list holding only this tree.
     has_comment: bool,
 }
 
 impl UseTree {
     /// The normalized tree of a `USE_TREE` node. `global_paths` is whether a leading `::`
-    /// names the root (the 2018 edition and later), as rustfmt reads it; `version` is the
-    /// order nested lists are sorted in, as for [`UseTree::compare`].
+    /// names the root (the 2018 edition and later), as the standard formatter reads it;
+    /// `version` is the order nested lists are sorted in, as for [`UseTree::compare`].
     pub fn from_syntax(tree: &SyntaxNode, global_paths: bool, version: bool) -> UseTree {
         read_tree(tree, global_paths, true).normalize(version)
     }
 
-    /// rustfmt's ordering of two trees; `version` for style edition 2024 and later.
+    /// The standard formatter's ordering of two trees; `version` for style edition 2024 and later.
     pub fn compare(&self, other: &UseTree, version: bool) -> Ordering {
         for (a, b) in self.path.iter().zip(other.path.iter()) {
             let ord = a.compare(b, version);
@@ -186,7 +186,7 @@ impl UseTree {
         self.path.len().cmp(&other.path.len())
     }
 
-    /// rustfmt's `UseTree::normalize`.
+    /// The standard formatter's `UseTree::normalize`.
     fn normalize(mut self, version: bool) -> UseTree {
         let Some(mut last) = self.path.pop() else {
             return self;
@@ -240,16 +240,16 @@ impl UseTree {
 
 impl Eq for UseTree {}
 
-/// Trees are equal when their paths are, as in rustfmt.
+/// Trees are equal when their paths are, as in the standard formatter.
 impl PartialEq for UseTree {
     fn eq(&self, other: &UseTree) -> bool {
         self.path == other.path
     }
 }
 
-/// The version sort of the Rust style guide, as rustfmt's `sort.rs` implements it: names
-/// split into runs of digits, other text and single underscores; underscores first,
-/// digit runs by value (then fewer leading zeros last), text by bytes.
+/// The version sort of the Rust style guide, as the standard formatter's `sort.rs`
+/// implements it: names split into runs of digits, other text and single underscores;
+/// underscores first, digit runs by value (then fewer leading zeros last), text by bytes.
 pub fn version_sort(a: &str, b: &str) -> Ordering {
     let mut more_zeros = Ordering::Equal;
     let (mut left, mut right) = (Chunks::new(a), Chunks::new(b));
@@ -302,8 +302,8 @@ fn path_segments(path: &SyntaxNode) -> (Vec<String>, bool) {
     (names, first_token_is_colons(path))
 }
 
-/// rustfmt's `UseTree::from_ast`: the path's segments, then `*`, a list, or the last name
-/// with its alias.
+/// The standard formatter's `UseTree::from_ast`: the path's segments, then `*`, a list, or
+/// the last name with its alias.
 fn read_tree(tree: &SyntaxNode, global_paths: bool, top: bool) -> UseTree {
     let mut path = Vec::new();
     let (segments, leading_colons) = match tree
@@ -326,7 +326,7 @@ fn read_tree(tree: &SyntaxNode, global_paths: bool, top: bool) -> UseTree {
         .children_with_tokens()
         .iter()
         .any(|e| e.kind() == SyntaxKind::Star);
-    // `::*` and `::{...}` at the root keep an empty first name, as in rustfmt.
+    // `::*` and `::{...}` at the root keep an empty first name, as in the standard formatter.
     if (glob || list.is_some()) && segments.is_empty() && modsep {
         path.push(Segment::Ident(String::new(), None));
     }

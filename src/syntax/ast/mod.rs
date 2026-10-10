@@ -59,9 +59,9 @@ impl Attr {
             .is_some_and(|e| e.kind() == SyntaxKind::Bang)
     }
 
-    /// Whether it tells rustfmt to leave its item (or, inner, its file) alone, in any of the
-    /// spellings rustfmt honors: `rustfmt::skip`, the older `rustfmt_skip`, and either inside
-    /// `cfg_attr(rustfmt, ...)`.
+    /// Whether it tells the standard formatter to leave its item (or, inner, its file)
+    /// alone, in any of the spellings the standard formatter honors: `rustfmt::skip`, the
+    /// older `rustfmt_skip`, and either inside `cfg_attr(rustfmt, ...)`.
     pub fn is_rustfmt_skip(&self) -> bool {
         match self.path().as_str() {
             "rustfmt::skip" | "rustfmt_skip" => true,

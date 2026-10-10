@@ -203,6 +203,41 @@ fn kind_of(value_type: &str, enums: &BTreeMap<String, Vec<Variant>>) -> Option<K
     })
 }
 
+/// The formatter's own name, outside code spans and where it is not a file or path
+/// (`rustfmt.toml`, `rustfmt::skip`), said as "the formatter": the manual names the Rust
+/// style, not the tool (S3-9).
+fn neutral_name(text: &str) -> String {
+    let mut out = String::new();
+    let mut in_code = false;
+    let mut rest = text;
+    while let Some(ch) = rest.chars().next() {
+        if ch == '`' {
+            in_code = !in_code;
+        }
+        let word = rest.get(..7).filter(|w| w.eq_ignore_ascii_case("rustfmt"));
+        let before_ok = !out.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '-');
+        let after = rest.get(7..).unwrap_or("");
+        let after_ok = !after.starts_with(|c: char| c.is_alphanumeric() || c == '_')
+            && !after.starts_with(".toml")
+            && !after.starts_with("::")
+            && !after.starts_with('-');
+        if word.is_some() && !in_code && before_ok && after_ok {
+            let starts_sentence =
+                out.trim_end().is_empty() || out.trim_end().ends_with(['.', ':', '!', '?']);
+            out.push_str(if starts_sentence {
+                "The formatter"
+            } else {
+                "the formatter"
+            });
+            rest = after;
+            continue;
+        }
+        out.push(ch);
+        rest = &rest[ch.len_utf8()..];
+    }
+    out
+}
+
 /// The entries of the top-level `create_config!`.
 fn parse_create_config(text: &str) -> Result<Vec<ConfigEntry>, String> {
     let start = text
@@ -311,7 +346,7 @@ fn parse_docs(text: &str) -> BTreeMap<String, String> {
         }
         let doc = paragraphs
             .iter()
-            .map(|p| strip_links(p))
+            .map(|p| neutral_name(&strip_links(p)))
             .collect::<Vec<_>>()
             .join("\n\n");
         if !doc.is_empty() {
@@ -366,7 +401,7 @@ fn parse_enums(text: &str) -> Result<BTreeMap<String, Vec<Variant>>, String> {
                 variants.push(Variant {
                     ident: ident.to_string(),
                     name: value.take().unwrap_or_else(|| ident.to_string()),
-                    doc: sentence(&strip_links(&doc.join(" "))),
+                    doc: sentence(&neutral_name(&strip_links(&doc.join(" ")))),
                     stable,
                 });
                 doc.clear();
@@ -813,6 +848,18 @@ mod tests {
                 "1.10.0".to_string(),
                 "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4".to_string()
             ))
+        );
+    }
+
+    #[test]
+    fn test_the_formatter_is_not_named_in_its_docs() {
+        assert_eq!(
+            neutral_name(
+                "rustfmt will not touch it. It is a bug in Rustfmt; see `rustfmt --help`, \
+                 rustfmt.toml, rustfmt::skip and rustfmt-config."
+            ),
+            "The formatter will not touch it. It is a bug in the formatter; see \
+             `rustfmt --help`, rustfmt.toml, rustfmt::skip and rustfmt-config."
         );
     }
 }

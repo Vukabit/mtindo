@@ -36,7 +36,7 @@ pub const CARGO_MTO_OPTIONS: &[(&str, &str, &str, &str)] = &[
         "layout",
         "--message-format",
         "<short|json|human>",
-        "short: name the files (-l); json: rustfmt's JSON report (--emit json)",
+        "short: name the files (-l); json: the JSON report (--emit json)",
     ),
     (
         "history and safety",

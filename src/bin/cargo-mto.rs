@@ -1,7 +1,8 @@
 //! `cargo mto`: lays out the targets of the current package or workspace, as `cargo fmt`
 //! formats them. The packages and targets come from the manifests (`config::workspace`);
 //! the sibling `mto` binary then lays out each target's root file and the modules it
-//! declares. Options after `--` go to `mto`, as `cargo fmt` passes them to rustfmt.
+//! declares. Options after `--` go to `mto`, as `cargo fmt` passes them to the
+//! formatter.
 
 use std::env;
 use std::path::{Path, PathBuf};

@@ -11,29 +11,30 @@ const LOOKUP: &str = "\
 mto reads the settings for each folder it formats from, lowest precedence first:
 
 1. The defaults below, for the style edition in effect.
-2. The nearest `.rustfmt.toml` or `rustfmt.toml`, found as rustfmt finds it: in \
-the folder, then each parent folder, then the home folder, then the `rustfmt` \
-folder of the user's configuration folder. Only that one file is used.
+2. The nearest `.rustfmt.toml` or `rustfmt.toml`, found as the standard formatter \
+finds it: in the folder, then each parent folder, then the home folder, then the \
+standard formatter's folder in the user's configuration folder. Only that one \
+file is used.
 3. Every `.mto.toml` or `mto.toml` from the outermost folder down to the folder \
 itself; a nearer file wins key by key. The search upwards stops at a file that \
-sets `root = true`. An `mto.toml` may also set rustfmt's settings, and wins over \
+sets `root = true`. An `mto.toml` may also set the formatting settings, and wins over \
 `rustfmt.toml`, with a warning when the two disagree.
 4. The edition of the package in the nearest `Cargo.toml` (inherited from the \
 workspace when it says `edition.workspace = true`), as `cargo fmt` passes it.
 5. The command line: `--config key=value`, `--edition` and `--style-edition`.
 
 `--config-path FILE` replaces steps 2 and 3 with that one file, which may hold \
-both mto's and rustfmt's settings. `mto config path` lists the files in effect \
+both mto's settings and the formatting settings. `mto config path` lists the files in effect \
 and `mto config print` shows every value with where it came from.
 
-The style edition is resolved as rustfmt resolves it: `style_edition` if set, \
+The style edition is resolved as the standard formatter resolves it: `style_edition` if set, \
 else `version` (`One` is 2015, `Two` is 2024), else `edition`, else 2015. It \
 decides the defaults of the settings that change between style editions.
 
 An unknown key, or a key in the wrong file, is a warning and is ignored. A value \
 of the wrong type, or outside the legal values, is an error (exit code 2) naming \
-the file, line and column. Values are matched without regard to case, as \
-rustfmt matches them.";
+the file, line and column. Values are matched without regard to case, as the \
+standard formatter matches them.";
 
 /// The per-user file.
 const USER: &str = "\
@@ -52,20 +53,22 @@ pub fn configuration() -> String {
     }
     out.push_str("### mto's settings\n");
     out.push_str(&wrap(
-        "These go in `mto.toml` or `.mto.toml` only; rustfmt would not understand them.",
+        "These go in `mto.toml` or `.mto.toml` only; the standard formatter would not \
+         understand them.",
         "",
     ));
     for setting in options::all().filter(|s| s.file == File::Mto) {
         out.push_str(&entry(setting));
     }
-    out.push_str("### rustfmt's settings\n");
+    out.push_str("### Formatting settings\n");
     out.push_str(&wrap(
         &format!(
             "These go in `rustfmt.toml`, `.rustfmt.toml`, `mto.toml` or `.mto.toml`, \
-             as rustfmt {} documents them. mto reads and checks them all, on every \
-             channel, so an existing `rustfmt.toml` works unchanged; rustfmt's own \
-             stability is noted for reference. Until mto formats code, only \
-             `edition`, `style_edition` and `version` change what it does.",
+             as the standard formatter {} documents them. mto reads and checks them all, \
+             on every channel, so an existing `rustfmt.toml` works unchanged; the \
+             standard formatter's own stability is noted for reference. Until mto \
+             formats code, only `edition`, `style_edition` and `version` change what it \
+             does.",
             options::RUSTFMT_VERSION
         ),
         "",
@@ -73,10 +76,11 @@ pub fn configuration() -> String {
     for setting in options::all().filter(|s| s.file == File::Format && !s.hidden) {
         out.push_str(&entry(setting));
     }
-    out.push_str("### Hidden rustfmt settings\n");
+    out.push_str("### Hidden formatting settings\n");
     out.push_str(&wrap(
-        "rustfmt leaves these out of its own listings: they are deprecated, or set \
-         by rustfmt itself. mto accepts them so that existing files keep working.",
+        "The standard formatter leaves these out of its own listings: they are \
+         deprecated, or set by the formatter itself. mto accepts them so that existing \
+         files keep working.",
         "",
     ));
     for setting in options::all().filter(|s| s.file == File::Format && s.hidden) {
@@ -126,7 +130,7 @@ pub fn wrap(text: &str, lead: &str) -> String {
 
 fn default_line(setting: &Setting) -> String {
     if setting.default.is_empty() {
-        return "Default: set by rustfmt itself; mto ignores the value.".to_string();
+        return "Default: set by the standard formatter itself; mto ignores the value.".to_string();
     }
     match setting.default_2024 {
         Some(later) => format!(
@@ -149,7 +153,10 @@ fn entry(setting: &Setting) -> String {
     out.push_str(&wrap(&format!("Type: {}.", type_name(setting)), "*   "));
     out.push_str(&wrap(&default_line(setting), "*   "));
     if let Some(channels) = setting.channels {
-        out.push_str(&wrap(&format!("rustfmt: {}.", stability(channels)), "*   "));
+        out.push_str(&wrap(
+            &format!("In the standard formatter: {}.", stability(channels)),
+            "*   ",
+        ));
     }
     if let Some(replacement) = setting.replaced_by {
         out.push_str(&wrap(
@@ -168,7 +175,10 @@ fn entry(setting: &Setting) -> String {
             if let Some(channels) = choice.channels
                 && setting.channels.is_some_and(|c| c != channels)
             {
-                text.push_str(&format!(" (rustfmt: {})", stability(channels)));
+                text.push_str(&format!(
+                    " (in the standard formatter: {})",
+                    stability(channels)
+                ));
             }
             out.push_str(&wrap(&text, "    *   "));
         }

@@ -73,8 +73,8 @@ pub enum TraitImplSort {
 pub enum Visibility {
     Pub,
     PubCrate,
-    /// `pub(in path)`, apart from `pub(in crate)` and `pub(in super)`, which rustfmt writes
-    /// as `pub(crate)` and `pub(super)`.
+    /// `pub(in path)`, apart from `pub(in crate)` and `pub(in super)`, which the standard
+    /// formatter writes as `pub(crate)` and `pub(super)`.
     PubIn,
     PubSuper,
     /// No visibility, `pub(self)` or `pub(in self)`.
@@ -108,11 +108,11 @@ pub struct LayoutConfig {
     pub import_grouping: bool,
     pub blank_lines_between_blocks: usize,
     /// Blank lines between consecutive imports of a group, and between `mod name;`
-    /// declarations: rustfmt's `blank_lines_lower_bound`.
+    /// declarations: the standard formatter's `blank_lines_lower_bound`.
     pub blank_lines_tight: usize,
     pub ignore_dirs: Vec<String>,
     /// The style edition (2015, 2018, 2021, 2024, ...): decides how imports and modules are
-    /// sorted, as rustfmt sorts them.
+    /// sorted, as the standard formatter sorts them.
     pub style_edition: u16,
     /// The Rust edition: from 2018, a leading `::` in an import names the root.
     pub edition: u16,
@@ -123,7 +123,7 @@ pub struct LayoutConfig {
     /// `test_module = "in_place"`: `#[cfg(test)]` modules keep their place instead of going
     /// last.
     pub test_module_in_place: bool,
-    /// rustfmt's `reorder_impl_items`.
+    /// The standard formatter's `reorder_impl_items`.
     pub reorder_impl_items: bool,
     /// `impl_method_order = "trait"`: a trait impl's functions follow the trait's order.
     pub impl_method_order_trait: bool,

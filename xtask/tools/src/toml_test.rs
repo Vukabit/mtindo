@@ -364,6 +364,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_datetime_normalization() {
+        assert_eq!(
+            normalize_datetime("1979-05-27 07:32:00z"),
+            "1979-05-27T07:32:00Z"
+        );
+        assert_eq!(
+            normalize_datetime("1979-05-27T07:32:00.500+00:00"),
+            "1979-05-27T07:32:00.5Z"
+        );
+        assert_eq!(normalize_datetime("07:32:00.000"), "07:32:00");
+    }
+
+    #[test]
     fn test_json_reader() {
         let json =
             parse_json(r#"{"a": {"type": "string", "value": "xé\n"}, "b": [1, true]}"#).unwrap();
@@ -375,18 +388,5 @@ mod tests {
             fields[1].1,
             Json::Array(vec![Json::Other("1".into()), Json::Other("true".into())])
         );
-    }
-
-    #[test]
-    fn test_datetime_normalization() {
-        assert_eq!(
-            normalize_datetime("1979-05-27 07:32:00z"),
-            "1979-05-27T07:32:00Z"
-        );
-        assert_eq!(
-            normalize_datetime("1979-05-27T07:32:00.500+00:00"),
-            "1979-05-27T07:32:00.5Z"
-        );
-        assert_eq!(normalize_datetime("07:32:00.000"), "07:32:00");
     }
 }

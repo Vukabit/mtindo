@@ -187,6 +187,8 @@ is `mto`. While `rustfmt` handles spacing and line wrapping inside items, `mto`
 reorders the top-level items of a file (modules, imports, macros, constants,
 types with their impls, functions) into a predictable top-down layout.
 It never changes the inside of an item.
+Layout is opt-in: until an `mto.toml` with `layout = true` applies, mto
+leaves every file alone and says so. `mto init` writes one.
 ## How it works
 *   **Parsed, not guessed:** each file is parsed into a syntax tree that keeps
 every byte. A file with syntax errors is left untouched and reported as
@@ -194,16 +196,23 @@ skipped.
 *   **Verified before every write:** the new text must hold exactly the
 original items, byte for byte with their comments, in a new order and with
 new blank lines between them. Anything else stops the write (exit code 4).
+*   **Every level:** the same rules apply inside inline `mod name { ... }`
+blocks, at every level; impl blocks are ordered only when asked
+(`reorder_impl_items`, `impl_method_order`).
+*   **Agrees with rustfmt:** imports and `mod` declarations sort exactly as
+rustfmt sorts them for the style edition, and blank lines stay within rustfmt's
+bounds, so rustfmt leaves the layout alone.
 *   **Sticky Impl Grouping:** `impl Type` and `impl Trait for Type` blocks are
-kept directly beneath the type they implement.
+kept directly beneath the type they implement, its own impls first.
 *   **Visibility Hierarchy:** Items of the same kind are ordered by visibility
-(`pub` -> `pub(super)` -> `pub(crate)` -> private); modules are ordered by name
+(`visibility_order`), then by name (`name_sort`); modules are ordered by name
 alone, as rustfmt does.
 *   **Order-Sensitive Items Stay Put:** The file header (shebang, `//!`,
 `#![...]`), `macro_rules!` order, `#[macro_use]` modules, `extern crate`, and
 item-position macro calls are never moved past each other; a macro never ends
-up below an item that originally followed it; a `#[cfg(test)]` module stays
-last.
+up below an item that originally followed it. `#[rustfmt::skip]` items and items
+under `// mto: pin` keep their place, and `#[cfg]` variants of one item move
+together.
 *   **Atomic Writes:** Files are replaced by an OS-level rename of a synced
 sibling temp file. Permissions are kept and symlinked files stay symlinks.
 *   **Backups:** Every changed file is first copied to the system temporary
@@ -379,6 +388,15 @@ fn main() {
         } => run_debug(view, &path, edition),
         CliAction::Stdin { overrides, check } => match resolver(&overrides) {
             Ok(mut resolver) => match process_stdin(&mut resolver, check) {
+                Ok(Outcome::LayoutOff) => {
+                    eprintln!(
+                        "{}layout is off: no mto.toml with `layout = true` applies here. \
+                         Run `mto init` to turn it on.{}",
+                        c_yellow(true),
+                        c_reset(true)
+                    );
+                    0
+                }
                 Ok(Outcome::VerifierFailed) => 4,
                 Ok(Outcome::Changed) if check => 1,
                 Ok(_) => 0,
@@ -979,7 +997,11 @@ fn run_format(target_path: PathBuf, overrides: &Overrides, opts: &RunOptions) ->
                 );
             }
         }
-        vec![process_file(&target_path, &config.layout(), opts)]
+        if config.layout_on() {
+            vec![process_file(&target_path, &config.layout(), opts)]
+        } else {
+            vec![Outcome::LayoutOff]
+        }
     } else {
         match walk_directory(&target_path, &mut resolver, opts) {
             Ok(outcomes) => outcomes,
@@ -989,6 +1011,19 @@ fn run_format(target_path: PathBuf, overrides: &Overrides, opts: &RunOptions) ->
     let changed = outcomes.iter().filter(|o| **o == Outcome::Changed).count();
     let skipped = outcomes.iter().filter(|o| **o == Outcome::Skipped).count();
     let failed = outcomes.iter().filter(|o| **o == Outcome::Failed).count();
+    let off = outcomes
+        .iter()
+        .filter(|o| **o == Outcome::LayoutOff)
+        .count();
+    if off > 0 {
+        eprintln!(
+            "{}{} file(s) left alone: layout is off. Run `mto init` to write an mto.toml \
+             with `layout = true`.{}",
+            c_yellow(true),
+            off,
+            c_reset(true)
+        );
+    }
     let unsafe_writes = outcomes
         .iter()
         .filter(|o| **o == Outcome::VerifierFailed)
@@ -1084,8 +1119,20 @@ fn usage_error<T>(message: &str) -> Result<T, ()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn test_flags_are_unique() {
+        let mut seen = HashSet::new();
+        for spec in FLAGS {
+            assert!(seen.insert(spec.long), "duplicate {}", spec.long);
+            if let Some(short) = spec.short {
+                assert!(seen.insert(short), "duplicate {}", short);
+            }
+        }
+    }
 
     #[test]
     fn test_help_documents_every_flag_and_command() {
@@ -1107,17 +1154,6 @@ mod tests {
                 "{} missing from help",
                 name
             );
-        }
-    }
-
-    #[test]
-    fn test_flags_are_unique() {
-        let mut seen = HashSet::new();
-        for spec in FLAGS {
-            assert!(seen.insert(spec.long), "duplicate {}", spec.long);
-            if let Some(short) = spec.short {
-                assert!(seen.insert(short), "duplicate {}", short);
-            }
         }
     }
 

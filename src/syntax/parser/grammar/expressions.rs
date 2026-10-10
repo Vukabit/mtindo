@@ -20,13 +20,13 @@ const CAST_BP: u8 = 23;
 /// `let` scrutinees bind tighter than `&&` and `||` (so `let a = b && c` is a chain).
 const LET_SCRUTINEE_BP: u8 = 9;
 
-const NONE: Restrictions = Restrictions {
-    forbid_structs: false,
+const NO_STRUCT: Restrictions = Restrictions {
+    forbid_structs: true,
     stmt: false,
 };
 
-const NO_STRUCT: Restrictions = Restrictions {
-    forbid_structs: true,
+const NONE: Restrictions = Restrictions {
+    forbid_structs: false,
     stmt: false,
 };
 

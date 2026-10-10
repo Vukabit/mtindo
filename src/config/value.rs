@@ -1,7 +1,7 @@
 //! Checking a value against its setting's type and legal values.
 
 use crate::config::toml;
-use crate::options::{Kind, Setting};
+use crate::options::{self, Kind, Setting};
 
 /// A checked setting value. Choices hold the table's spelling, whatever case was written.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,6 +177,9 @@ fn choice(setting: &Setting, text: &str) -> Result<String, String> {
         .find(|c| c.name.eq_ignore_ascii_case(text))
         .map(|c| c.name.to_string())
         .ok_or_else(|| {
+            if let Some(reason) = options::refusal(setting, text) {
+                return reason;
+            }
             format!(
                 "`{}` cannot be `{}`; legal values: {}",
                 setting.name,

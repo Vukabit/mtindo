@@ -777,17 +777,18 @@ fn tree_is_dirty(root: &Path) -> bool {
 mod tests {
     use super::*;
 
-    fn root() -> &'static Path {
-        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
-    }
-
     fn args(words: &[&str]) -> Vec<String> {
         words.iter().map(|w| w.to_string()).collect()
     }
 
+    fn root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
+    }
+
     #[test]
-    fn test_help_lists_everything() {
-        assert_eq!(check_help(root()), Vec::<String>::new());
+    fn test_every_test_file_is_registered() {
+        let (_, warnings) = tasks::build(root(), false, DEFAULT_FUZZ_TIME);
+        assert!(warnings.is_empty(), "{:?}", warnings);
     }
 
     #[test]
@@ -802,6 +803,11 @@ mod tests {
         }
         stripped.push_str(rest);
         assert_eq!(stripped, render_help(root(), false));
+    }
+
+    #[test]
+    fn test_help_lists_everything() {
+        assert_eq!(check_help(root()), Vec::<String>::new());
     }
 
     #[test]
@@ -870,11 +876,5 @@ mod tests {
         let soak = parse_args(&args(&["--target", "fuzz-24h"])).unwrap();
         select(&mut tasks, &soak);
         assert_eq!(state(&tasks, "fuzz-24h"), State::Pending);
-    }
-
-    #[test]
-    fn test_every_test_file_is_registered() {
-        let (_, warnings) = tasks::build(root(), false, DEFAULT_FUZZ_TIME);
-        assert!(warnings.is_empty(), "{:?}", warnings);
     }
 }

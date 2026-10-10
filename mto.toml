@@ -1,4 +1,5 @@
 # mto configuration file
+layout = true
 sort_alphabetically = true
 group_impls = true
 sort_imports = true
@@ -8,12 +9,16 @@ type_order = [
   "ModDecl",
   "UseDecl",
   "MacroDecl",
+  "MacroDef",
   "ConstDecl",
   "StaticDecl",
+  "TypeAlias",
   "TraitDecl",
   "EnumDecl",
   "StructDecl",
+  "Union",
   "ImplBlock",
+  "ExternBlock",
   "FnDecl",
   "Unknown"
 ]

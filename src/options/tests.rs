@@ -1,5 +1,5 @@
 use super::*;
-use crate::options::layout::{ItemKind, LayoutConfig};
+use crate::options::layout::{ItemKind, LayoutConfig, NameSort, Visibility};
 
 /// The strings of a TOML array of strings, as written in a default.
 fn strings(default: &str) -> Vec<String> {
@@ -105,6 +105,13 @@ fn test_mto_defaults_match_the_layout_config() {
         .map(|name| ItemKind::from_name(name))
         .collect();
     assert_eq!(order, config.type_order);
+    let visibilities: Vec<Visibility> = strings(default("visibility_order"))
+        .iter()
+        .filter_map(|name| Visibility::from_name(name))
+        .collect();
+    assert_eq!(visibilities, config.visibility_order);
+    assert_eq!(config.name_sort, NameSort::Version);
+    assert_eq!(default("name_sort"), "\"version\"");
 }
 
 #[test]

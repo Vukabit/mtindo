@@ -287,28 +287,15 @@ mod tests {
     }
 
     #[test]
-    fn test_render_and_parse_round_trip() {
-        let mut hidden = Found::new(Kind::Option, "merge_imports", false);
-        hidden.hidden = true;
-        let mut nightly = reading(
-            "nightly",
-            &[
-                (Kind::Option, "max_width", true),
-                (Kind::Value, "group_imports=One", false),
-                (Kind::Flag, "rustfmt:--check", true),
-            ],
+    fn test_parse_rejects_unknown_sources_and_kinds() {
+        let text = "source local x\noption a in=stable stable=none\n";
+        assert!(
+            Surface::parse(text)
+                .unwrap_err()
+                .contains("not a listed source")
         );
-        nightly.items.push(hidden);
-        let surface = Surface::from_readings(&[
-            nightly,
-            reading("local", &[(Kind::Option, "max_width", true)]),
-        ]);
-        let text = surface.render();
-        assert!(text.contains("\nsource  local          rustfmt for local\n"));
-        assert!(text.contains("option  max_width"));
-        assert!(text.contains(" in=all stable=all\n"));
-        assert!(text.contains(" in=nightly stable=none hidden\n"));
-        assert_eq!(Surface::parse(&text).unwrap(), surface);
+        assert!(Surface::parse("thing a in=all\n").is_err());
+        assert!(Surface::parse("source moon x\n").is_err());
     }
 
     #[test]
@@ -333,14 +320,27 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rejects_unknown_sources_and_kinds() {
-        let text = "source local x\noption a in=stable stable=none\n";
-        assert!(
-            Surface::parse(text)
-                .unwrap_err()
-                .contains("not a listed source")
+    fn test_render_and_parse_round_trip() {
+        let mut hidden = Found::new(Kind::Option, "merge_imports", false);
+        hidden.hidden = true;
+        let mut nightly = reading(
+            "nightly",
+            &[
+                (Kind::Option, "max_width", true),
+                (Kind::Value, "group_imports=One", false),
+                (Kind::Flag, "rustfmt:--check", true),
+            ],
         );
-        assert!(Surface::parse("thing a in=all\n").is_err());
-        assert!(Surface::parse("source moon x\n").is_err());
+        nightly.items.push(hidden);
+        let surface = Surface::from_readings(&[
+            nightly,
+            reading("local", &[(Kind::Option, "max_width", true)]),
+        ]);
+        let text = surface.render();
+        assert!(text.contains("\nsource  local          rustfmt for local\n"));
+        assert!(text.contains("option  max_width"));
+        assert!(text.contains(" in=all stable=all\n"));
+        assert!(text.contains(" in=nightly stable=none hidden\n"));
+        assert_eq!(Surface::parse(&text).unwrap(), surface);
     }
 }

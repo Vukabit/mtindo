@@ -58,43 +58,9 @@ pub(super) fn trailing(trivia: &[(SyntaxKind, &str)]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use SyntaxKind::{BlockComment, LineComment, Whitespace};
 
-    #[test]
-    fn test_leading_takes_comments_directly_above() {
-        assert_eq!(
-            leading(&[(LineComment, "// a"), (Whitespace, "\n")], false),
-            2
-        );
-        assert_eq!(
-            leading(
-                &[
-                    (LineComment, "// a"),
-                    (Whitespace, "\n"),
-                    (LineComment, "// b"),
-                    (Whitespace, "\n")
-                ],
-                false
-            ),
-            4
-        );
-    }
-
-    #[test]
-    fn test_leading_stops_at_blank_line() {
-        let trivia = [
-            (LineComment, "// a"),
-            (Whitespace, "\n\n"),
-            (LineComment, "// b"),
-            (Whitespace, "\n"),
-        ];
-        assert_eq!(leading(&trivia, false), 2);
-        assert_eq!(
-            leading(&[(LineComment, "// a"), (Whitespace, "\n\n")], false),
-            0
-        );
-    }
+    use super::*;
 
     #[test]
     fn test_leading_ignores_plain_whitespace_and_file_start_tokens() {
@@ -132,6 +98,59 @@ mod tests {
     }
 
     #[test]
+    fn test_leading_stops_at_blank_line() {
+        let trivia = [
+            (LineComment, "// a"),
+            (Whitespace, "\n\n"),
+            (LineComment, "// b"),
+            (Whitespace, "\n"),
+        ];
+        assert_eq!(leading(&trivia, false), 2);
+        assert_eq!(
+            leading(&[(LineComment, "// a"), (Whitespace, "\n\n")], false),
+            0
+        );
+    }
+
+    #[test]
+    fn test_leading_takes_comments_directly_above() {
+        assert_eq!(
+            leading(&[(LineComment, "// a"), (Whitespace, "\n")], false),
+            2
+        );
+        assert_eq!(
+            leading(
+                &[
+                    (LineComment, "// a"),
+                    (Whitespace, "\n"),
+                    (LineComment, "// b"),
+                    (Whitespace, "\n")
+                ],
+                false
+            ),
+            4
+        );
+    }
+
+    #[test]
+    fn test_trailing_rejects_other_lines_and_shared_lines() {
+        assert_eq!(trailing(&[(Whitespace, "\n"), (LineComment, "// next")]), 0);
+        assert_eq!(
+            trailing(&[(Whitespace, " "), (BlockComment, "/* a\nb */")]),
+            0
+        );
+        assert_eq!(
+            trailing(&[
+                (Whitespace, " "),
+                (BlockComment, "/* a */"),
+                (Whitespace, " ")
+            ]),
+            0
+        );
+        assert_eq!(trailing(&[(Whitespace, " ")]), 0);
+    }
+
+    #[test]
     fn test_trailing_takes_same_line_comment() {
         assert_eq!(
             trailing(&[
@@ -154,23 +173,5 @@ mod tests {
             trailing(&[(Whitespace, " "), (BlockComment, "/* note */")]),
             2
         );
-    }
-
-    #[test]
-    fn test_trailing_rejects_other_lines_and_shared_lines() {
-        assert_eq!(trailing(&[(Whitespace, "\n"), (LineComment, "// next")]), 0);
-        assert_eq!(
-            trailing(&[(Whitespace, " "), (BlockComment, "/* a\nb */")]),
-            0
-        );
-        assert_eq!(
-            trailing(&[
-                (Whitespace, " "),
-                (BlockComment, "/* a */"),
-                (Whitespace, " ")
-            ]),
-            0
-        );
-        assert_eq!(trailing(&[(Whitespace, " ")]), 0);
     }
 }

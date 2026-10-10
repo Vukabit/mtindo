@@ -11,19 +11,22 @@ pub(super) static ITEM_KINDS: &[Choice] = &[
     ),
     choice("UseDecl", "Imports: `use` declarations."),
     choice("MacroDecl", "`macro_rules!` definitions."),
+    choice("MacroDef", "`macro` definitions (declarative macros 2.0)."),
     choice("ConstDecl", "Constants: `const`."),
     choice("StaticDecl", "Statics: `static`."),
+    choice("TypeAlias", "Type aliases: `type Name = ...;`."),
     choice("TraitDecl", "Traits, including trait aliases."),
     choice("EnumDecl", "Enums."),
     choice("StructDecl", "Structs."),
+    choice("Union", "Unions."),
     choice("ImplBlock", "Impl blocks."),
+    choice("ExternBlock", "`extern` blocks: `extern \"C\" { ... }`."),
     choice("FnDecl", "Functions."),
-    choice(
-        "Unknown",
-        "Every other item: type aliases, unions, `extern` blocks, `macro` definitions, \
-         `extern crate` and macro calls (the last two never move).",
-    ),
+    choice("Unknown", "Items of no other kind, such as `reuse`."),
 ];
+
+/// Values `type_order` refuses with a reason: kinds that never move.
+pub(super) static PINNED_KINDS: &[&str] = &["ExternCrate", "MacroCall"];
 
 pub(super) static SETTINGS: &[Setting] = &[
     Setting {
@@ -32,9 +35,12 @@ pub(super) static SETTINGS: &[Setting] = &[
         kind: Kind::Integer,
         default: "1",
         default_2024: None,
-        summary: "Blank lines between groups of items of different kinds",
+        summary: "Blank lines between items",
         doc: "The number of blank lines placed between items. Imports of the same group and \
-              `mod name;` declarations stay on consecutive lines.",
+              `mod name;` declarations stay on consecutive lines. It is kept within rustfmt's \
+              `blank_lines_lower_bound` and `blank_lines_upper_bound` (0 and 1 by default), \
+              with a warning, so that rustfmt leaves the result alone; imports and \
+              declarations get the lower bound.",
         channels: None,
         hidden: false,
         replaced_by: None,
@@ -66,6 +72,32 @@ pub(super) static SETTINGS: &[Setting] = &[
         replaced_by: None,
     },
     Setting {
+        name: "impl_method_order",
+        file: File::Mto,
+        kind: Kind::Choice(&[
+            choice(
+                "written",
+                "Functions in impl blocks keep the order they were written in.",
+            ),
+            choice(
+                "trait",
+                "In an impl of a trait declared in the same file, the functions follow the \
+                 order of the trait's declaration; functions the trait does not declare \
+                 come after them.",
+            ),
+        ]),
+        default: "\"written\"",
+        default_2024: None,
+        summary: "The order of functions in trait impls",
+        doc: "The order of the functions inside an impl of a trait declared in the same \
+              file. Only the functions trade places; other items and blank lines stay where \
+              they are. A trait declared under the same name twice in the file is skipped. \
+              rustfmt's `reorder_impl_items` is honored as well, as rustfmt applies it.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
         name: "import_grouping",
         file: File::Mto,
         kind: Kind::Bool,
@@ -81,15 +113,83 @@ pub(super) static SETTINGS: &[Setting] = &[
         replaced_by: None,
     },
     Setting {
+        name: "import_sort",
+        file: File::Mto,
+        kind: Kind::Choice(&[
+            choice(
+                "style_edition",
+                "Sort imports as rustfmt does for the style edition in effect.",
+            ),
+            choice(
+                "2015",
+                "rustfmt's order before style edition 2024: snake_case, then CamelCase, then \
+                 UPPER_SNAKE_CASE, each by bytes, so `a10` comes before `a2`.",
+            ),
+            choice(
+                "2024",
+                "Version sorting, as from style edition 2024: numbers by value, so `u8` \
+                 comes before `u16`, and uppercase before lowercase.",
+            ),
+        ]),
+        default: "\"style_edition\"",
+        default_2024: None,
+        summary: "The style edition imports are sorted by",
+        doc: "Imports are sorted exactly as rustfmt sorts them, so rustfmt leaves them alone. \
+              This picks which of rustfmt's two orders to use when it should differ from the \
+              style edition in effect.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
+        name: "layout",
+        file: File::Mto,
+        kind: Kind::Bool,
+        default: "false",
+        default_2024: None,
+        summary: "Rearrange the items of each file",
+        doc: "Turns layout on for the files this mto.toml applies to. Off by default, so \
+              mto changes nothing until a project opts in; `mto init` writes an mto.toml \
+              with it on. An mto.toml without it may still override rustfmt's settings.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
+        name: "name_sort",
+        file: File::Mto,
+        kind: Kind::Choice(&[
+            choice(
+                "version",
+                "The Rust style guide's version sorting: numbers by value (`u8` before \
+                 `u16`), underscores first, uppercase before lowercase.",
+            ),
+            choice("bytes", "Byte by byte, so `a10` comes before `a2`."),
+            choice(
+                "case_insensitive",
+                "Version sorting with case ignored (`alpha`, `Beta`, `gamma`), case \
+                 deciding only between otherwise equal names.",
+            ),
+        ]),
+        default: "\"version\"",
+        default_2024: None,
+        summary: "How items of one kind are sorted by name",
+        doc: "How `sort_alphabetically` compares names. Imports and modules are not \
+              affected: they are always sorted exactly as rustfmt sorts them.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
         name: "sort_alphabetically",
         file: File::Mto,
         kind: Kind::Bool,
         default: "true",
         default_2024: None,
         summary: "Sort items of the same kind by name",
-        doc: "Within each kind of `type_order`, items are ordered by visibility (`pub`, \
-              `pub(super)`, `pub(crate)`, private), then by name when this is on. When off, \
-              items of the same kind and visibility keep their original order.",
+        doc: "Within each kind of `type_order`, items are ordered by `visibility_order`, \
+              then by name (see `name_sort`) when this is on. When off, items of the same \
+              kind and visibility keep their original order.",
         channels: None,
         hidden: false,
         replaced_by: None,
@@ -108,21 +208,97 @@ pub(super) static SETTINGS: &[Setting] = &[
         replaced_by: None,
     },
     Setting {
-        name: "type_order",
+        name: "test_module",
         file: File::Mto,
-        kind: Kind::Sequence(ITEM_KINDS),
-        default: "[\"ModDecl\", \"UseDecl\", \"MacroDecl\", \"ConstDecl\", \"StaticDecl\", \
-                  \"TraitDecl\", \"EnumDecl\", \"StructDecl\", \"ImplBlock\", \"FnDecl\", \
-                  \"Unknown\"]",
+        kind: Kind::Choice(&[
+            choice("last", "At the end of the file."),
+            choice(
+                "in_place",
+                "Where it was written: it keeps its place, like a pinned item.",
+            ),
+        ]),
+        default: "\"last\"",
         default_2024: None,
-        summary: "The order of item kinds in a file",
-        doc: "The order in which kinds of items appear in a file, top to bottom. Kinds left \
-              out of the list go after the listed ones. `#[cfg(test)]` modules always go \
-              last.",
+        summary: "Where `#[cfg(test)]` modules go",
+        doc: "Where `#[cfg(test)]` modules go: last in the file, or kept where they are.",
         channels: None,
         hidden: false,
         replaced_by: None,
     },
+    Setting {
+        name: "trait_impl_order",
+        file: File::Mto,
+        kind: Kind::List,
+        default: "[]",
+        default_2024: None,
+        summary: "Traits whose impls come first under a type",
+        doc: "Trait impls for these traits come right after the type's own impls, in this \
+              order, for example `[\"Default\", \"Clone\", \"Debug\", \"Display\"]`. A trait \
+              is matched by its name without its path, so `fmt::Display` matches \
+              `Display`. Other trait impls follow, as `trait_impl_sort` says.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
+        name: "trait_impl_sort",
+        file: File::Mto,
+        kind: Kind::Choice(&[
+            choice("name", "By trait name, in `name_sort` order."),
+            choice("original", "As written."),
+        ]),
+        default: "\"name\"",
+        default_2024: None,
+        summary: "How trait impls under a type are ordered",
+        doc: "The impls of one type go in this order: the type's own impls, as written; the \
+              trait impls listed in `trait_impl_order`; then the other trait impls, by trait \
+              name or as written.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
+        name: "type_order",
+        file: File::Mto,
+        kind: Kind::Sequence(ITEM_KINDS),
+        default: "[\"ModDecl\", \"UseDecl\", \"MacroDecl\", \"MacroDef\", \"ConstDecl\", \"StaticDecl\", \"TypeAlias\", \"TraitDecl\", \"EnumDecl\", \"StructDecl\", \"Union\", \"ImplBlock\", \"ExternBlock\", \"FnDecl\", \"Unknown\"]",
+        default_2024: None,
+        summary: "The order of item kinds in a file",
+        doc: "The order in which kinds of items appear in a file, top to bottom. Kinds left \
+              out of the list go after the listed ones. `#[cfg(test)]` modules go where \
+              `test_module` says. `extern crate` items and item macro calls (such as `include!`) are not \
+              kinds here: they never move, because moving them can change what the code \
+              means.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
+        name: "visibility_order",
+        file: File::Mto,
+        kind: Kind::Sequence(VISIBILITIES),
+        default: "[\"Pub\", \"PubCrate\", \"PubIn\", \"PubSuper\", \"Private\"]",
+        default_2024: None,
+        summary: "The order of visibilities within a kind",
+        doc: "Within each kind of `type_order`, items are ordered by visibility in this \
+              order before they are sorted by name. Visibilities left out go last. Modules \
+              ignore it, as rustfmt does.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+];
+
+/// The visibilities `visibility_order` arranges, widest first as by default.
+pub(super) static VISIBILITIES: &[Choice] = &[
+    choice("Pub", "`pub`."),
+    choice(
+        "PubCrate",
+        "`pub(crate)`, and `pub(in crate)`, which rustfmt writes so.",
+    ),
+    choice("PubIn", "`pub(in path)` for any other path."),
+    choice("PubSuper", "`pub(super)`, and `pub(in super)`."),
+    choice("Private", "No visibility, `pub(self)` or `pub(in self)`."),
 ];
 
 const fn choice(name: &'static str, doc: &'static str) -> Choice {

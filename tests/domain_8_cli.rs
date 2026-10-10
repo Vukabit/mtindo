@@ -231,7 +231,10 @@ fn test_cli_config_path_and_print() {
 fn test_cli_config_path_uses_the_given_file() {
     let env = TestEnvironment::new();
     env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
-    env.write_file("custom.toml", "sort_alphabetically = false\n");
+    env.write_file(
+        "custom.toml",
+        "layout = true\nsort_alphabetically = false\n",
+    );
 
     let output = env
         .mto_cmd()
@@ -399,6 +402,7 @@ fn test_cli_help_color_follows_no_color_and_force_color() {
 #[test]
 fn test_cli_init_success_and_failure() {
     let env = TestEnvironment::new();
+    std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
 
     let mut cmd1 = env.mto_cmd();
     cmd1.arg("init");
@@ -419,6 +423,50 @@ fn test_cli_invalid_config_exits_two() {
     env.write_file("main.rs", "fn a() {}\n");
 
     env.mto_cmd().arg("main.rs").assert().failure().code(2);
+}
+
+#[test]
+fn test_cli_layout_is_off_until_opted_in() {
+    let env = TestEnvironment::new();
+    std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
+    env.write_file("main.rs", SOURCE);
+    env.write_file("rustfmt.toml", "max_width = 80\n");
+
+    // No mto.toml: nothing changes, and the hint points at `mto init`.
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stderr.contains("1 file(s) left alone: layout is off. Run `mto init`"),
+        "{}",
+        stderr
+    );
+    assert_eq!(
+        std::fs::read_to_string(env.dir.path().join("main.rs")).unwrap(),
+        SOURCE
+    );
+    let output = env.mto_cmd().arg("-").write_stdin(SOURCE).output().unwrap();
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), SOURCE);
+
+    // An mto.toml without `layout = true` still changes nothing, and says why.
+    env.write_file("mto.toml", "sort_alphabetically = false\n");
+    let output = env.mto_cmd().args(["--check", "main.rs"]).output().unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stderr.contains(
+            "`sort_alphabetically` has no effect while layout is off; add `layout = true`"
+        ),
+        "{}",
+        stderr
+    );
+
+    // `mto init` turns it on.
+    std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
+    env.mto_cmd().arg("init").assert().success();
+    let init = std::fs::read_to_string(env.dir.path().join("mto.toml")).unwrap();
+    assert!(init.contains("\nlayout = true\n"), "{}", init);
+    env.mto_cmd().args(["--check", "main.rs"]).assert().code(1);
 }
 
 #[test]

@@ -388,20 +388,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_entry_forms() {
-        assert_eq!(
-            parse_entry("0041..005A    ; XID_Start "),
-            Some((0x41, 0x5A, "XID_Start".to_string()))
-        );
-        assert_eq!(
-            parse_entry("00AD          ; Cf "),
-            Some((0xAD, 0xAD, "Cf".to_string()))
-        );
-        assert_eq!(parse_entry(""), None);
-        assert_eq!(parse_entry("not a range ; X"), None);
-    }
-
-    #[test]
     fn test_mark_applies_missing_defaults_then_entries() {
         let text = "# @missing: 0000..10FFFF; N\n# @missing: 3400..4DBF; W\n4E00..4E01 ; W # CJK\n3400 ; N\n";
         let set = mark(text, &["W"], true);
@@ -420,6 +406,20 @@ mod tests {
         assert!(set[0x41]);
         assert!(set[0x5A]);
         assert!(!set[0x30]);
+    }
+
+    #[test]
+    fn test_parse_entry_forms() {
+        assert_eq!(
+            parse_entry("0041..005A    ; XID_Start "),
+            Some((0x41, 0x5A, "XID_Start".to_string()))
+        );
+        assert_eq!(
+            parse_entry("00AD          ; Cf "),
+            Some((0xAD, 0xAD, "Cf".to_string()))
+        );
+        assert_eq!(parse_entry(""), None);
+        assert_eq!(parse_entry("not a range ; X"), None);
     }
 
     #[test]

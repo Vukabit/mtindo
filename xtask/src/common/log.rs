@@ -153,22 +153,15 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_entry_layout() {
         assert_eq!(
             format_entry("2026-10-08T21:30:00.123Z", 4242, "INFO", "hello"),
             "[2026-10-08T21:30:00.123Z] [pid 4242] [INFO] hello\n"
-        );
-    }
-
-    #[test]
-    fn test_multi_line_messages_are_indented() {
-        assert_eq!(
-            format_entry("T", 1, "ERROR", "first\r\nsecond\rthird\n\n"),
-            "[T] [pid 1] [ERROR] first\n    second\n    third\n"
         );
     }
 
@@ -188,6 +181,14 @@ mod tests {
         assert!(!dir.join("rotation.log.4").exists());
         assert!(!*logger.broken.lock().unwrap());
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn test_multi_line_messages_are_indented() {
+        assert_eq!(
+            format_entry("T", 1, "ERROR", "first\r\nsecond\rthird\n\n"),
+            "[T] [pid 1] [ERROR] first\n    second\n    third\n"
+        );
     }
 
     #[test]

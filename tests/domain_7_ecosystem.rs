@@ -13,6 +13,7 @@ fn resolver() -> Resolver {
 #[test]
 fn test_config_resolution_hierarchy() {
     let env = TestEnvironment::new();
+    fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
 
     let root_config = env.write_file(
         ".mto.toml",

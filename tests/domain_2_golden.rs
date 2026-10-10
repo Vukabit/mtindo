@@ -30,9 +30,11 @@ fn b_private() {}
 pub(crate) fn c_crate() {}
 pub fn a_pub() {}
 pub(super) fn d_super() {}
+pub(in crate::x) fn e_in() {}
 ";
 
-    let expected = "pub fn a_pub() {}\n\npub(super) fn d_super() {}\n\npub(crate) fn c_crate() {}\n\nfn b_private() {}\n";
+    // Widest first: pub, pub(crate), pub(in path), pub(super), private.
+    let expected = "pub fn a_pub() {}\n\npub(crate) fn c_crate() {}\n\npub(in crate::x) fn e_in() {}\n\npub(super) fn d_super() {}\n\nfn b_private() {}\n";
 
     let config = LayoutConfig::default();
 

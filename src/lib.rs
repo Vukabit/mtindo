@@ -40,6 +40,15 @@ pub enum MtoError {
     Io(String),
 }
 
+impl MtoError {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            MtoError::Usage(_) => 2,
+            MtoError::Io(_) => 3,
+        }
+    }
+}
+
 impl fmt::Display for MtoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -54,15 +63,6 @@ impl From<config::Error> for MtoError {
     }
 }
 
-impl MtoError {
-    pub fn exit_code(&self) -> i32 {
-        match self {
-            MtoError::Usage(_) => 2,
-            MtoError::Io(_) => 3,
-        }
-    }
-}
-
 /// What happened to one file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -73,6 +73,8 @@ pub enum Outcome {
     Failed,
     /// Left untouched because the verifier found the new text unsafe: a bug in mto.
     VerifierFailed,
+    /// Left untouched because no `layout = true` applies to it.
+    LayoutOff,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -144,8 +146,12 @@ pub fn create_backup(file_path: &Path, content: &str) -> Result<PathBuf, std::io
 /// The `mto.toml` that `mto init` writes: every mto setting at its default, with its
 /// summary.
 pub fn init_template() -> String {
-    let mut out = String::from("# mto configuration file; `mto --man` explains every setting.\n");
-    for setting in options::all().filter(|s| s.file == options::File::Mto) {
+    let mut out = String::from(
+        "# mto configuration file; `mto --man` explains every setting.\n\n\
+         # Rearrange the items of each file.\nlayout = true\n",
+    );
+    let others = options::all().filter(|s| s.file == options::File::Mto && s.name != "layout");
+    for setting in others {
         out.push_str(&format!(
             "\n# {}\n{} = {}\n",
             setting.summary, setting.name, setting.default
@@ -310,12 +316,19 @@ pub fn process_init(target_dir: Option<PathBuf>) -> Result<PathBuf, MtoError> {
 pub fn process_stdin(resolver: &mut config::Resolver, check: bool) -> Result<Outcome, MtoError> {
     let dir = env::current_dir()
         .map_err(|e| MtoError::Io(format!("cannot read the current directory: {}", e)))?;
-    let config = resolver.config_for(&dir)?.layout();
+    let resolved = resolver.config_for(&dir)?;
     print_warnings(resolver);
+    let config = resolved.layout();
     let mut source = String::new();
     io::stdin()
         .read_to_string(&mut source)
         .map_err(|e| MtoError::Io(format!("cannot read stdin: {}", e)))?;
+    if !resolved.layout_on() {
+        if !check {
+            print!("{}", source);
+        }
+        return Ok(Outcome::LayoutOff);
+    }
     let (reorganized, edition) = match arrange(&source, &config, false) {
         Ok(arranged) => arranged,
         Err(reason) => {
@@ -636,8 +649,10 @@ fn walk_inner(
     if !visited.insert(real_dir) {
         return Ok(());
     }
-    let config = resolver.config_for(dir)?.layout();
+    let resolved = resolver.config_for(dir)?;
     print_warnings(resolver);
+    let config = resolved.layout();
+    let layout_on = resolved.layout_on();
     let dir_name = dir
         .file_name()
         .unwrap_or_default()
@@ -684,7 +699,11 @@ fn walk_inner(
             {
                 continue;
             }
-            outcomes.push(process_file(&path, &config, opts));
+            if layout_on {
+                outcomes.push(process_file(&path, &config, opts));
+            } else {
+                outcomes.push(Outcome::LayoutOff);
+            }
         }
     }
     Ok(())

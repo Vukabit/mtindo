@@ -66,15 +66,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_plain_lf_round_trips() {
-        let source = "fn a() {}\n";
-        let normalized = normalize(source).unwrap();
-        assert_eq!(normalized.line_ending, LineEnding::Lf);
-        assert!(!normalized.bom);
-        assert_eq!(normalized.restore(&normalized.text), source);
-    }
-
-    #[test]
     fn test_crlf_and_bom_round_trip() {
         let source = "\u{feff}fn a() {}\r\n\r\nfn b() {}\r\n";
         let normalized = normalize(source).unwrap();
@@ -93,5 +84,14 @@ mod tests {
     fn test_no_newline_is_lf() {
         assert_eq!(normalize("fn a() {}").unwrap().line_ending, LineEnding::Lf);
         assert_eq!(normalize("").unwrap().text, "");
+    }
+
+    #[test]
+    fn test_plain_lf_round_trips() {
+        let source = "fn a() {}\n";
+        let normalized = normalize(source).unwrap();
+        assert_eq!(normalized.line_ending, LineEnding::Lf);
+        assert!(!normalized.bom);
+        assert_eq!(normalized.restore(&normalized.text), source);
     }
 }

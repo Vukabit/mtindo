@@ -14,21 +14,24 @@ No more scrolling past 800 lines of helper functions just to find the main
 
 ## Core Features
 
-* **Structure-Aware Splitting:** A standard-library scanner tracks braces,
-  parentheses, brackets, strings, raw strings (`r#"..."#`), char literals and
-  nested block comments to find exactly where each top-level item starts and
-  ends.
-* **Refuses When Unsure:** If a file cannot be split cleanly (unbalanced
-  delimiters, an unterminated string or comment, mixed line endings), it is left
-  untouched and reported as skipped.
-* **Item Bodies Are Never Touched:** Each item is moved byte-for-byte. Only the
-  order of items and the blank lines between them change. Line endings (LF or
+* **Parsed, Not Guessed:** Every file is parsed into a syntax tree that keeps
+  every byte. A file with syntax errors is left untouched and reported as
+  skipped.
+* **Item Bodies Are Never Touched:** Each item is moved byte for byte. Only the
+  order of items and the blank lines between them change, at the top level and
+  inside inline `mod name { ... }` blocks, at every level. Line endings (LF or
   CRLF) and a leading byte-order mark are preserved.
+* **Agrees With rustfmt:** Imports and `mod` declarations are sorted exactly as
+  rustfmt sorts them for the style edition, and blank lines stay within
+  rustfmt's bounds, so running `rustfmt` after `mto` leaves the layout alone.
+  This is checked on 44 real-world repositories.
 * **Sticky Impl Grouping:** `impl Target` and `impl Trait for Target` blocks
-  stay directly beneath the type they implement.
-* **Visibility Hierarchy:** Items of the same kind are ordered by visibility
-  (`pub` -> `pub(super)` -> `pub(crate)` -> private). Modules are the exception:
-  like rustfmt, mto orders them by name alone.
+  stay directly beneath the type they implement: the type's own impls first,
+  then trait impls by trait name (or a list of your choice).
+* **Visibility Hierarchy:** Items of the same kind are ordered by visibility,
+  widest first (`pub`, `pub(crate)`, `pub(in path)`, `pub(super)`, private),
+  then by name with the Rust style guide's version sorting (`u8` before `u16`).
+  Modules are the exception: like rustfmt, mto orders them by name alone.
 * **Comments Travel With Their Item:** A comment directly above an item, or at
   the end of its last line, moves with it.
 * **Order-Sensitive Items Stay Put:** See [What mto never
@@ -53,6 +56,19 @@ cargo install --path .
 
 This builds the `mto` binary in release mode and places it in Cargo's binary
 directory (`~/.cargo/bin`), which should already be on your `PATH`.
+
+## Turning layout on
+
+Layout is opt-in. Until an `mto.toml` with `layout = true` applies to a file,
+`mto` leaves it alone and says so, so running it on a project that has not
+opted in is always safe. To opt in, run this in the project root:
+
+```bash
+mto init
+```
+
+It writes an `mto.toml` with `layout = true` and every other setting at its
+default.
 
 ## Command Line Interface
 
@@ -134,11 +150,18 @@ Some items depend on their position in the file. `mto` keeps them in place:
 * **A file that defines the same macro name twice** is skipped, because there
   the order of definitions changes behavior.
 * **`#[macro_use]` modules** move ahead of the other modules, in their original
-  order, so every module that used their macros still can.
+  order, so every module that used their macros still can; like `macro_rules!`,
+  nothing that came after one moves in front of it.
 * **`extern crate` declarations and item-position macro calls** (`thread_local!
   { .. }`, `include!(..)`, your own `make_items!();`) stay at their original
   position in the file.
-* **A `#[cfg(test)]` module** always goes last.
+* **Items marked to stay:** `#[rustfmt::skip]` items, and items under a
+  `// mto: pin` comment, keep their position. A file whose header has
+  `#![rustfmt::skip]` is left alone.
+* **`#[cfg]` variants** of one item (`#[cfg(unix)] fn f` and
+  `#[cfg(windows)] fn f`, written next to each other) move as one.
+* **A `#[cfg(test)]` module** goes last (or stays where it is, with
+  `test_module = "in_place"`).
 * **Anything between `// mto: off` and `// mto: on`** is left exactly as
   written, in its original position. An item directly under `// mto: on`
   (no blank line between) stays inside the region, and a region with no
@@ -173,28 +196,36 @@ values stops the run with exit code `2`, naming the file, line and column.
 and defaults. Until `mto` formats code, rustfmt's settings change nothing except
 the style edition.
 
-`mto init` writes an `mto.toml` with mto's own settings at their defaults:
+`mto init` writes an `mto.toml` with layout on and mto's other settings at
+their defaults, each with a comment; without the comments:
 
 ```toml
+layout = true
 blank_lines_between_blocks = 1
 group_impls = true
 ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv"]
+impl_method_order = "written"
 import_grouping = true
+import_sort = "style_edition"
+name_sort = "version"
 sort_alphabetically = true
 sort_imports = true
-type_order = ["ModDecl", "UseDecl", "MacroDecl", "ConstDecl", "StaticDecl",
-    "TraitDecl", "EnumDecl", "StructDecl", "ImplBlock", "FnDecl", "Unknown"]
+test_module = "last"
+trait_impl_order = []
+trait_impl_sort = "name"
+type_order = ["ModDecl", "UseDecl", "MacroDecl", "MacroDef", "ConstDecl",
+    "StaticDecl", "TypeAlias", "TraitDecl", "EnumDecl", "StructDecl", "Union",
+    "ImplBlock", "ExternBlock", "FnDecl", "Unknown"]
+visibility_order = ["Pub", "PubCrate", "PubIn", "PubSuper", "Private"]
 ```
 
-`tab_width` was renamed `tab_spaces`, rustfmt's name.
-
-Type aliases, `extern` blocks and other items without their own kind are
-classified as `Unknown`.
+rustfmt's `reorder_impl_items` is honored inside impl blocks, exactly as
+rustfmt applies it. `tab_width` was renamed `tab_spaces`, rustfmt's name.
 
 ## Safety and Recovery
 
-1. **Refusal:** If a file cannot be split into items with certainty, it is
-   skipped and left byte-for-byte unchanged.
+1. **Refusal:** If a file has syntax errors, or cannot be split into items with
+   certainty, it is skipped and left byte-for-byte unchanged.
 2. **Snapshot:** Before a file is changed, a complete copy is saved to
    `/tmp/mtindo_backups/` (or your OS equivalent).
 3. **Atomic Write:** The new content is written to a synced temp file next to

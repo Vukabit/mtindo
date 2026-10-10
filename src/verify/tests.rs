@@ -59,6 +59,44 @@ fn test_bug_report_names_rules_and_shows_the_input() {
 }
 
 #[test]
+fn test_inline_modules_are_scopes_of_their_own() {
+    let input =
+        "mod a {\n    //! Docs.\n    fn y() {}\n    fn x() {}\n}\nmod b {\n    fn z() {}\n}\n";
+    // Reordering inside a module, and modules among themselves, is fine.
+    let reordered =
+        "mod b {\n    fn z() {}\n}\nmod a {\n    //! Docs.\n    fn x() {}\n\n    fn y() {}\n}\n";
+    assert_eq!(rules(input, reordered), vec![]);
+    // Moving an item to another module is not.
+    let moved =
+        "mod a {\n    //! Docs.\n    fn y() {}\n}\nmod b {\n    fn x() {}\n    fn z() {}\n}\n";
+    assert_eq!(rules(input, moved), vec![Rule::ItemLost, Rule::ItemAdded]);
+    // Nor is changing an item inside a module, or moving a module's inner doc down.
+    let changed = input.replace("fn x() {}", "fn x() { }");
+    assert_eq!(
+        rules(input, &changed),
+        vec![Rule::ItemLost, Rule::ItemAdded]
+    );
+    let header =
+        "mod a {\n    fn y() {}\n    //! Docs.\n    fn x() {}\n}\nmod b {\n    fn z() {}\n}\n";
+    assert!(rules(input, header).contains(&Rule::HeaderChanged));
+    // Macro order is kept within each module.
+    let macros = "mod m {\n    macro_rules! p { () => {} }\n    macro_rules! q { () => {} }\n}\n";
+    let swapped = "mod m {\n    macro_rules! q { () => {} }\n    macro_rules! p { () => {} }\n}\n";
+    assert_eq!(rules(macros, swapped), vec![Rule::MacroOrderChanged]);
+}
+
+#[test]
+fn test_macro_use_modules_count_in_their_parent() {
+    let input = "#[macro_use]\nmod macros {\n    macro_rules! m { () => {} }\n}\nmacro_rules! n { () => {} }\nmod a {\n    macro_rules! p { () => {} }\n}\nmod b {\n    macro_rules! q { () => {} }\n}\n";
+    // Modules without `#[macro_use]` may swap; their macros stay local.
+    let swapped = "#[macro_use]\nmod macros {\n    macro_rules! m { () => {} }\n}\nmacro_rules! n { () => {} }\nmod b {\n    macro_rules! q { () => {} }\n}\nmod a {\n    macro_rules! p { () => {} }\n}\n";
+    assert_eq!(rules(input, swapped), vec![]);
+    // A `#[macro_use]` module may not move below a macro defined after it.
+    let moved = "macro_rules! n { () => {} }\n#[macro_use]\nmod macros {\n    macro_rules! m { () => {} }\n}\nmod a {\n    macro_rules! p { () => {} }\n}\nmod b {\n    macro_rules! q { () => {} }\n}\n";
+    assert_eq!(rules(input, moved), vec![Rule::MacroOrderChanged]);
+}
+
+#[test]
 fn test_minimize_keeps_only_what_fails() {
     // "Fails" while the text still holds `fn bad`; everything else is dropped.
     let input = "use std::io;\n\n// note\nfn good() {}\n\nfn bad() {}\n\nstruct S;\n";

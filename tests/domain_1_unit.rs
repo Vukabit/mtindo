@@ -29,6 +29,8 @@ fn test_config_integers() {
         ("max_width", "120"),
         ("tab_spaces", "8"),
         ("blank_lines_between_blocks", "2"),
+        // rustfmt's upper bound is 1 unless raised; mto stays within it.
+        ("blank_lines_upper_bound", "2"),
     ])
     .unwrap();
     assert_eq!(config.max_width, 120);

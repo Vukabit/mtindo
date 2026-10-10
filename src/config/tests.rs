@@ -9,12 +9,6 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// A fresh folder holding `files` (path, contents), removed when dropped.
 struct Tree(PathBuf);
 
-impl Drop for Tree {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 impl Tree {
     fn new(files: &[(&str, &str)]) -> Tree {
         let root = std::env::temp_dir().join(format!(
@@ -39,6 +33,12 @@ impl Tree {
     }
 }
 
+impl Drop for Tree {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn config(tree: &Tree, sub: &str) -> (Rc<Config>, Vec<String>) {
     config_with(tree, sub, &Overrides::default(), Environment::default())
 }
@@ -57,6 +57,40 @@ fn config_with(
 fn error(tree: &Tree, sub: &str) -> String {
     let mut resolver = Resolver::new(&Overrides::default(), Environment::default()).unwrap();
     resolver.config_for(&tree.dir(sub)).unwrap_err().message
+}
+
+#[test]
+fn test_blank_lines_stay_within_rustfmt_bounds() {
+    let tree = Tree::new(&[(
+        "mto.toml",
+        "layout = true\nblank_lines_between_blocks = 2\n",
+    )]);
+    let (config, warnings) = config(&tree, "");
+    assert_eq!(config.layout().blank_lines_between_blocks, 1);
+    assert!(
+        warnings[0].contains(
+            "outside rustfmt's blank-line bounds (0 to 1), which rustfmt would undo; mto uses 1"
+        ),
+        "{:?}",
+        warnings
+    );
+    let tree = Tree::new(&[
+        (
+            "rustfmt.toml",
+            "blank_lines_upper_bound = 3\nblank_lines_lower_bound = 1\n",
+        ),
+        (
+            "mto.toml",
+            "layout = true\nblank_lines_between_blocks = 2\n",
+        ),
+    ]);
+    let (config, warnings) = super::tests::config(&tree, "");
+    let layout = config.layout();
+    assert_eq!(
+        (layout.blank_lines_between_blocks, layout.blank_lines_tight),
+        (2, 1)
+    );
+    assert!(warnings.is_empty(), "{:?}", warnings);
 }
 
 #[test]
@@ -198,6 +232,10 @@ fn test_invalid_values_are_errors_at_their_place() {
     assert!(error(&tree, "").contains("must be zero or more"));
     let tree = Tree::new(&[("mto.toml", "type_order = [\"FnDecl\", \"Bogus\"]\n")]);
     assert!(error(&tree, "").contains("`type_order` cannot be `Bogus`; legal values: `ModDecl`"));
+    let tree = Tree::new(&[("mto.toml", "type_order = [\"FnDecl\", \"macrocall\"]\n")]);
+    assert!(error(&tree, "").contains(
+        "`type_order` cannot hold `MacroCall`: `extern crate` items and item macro calls never move"
+    ));
     let tree = Tree::new(&[("mto.toml", "type_order = [\"FnDecl\", \"fndecl\"]\n")]);
     assert!(error(&tree, "").contains("lists `FnDecl` twice"));
     let tree = Tree::new(&[("mto.toml", "max_width = \n")]);

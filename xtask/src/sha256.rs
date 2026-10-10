@@ -76,6 +76,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_block_boundary_lengths() {
+        for len in [55usize, 56, 63, 64, 65, 119, 120, 128] {
+            let data = vec![b'a'; len];
+            assert_eq!(hex_digest(&data).len(), 64);
+        }
+        assert_eq!(
+            hex_digest(&[b'a'; 1_000]),
+            "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
+        );
+    }
+
+    #[test]
     fn test_known_vectors() {
         assert_eq!(
             hex_digest(b""),
@@ -88,18 +100,6 @@ mod tests {
         assert_eq!(
             hex_digest(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
-        );
-    }
-
-    #[test]
-    fn test_block_boundary_lengths() {
-        for len in [55usize, 56, 63, 64, 65, 119, 120, 128] {
-            let data = vec![b'a'; len];
-            assert_eq!(hex_digest(&data).len(), 64);
-        }
-        assert_eq!(
-            hex_digest(&[b'a'; 1_000]),
-            "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
         );
     }
 }

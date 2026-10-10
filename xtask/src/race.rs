@@ -55,12 +55,12 @@ use crate::common::process;
 /// Columns besides the feature name in the compact layout: " " + 10 + " " + 10 + " " + 14.
 const COMPACT_COLUMNS: usize = 37;
 
-const DEFAULTS_ROW: &str = "(defaults, no options)";
-
 /// How many of the corpus's largest source files make up the real-code row.
 const DEFAULT_REAL_FILES: usize = 100;
 
 const DEFAULT_ROUNDS: usize = 3;
+
+const DEFAULTS_ROW: &str = "(defaults, no options)";
 
 /// Columns besides the feature name: " " + files 5 + "  " + 14 + " " + 14 + " " + mto 20.
 const FIXED_COLUMNS: usize = 58;
@@ -1911,127 +1911,6 @@ fn verdict(cell: &Cell, baseline: Option<(f64, f64)>) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_settings_of_reads_header_lines() {
-        let text = "// rustfmt-max_width: 80\n// rustfmt-imports_granularity: Crate\n// plain comment\nfn f() {}\n// rustfmt-Bad: x\n";
-        assert_eq!(
-            settings_of(text),
-            vec![
-                ("max_width".to_string(), "80".to_string()),
-                ("imports_granularity".to_string(), "Crate".to_string())
-            ]
-        );
-    }
-
-    #[test]
-    fn test_toml_lines() {
-        let strings: BTreeSet<String> = ["edition", "style_edition", "imports_granularity"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(toml_line("max_width", "80", &strings), "max_width = 80\n");
-        assert_eq!(
-            toml_line("hard_tabs", "true", &strings),
-            "hard_tabs = true\n"
-        );
-        assert_eq!(
-            toml_line("imports_granularity", "Crate", &strings),
-            "imports_granularity = \"Crate\"\n"
-        );
-        // Fixed-list options are strings, even when the value looks like a number.
-        assert_eq!(
-            toml_line("edition", "2021", &strings),
-            "edition = \"2021\"\n"
-        );
-        assert_eq!(
-            toml_line("style_edition", "2024", &strings),
-            "style_edition = \"2024\"\n"
-        );
-        assert_eq!(
-            toml_line("ignore", "[\"a\"]", &strings),
-            "ignore = [\"a\"]\n"
-        );
-        assert_eq!(
-            toml_line("edition", "\"2018\"", &strings),
-            "edition = \"2018\"\n"
-        );
-    }
-
-    /// An input rustfmt fails on leaves every row; an mto failure shows `error`.
-    #[test]
-    fn test_failures_are_never_timed() {
-        let mut race = small_race();
-        race.failed.get_mut(&Tool::Nightly).unwrap().insert(1);
-        exclude_failures(&mut race);
-        assert!(race.excluded.contains(&1));
-        assert!(
-            !race.rows.iter().any(|(label, _)| label == "max_width=80"),
-            "the row held only input 1"
-        );
-        race.failed.get_mut(&Tool::Mto).unwrap().insert(0);
-        let members = race.rows[0].1.clone();
-        assert_eq!(
-            cell(&race, DEFAULTS_ROW, &members, Tool::Mto, None),
-            Cell::Failed
-        );
-        assert!(matches!(
-            cell(&race, DEFAULTS_ROW, &members, Tool::Stable, None),
-            Cell::Time { .. }
-        ));
-        let summary = summary(&race, 1, &opts(false));
-        assert!(
-            summary.contains("1 inputs left out: rustfmt exited with an error"),
-            "{}",
-            summary
-        );
-        assert!(
-            summary.contains("1 cells show `error`: mto exited"),
-            "{}",
-            summary
-        );
-    }
-
-    #[test]
-    fn test_toml_settings_join_multi_line_arrays() {
-        let text = "# comment\nignore = [\n  \"tests/**/ice.rs\",\n  \"b.rs\"\n]\nmax_width = 80\n[table]\n";
-        assert_eq!(
-            toml_settings(text),
-            vec![
-                (
-                    "ignore".to_string(),
-                    "[ \"tests/**/ice.rs\", \"b.rs\" ]".to_string()
-                ),
-                ("max_width".to_string(), "80".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_refused_settings_come_from_rustfmts_warning() {
-        let stderr = "Warning: can't set `imports_granularity = Crate`, unstable features are only available in nightly channel.\nother\n";
-        assert_eq!(refused_settings(stderr), vec!["imports_granularity=Crate"]);
-    }
-
-    #[test]
-    fn test_stats_median_and_spread() {
-        let (median, spread) = stats(&[0.10, 0.12, 0.11]).unwrap();
-        assert!((median - 0.11).abs() < 1e-9);
-        assert!((spread - 9.090909).abs() < 1e-3);
-        assert!(stats(&[]).is_none());
-    }
-
-    #[test]
-    fn test_rotation_changes_who_goes_first() {
-        assert_eq!(rotated(0)[0], Tool::Stable);
-        assert_eq!(rotated(1)[0], Tool::Nightly);
-        assert_eq!(rotated(2)[0], Tool::Mto);
-        for n in 0..3 {
-            let mut tools = rotated(n).to_vec();
-            tools.sort();
-            assert_eq!(tools, TOOLS.to_vec());
-        }
-    }
-
     const UNLIMITED: Screen = Screen {
         cols: None,
         rows: None,
@@ -2062,51 +1941,76 @@ mod tests {
         }
     }
 
-    /// Every frame, at every size, fits: no line wider than the screen minus one column,
-    /// no more lines than the screen has, colour codes intact.
-    #[test]
-    fn test_frames_fit_every_screen_size() {
-        let race = small_race();
-        for (cols, rows) in [(20, 8), (40, 10), (60, 12), (80, 24), (120, 40), (200, 60)] {
-            let screen = Screen {
-                cols: Some(cols),
-                rows: Some(rows),
-            };
-            for color in [false, true] {
-                let text = render(&race, &opts(false), Some(&progress(1)), color, screen);
-                let plain = strip_ansi(&text);
-                assert!(
-                    plain.lines().count() < rows,
-                    "{}x{}: {} lines\n{}",
-                    cols,
-                    rows,
-                    plain.lines().count(),
-                    plain
-                );
-                for line in plain.lines() {
-                    assert!(
-                        line.chars().count() < cols,
-                        "{}x{}: too wide: {:?}",
-                        cols,
-                        rows,
-                        line
-                    );
-                }
-                // A cut never leaves a colour open.
-                if color {
-                    for line in text.lines() {
-                        let opens = line.matches("\x1b[").count() - line.matches("\x1b[0m").count();
-                        assert!(
-                            opens <= line.matches("\x1b[0m").count(),
-                            "{}x{}: colour left open in {:?}",
-                            cols,
-                            rows,
-                            line
-                        );
-                    }
-                }
-            }
+    fn small_race() -> Race {
+        let input = |name: &str, settings: Vec<(&str, &str)>| Input {
+            name: name.to_string(),
+            text: String::new(),
+            settings: settings
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            config: None,
+            real: false,
+        };
+        let inputs = vec![
+            input("a.rs", vec![]),
+            input("b.rs", vec![("max_width", "80")]),
+            input("c.rs", vec![("imports_granularity", "Crate")]),
+        ];
+        let mut race = Race {
+            rows: vec![
+                (DEFAULTS_ROW.to_string(), vec![0]),
+                ("imports_granularity=Crate".to_string(), vec![2]),
+                ("max_width=80".to_string(), vec![1]),
+            ],
+            samples: TOOLS.iter().map(|t| (*t, vec![Vec::new(); 3])).collect(),
+            startup: TOOLS
+                .iter()
+                .map(|t| (*t, vec![if *t == Tool::Mto { 0.001 } else { 0.010 }]))
+                .collect(),
+            outputs: TOOLS.iter().map(|t| (*t, vec![String::new(); 3])).collect(),
+            stable_rows: [
+                (DEFAULTS_ROW.to_string(), true),
+                ("imports_granularity=Crate".to_string(), false),
+                ("max_width=80".to_string(), true),
+            ]
+            .into_iter()
+            .collect(),
+            refused: BTreeSet::new(),
+            failed: TOOLS.iter().map(|t| (*t, BTreeSet::new())).collect(),
+            excluded: BTreeSet::new(),
+            gross: false,
+            mto_rows: [DEFAULTS_ROW.to_string()].into_iter().collect(),
+            versions: TOOLS.iter().map(|t| (*t, "1.0".to_string())).collect(),
+            inputs,
+        };
+        for tool in TOOLS {
+            race.samples.get_mut(&tool).unwrap()[0].push(if tool == Tool::Mto {
+                0.002
+            } else {
+                0.020
+            });
         }
+        race
+    }
+
+    #[test]
+    fn test_cell_text() {
+        let time = Cell::Time {
+            median: 0.0712,
+            net: 0.0612,
+            spread: 1.0,
+            matches: Some(true),
+        };
+        assert_eq!(cell_text(&time, Some((0.424, 0.412))), "61.2 ms ±1% ✓ 6.7×");
+        let wrong = Cell::Time {
+            median: 0.0712,
+            net: 0.0612,
+            spread: 8.0,
+            matches: Some(false),
+        };
+        assert_eq!(cell_text(&wrong, Some((0.424, 0.412))), "61.2 ms ±8%~ ✗");
+        assert_eq!(cell_text(&Cell::Unstable, None), "unstable");
     }
 
     /// The columns sit at the same place in every frame and at every height, so the table
@@ -2193,172 +2097,37 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// An input rustfmt fails on leaves every row; an mto failure shows `error`.
     #[test]
-    fn test_rows_sort_numbers_by_value() {
-        let mut labels = vec![
-            "max_width=160",
-            "max_width=20",
-            "max_width=25",
-            "chain_width=1",
-            "max_width=080",
-        ];
-        labels.sort_by(|a, b| natural_cmp(a, b));
-        assert_eq!(
-            labels,
-            vec![
-                "chain_width=1",
-                "max_width=20",
-                "max_width=25",
-                "max_width=080",
-                "max_width=160"
-            ]
-        );
-    }
-
-    /// The mto column, the point of the tool, is visible at every width.
-    #[test]
-    fn test_mto_column_survives_every_width() {
-        let race = small_race();
-        for cols in [40, 50, 63, 64, 80, 99, 100, 140] {
-            let screen = Screen {
-                cols: Some(cols),
-                rows: Some(30),
-            };
-            let text = render(&race, &opts(false), Some(&progress(0)), false, screen);
-            let defaults_values = if cols < 64 {
-                // Stacked: the values are on the line after the label.
-                let at = text.lines().position(|l| l.contains("(defaults")).unwrap();
-                text.lines().nth(at + 1).unwrap().to_string()
-            } else {
-                text.lines()
-                    .find(|l| l.contains("(defaults"))
-                    .unwrap()
-                    .to_string()
-            };
-            assert!(
-                defaults_values.contains("1.00 ms") && defaults_values.contains('✓'),
-                "{} cols: {:?}\n{}",
-                cols,
-                defaults_values,
-                text
-            );
-            let expected = match cols {
-                c if c < 64 => Shape::Stacked,
-                c if c < 100 => Shape::Compact,
-                _ => Shape::Full,
-            };
-            assert_eq!(shape_for(screen), expected);
-        }
-    }
-
-    #[test]
-    fn test_fit_cuts_by_visible_width_and_resets_colour() {
-        assert_eq!(fit("abcdef\nxy\n", 4), "abc\nxy\n");
-        let coloured = "\x1b[32m✓ok\x1b[0m tail";
-        let cut = fit(coloured, 3);
-        assert_eq!(strip_ansi(&cut), "✓o");
-        assert!(cut.ends_with("\x1b[0m"), "{:?}", cut);
-        assert_eq!(fit("short", 80), "short");
-    }
-
-    #[test]
-    fn test_size_argument() {
-        let args: Vec<String> = ["--size", "80x24,40x10", "--live", "--frames", "/tmp/f"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let options = parse_args(&args).unwrap();
-        assert_eq!(options.sizes, vec![(80, 24), (40, 10)]);
-        assert!(options.live);
-        assert_eq!(
-            screen_for(&options, 3),
-            Screen {
-                cols: Some(40),
-                rows: Some(10)
-            }
-        );
-        assert!(parse_args(&["--size".to_string(), "10x2".to_string()]).is_err());
-    }
-
-    fn small_race() -> Race {
-        let input = |name: &str, settings: Vec<(&str, &str)>| Input {
-            name: name.to_string(),
-            text: String::new(),
-            settings: settings
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-            config: None,
-            real: false,
-        };
-        let inputs = vec![
-            input("a.rs", vec![]),
-            input("b.rs", vec![("max_width", "80")]),
-            input("c.rs", vec![("imports_granularity", "Crate")]),
-        ];
-        let mut race = Race {
-            rows: vec![
-                (DEFAULTS_ROW.to_string(), vec![0]),
-                ("imports_granularity=Crate".to_string(), vec![2]),
-                ("max_width=80".to_string(), vec![1]),
-            ],
-            samples: TOOLS.iter().map(|t| (*t, vec![Vec::new(); 3])).collect(),
-            startup: TOOLS
-                .iter()
-                .map(|t| (*t, vec![if *t == Tool::Mto { 0.001 } else { 0.010 }]))
-                .collect(),
-            outputs: TOOLS.iter().map(|t| (*t, vec![String::new(); 3])).collect(),
-            stable_rows: [
-                (DEFAULTS_ROW.to_string(), true),
-                ("imports_granularity=Crate".to_string(), false),
-                ("max_width=80".to_string(), true),
-            ]
-            .into_iter()
-            .collect(),
-            refused: BTreeSet::new(),
-            failed: TOOLS.iter().map(|t| (*t, BTreeSet::new())).collect(),
-            excluded: BTreeSet::new(),
-            gross: false,
-            mto_rows: [DEFAULTS_ROW.to_string()].into_iter().collect(),
-            versions: TOOLS.iter().map(|t| (*t, "1.0".to_string())).collect(),
-            inputs,
-        };
-        for tool in TOOLS {
-            race.samples.get_mut(&tool).unwrap()[0].push(if tool == Tool::Mto {
-                0.002
-            } else {
-                0.020
-            });
-        }
-        race
-    }
-
-    #[test]
-    fn test_live_view_shows_progress_and_the_current_rows() {
-        let race = small_race();
-        let options = opts(false);
-        let progress = Progress {
-            round: 1,
-            rounds: 4,
-            done: 2,
-            total: 3,
-            elapsed: 7,
-            current: Some(1),
-            recent: Vec::new(),
-        };
-        let text = render(&race, &options, Some(&progress), false, UNLIMITED);
-        assert!(text.contains("round 1/3  "), "{}", text);
-        assert!(text.contains("2/3 inputs  7s"), "{}", text);
-        assert!(text.contains("max_width=80"), "{}", text);
-        // Rows the current input is not in are left out of the live window.
-        assert!(!text.contains("imports_granularity=Crate"), "{}", text);
-        let row = text.lines().find(|l| l.contains("max_width=80")).unwrap();
-        assert!(row.contains("⠹"), "{}", row);
-        let defaults = text.lines().find(|l| l.contains(DEFAULTS_ROW)).unwrap();
+    fn test_failures_are_never_timed() {
+        let mut race = small_race();
+        race.failed.get_mut(&Tool::Nightly).unwrap().insert(1);
+        exclude_failures(&mut race);
+        assert!(race.excluded.contains(&1));
         assert!(
-            defaults.contains("10.0 ms") && defaults.contains("1.00 ms ±0% ✓ 10.0×"),
+            !race.rows.iter().any(|(label, _)| label == "max_width=80"),
+            "the row held only input 1"
+        );
+        race.failed.get_mut(&Tool::Mto).unwrap().insert(0);
+        let members = race.rows[0].1.clone();
+        assert_eq!(
+            cell(&race, DEFAULTS_ROW, &members, Tool::Mto, None),
+            Cell::Failed
+        );
+        assert!(matches!(
+            cell(&race, DEFAULTS_ROW, &members, Tool::Stable, None),
+            Cell::Time { .. }
+        ));
+        let summary = summary(&race, 1, &opts(false));
+        assert!(
+            summary.contains("1 inputs left out: rustfmt exited with an error"),
             "{}",
-            defaults
+            summary
+        );
+        assert!(
+            summary.contains("1 cells show `error`: mto exited"),
+            "{}",
+            summary
         );
     }
 
@@ -2404,22 +2173,220 @@ mod tests {
     }
 
     #[test]
-    fn test_cell_text() {
-        let time = Cell::Time {
-            median: 0.0712,
-            net: 0.0612,
-            spread: 1.0,
-            matches: Some(true),
+    fn test_fit_cuts_by_visible_width_and_resets_colour() {
+        assert_eq!(fit("abcdef\nxy\n", 4), "abc\nxy\n");
+        let coloured = "\x1b[32m✓ok\x1b[0m tail";
+        let cut = fit(coloured, 3);
+        assert_eq!(strip_ansi(&cut), "✓o");
+        assert!(cut.ends_with("\x1b[0m"), "{:?}", cut);
+        assert_eq!(fit("short", 80), "short");
+    }
+
+    /// Every frame, at every size, fits: no line wider than the screen minus one column,
+    /// no more lines than the screen has, colour codes intact.
+    #[test]
+    fn test_frames_fit_every_screen_size() {
+        let race = small_race();
+        for (cols, rows) in [(20, 8), (40, 10), (60, 12), (80, 24), (120, 40), (200, 60)] {
+            let screen = Screen {
+                cols: Some(cols),
+                rows: Some(rows),
+            };
+            for color in [false, true] {
+                let text = render(&race, &opts(false), Some(&progress(1)), color, screen);
+                let plain = strip_ansi(&text);
+                assert!(
+                    plain.lines().count() < rows,
+                    "{}x{}: {} lines\n{}",
+                    cols,
+                    rows,
+                    plain.lines().count(),
+                    plain
+                );
+                for line in plain.lines() {
+                    assert!(
+                        line.chars().count() < cols,
+                        "{}x{}: too wide: {:?}",
+                        cols,
+                        rows,
+                        line
+                    );
+                }
+                // A cut never leaves a colour open.
+                if color {
+                    for line in text.lines() {
+                        let opens = line.matches("\x1b[").count() - line.matches("\x1b[0m").count();
+                        assert!(
+                            opens <= line.matches("\x1b[0m").count(),
+                            "{}x{}: colour left open in {:?}",
+                            cols,
+                            rows,
+                            line
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_harness_settings_follow_rustfmts_test_runner() {
+        let dir = std::env::temp_dir().join(format!("xtask-race-config-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("small_tabs.toml"),
+            "# comment\nmax_width = 80\nhard_tabs = true\nimports_granularity = \"Crate\"\n",
+        )
+        .unwrap();
+        let text = "// rustfmt-config: small_tabs.toml\n// rustfmt-hard_tabs: false\n// rustfmt-target: hello.rs\n// rustfmt-stable: true\n// rustfmt-unstable: true\nfn f() {}\n";
+        let settings = harness_settings(text, &dir).unwrap();
+        assert_eq!(
+            settings,
+            vec![
+                ("max_width".to_string(), "80".to_string()),
+                ("imports_granularity".to_string(), "Crate".to_string()),
+                ("hard_tabs".to_string(), "false".to_string()),
+            ]
+        );
+        assert!(harness_settings("// rustfmt-config: gone.toml\n", &dir).is_none());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_live_view_shows_progress_and_the_current_rows() {
+        let race = small_race();
+        let options = opts(false);
+        let progress = Progress {
+            round: 1,
+            rounds: 4,
+            done: 2,
+            total: 3,
+            elapsed: 7,
+            current: Some(1),
+            recent: Vec::new(),
         };
-        assert_eq!(cell_text(&time, Some((0.424, 0.412))), "61.2 ms ±1% ✓ 6.7×");
-        let wrong = Cell::Time {
-            median: 0.0712,
-            net: 0.0612,
-            spread: 8.0,
-            matches: Some(false),
-        };
-        assert_eq!(cell_text(&wrong, Some((0.424, 0.412))), "61.2 ms ±8%~ ✗");
-        assert_eq!(cell_text(&Cell::Unstable, None), "unstable");
+        let text = render(&race, &options, Some(&progress), false, UNLIMITED);
+        assert!(text.contains("round 1/3  "), "{}", text);
+        assert!(text.contains("2/3 inputs  7s"), "{}", text);
+        assert!(text.contains("max_width=80"), "{}", text);
+        // Rows the current input is not in are left out of the live window.
+        assert!(!text.contains("imports_granularity=Crate"), "{}", text);
+        let row = text.lines().find(|l| l.contains("max_width=80")).unwrap();
+        assert!(row.contains("⠹"), "{}", row);
+        let defaults = text.lines().find(|l| l.contains(DEFAULTS_ROW)).unwrap();
+        assert!(
+            defaults.contains("10.0 ms") && defaults.contains("1.00 ms ±0% ✓ 10.0×"),
+            "{}",
+            defaults
+        );
+    }
+
+    /// The mto column, the point of the tool, is visible at every width.
+    #[test]
+    fn test_mto_column_survives_every_width() {
+        let race = small_race();
+        for cols in [40, 50, 63, 64, 80, 99, 100, 140] {
+            let screen = Screen {
+                cols: Some(cols),
+                rows: Some(30),
+            };
+            let text = render(&race, &opts(false), Some(&progress(0)), false, screen);
+            let defaults_values = if cols < 64 {
+                // Stacked: the values are on the line after the label.
+                let at = text.lines().position(|l| l.contains("(defaults")).unwrap();
+                text.lines().nth(at + 1).unwrap().to_string()
+            } else {
+                text.lines()
+                    .find(|l| l.contains("(defaults"))
+                    .unwrap()
+                    .to_string()
+            };
+            assert!(
+                defaults_values.contains("1.00 ms") && defaults_values.contains('✓'),
+                "{} cols: {:?}\n{}",
+                cols,
+                defaults_values,
+                text
+            );
+            let expected = match cols {
+                c if c < 64 => Shape::Stacked,
+                c if c < 100 => Shape::Compact,
+                _ => Shape::Full,
+            };
+            assert_eq!(shape_for(screen), expected);
+        }
+    }
+
+    #[test]
+    fn test_refused_settings_come_from_rustfmts_warning() {
+        let stderr = "Warning: can't set `imports_granularity = Crate`, unstable features are only available in nightly channel.\nother\n";
+        assert_eq!(refused_settings(stderr), vec!["imports_granularity=Crate"]);
+    }
+
+    #[test]
+    fn test_rotation_changes_who_goes_first() {
+        assert_eq!(rotated(0)[0], Tool::Stable);
+        assert_eq!(rotated(1)[0], Tool::Nightly);
+        assert_eq!(rotated(2)[0], Tool::Mto);
+        for n in 0..3 {
+            let mut tools = rotated(n).to_vec();
+            tools.sort();
+            assert_eq!(tools, TOOLS.to_vec());
+        }
+    }
+
+    #[test]
+    fn test_rows_sort_numbers_by_value() {
+        let mut labels = vec![
+            "max_width=160",
+            "max_width=20",
+            "max_width=25",
+            "chain_width=1",
+            "max_width=080",
+        ];
+        labels.sort_by(|a, b| natural_cmp(a, b));
+        assert_eq!(
+            labels,
+            vec![
+                "chain_width=1",
+                "max_width=20",
+                "max_width=25",
+                "max_width=080",
+                "max_width=160"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_settings_of_reads_header_lines() {
+        let text = "// rustfmt-max_width: 80\n// rustfmt-imports_granularity: Crate\n// plain comment\nfn f() {}\n// rustfmt-Bad: x\n";
+        assert_eq!(
+            settings_of(text),
+            vec![
+                ("max_width".to_string(), "80".to_string()),
+                ("imports_granularity".to_string(), "Crate".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_size_argument() {
+        let args: Vec<String> = ["--size", "80x24,40x10", "--live", "--frames", "/tmp/f"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let options = parse_args(&args).unwrap();
+        assert_eq!(options.sizes, vec![(80, 24), (40, 10)]);
+        assert!(options.live);
+        assert_eq!(
+            screen_for(&options, 3),
+            Screen {
+                cols: Some(40),
+                rows: Some(10)
+            }
+        );
+        assert!(parse_args(&["--size".to_string(), "10x2".to_string()]).is_err());
     }
 
     /// A time that is almost all start-up shows `≈0` and earns no speed-up, on either side.
@@ -2450,27 +2417,60 @@ mod tests {
     }
 
     #[test]
-    fn test_harness_settings_follow_rustfmts_test_runner() {
-        let dir = std::env::temp_dir().join(format!("xtask-race-config-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("small_tabs.toml"),
-            "# comment\nmax_width = 80\nhard_tabs = true\nimports_granularity = \"Crate\"\n",
-        )
-        .unwrap();
-        let text = "// rustfmt-config: small_tabs.toml\n// rustfmt-hard_tabs: false\n// rustfmt-target: hello.rs\n// rustfmt-stable: true\n// rustfmt-unstable: true\nfn f() {}\n";
-        let settings = harness_settings(text, &dir).unwrap();
+    fn test_stats_median_and_spread() {
+        let (median, spread) = stats(&[0.10, 0.12, 0.11]).unwrap();
+        assert!((median - 0.11).abs() < 1e-9);
+        assert!((spread - 9.090909).abs() < 1e-3);
+        assert!(stats(&[]).is_none());
+    }
+
+    #[test]
+    fn test_toml_lines() {
+        let strings: BTreeSet<String> = ["edition", "style_edition", "imports_granularity"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(toml_line("max_width", "80", &strings), "max_width = 80\n");
         assert_eq!(
-            settings,
+            toml_line("hard_tabs", "true", &strings),
+            "hard_tabs = true\n"
+        );
+        assert_eq!(
+            toml_line("imports_granularity", "Crate", &strings),
+            "imports_granularity = \"Crate\"\n"
+        );
+        // Fixed-list options are strings, even when the value looks like a number.
+        assert_eq!(
+            toml_line("edition", "2021", &strings),
+            "edition = \"2021\"\n"
+        );
+        assert_eq!(
+            toml_line("style_edition", "2024", &strings),
+            "style_edition = \"2024\"\n"
+        );
+        assert_eq!(
+            toml_line("ignore", "[\"a\"]", &strings),
+            "ignore = [\"a\"]\n"
+        );
+        assert_eq!(
+            toml_line("edition", "\"2018\"", &strings),
+            "edition = \"2018\"\n"
+        );
+    }
+
+    #[test]
+    fn test_toml_settings_join_multi_line_arrays() {
+        let text = "# comment\nignore = [\n  \"tests/**/ice.rs\",\n  \"b.rs\"\n]\nmax_width = 80\n[table]\n";
+        assert_eq!(
+            toml_settings(text),
             vec![
+                (
+                    "ignore".to_string(),
+                    "[ \"tests/**/ice.rs\", \"b.rs\" ]".to_string()
+                ),
                 ("max_width".to_string(), "80".to_string()),
-                ("imports_granularity".to_string(), "Crate".to_string()),
-                ("hard_tabs".to_string(), "false".to_string()),
             ]
         );
-        assert!(harness_settings("// rustfmt-config: gone.toml\n", &dir).is_none());
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

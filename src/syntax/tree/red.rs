@@ -14,15 +14,6 @@ pub enum SyntaxElement {
     Token(SyntaxToken),
 }
 
-impl fmt::Debug for SyntaxElement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SyntaxElement::Node(node) => node.fmt(f),
-            SyntaxElement::Token(token) => token.fmt(f),
-        }
-    }
-}
-
 impl SyntaxElement {
     pub fn kind(&self) -> SyntaxKind {
         match self {
@@ -39,6 +30,15 @@ impl SyntaxElement {
     }
 }
 
+impl fmt::Debug for SyntaxElement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SyntaxElement::Node(node) => node.fmt(f),
+            SyntaxElement::Token(token) => token.fmt(f),
+        }
+    }
+}
+
 struct NodeData {
     green: Rc<GreenNode>,
     parent: Option<SyntaxNode>,
@@ -48,26 +48,6 @@ struct NodeData {
 
 #[derive(Clone)]
 pub struct SyntaxNode(Rc<NodeData>);
-
-impl fmt::Debug for SyntaxNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}@{}", self.kind().name(), self.text_range())
-    }
-}
-
-impl fmt::Display for SyntaxNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.text())
-    }
-}
-
-impl Eq for SyntaxNode {}
-
-impl PartialEq for SyntaxNode {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0.green, &other.0.green) && self.0.offset == other.0.offset
-    }
-}
 
 impl SyntaxNode {
     /// Every ancestor, starting with this node itself.
@@ -214,32 +194,32 @@ impl SyntaxNode {
     }
 }
 
+impl fmt::Debug for SyntaxNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}@{}", self.kind().name(), self.text_range())
+    }
+}
+
+impl fmt::Display for SyntaxNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.text())
+    }
+}
+
+impl Eq for SyntaxNode {}
+
+impl PartialEq for SyntaxNode {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0.green, &other.0.green) && self.0.offset == other.0.offset
+    }
+}
+
 #[derive(Clone)]
 pub struct SyntaxToken {
     green: Rc<GreenToken>,
     parent: SyntaxNode,
     index: u32,
     offset: u32,
-}
-
-impl fmt::Debug for SyntaxToken {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}@{} {:?}",
-            self.kind().name(),
-            self.text_range(),
-            self.text()
-        )
-    }
-}
-
-impl Eq for SyntaxToken {}
-
-impl PartialEq for SyntaxToken {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.green, &other.green) && self.offset == other.offset
-    }
 }
 
 impl SyntaxToken {
@@ -272,17 +252,31 @@ impl SyntaxToken {
     }
 }
 
+impl fmt::Debug for SyntaxToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}@{} {:?}",
+            self.kind().name(),
+            self.text_range(),
+            self.text()
+        )
+    }
+}
+
+impl Eq for SyntaxToken {}
+
+impl PartialEq for SyntaxToken {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.green, &other.green) && self.offset == other.offset
+    }
+}
+
 /// A byte range `start..end` in the source text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TextRange {
     pub start: u32,
     pub end: u32,
-}
-
-impl fmt::Display for TextRange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}..{}", self.start, self.end)
-    }
 }
 
 impl TextRange {
@@ -301,5 +295,11 @@ impl TextRange {
     pub fn new(start: u32, end: u32) -> Self {
         assert!(start <= end, "range {}..{} is reversed", start, end);
         TextRange { start, end }
+    }
+}
+
+impl fmt::Display for TextRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
     }
 }

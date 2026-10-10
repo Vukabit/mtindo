@@ -15,6 +15,9 @@ use cursor::Cursor;
 use crate::syntax::{Edition, SyntaxKind};
 use crate::text::unicode::is_ident_start;
 
+/// A token's kind and any error found while lexing it.
+type Lexed = (SyntaxKind, Option<LexError>);
+
 /// Problems the lexer reports on a token. The token still covers the offending text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexError {
@@ -255,9 +258,6 @@ fn token(kind: SyntaxKind, len: usize, error: Option<LexError>) -> Token {
         error,
     }
 }
-
-/// A token's kind and any error found while lexing it.
-type Lexed = (SyntaxKind, Option<LexError>);
 
 #[cfg(test)]
 mod tests;

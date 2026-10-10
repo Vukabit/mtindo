@@ -90,6 +90,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parsers_on_small_inputs() {
+        let main = "const COMMANDS: &[(&str, &str, &str)] = &[\n    (\n        \"init\",\n        \"[DIR]\",\n        \"Write\",\n    ),\n];\nconst FLAGS: &[FlagSpec] = &[\n    FlagSpec {\n        long: \"--check\",\n    },\n];\n";
+        assert_eq!(commands(main).unwrap(), vec!["init"]);
+        assert_eq!(flags(main).unwrap(), vec!["--check"]);
+        let table = "pub(super) static SETTINGS: &[Setting] = &[\n    Setting {\n        name: \"group_impls\",\n        file: File::Mto,\n    },\n];\n";
+        assert_eq!(config_keys(table).unwrap(), vec!["group_impls"]);
+        assert!(commands("").is_err());
+    }
+
+    #[test]
     fn test_reads_the_real_repository() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let items = surface(root).unwrap();
@@ -108,15 +118,5 @@ mod tests {
                 items
             );
         }
-    }
-
-    #[test]
-    fn test_parsers_on_small_inputs() {
-        let main = "const COMMANDS: &[(&str, &str, &str)] = &[\n    (\n        \"init\",\n        \"[DIR]\",\n        \"Write\",\n    ),\n];\nconst FLAGS: &[FlagSpec] = &[\n    FlagSpec {\n        long: \"--check\",\n    },\n];\n";
-        assert_eq!(commands(main).unwrap(), vec!["init"]);
-        assert_eq!(flags(main).unwrap(), vec!["--check"]);
-        let table = "pub(super) static SETTINGS: &[Setting] = &[\n    Setting {\n        name: \"group_impls\",\n        file: File::Mto,\n    },\n];\n";
-        assert_eq!(config_keys(table).unwrap(), vec!["group_impls"]);
-        assert!(commands("").is_err());
     }
 }

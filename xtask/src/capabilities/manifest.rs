@@ -170,6 +170,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_empty_header_gets_the_default() {
+        let (manifest, _) = Manifest::parse("option a missing\n");
+        assert!(manifest.render().starts_with(DEFAULT_HEADER));
+    }
+
+    #[test]
     fn test_parse_and_render_canonical_form() {
         let text = "# heading\n\nflag rustfmt:--check supported # tests/domain_8_cli.rs\noption b missing\noption a not-planned   #  why not\n";
         let (manifest, errors) = Manifest::parse(text);
@@ -197,11 +203,5 @@ mod tests {
         assert!(errors[1].contains(":2: unknown kind `thing`"));
         assert!(errors[2].contains(":3: expected KIND NAME STATUS"));
         assert_eq!(manifest.lines.len(), 1);
-    }
-
-    #[test]
-    fn test_empty_header_gets_the_default() {
-        let (manifest, _) = Manifest::parse("option a missing\n");
-        assert!(manifest.render().starts_with(DEFAULT_HEADER));
     }
 }

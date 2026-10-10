@@ -537,6 +537,22 @@ mod tests {
     use super::super::surface::{Found, Reading};
     use super::*;
 
+    fn cases() -> Cases {
+        Cases::Ran {
+            configured: 559,
+            passed: 191,
+            runnable: 462,
+        }
+    }
+
+    fn sample_manifest() -> Manifest {
+        let (manifest, errors) = Manifest::parse(
+            "option max_width supported # tests/x.rs\noption group_imports missing\noption newline_style partial # Unix only\noption brand_new missing\nvalue newline_style=Unix missing\nflag rustfmt:--check missing\nmto flag:--check supported # tests/x.rs\n",
+        );
+        assert!(errors.is_empty(), "{:?}", errors);
+        manifest
+    }
+
     fn sample_surface() -> Surface {
         let reading = |label: &str, description: &str, items: Vec<Found>| Reading {
             label: label.to_string(),
@@ -575,20 +591,66 @@ mod tests {
         ])
     }
 
-    fn sample_manifest() -> Manifest {
-        let (manifest, errors) = Manifest::parse(
-            "option max_width supported # tests/x.rs\noption group_imports missing\noption newline_style partial # Unix only\noption brand_new missing\nvalue newline_style=Unix missing\nflag rustfmt:--check missing\nmto flag:--check supported # tests/x.rs\n",
+    #[test]
+    fn test_color_is_only_decoration() {
+        let colored = render(
+            &sample_surface(),
+            &sample_manifest(),
+            &cases(),
+            Style::Terminal { color: true },
         );
-        assert!(errors.is_empty(), "{:?}", errors);
-        manifest
+        let mut stripped = String::new();
+        let mut rest = colored.as_str();
+        while let Some(idx) = rest.find('\x1b') {
+            stripped.push_str(&rest[..idx]);
+            rest = &rest[idx..];
+            rest = &rest[rest.find('m').unwrap() + 1..];
+        }
+        stripped.push_str(rest);
+        assert_eq!(
+            stripped,
+            render(
+                &sample_surface(),
+                &sample_manifest(),
+                &cases(),
+                Style::Terminal { color: false }
+            )
+        );
     }
 
-    fn cases() -> Cases {
-        Cases::Ran {
-            configured: 559,
-            passed: 191,
-            runnable: 462,
+    #[test]
+    fn test_markdown_report() {
+        let report = render(
+            &sample_surface(),
+            &sample_manifest(),
+            &Cases::Unavailable("not cached".to_string()),
+            Style::Markdown,
+        );
+        assert!(report.starts_with("# mto against rustfmt 1.10.0 (latest stable release)\n"));
+        assert!(report.contains("- **Stable surface:** 1 of 4 supported (25.0%), 1 partial\n"));
+        assert!(report.contains("- **rustfmt's tests:** not cached\n"));
+        assert!(
+            report.contains("| options | stable | 1 | 1 | 0 | 0 | 2 |\n"),
+            "{}",
+            report
+        );
+        assert!(report.contains("## Still missing from stable rustfmt\n"));
+    }
+
+    #[test]
+    fn test_name_lists_wrap_under_the_names() {
+        let p = Painter {
+            style: Style::Terminal { color: false },
+        };
+        let names: Vec<String> = (0..12).map(|i| format!("option_number_{}", i)).collect();
+        let text = name_list(&p, "options (12)", &names);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines.len() > 1);
+        for line in lines.iter() {
+            assert!(line.len() <= LINE_WIDTH, "{}", line);
         }
+        assert!(lines[1].starts_with(&" ".repeat(18)));
+        assert!(text.ends_with("option_number_11\n"));
     }
 
     #[test]
@@ -668,67 +730,5 @@ mod tests {
         for line in report.lines() {
             assert!(line.chars().count() <= LINE_WIDTH, "too wide: {}", line);
         }
-    }
-
-    #[test]
-    fn test_markdown_report() {
-        let report = render(
-            &sample_surface(),
-            &sample_manifest(),
-            &Cases::Unavailable("not cached".to_string()),
-            Style::Markdown,
-        );
-        assert!(report.starts_with("# mto against rustfmt 1.10.0 (latest stable release)\n"));
-        assert!(report.contains("- **Stable surface:** 1 of 4 supported (25.0%), 1 partial\n"));
-        assert!(report.contains("- **rustfmt's tests:** not cached\n"));
-        assert!(
-            report.contains("| options | stable | 1 | 1 | 0 | 0 | 2 |\n"),
-            "{}",
-            report
-        );
-        assert!(report.contains("## Still missing from stable rustfmt\n"));
-    }
-
-    #[test]
-    fn test_color_is_only_decoration() {
-        let colored = render(
-            &sample_surface(),
-            &sample_manifest(),
-            &cases(),
-            Style::Terminal { color: true },
-        );
-        let mut stripped = String::new();
-        let mut rest = colored.as_str();
-        while let Some(idx) = rest.find('\x1b') {
-            stripped.push_str(&rest[..idx]);
-            rest = &rest[idx..];
-            rest = &rest[rest.find('m').unwrap() + 1..];
-        }
-        stripped.push_str(rest);
-        assert_eq!(
-            stripped,
-            render(
-                &sample_surface(),
-                &sample_manifest(),
-                &cases(),
-                Style::Terminal { color: false }
-            )
-        );
-    }
-
-    #[test]
-    fn test_name_lists_wrap_under_the_names() {
-        let p = Painter {
-            style: Style::Terminal { color: false },
-        };
-        let names: Vec<String> = (0..12).map(|i| format!("option_number_{}", i)).collect();
-        let text = name_list(&p, "options (12)", &names);
-        let lines: Vec<&str> = text.lines().collect();
-        assert!(lines.len() > 1);
-        for line in lines.iter() {
-            assert!(line.len() <= LINE_WIDTH, "{}", line);
-        }
-        assert!(lines[1].starts_with(&" ".repeat(18)));
-        assert!(text.ends_with("option_number_11\n"));
     }
 }

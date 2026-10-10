@@ -16,7 +16,7 @@ fn test_cargo_workspace_root_inheritance() {
 
     fs::write(
         env.dir.path().join("mto.toml"),
-        "max_width = 150\nignore_dirs = [\"custom_exclude\"]",
+        "layout = true\nmax_width = 150\nignore_dirs = [\"custom_exclude\"]",
     )
     .unwrap();
 

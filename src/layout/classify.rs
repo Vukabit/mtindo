@@ -2,7 +2,8 @@
 //! the name it sorts by, the type an impl belongs to, and the attributes that pin modules.
 
 use super::Unit;
-use crate::options::layout::{ImportGroup, ItemKind, Visibility};
+use super::imports::UseTree;
+use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
 use crate::syntax::ast::{self, Attr, Item};
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
 
@@ -18,25 +19,31 @@ pub fn import_group_of_text(text: &str) -> ImportGroup {
         .unwrap_or(ImportGroup::External)
 }
 
-/// A `// mto: off` ... `// mto: on` region: never moved, never looked into.
-pub(super) fn pinned_region(text: String, index: usize) -> Unit {
+/// A `// mto: off` ... `// mto: on` region, `text[start..end]`: never moved, never looked
+/// into.
+pub(super) fn pinned_region(text: &str, start: usize, end: usize, index: usize) -> Unit {
     Unit {
         kind: ItemKind::Unknown,
         visibility: Visibility::Private,
         identifier: "SkippedBlock".to_string(),
         parent_target: String::new(),
-        text,
+        trait_name: None,
+        text: text[start..end].to_string(),
+        span: (start, end),
         pinned: true,
+        macro_call: false,
         index,
+        cfg: false,
         test_module: false,
         macro_use: false,
         module_declaration: false,
         import_group: None,
+        use_tree: None,
     }
 }
 
 /// The unit for `item`, whose exact text (with the loose comments above it) is `text`.
-pub(super) fn unit(item: &Item, text: String, index: usize) -> Unit {
+pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfig) -> Unit {
     let kind = match item.kind() {
         ast::ItemKind::Const => ItemKind::ConstDecl,
         ast::ItemKind::Enum => ItemKind::EnumDecl,
@@ -48,20 +55,28 @@ pub(super) fn unit(item: &Item, text: String, index: usize) -> Unit {
         ast::ItemKind::Struct => ItemKind::StructDecl,
         ast::ItemKind::Trait => ItemKind::TraitDecl,
         ast::ItemKind::Use => ItemKind::UseDecl,
+        ast::ItemKind::MacroDef => ItemKind::MacroDef,
+        ast::ItemKind::TypeAlias => ItemKind::TypeAlias,
+        ast::ItemKind::Union => ItemKind::Union,
+        ast::ItemKind::ExternBlock => ItemKind::ExternBlock,
         _ => ItemKind::Unknown,
     };
+    let attrs = item.attrs();
     let pinned = matches!(
         item.kind(),
         ast::ItemKind::ExternCrate | ast::ItemKind::MacroCall
-    );
+    ) || attrs.iter().any(|a| a.path() == "rustfmt::skip");
     let visibility = match item.visibility() {
         ast::Visibility::Pub => Visibility::Pub,
         ast::Visibility::PubCrate => Visibility::PubCrate,
         ast::Visibility::PubSuper => Visibility::PubSuper,
-        // Layout orders `pub(self)` and `pub(in path)` with private items for now.
-        ast::Visibility::Private | ast::Visibility::PubSelf | ast::Visibility::PubIn(_) => {
-            Visibility::Private
-        }
+        // rustfmt writes `pub(in crate)` as `pub(crate)` and `pub(in super)` as
+        // `pub(super)`, so they must sort alike.
+        ast::Visibility::PubIn(path) if path == "crate" => Visibility::PubCrate,
+        ast::Visibility::PubIn(path) if path == "super" => Visibility::PubSuper,
+        ast::Visibility::PubIn(path) if path == "self" => Visibility::Private,
+        ast::Visibility::PubIn(_) => Visibility::PubIn,
+        ast::Visibility::Private | ast::Visibility::PubSelf => Visibility::Private,
     };
     let (identifier, parent_target) = match (item.as_impl(), item.as_use()) {
         (Some(view), _) => {
@@ -79,22 +94,32 @@ pub(super) fn unit(item: &Item, text: String, index: usize) -> Unit {
         ),
         _ => (item.name().unwrap_or_default(), String::new()),
     };
-    let attrs = item.attrs();
     let is_module = kind == ItemKind::ModDecl;
     Unit {
         kind,
         visibility,
         identifier,
         parent_target,
+        trait_name: item.as_impl().and_then(|view| view.trait_name()),
         text,
+        span: (0, 0),
         pinned,
+        macro_call: item.kind() == ast::ItemKind::MacroCall,
         index,
+        cfg: attrs.iter().any(|a| a.path() == "cfg"),
         test_module: is_module && attrs.iter().any(|a| attr_body(a) == "cfg(test)"),
         macro_use: is_module && attrs.iter().any(|a| a.path() == "macro_use"),
         module_declaration: is_module && ends_with_semicolon(item.syntax()),
         import_group: item
             .as_use()
             .map(|view| group_of_root(view.root().as_deref())),
+        use_tree: item.as_use().and_then(|view| view.tree()).map(|tree| {
+            UseTree::from_syntax(
+                &tree,
+                config.edition >= 2018,
+                config.version_sorted_imports(),
+            )
+        }),
     }
 }
 

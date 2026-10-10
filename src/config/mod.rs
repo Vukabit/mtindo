@@ -34,7 +34,7 @@ use std::rc::Rc;
 pub use files::Environment;
 pub use value::Value;
 
-use crate::options::layout::{ItemKind, LayoutConfig};
+use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
 use crate::options::{self, File, Setting};
 
 /// Keys mto used to accept, and the key that replaced each.
@@ -121,12 +121,14 @@ impl Config {
         config.group_impls = flag("group_impls", config.group_impls);
         config.sort_imports = flag("sort_imports", config.sort_imports);
         config.import_grouping = flag("import_grouping", config.import_grouping);
+        let (lower, upper) = self.blank_line_bounds();
         if let Some(lines) = self
             .get("blank_lines_between_blocks")
             .and_then(Value::as_integer)
         {
-            config.blank_lines_between_blocks = lines as usize;
+            config.blank_lines_between_blocks = (lines as usize).clamp(lower, upper.max(lower));
         }
+        config.blank_lines_tight = lower;
         if let Some(dirs) = self.get("ignore_dirs").and_then(Value::as_list) {
             config.ignore_dirs = dirs.to_vec();
         }
@@ -139,7 +141,52 @@ impl Config {
         if let Some(spaces) = self.get("tab_spaces").and_then(Value::as_integer) {
             config.tab_width = spaces as usize;
         }
+        config.style_edition = self.style_edition;
+        let year = |name: &str| self.get(name).and_then(Value::as_text)?.parse::<u16>().ok();
+        config.edition = year("edition").unwrap_or(2015);
+        config.import_sort = year("import_sort");
+        config.name_sort = match self.get("name_sort").and_then(Value::as_text) {
+            Some("bytes") => NameSort::Bytes,
+            Some("case_insensitive") => NameSort::CaseInsensitive,
+            _ => NameSort::Version,
+        };
+        config.reorder_impl_items = flag("reorder_impl_items", false);
+        config.impl_method_order_trait =
+            self.get("impl_method_order").and_then(Value::as_text) == Some("trait");
+        config.test_module_in_place =
+            self.get("test_module").and_then(Value::as_text) == Some("in_place");
+        if self.get("trait_impl_sort").and_then(Value::as_text) == Some("original") {
+            config.trait_impl_sort = TraitImplSort::Original;
+        }
+        if let Some(traits) = self.get("trait_impl_order").and_then(Value::as_list) {
+            config.trait_impl_order = traits.to_vec();
+        }
+        if let Some(order) = self.get("visibility_order").and_then(Value::as_list) {
+            config.visibility_order = order
+                .iter()
+                .filter_map(|v| Visibility::from_name(v))
+                .collect();
+        }
         config
+    }
+
+    /// rustfmt's `blank_lines_lower_bound` and `blank_lines_upper_bound`: the blank lines
+    /// between items stay within them, so rustfmt leaves them alone.
+    pub fn blank_line_bounds(&self) -> (usize, usize) {
+        let get = |name: &str, fallback: u64| {
+            self.get(name)
+                .and_then(Value::as_integer)
+                .unwrap_or(fallback) as usize
+        };
+        (
+            get("blank_lines_lower_bound", 0),
+            get("blank_lines_upper_bound", 1),
+        )
+    }
+
+    /// Whether layout is on (`layout = true`).
+    pub fn layout_on(&self) -> bool {
+        self.get("layout").and_then(Value::as_bool).unwrap_or(false)
     }
 
     pub fn source(&self, name: &str) -> Option<&Source> {
@@ -166,17 +213,17 @@ pub struct Error {
     pub message: String,
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
 impl Error {
     fn new(message: impl Into<String>) -> Error {
         Error {
             message: message.into(),
         }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
     }
 }
 
@@ -455,6 +502,47 @@ impl Resolver {
                     Source::Derived(from),
                 ),
             );
+        }
+
+        let layout_on = values
+            .get("layout")
+            .and_then(|(value, _)| value.as_bool())
+            .unwrap_or(false);
+        if !layout_on {
+            for (name, (_, source)) in &values {
+                let setting = options::find(name);
+                let layout_key = setting.is_some_and(|s| s.file == File::Mto) && *name != "layout";
+                if layout_key && !matches!(source, Source::Default) {
+                    self.warn(format!(
+                        "{}: `{}` has no effect while layout is off; add `layout = true`",
+                        source, name
+                    ));
+                }
+            }
+        }
+
+        if layout_on
+            && let Some((Value::Integer(lines), source)) = values.get("blank_lines_between_blocks")
+            && *source != Source::Default
+        {
+            let bound = |name: &str, fallback: u64| {
+                values
+                    .get(name)
+                    .and_then(|(v, _)| v.as_integer())
+                    .unwrap_or(fallback)
+            };
+            let (lower, upper) = (
+                bound("blank_lines_lower_bound", 0),
+                bound("blank_lines_upper_bound", 1),
+            );
+            let used = (*lines).clamp(lower, upper.max(lower));
+            if used != *lines {
+                self.warn(format!(
+                    "{}: `blank_lines_between_blocks = {}` is outside rustfmt's blank-line \
+                     bounds ({} to {}), which rustfmt would undo; mto uses {}",
+                    source, lines, lower, upper, used
+                ));
+            }
         }
 
         let mut files: Vec<(FileKind, PathBuf)> = Vec::new();

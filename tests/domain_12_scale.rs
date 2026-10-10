@@ -17,6 +17,7 @@ resolver = "2"
     env.write_file("Cargo.toml", root_toml);
 
     let mto_toml = r#"
+layout = true
 sort_alphabetically = true
 group_impls = true
 type_order = ["ModDecl", "UseDecl", "MacroDecl", "ConstDecl", "StaticDecl", "TraitDecl", "EnumDecl", "StructDecl", "ImplBlock", "FnDecl"]

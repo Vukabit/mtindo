@@ -49,6 +49,10 @@ const LAYERS: &[(&str, u8)] = &[
     ("cli", 5),
 ];
 
+/// Every gate: (name, what it checks, check). `all` runs them in this order.
+/// A gate: (name, what it checks, check returning the problems found).
+type Gate = (&'static str, &'static str, fn(&Path) -> Vec<String>);
+
 /// Every manifest may only declare the runtime dependencies allowed for it.
 pub fn check_dependencies(root: &Path) -> Vec<String> {
     let mut problems = Vec::new();
@@ -313,13 +317,58 @@ fn top_module(src: &Path, file: &Path) -> Option<String> {
     }
 }
 
-/// Every gate: (name, what it checks, check). `all` runs them in this order.
-/// A gate: (name, what it checks, check returning the problems found).
-type Gate = (&'static str, &'static str, fn(&Path) -> Vec<String>);
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_comments_and_own_module_are_ignored() {
+        let content = "// see crate::cli for the caller\nuse crate::syntax::kind::SyntaxKind;\n";
+        assert!(layer_violations("syntax", "src/syntax/parser/mod.rs", content).is_empty());
+    }
+
+    #[test]
+    fn test_grouped_crate_imports_are_checked() {
+        let content = "use crate::{text::LineIndex, config::load};\n";
+        let problems = layer_violations("verify", "src/verify/mod.rs", content);
+        assert_eq!(
+            problems,
+            vec!["src/verify/mod.rs:1: `verify` (layer 2) may not use `crate::config` (layer 4)"]
+        );
+    }
+
+    #[test]
+    fn test_higher_layer_use_is_reported() {
+        let content = "use crate::cli::run;\n";
+        let problems = layer_violations("syntax", "src/syntax/mod.rs", content);
+        assert_eq!(
+            problems,
+            vec!["src/syntax/mod.rs:1: `syntax` (layer 1) may not use `crate::cli` (layer 5)"]
+        );
+    }
+
+    #[test]
+    fn test_long_lines_counts_characters_not_bytes() {
+        let exactly = "é".repeat(DOC_LINE_LIMIT);
+        let over = "x".repeat(DOC_LINE_LIMIT + 1);
+        let text = format!("short\n{}\n{}\n", exactly, over);
+        assert_eq!(
+            long_lines("README.md", &text),
+            vec!["README.md:3: 81 columns (limit 80)"]
+        );
+    }
+
+    #[test]
+    fn test_lower_layer_use_is_allowed() {
+        let content = "use crate::text::LineIndex;\nuse crate::syntax::{parse, Edition};\n";
+        assert!(layer_violations("layout", "src/layout/order.rs", content).is_empty());
+    }
+
+    #[test]
+    fn test_runtime_dependencies_allows_dev_dependencies() {
+        let manifest = "[dependencies]\n\n[dev-dependencies]\nproptest = \"1\"\n";
+        assert!(runtime_dependencies(manifest).is_empty());
+    }
 
     #[test]
     fn test_runtime_dependencies_finds_every_form() {
@@ -337,59 +386,10 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_dependencies_allows_dev_dependencies() {
-        let manifest = "[dependencies]\n\n[dev-dependencies]\nproptest = \"1\"\n";
-        assert!(runtime_dependencies(manifest).is_empty());
-    }
-
-    #[test]
-    fn test_lower_layer_use_is_allowed() {
-        let content = "use crate::text::LineIndex;\nuse crate::syntax::{parse, Edition};\n";
-        assert!(layer_violations("layout", "src/layout/order.rs", content).is_empty());
-    }
-
-    #[test]
-    fn test_higher_layer_use_is_reported() {
-        let content = "use crate::cli::run;\n";
-        let problems = layer_violations("syntax", "src/syntax/mod.rs", content);
-        assert_eq!(
-            problems,
-            vec!["src/syntax/mod.rs:1: `syntax` (layer 1) may not use `crate::cli` (layer 5)"]
-        );
-    }
-
-    #[test]
     fn test_same_layer_sibling_is_reported() {
         let content = "fn f() { crate::format::print(); }\n";
         let problems = layer_violations("layout", "src/layout/mod.rs", content);
         assert_eq!(problems.len(), 1);
-    }
-
-    #[test]
-    fn test_grouped_crate_imports_are_checked() {
-        let content = "use crate::{text::LineIndex, config::load};\n";
-        let problems = layer_violations("verify", "src/verify/mod.rs", content);
-        assert_eq!(
-            problems,
-            vec!["src/verify/mod.rs:1: `verify` (layer 2) may not use `crate::config` (layer 4)"]
-        );
-    }
-
-    #[test]
-    fn test_comments_and_own_module_are_ignored() {
-        let content = "// see crate::cli for the caller\nuse crate::syntax::kind::SyntaxKind;\n";
-        assert!(layer_violations("syntax", "src/syntax/parser/mod.rs", content).is_empty());
-    }
-
-    #[test]
-    fn test_long_lines_counts_characters_not_bytes() {
-        let exactly = "é".repeat(DOC_LINE_LIMIT);
-        let over = "x".repeat(DOC_LINE_LIMIT + 1);
-        let text = format!("short\n{}\n{}\n", exactly, over);
-        assert_eq!(
-            long_lines("README.md", &text),
-            vec!["README.md:3: 81 columns (limit 80)"]
-        );
     }
 
     #[test]

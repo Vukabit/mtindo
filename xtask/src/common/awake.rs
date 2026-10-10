@@ -17,15 +17,6 @@ pub struct KeepAwake {
     how: &'static str,
 }
 
-impl Drop for KeepAwake {
-    fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
 impl KeepAwake {
     pub fn start() -> KeepAwake {
         let pid = std::process::id().to_string();
@@ -73,6 +64,15 @@ impl KeepAwake {
     }
 }
 
+impl Drop for KeepAwake {
+    fn drop(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 /// A point in time on both clocks, to measure sleep since then.
 #[derive(Clone, Copy)]
 pub struct Stamp {
@@ -110,10 +110,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_no_sleep_is_measured_while_awake() {
-        let stamp = Stamp::now();
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        assert_eq!(asleep_seconds(stamp), 0);
+    fn test_duration() {
+        assert_eq!(duration(42), "42s");
+        assert_eq!(duration(3600 * 5 + 12 * 60), "5h 12m");
+        assert_eq!(duration(86_400), "24h 00m");
     }
 
     #[test]
@@ -124,9 +124,9 @@ mod tests {
     }
 
     #[test]
-    fn test_duration() {
-        assert_eq!(duration(42), "42s");
-        assert_eq!(duration(3600 * 5 + 12 * 60), "5h 12m");
-        assert_eq!(duration(86_400), "24h 00m");
+    fn test_no_sleep_is_measured_while_awake() {
+        let stamp = Stamp::now();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(asleep_seconds(stamp), 0);
     }
 }

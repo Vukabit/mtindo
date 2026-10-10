@@ -6,6 +6,8 @@ use super::{Array, Entry, Error, Table, TableState, Value, datetime};
 /// stack.
 const MAX_DEPTH: usize = 128;
 
+type Result<T> = std::result::Result<T, Error>;
+
 pub(super) struct Parser<'a> {
     text: &'a str,
     pos: usize,
@@ -845,5 +847,3 @@ fn valid_digits(text: &str, radix: u32) -> bool {
         && !text.contains("__")
         && text.chars().all(|c| c == '_' || c.is_digit(radix))
 }
-
-type Result<T> = std::result::Result<T, Error>;

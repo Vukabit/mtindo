@@ -3,23 +3,28 @@
 //!
 //! 1. `#[cfg(test)]` modules last;
 //! 2. imports, when `sort_imports` is on: by group (standard library, external, this crate)
-//!    when `import_grouping` is on, then `self`, `super`, `crate` paths, then by path;
+//!    when `import_grouping` is on, then as rustfmt sorts them ([`super::imports`]);
 //! 3. `type_order`, with an impl ranked as the type it is for when `group_impls` is on;
-//! 4. with `group_impls`, a type's impls next to it, types ordered by name;
+//! 4. with `group_impls`, a type's impls next to it, types ordered by name; impls of one
+//!    type: its own first (as written), then trait impls by `trait_impl_order` and
+//!    `trait_impl_sort`;
 //! 5. `type_order` of the unit itself;
 //! 6. `macro_rules!` and `#[macro_use]` modules in their original order;
-//! 7. modules by name, ignoring visibility, as rustfmt orders them;
-//! 8. visibility, then name when `sort_alphabetically` is on.
+//! 7. modules by name, ignoring visibility, as rustfmt orders them (by bytes through
+//!    style edition 2024, by version after it);
+//! 8. visibility in `visibility_order`, then name in `name_sort` order when
+//!    `sort_alphabetically` is on.
 //!
-//! A `macro_rules!` is only visible below its definition, so no unit that came after a
-//! definition may move in front of it. If the sort would do that, it is redone with every
+//! A `macro_rules!` is only visible below its definition, and so are the macros of a
+//! `#[macro_use]` module, so no unit that came after a definition may move in front of it. If the sort would do that, it is redone with every
 //! macro first; if even that moves one, the file is left alone.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use super::Unit;
-use crate::options::layout::{ItemKind, LayoutConfig};
+use super::imports::version_sort;
+use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
 
 /// The units in their new order.
 pub(super) fn arrange(units: &[Unit], config: &LayoutConfig) -> Result<Vec<Unit>, String> {
@@ -41,9 +46,13 @@ fn compare(
     macros_first: bool,
 ) -> Ordering {
     if macros_first {
-        let (macro_a, macro_b) = (a.kind == ItemKind::MacroDecl, b.kind == ItemKind::MacroDecl);
+        let (macro_a, macro_b) = (defines_macros(a), defines_macros(b));
         if macro_a != macro_b {
             return macro_b.cmp(&macro_a);
+        }
+        if macro_a {
+            // Macro definitions keep their written order among themselves.
+            return a.index.cmp(&b.index);
         }
     }
     if a.test_module != b.test_module {
@@ -53,8 +62,11 @@ fn compare(
         if config.import_grouping && a.import_group != b.import_group {
             return a.import_group.cmp(&b.import_group);
         }
-        return (import_path_rank(&a.identifier), &a.identifier)
-            .cmp(&(import_path_rank(&b.identifier), &b.identifier));
+        let version = config.version_sorted_imports();
+        return match (&a.use_tree, &b.use_tree) {
+            (Some(x), Some(y)) => x.compare(y, version),
+            _ => a.identifier.cmp(&b.identifier),
+        };
     }
     let family = |unit: &Unit| -> String {
         if config.group_impls && unit.kind == ItemKind::ImplBlock {
@@ -93,12 +105,13 @@ fn compare(
                 k,
                 ItemKind::StructDecl
                     | ItemKind::EnumDecl
+                    | ItemKind::Union
                     | ItemKind::TraitDecl
                     | ItemKind::ImplBlock
             )
         };
         if groupable(&a.kind) && groupable(&b.kind) && family_a != family_b {
-            return family_a.cmp(&family_b);
+            return names(&family_a, &family_b, config);
         }
     }
     let (own_a, own_b) = (rank(&a.kind), rank(&b.kind));
@@ -118,40 +131,81 @@ fn compare(
             return a.index.cmp(&b.index);
         }
         if config.sort_alphabetically {
-            return a.identifier.cmp(&b.identifier);
+            // As rustfmt orders `mod` declarations: by bytes through style edition 2024.
+            // rustfmt compares the names without `r#`.
+            let (x, y) = (
+                a.identifier.trim_start_matches("r#"),
+                b.identifier.trim_start_matches("r#"),
+            );
+            return if config.style_edition > 2024 {
+                version_sort(x, y)
+            } else {
+                x.cmp(y)
+            };
         }
         return Ordering::Equal;
     }
+    if a.kind == ItemKind::ImplBlock && b.kind == ItemKind::ImplBlock {
+        return impls(a, b, config);
+    }
     if a.visibility != b.visibility {
-        return a.visibility.cmp(&b.visibility);
+        let rank = |v: &Visibility| {
+            config
+                .visibility_order
+                .iter()
+                .position(|o| o == v)
+                .unwrap_or(usize::MAX)
+        };
+        return rank(&a.visibility).cmp(&rank(&b.visibility));
     }
     if config.sort_alphabetically {
-        a.identifier.cmp(&b.identifier)
+        names(&a.identifier, &b.identifier, config)
     } else {
         Ordering::Equal
     }
 }
 
-/// `self` paths first, then `super`, then `crate`, then everything else.
-fn import_path_rank(path: &str) -> u8 {
-    match path
-        .trim_start_matches("::")
-        .split("::")
-        .next()
-        .unwrap_or("")
-    {
-        "self" => 0,
-        "super" => 1,
-        "crate" => 2,
-        _ => 3,
+/// A `macro_rules!`, or a `#[macro_use]` module, whose macros are visible after it.
+fn defines_macros(unit: &Unit) -> bool {
+    unit.kind == ItemKind::MacroDecl || (unit.kind == ItemKind::ModDecl && unit.macro_use)
+}
+
+/// Pinned units at their own positions, the others sorted into the remaining ones.
+/// Two impl blocks: by the type they are for, then the type's own impls (as written), then
+/// trait impls: those in `trait_impl_order` first, in its order, then by trait name or as
+/// written (`trait_impl_sort`).
+fn impls(a: &Unit, b: &Unit, config: &LayoutConfig) -> Ordering {
+    if a.parent_target != b.parent_target {
+        return names(&a.parent_target, &b.parent_target, config);
     }
+    let (trait_a, trait_b) = match (&a.trait_name, &b.trait_name) {
+        (None, None) => return a.index.cmp(&b.index),
+        (None, Some(_)) => return Ordering::Less,
+        (Some(_), None) => return Ordering::Greater,
+        (Some(x), Some(y)) => (x, y),
+    };
+    let listed = |name: &str| {
+        config
+            .trait_impl_order
+            .iter()
+            .position(|t| t == name)
+            .unwrap_or(usize::MAX)
+    };
+    listed(trait_a)
+        .cmp(&listed(trait_b))
+        .then_with(|| match config.trait_impl_sort {
+            TraitImplSort::Name if config.sort_alphabetically => names(trait_a, trait_b, config)
+                .then_with(|| names(&a.identifier, &b.identifier, config)),
+            _ => Ordering::Equal,
+        })
+        .then_with(|| a.index.cmp(&b.index))
 }
 
 /// True if some unit that came after a `macro_rules!` now comes before it.
 fn macro_moved_past_user(units: &[Unit]) -> bool {
     let mut latest: Option<usize> = None;
     for unit in units {
-        if unit.kind == ItemKind::MacroDecl && latest.is_some_and(|l| l > unit.index) {
+        if defines_macros(unit) && latest.is_some_and(|l| l > unit.index) {
             return true;
         }
         latest = latest.max(Some(unit.index));
@@ -159,14 +213,24 @@ fn macro_moved_past_user(units: &[Unit]) -> bool {
     false
 }
 
-/// Pinned units at their own positions, the others sorted into the remaining ones.
+/// Two names in the order of `name_sort`.
+fn names(a: &str, b: &str, config: &LayoutConfig) -> Ordering {
+    match config.name_sort {
+        NameSort::Version => version_sort(a, b),
+        NameSort::Bytes => a.cmp(b),
+        NameSort::CaseInsensitive => {
+            version_sort(&a.to_lowercase(), &b.to_lowercase()).then_with(|| version_sort(a, b))
+        }
+    }
+}
+
 fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit> {
     let families: Vec<(String, ItemKind)> = units
         .iter()
         .filter(|u| {
             matches!(
                 u.kind,
-                ItemKind::StructDecl | ItemKind::EnumDecl | ItemKind::TraitDecl
+                ItemKind::StructDecl | ItemKind::EnumDecl | ItemKind::Union | ItemKind::TraitDecl
             )
         })
         .map(|u| (u.identifier.clone(), u.kind.clone()))

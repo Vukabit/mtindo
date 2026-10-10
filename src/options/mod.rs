@@ -116,5 +116,19 @@ pub fn find(name: &str) -> Option<&'static Setting> {
     all().find(|setting| setting.name == name)
 }
 
+/// Why `value` is refused for `setting` when it looks like it should be legal.
+pub fn refusal(setting: &Setting, value: &str) -> Option<String> {
+    let pinned = mto::PINNED_KINDS
+        .iter()
+        .find(|kind| kind.eq_ignore_ascii_case(value))?;
+    (setting.name == "type_order").then(|| {
+        format!(
+            "`type_order` cannot hold `{}`: `extern crate` items and item macro calls never \
+             move, so they have no place in the order; remove it",
+            pinned
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests;

@@ -79,6 +79,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_display_column_counts_wide_chars_and_tabs() {
+        let text = "let 中 = 1;\n\tx\n";
+        let index = LineIndex::new(text);
+        let after_wide = text.find(" =").unwrap();
+        assert_eq!(index.line_col(after_wide).byte_column, 7);
+        assert_eq!(index.display_column(text, after_wide, 4), 6);
+        let x = text.find('x').unwrap();
+        assert_eq!(index.display_column(text, x, 4), 4);
+        assert_eq!(index.display_column(text, x, 8), 8);
+    }
+
+    #[test]
+    fn test_empty_text() {
+        let index = LineIndex::new("");
+        assert_eq!(index.line_count(), 1);
+        assert_eq!(
+            index.line_col(0),
+            LineCol {
+                line: 0,
+                byte_column: 0
+            }
+        );
+    }
+
+    #[test]
     fn test_line_col_across_lines() {
         let text = "ab\ncd\n\nef";
         let index = LineIndex::new(text);
@@ -127,30 +152,5 @@ mod tests {
         );
         assert_eq!(index.line_start(1), Some(3));
         assert_eq!(index.line_start(4), None);
-    }
-
-    #[test]
-    fn test_display_column_counts_wide_chars_and_tabs() {
-        let text = "let 中 = 1;\n\tx\n";
-        let index = LineIndex::new(text);
-        let after_wide = text.find(" =").unwrap();
-        assert_eq!(index.line_col(after_wide).byte_column, 7);
-        assert_eq!(index.display_column(text, after_wide, 4), 6);
-        let x = text.find('x').unwrap();
-        assert_eq!(index.display_column(text, x, 4), 4);
-        assert_eq!(index.display_column(text, x, 8), 8);
-    }
-
-    #[test]
-    fn test_empty_text() {
-        let index = LineIndex::new("");
-        assert_eq!(index.line_count(), 1);
-        assert_eq!(
-            index.line_col(0),
-            LineCol {
-                line: 0,
-                byte_column: 0
-            }
-        );
     }
 }

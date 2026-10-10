@@ -1,7 +1,8 @@
 //! Layer 2: proves mto's output is safe before it is written.
 //!
-//! In layout mode, mto may only move whole top-level items and change the whitespace
-//! between them. [`verify_layout`] parses the input and the output and checks, rule by
+//! In layout mode, mto may only move whole items and change the whitespace between them,
+//! at the top level and inside inline modules and impl blocks, each body being a scope of
+//! its own: an item may not move between scopes. [`verify_layout`] parses the input and the output and checks, rule by
 //! rule ([`Rule`]):
 //!
 //! - every item comes out with exactly its original bytes, its attached comments included
@@ -26,6 +27,9 @@ use std::collections::BTreeMap;
 use crate::syntax::ast::{Attr, Item, ItemKind};
 use crate::syntax::lexer::tokenize;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+
+/// Marks a scope whose macros are visible in its parent too (`#[macro_use] mod`).
+const MACRO_USE: &str = " [macro_use]";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LineEndings {
@@ -85,8 +89,9 @@ impl Rule {
 /// The parts of a file the rules compare.
 #[derive(Debug, Default)]
 struct Parts {
-    /// Shebang, frontmatter, inner attributes and inner doc comments, in order.
-    header: Vec<String>,
+    /// Shebang, frontmatter, inner attributes and inner doc comments, in order, each with
+    /// its scope; compared scope by scope.
+    header: Vec<(String, String)>,
     /// Whether every header element comes before the first item.
     header_first: bool,
     /// Each top-level item: (exact text, core text without attached comments).
@@ -95,8 +100,9 @@ struct Parts {
     comments: Vec<String>,
     /// Everything else at the top level that is not whitespace.
     others: Vec<String>,
-    /// `macro_rules!` names in order.
-    macros: Vec<String>,
+    /// `macro_rules!` names in order, each with the scope it is visible in; compared scope by
+    /// scope. A `#[macro_use]` module's macros also count in its parent's scope.
+    macros: Vec<(String, String)>,
     errors: usize,
 }
 
@@ -146,22 +152,23 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
             ),
         );
     }
-    if old.header != new.header {
+    let (old_header, new_header) = (by_scope(&old.header), by_scope(&new.header));
+    if old_header != new_header {
         let trimmed = |h: &[String]| {
             h.iter()
                 .map(|e| e.trim_end().to_string())
                 .collect::<Vec<_>>()
         };
-        let detail = if trimmed(&old.header) == trimmed(&new.header) {
+        let detail = if trimmed(&old_header) == trimmed(&new_header) {
             format!(
                 "header differs only in trailing whitespace: {}",
-                describe_list(&old.header)
+                describe_list(&old_header)
             )
         } else {
             format!(
                 "header was {}, is {}",
-                describe_list(&old.header),
-                describe_list(&new.header)
+                describe_list(&old_header),
+                describe_list(&new_header)
             )
         };
         add(Rule::HeaderChanged, detail);
@@ -259,17 +266,124 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
             ),
         );
     }
-    if old.macros != new.macros {
+    let (old_macros, new_macros) = (by_scope(&old.macros), by_scope(&new.macros));
+    if old_macros != new_macros {
         add(
             Rule::MacroOrderChanged,
             format!(
                 "macro_rules! order was {}, is {}",
-                old.macros.join(", "),
-                new.macros.join(", ")
+                describe_list(&old_macros),
+                describe_list(&new_macros)
             ),
         );
     }
     violations
+}
+
+/// The entries of each scope in order, scopes sorted: what is compared when only the order
+/// within a scope matters.
+fn by_scope(entries: &[(String, String)]) -> Vec<String> {
+    let mut sorted: Vec<&(String, String)> = entries.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    sorted.into_iter().map(|(_, e)| e.clone()).collect()
+}
+
+/// The parts of one scope: the file, or the body of an inline module. A module with a body
+/// counts in its scope as its shell, `mod name {…}`; its body is a scope of its own, whose
+/// entries carry the scope's name so that nothing can move between modules unnoticed.
+fn collect(container: &SyntaxNode, scope: &str, source: &str, parts: &mut Parts) {
+    let suffix = if scope.is_empty() {
+        String::new()
+    } else {
+        format!("  (in {})", scope)
+    };
+    let mut seen_item = false;
+    for element in container.children_with_tokens() {
+        let (kind, text) = match &element {
+            SyntaxElement::Node(node) => {
+                let range = node.text_range();
+                (
+                    node.kind(),
+                    source[range.start as usize..range.end as usize].to_string(),
+                )
+            }
+            SyntaxElement::Token(token) => (token.kind(), token.text().to_string()),
+        };
+        let header = match &element {
+            SyntaxElement::Token(_) => matches!(
+                kind,
+                SyntaxKind::Shebang
+                    | SyntaxKind::Frontmatter
+                    | SyntaxKind::InnerLineDoc
+                    | SyntaxKind::InnerBlockDoc
+            ),
+            SyntaxElement::Node(node) => {
+                kind == SyntaxKind::Attr && Attr::cast(node.clone()).is_some_and(|a| a.is_inner())
+            }
+        };
+        if header {
+            parts
+                .header
+                .push((scope.to_string(), format!("{}{}", text, suffix)));
+            if seen_item {
+                parts.header_first = false;
+            }
+            continue;
+        }
+        if let SyntaxElement::Node(node) = &element
+            && let Some(item) = Item::cast(node.clone())
+        {
+            seen_item = true;
+            if item.kind() == ItemKind::MacroRules {
+                let name = format!("{}{}", item.name().unwrap_or_default(), suffix);
+                for visible in visible_scopes(scope) {
+                    parts.macros.push((visible, name.clone()));
+                }
+            }
+            let core = core_text(node, source);
+            match module_body(node) {
+                Some(body) => {
+                    let range = body.text_range();
+                    let (from, to) = (range.start as usize + 1, range.end as usize - 1);
+                    let shell = |whole: &str, start: usize| {
+                        format!("{}…{}", &whole[..from - start], &whole[to - start..])
+                    };
+                    let item_start = node.text_range().start as usize;
+                    let core_start = item_start + text.find(core.as_str()).unwrap_or(0);
+                    let shell_text = shell(&text, item_start);
+                    let shell_core = shell(&core, core_start);
+                    let inner_scope = if scope.is_empty() {
+                        shell_core.split_whitespace().collect::<Vec<_>>().join(" ")
+                    } else {
+                        format!(
+                            "{} / {}",
+                            scope,
+                            shell_core.split_whitespace().collect::<Vec<_>>().join(" ")
+                        )
+                    };
+                    parts.items.push((
+                        format!("{}{}", shell_text, suffix),
+                        format!("{}{}", shell_core, suffix),
+                    ));
+                    let macro_use = item.attrs().iter().any(|a| a.path() == "macro_use");
+                    let inner_scope = if macro_use {
+                        format!("{}{}", inner_scope, MACRO_USE)
+                    } else {
+                        inner_scope
+                    };
+                    collect(&body, &inner_scope, source, parts);
+                }
+                None => parts
+                    .items
+                    .push((format!("{}{}", text, suffix), format!("{}{}", core, suffix))),
+            }
+            continue;
+        }
+        if kind.is_trivia() || matches!(kind, SyntaxKind::LBrace | SyntaxKind::RBrace) {
+            continue;
+        }
+        parts.others.push(format!("{}{}", text, suffix));
+    }
 }
 
 /// The text from a node's first significant child to its last, without the comments and
@@ -353,6 +467,16 @@ fn line_endings(text: &str) -> LineEndings {
     }
 }
 
+/// The `{ ... }` body of an inline module or an impl block: a scope of its own.
+fn module_body(node: &SyntaxNode) -> Option<SyntaxNode> {
+    let body = match node.kind() {
+        SyntaxKind::Module => SyntaxKind::ItemList,
+        SyntaxKind::Impl => SyntaxKind::AssocItemList,
+        _ => return None,
+    };
+    node.children().into_iter().find(|c| c.kind() == body)
+}
+
 /// The parts of a file. Line endings are compared by their own rule, so here every
 /// `\r\n` reads as `\n` and one changed line ending is not also every item changed.
 fn parts(text: &str, edition: Edition) -> Parts {
@@ -377,53 +501,23 @@ fn parts(text: &str, edition: Edition) -> Parts {
         }
         offset = end;
     }
-    let mut seen_item = false;
-    for element in tree.children_with_tokens() {
-        let (kind, text) = match &element {
-            SyntaxElement::Node(node) => {
-                let range = node.text_range();
-                (
-                    node.kind(),
-                    source[range.start as usize..range.end as usize].to_string(),
-                )
-            }
-            SyntaxElement::Token(token) => (token.kind(), token.text().to_string()),
-        };
-        let header = match &element {
-            SyntaxElement::Token(_) => matches!(
-                kind,
-                SyntaxKind::Shebang
-                    | SyntaxKind::Frontmatter
-                    | SyntaxKind::InnerLineDoc
-                    | SyntaxKind::InnerBlockDoc
-            ),
-            SyntaxElement::Node(node) => {
-                kind == SyntaxKind::Attr && Attr::cast(node.clone()).is_some_and(|a| a.is_inner())
-            }
-        };
-        if header {
-            parts.header.push(text);
-            if seen_item {
-                parts.header_first = false;
-            }
-            continue;
-        }
-        if let SyntaxElement::Node(node) = &element
-            && let Some(item) = Item::cast(node.clone())
-        {
-            seen_item = true;
-            if item.kind() == ItemKind::MacroRules {
-                parts.macros.push(item.name().unwrap_or_default());
-            }
-            parts.items.push((text, core_text(node, &source)));
-            continue;
-        }
-        if kind.is_trivia() {
-            continue;
-        }
-        parts.others.push(text);
-    }
+    collect(&tree, "", &source, &mut parts);
     parts
+}
+
+/// The scopes a macro defined in `scope` is visible in: its own, and its parents' for as
+/// long as the modules between are `#[macro_use]`.
+fn visible_scopes(scope: &str) -> Vec<String> {
+    let mut scopes = vec![scope.to_string()];
+    let mut current = scope;
+    while current.ends_with(MACRO_USE) {
+        current = match current.rfind(" / ") {
+            Some(at) => &current[..at],
+            None => "",
+        };
+        scopes.push(current.to_string());
+    }
+    scopes
 }
 
 #[cfg(test)]

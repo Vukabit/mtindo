@@ -46,8 +46,9 @@ pub fn parse(text: &str, edition: Edition) -> Parse {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     #[test]
     fn test_parse_reports_lex_errors_with_ranges() {

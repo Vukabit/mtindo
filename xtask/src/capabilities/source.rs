@@ -267,6 +267,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_cargo_fmt_flags() {
+        let text = "#[arg(short = 'q', long = \"quiet\")]\nquiet: bool,\n#[arg(long = \"manifest-path\", value_name = \"manifest-path\")]\n";
+        assert_eq!(
+            parse_cargo_fmt_flags(text),
+            vec!["--quiet", "--manifest-path", "--help"]
+        );
+    }
+
+    #[test]
     fn test_create_config_reads_the_top_level_block_only() {
         let text = "use x;\n\ncreate_config! {\n    // Fundamental stuff\n    max_width: MaxWidth, true, \"Maximum width of each line\";\n    use_small_heuristics: UseSmallHeuristics, true, \"Whether to use different \\\n        formatting: for items\";\n    indent_style: IndentStyleConfig, false,\n        \"How do we indent\";\n}\n\nfn test() {\n        create_config! {\n            verbose: Verbose, false, \"x\";\n        }\n}\n";
         assert_eq!(
@@ -311,15 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn test_toml_stripped_options() {
-        let text = "    pub fn to_toml(&self) {\n        let mut cloned = self.clone();\n        cloned.file_lines = None;\n        cloned.print_misformatted_file_names = None;\n        cloned.x.y = None;\n";
-        assert_eq!(
-            parse_toml_stripped(text),
-            vec!["file_lines", "print_misformatted_file_names"]
-        );
-    }
-
-    #[test]
     fn test_rustfmt_flags_and_nightly_blocks() {
         let text = "fn make_opts() -> Options {\n    let mut opts = Options::new();\n    opts.optflag(\n        \"\",\n        \"check\",\n        \"Run in 'check' mode.\",\n    );\n    let emit_opts = if is_nightly {\n        \"[a|b]\"\n    } else {\n        \"[a]\"\n    };\n    opts.optopt(\"\", \"emit\", \"What data\", emit_opts);\n    if is_nightly {\n        opts.optflag(\"\", \"unstable-features\", \"Enables {unstable} features\");\n    }\n    opts.optflag(\"v\", \"verbose\", \"Print \\\"verbose\\\" output\");\n    opts\n}\n";
         assert_eq!(
@@ -334,11 +334,11 @@ mod tests {
     }
 
     #[test]
-    fn test_cargo_fmt_flags() {
-        let text = "#[arg(short = 'q', long = \"quiet\")]\nquiet: bool,\n#[arg(long = \"manifest-path\", value_name = \"manifest-path\")]\n";
+    fn test_toml_stripped_options() {
+        let text = "    pub fn to_toml(&self) {\n        let mut cloned = self.clone();\n        cloned.file_lines = None;\n        cloned.print_misformatted_file_names = None;\n        cloned.x.y = None;\n";
         assert_eq!(
-            parse_cargo_fmt_flags(text),
-            vec!["--quiet", "--manifest-path", "--help"]
+            parse_toml_stripped(text),
+            vec!["file_lines", "print_misformatted_file_names"]
         );
     }
 }

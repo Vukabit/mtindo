@@ -1,7 +1,42 @@
 use super::*;
+use crate::options::layout::{NameSort, TraitImplSort};
 
 fn arranged(source: &str) -> String {
     layout(source, &LayoutConfig::default()).unwrap().text
+}
+
+#[test]
+fn test_a_comment_touching_the_first_item_heads_it() {
+    // `macro` items do not take attached comments, so the comment above is loose.
+    let source = "// licence\n\n// about m\nmacro m() {}\nfn a() {}\n";
+    let once = arranged(source);
+    assert_eq!(
+        once,
+        "// licence\n\n// about m\nmacro m() {}\n\nfn a() {}\n"
+    );
+    assert_eq!(arranged(&once), once);
+}
+
+#[test]
+fn test_a_comment_trailing_the_header_stays_in_it() {
+    let source = "#![allow(unsafe_code)] // module uses ffi\nuse b;\nuse a;\n";
+    assert_eq!(
+        arranged(source),
+        "#![allow(unsafe_code)] // module uses ffi\n\nuse a;\nuse b;\n"
+    );
+}
+
+#[test]
+fn test_cfg_variants_move_together() {
+    let source = "#[cfg(unix)]\nfn z() {}\n#[cfg(windows)]\nfn z() {}\nfn a() {}\n";
+    assert_eq!(
+        arranged(source),
+        "fn a() {}\n\n#[cfg(unix)]\nfn z() {}\n#[cfg(windows)]\nfn z() {}\n"
+    );
+    // Duplicate macros are fine when they are cfg variants of each other.
+    let macros =
+        "#[cfg(a)]\nmacro_rules! m { () => {} }\n#[cfg(not(a))]\nmacro_rules! m { () => {} }\n";
+    assert_eq!(arranged(macros), macros);
 }
 
 #[test]
@@ -18,6 +53,16 @@ fn test_code_only_valid_in_an_older_edition_still_parses() {
 fn test_crlf_and_bom_come_back() {
     let source = "\u{feff}fn b() {}\r\nfn a() {}\r\n";
     assert_eq!(arranged(source), "\u{feff}fn a() {}\r\n\r\nfn b() {}\r\n");
+}
+
+#[test]
+fn test_every_item_kind_has_its_place() {
+    let source =
+        "fn f() {}\nextern \"C\" {}\nunion U { a: u8 }\nstruct S;\ntype T = u8;\nmacro m() {}\n";
+    assert_eq!(
+        arranged(source),
+        "macro m() {}\n\ntype T = u8;\n\nstruct S;\n\nunion U { a: u8 }\n\nextern \"C\" {}\n\nfn f() {}\n"
+    );
 }
 
 #[test]
@@ -58,11 +103,117 @@ fn test_header_stays_first_byte_for_byte() {
 }
 
 #[test]
+fn test_impl_functions_follow_the_trait() {
+    let source = "trait T {\n    fn a();\n    fn b();\n}\nimpl T for X {\n    fn extra() {}\n\n    const C: u8 = 0;\n    fn b() {}\n    // pinned\n    // mto: pin\n    fn z() {}\n    fn a() {}\n}\n";
+    let config = LayoutConfig {
+        impl_method_order_trait: true,
+        ..LayoutConfig::default()
+    };
+    let once = layout(source, &config).unwrap().text;
+    // Functions trade places in the functions' slots; the const, the pinned function and
+    // the blank lines stay.
+    assert_eq!(
+        once,
+        "trait T {\n    fn a();\n    fn b();\n}\n\nimpl T for X {\n    fn a() {}\n\n    const C: u8 = 0;\n    fn b() {}\n    // pinned\n    // mto: pin\n    fn z() {}\n    fn extra() {}\n}\n"
+    );
+    assert_eq!(layout(&once, &config).unwrap().text, once, "stable");
+    assert!(crate::verify::verify_layout(source, &once, Edition::E2021).is_empty());
+}
+
+#[test]
+fn test_impls_under_a_type() {
+    let source = "impl Display for Foo {}\nimpl Foo { fn b() {} }\nimpl Clone for Foo {}\nimpl Foo { fn a() {} }\nstruct Foo;\nimpl fmt::Debug for Foo {}\n";
+    let order = |config: &LayoutConfig| {
+        layout(source, config)
+            .unwrap()
+            .text
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    // Own impls first, as written; then trait impls by name.
+    assert_eq!(
+        order(&LayoutConfig::default()),
+        [
+            "struct Foo;",
+            "impl Foo { fn b() {} }",
+            "impl Foo { fn a() {} }",
+            "impl Clone for Foo {}",
+            "impl fmt::Debug for Foo {}",
+            "impl Display for Foo {}",
+        ]
+    );
+    let listed = LayoutConfig {
+        trait_impl_order: vec!["Display".to_string()],
+        trait_impl_sort: TraitImplSort::Original,
+        ..LayoutConfig::default()
+    };
+    assert_eq!(
+        order(&listed)[3..],
+        [
+            "impl Display for Foo {}",
+            "impl Clone for Foo {}",
+            "impl fmt::Debug for Foo {}",
+        ]
+    );
+}
+
+#[test]
 fn test_imports_group_and_declarations_stay_together() {
     let source = "use crate::x;\nuse serde::Y;\nuse std::io;\nmod b;\nmod a;\n";
     assert_eq!(
         arranged(source),
         "mod a;\nmod b;\n\nuse std::io;\n\nuse serde::Y;\n\nuse crate::x;\n"
+    );
+}
+
+#[test]
+fn test_imports_sort_as_rustfmt_does_for_the_style_edition() {
+    let source =
+        "use x::u16;\nuse x::u8;\nuse x::Z;\nuse x::a;\nuse super::*;\nuse super::m::{Y, Z};\n";
+    let with = |style_edition: u16, import_sort: Option<u16>| {
+        let config = LayoutConfig {
+            style_edition,
+            import_sort,
+            ..LayoutConfig::default()
+        };
+        layout(source, &config).unwrap().text
+    };
+    let legacy =
+        "use x::a;\nuse x::u16;\nuse x::u8;\nuse x::Z;\n\nuse super::m::{Y, Z};\nuse super::*;\n";
+    let version =
+        "use x::Z;\nuse x::a;\nuse x::u8;\nuse x::u16;\n\nuse super::m::{Y, Z};\nuse super::*;\n";
+    assert_eq!(with(2021, None), legacy);
+    assert_eq!(with(2024, None), version);
+    // `import_sort` overrides the style edition for imports.
+    assert_eq!(with(2024, Some(2015)), legacy);
+    assert_eq!(with(2015, Some(2024)), version);
+}
+
+#[test]
+fn test_inline_modules_are_laid_out_at_every_level() {
+    let source = "mod outer {\n    //! Docs.\n\n    fn b() {}\n    // about a\n    fn a() {}\n    mod inner {\n        use std::io;\n        fn z() {}\n        use std::fmt;\n    }\n}\nfn top() {}\n";
+    let expected = "mod outer {\n    //! Docs.\n\n    mod inner {\n        use std::fmt;\n        use std::io;\n\n        fn z() {}\n    }\n\n    // about a\n    fn a() {}\n\n    fn b() {}\n}\n\nfn top() {}\n";
+    let once = arranged(source);
+    assert_eq!(once, expected);
+    assert_eq!(arranged(&once), once, "stable");
+    let verified = crate::verify::verify_layout(source, &once, Edition::E2021);
+    assert!(verified.is_empty(), "{:?}", verified);
+    // A body on one line with its braces, and a skipped module, are left as written.
+    let one_line = "mod m { fn b() {} fn a() {} }\n";
+    assert_eq!(arranged(one_line), one_line);
+    let skipped = "#[rustfmt::skip]\nmod m {\n    fn b() {}\n    fn a() {}\n}\n";
+    assert_eq!(arranged(skipped), skipped);
+}
+
+#[test]
+fn test_modules_sort_as_rustfmt_does() {
+    // Without `r#`, by bytes; a test module declared last stands apart from the others.
+    let source = "#[cfg(test)]\nmod tests;\nmod r#type;\nmod b;\nmod Z;\n";
+    assert_eq!(
+        arranged(source),
+        "mod Z;\nmod b;\nmod r#type;\n\n#[cfg(test)]\nmod tests;\n"
     );
 }
 
@@ -79,6 +230,67 @@ fn test_mto_off_regions_keep_their_slot() {
 }
 
 #[test]
+fn test_name_sort_and_visibility_order() {
+    let source = "fn parse_u16() {}\nfn Beta() {}\nfn alpha() {}\nfn parse_u8() {}\n";
+    let with = |name_sort: NameSort| {
+        let config = LayoutConfig {
+            name_sort,
+            ..LayoutConfig::default()
+        };
+        let text = layout(source, &config).unwrap().text;
+        text.lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| {
+                l.trim_start_matches("fn ")
+                    .trim_end_matches("() {}")
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        with(NameSort::Version),
+        ["Beta", "alpha", "parse_u8", "parse_u16"]
+    );
+    assert_eq!(
+        with(NameSort::Bytes),
+        ["Beta", "alpha", "parse_u16", "parse_u8"]
+    );
+    assert_eq!(
+        with(NameSort::CaseInsensitive),
+        ["alpha", "Beta", "parse_u8", "parse_u16"]
+    );
+
+    let config = LayoutConfig {
+        visibility_order: vec![Visibility::Private, Visibility::Pub],
+        ..LayoutConfig::default()
+    };
+    let source = "pub(crate) fn c() {}\npub fn b() {}\nfn a() {}\n";
+    assert_eq!(
+        layout(source, &config).unwrap().text,
+        "fn a() {}\n\npub fn b() {}\n\npub(crate) fn c() {}\n"
+    );
+}
+
+#[test]
+fn test_pinned_items_keep_their_place() {
+    let skip = "fn z() {}\n#[rustfmt::skip]\nfn m() {}\nfn a() {}\n";
+    assert_eq!(
+        arranged(skip),
+        "fn a() {}\n\n#[rustfmt::skip]\nfn m() {}\n\nfn z() {}\n"
+    );
+    let attached = "fn z() {}\n// mto: pin\nfn m() {}\nfn a() {}\n";
+    assert_eq!(
+        arranged(attached),
+        "fn a() {}\n\n// mto: pin\nfn m() {}\n\nfn z() {}\n"
+    );
+    let loose = "fn z() {}\n\n// mto: pin\n\nfn m() {}\nfn a() {}\n";
+    assert_eq!(
+        arranged(loose),
+        "fn a() {}\n\n// mto: pin\n\nfn m() {}\n\nfn z() {}\n"
+    );
+}
+
+#[test]
 fn test_pinned_items_keep_their_slot() {
     let source = "fn b() {}\nextern crate alloc;\nfn a() {}\n";
     assert_eq!(
@@ -88,11 +300,52 @@ fn test_pinned_items_keep_their_slot() {
 }
 
 #[test]
+fn test_reorder_impl_items_as_rustfmt_does() {
+    let source = "impl Iterator for D {\n    fn next(&mut self) {}\n    m!();\n    const B: u8 = 1;\n    type Z = impl Sized;\n    type Item = i32;\n    const A: u8 = 0;\n}\n";
+    let config = LayoutConfig {
+        reorder_impl_items: true,
+        ..LayoutConfig::default()
+    };
+    let once = layout(source, &config).unwrap().text;
+    assert_eq!(
+        once,
+        "impl Iterator for D {\n    type Item = i32;\n\n    type Z = impl Sized;\n\n    const A: u8 = 0;\n    const B: u8 = 1;\n\n    m!();\n\n    fn next(&mut self) {}\n}\n"
+    );
+    assert_eq!(layout(&once, &config).unwrap().text, once, "stable");
+    assert!(crate::verify::verify_layout(source, &once, Edition::E2021).is_empty());
+    // Off by default: impl bodies are left alone.
+    assert_eq!(arranged(source), source);
+}
+
+#[test]
+fn test_rustfmt_skip_on_the_file_leaves_it_alone() {
+    let source = "#![rustfmt::skip]\nfn b() {}\nfn a() {}\n";
+    assert_eq!(arranged(source), source);
+}
+
+#[test]
 fn test_section_comments_move_with_their_item() {
     let source = "fn b() {}\n\n// Section A\n\n// about a\nfn a() {}\n";
     assert_eq!(
         arranged(source),
         "// Section A\n\n// about a\nfn a() {}\n\nfn b() {}\n"
+    );
+}
+
+#[test]
+fn test_test_module_last_or_in_place() {
+    let source = "fn b() {}\n#[cfg(test)]\nmod tests {}\nfn a() {}\n";
+    assert_eq!(
+        arranged(source),
+        "fn a() {}\n\nfn b() {}\n\n#[cfg(test)]\nmod tests {}\n"
+    );
+    let config = LayoutConfig {
+        test_module_in_place: true,
+        ..LayoutConfig::default()
+    };
+    assert_eq!(
+        layout(source, &config).unwrap().text,
+        "fn a() {}\n\n#[cfg(test)]\nmod tests {}\n\nfn b() {}\n"
     );
 }
 

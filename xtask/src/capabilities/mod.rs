@@ -547,8 +547,17 @@ fn sync(root: &Path, log: &Logger) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use surface::Found;
+
+    use super::*;
+
+    fn manifest_text(lines: &[&str]) -> String {
+        let mut manifest = Manifest::default();
+        let (parsed, errors) = Manifest::parse(&lines.join("\n"));
+        assert!(errors.is_empty(), "{:?}", errors);
+        manifest.lines = parsed.lines;
+        manifest.render()
+    }
 
     fn sample_surface() -> Surface {
         let reading = |label: &str, items: Vec<Found>| Reading {
@@ -577,14 +586,6 @@ mod tests {
         ])
     }
 
-    fn manifest_text(lines: &[&str]) -> String {
-        let mut manifest = Manifest::default();
-        let (parsed, errors) = Manifest::parse(&lines.join("\n"));
-        assert!(errors.is_empty(), "{:?}", errors);
-        manifest.lines = parsed.lines;
-        manifest.render()
-    }
-
     #[test]
     fn test_a_complete_manifest_passes() {
         let text = manifest_text(&[
@@ -601,64 +602,6 @@ mod tests {
             &|_| true,
         );
         assert!(problems.is_empty(), "{:?}", problems);
-    }
-
-    #[test]
-    fn test_untracked_stale_and_duplicate_items_fail() {
-        let text = manifest_text(&[
-            "option max_width missing",
-            "option max_width missing",
-            "option gone missing",
-            "flag rustfmt:--check missing",
-        ]);
-        let problems = evaluate(&sample_surface(), &[], &text, &|_| true);
-        let joined = problems.join("\n");
-        assert!(joined.contains("max_width is listed twice"), "{}", joined);
-        assert!(joined.contains("option gone is stale"), "{}", joined);
-        assert!(
-            joined.contains("option group_imports has no status"),
-            "{}",
-            joined
-        );
-        assert!(
-            joined.contains("option brand_new has no status"),
-            "{}",
-            joined
-        );
-    }
-
-    #[test]
-    fn test_notes_must_back_their_status() {
-        let text = manifest_text(&[
-            "option max_width supported # works",
-            "option group_imports partial",
-            "option brand_new not-planned",
-            "flag rustfmt:--check supported # tests/missing.rs",
-        ]);
-        let problems = evaluate(&sample_surface(), &[], &text, &|path| {
-            path != "tests/missing.rs"
-        });
-        let joined = problems.join("\n");
-        assert!(
-            joined.contains("max_width is supported, so its note must name the test"),
-            "{}",
-            joined
-        );
-        assert!(joined.contains("group_imports is partial"), "{}", joined);
-        assert!(joined.contains("brand_new is not-planned"), "{}", joined);
-        assert!(
-            joined.contains("names tests/missing.rs, which does not exist"),
-            "{}",
-            joined
-        );
-    }
-
-    #[test]
-    fn test_layout_drift_is_reported_once_the_content_is_right() {
-        let text = "option max_width missing\noption group_imports missing\noption brand_new missing\nflag rustfmt:--check missing\n";
-        let problems = evaluate(&sample_surface(), &[], text, &|_| true);
-        assert_eq!(problems.len(), 1, "{:?}", problems);
-        assert!(problems[0].contains("not in canonical layout"));
     }
 
     #[test]
@@ -690,6 +633,64 @@ mod tests {
                 "option imports_granularity is stable in the binary but unstable in the source",
                 "stable option tab_spaces is missing from the binary",
             ]
+        );
+    }
+
+    #[test]
+    fn test_layout_drift_is_reported_once_the_content_is_right() {
+        let text = "option max_width missing\noption group_imports missing\noption brand_new missing\nflag rustfmt:--check missing\n";
+        let problems = evaluate(&sample_surface(), &[], text, &|_| true);
+        assert_eq!(problems.len(), 1, "{:?}", problems);
+        assert!(problems[0].contains("not in canonical layout"));
+    }
+
+    #[test]
+    fn test_notes_must_back_their_status() {
+        let text = manifest_text(&[
+            "option max_width supported # works",
+            "option group_imports partial",
+            "option brand_new not-planned",
+            "flag rustfmt:--check supported # tests/missing.rs",
+        ]);
+        let problems = evaluate(&sample_surface(), &[], &text, &|path| {
+            path != "tests/missing.rs"
+        });
+        let joined = problems.join("\n");
+        assert!(
+            joined.contains("max_width is supported, so its note must name the test"),
+            "{}",
+            joined
+        );
+        assert!(joined.contains("group_imports is partial"), "{}", joined);
+        assert!(joined.contains("brand_new is not-planned"), "{}", joined);
+        assert!(
+            joined.contains("names tests/missing.rs, which does not exist"),
+            "{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn test_untracked_stale_and_duplicate_items_fail() {
+        let text = manifest_text(&[
+            "option max_width missing",
+            "option max_width missing",
+            "option gone missing",
+            "flag rustfmt:--check missing",
+        ]);
+        let problems = evaluate(&sample_surface(), &[], &text, &|_| true);
+        let joined = problems.join("\n");
+        assert!(joined.contains("max_width is listed twice"), "{}", joined);
+        assert!(joined.contains("option gone is stale"), "{}", joined);
+        assert!(
+            joined.contains("option group_imports has no status"),
+            "{}",
+            joined
+        );
+        assert!(
+            joined.contains("option brand_new has no status"),
+            "{}",
+            joined
         );
     }
 }

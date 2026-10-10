@@ -94,6 +94,15 @@ const EXIT_CODES: &[(&str, &str)] = &[
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 34;
 
+/// One command: (name, arguments, what it does, entry point). Dispatch and help both read
+/// this table, so a command cannot exist without being documented.
+type Command = (
+    &'static str,
+    &'static str,
+    &'static str,
+    fn(&Path, &[String]) -> ExitCode,
+);
+
 /// Runs a command of `xtask-tools`, the binary that links mtindo.
 fn forward(root: &Path, command: &str, args: &[String]) -> ExitCode {
     let mut all = vec![command.to_string()];
@@ -163,18 +172,23 @@ fn render_help(color: bool) -> String {
     out
 }
 
-/// One command: (name, arguments, what it does, entry point). Dispatch and help both read
-/// this table, so a command cannot exist without being documented.
-type Command = (
-    &'static str,
-    &'static str,
-    &'static str,
-    fn(&Path, &[String]) -> ExitCode,
-);
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_help_is_identical_apart_from_color() {
+        let colored = render_help(true);
+        let mut stripped = String::new();
+        let mut rest = colored.as_str();
+        while let Some(idx) = rest.find('\x1b') {
+            stripped.push_str(&rest[..idx]);
+            rest = &rest[idx..];
+            rest = &rest[rest.find('m').unwrap() + 1..];
+        }
+        stripped.push_str(rest);
+        assert_eq!(stripped, render_help(false));
+    }
 
     #[test]
     fn test_help_lists_every_command_and_gate() {
@@ -194,19 +208,5 @@ mod tests {
                 name
             );
         }
-    }
-
-    #[test]
-    fn test_help_is_identical_apart_from_color() {
-        let colored = render_help(true);
-        let mut stripped = String::new();
-        let mut rest = colored.as_str();
-        while let Some(idx) = rest.find('\x1b') {
-            stripped.push_str(&rest[..idx]);
-            rest = &rest[idx..];
-            rest = &rest[rest.find('m').unwrap() + 1..];
-        }
-        stripped.push_str(rest);
-        assert_eq!(stripped, render_help(false));
     }
 }

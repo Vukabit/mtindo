@@ -357,8 +357,9 @@ impl SyntaxKind {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashSet;
+
+    use super::*;
 
     #[test]
     fn test_every_kind_has_a_unique_name() {

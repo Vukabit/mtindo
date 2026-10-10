@@ -76,21 +76,6 @@ mod tests {
         (0..=0x10FFFFu32).filter_map(char::from_u32)
     }
 
-    fn assert_well_formed(name: &str, table: &[(u32, u32)]) {
-        for (idx, &(lo, hi)) in table.iter().enumerate() {
-            assert!(lo <= hi, "{} range {} is reversed", name, idx);
-            if idx > 0 {
-                assert!(
-                    table[idx - 1].1 + 1 < lo,
-                    "{} ranges {} and {} touch or overlap",
-                    name,
-                    idx - 1,
-                    idx
-                );
-            }
-        }
-    }
-
     /// Walks every scalar value alongside the table, so a lookup bug cannot hide behind itself.
     fn assert_lookup_matches_walk(name: &str, table: &[(u32, u32)]) {
         let mut range = 0;
@@ -110,57 +95,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_tables_match_toolchain_unicode_version() {
-        let toolchain = char::UNICODE_VERSION;
-        let expected = (toolchain.0, toolchain.1, toolchain.2);
-        assert_eq!(
-            ident_tables::UNICODE_VERSION,
-            expected,
-            "identifier tables are out of date: run `cargo xtask unicode`"
-        );
-        assert_eq!(
-            width_tables::UNICODE_VERSION,
-            expected,
-            "width tables are out of date: run `cargo xtask unicode`"
-        );
-    }
-
-    #[test]
-    fn test_tables_are_sorted_and_disjoint() {
-        assert_well_formed("XID_START", ident_tables::XID_START);
-        assert_well_formed("XID_CONTINUE", ident_tables::XID_CONTINUE);
-        assert_well_formed("ZERO_WIDTH", width_tables::ZERO_WIDTH);
-        assert_well_formed("DOUBLE_WIDTH", width_tables::DOUBLE_WIDTH);
-    }
-
-    #[test]
-    fn test_lookup_agrees_with_linear_walk_for_every_char() {
-        assert_lookup_matches_walk("XID_START", ident_tables::XID_START);
-        assert_lookup_matches_walk("XID_CONTINUE", ident_tables::XID_CONTINUE);
-        assert_lookup_matches_walk("ZERO_WIDTH", width_tables::ZERO_WIDTH);
-        assert_lookup_matches_walk("DOUBLE_WIDTH", width_tables::DOUBLE_WIDTH);
-    }
-
-    #[test]
-    fn test_every_range_edge() {
-        for table in [
-            ident_tables::XID_START,
-            ident_tables::XID_CONTINUE,
-            width_tables::ZERO_WIDTH,
-            width_tables::DOUBLE_WIDTH,
-        ] {
-            for &(lo, hi) in table {
-                for (cp, inside) in [
-                    (lo, true),
-                    (hi, true),
-                    (lo.wrapping_sub(1), false),
-                    (hi + 1, false),
-                ] {
-                    if let Some(c) = char::from_u32(cp) {
-                        assert_eq!(in_table(table, c), inside, "edge U+{:04X}", cp);
-                    }
-                }
+    fn assert_well_formed(name: &str, table: &[(u32, u32)]) {
+        for (idx, &(lo, hi)) in table.iter().enumerate() {
+            assert!(lo <= hi, "{} range {} is reversed", name, idx);
+            if idx > 0 {
+                assert!(
+                    table[idx - 1].1 + 1 < lo,
+                    "{} ranges {} and {} touch or overlap",
+                    name,
+                    idx - 1,
+                    idx
+                );
             }
         }
     }
@@ -178,28 +123,6 @@ mod tests {
                 is_ident_continue(c),
                 in_table(ident_tables::XID_CONTINUE, c),
                 "continue {:?}",
-                c
-            );
-        }
-    }
-
-    #[test]
-    fn test_identifier_classes() {
-        for c in ['a', 'Z', '_', 'é', 'ℵ', '中', 'Ω', 'ｱ'] {
-            assert!(is_ident_start(c), "{:?} should start an identifier", c);
-        }
-        for c in ['0', '9', '·', '\u{0301}', '\u{0660}'] {
-            assert!(!is_ident_start(c), "{:?} should not start an identifier", c);
-            assert!(
-                is_ident_continue(c),
-                "{:?} should continue an identifier",
-                c
-            );
-        }
-        for c in ['-', ' ', '🦀', '€', '\u{200B}'] {
-            assert!(
-                !is_ident_start(c) && !is_ident_continue(c),
-                "{:?} is not an identifier char",
                 c
             );
         }
@@ -230,5 +153,82 @@ mod tests {
         }
         assert_eq!(str_width("fn 中文() {}"), 12);
         assert_eq!(str_width("e\u{0301}"), 1);
+    }
+
+    #[test]
+    fn test_every_range_edge() {
+        for table in [
+            ident_tables::XID_START,
+            ident_tables::XID_CONTINUE,
+            width_tables::ZERO_WIDTH,
+            width_tables::DOUBLE_WIDTH,
+        ] {
+            for &(lo, hi) in table {
+                for (cp, inside) in [
+                    (lo, true),
+                    (hi, true),
+                    (lo.wrapping_sub(1), false),
+                    (hi + 1, false),
+                ] {
+                    if let Some(c) = char::from_u32(cp) {
+                        assert_eq!(in_table(table, c), inside, "edge U+{:04X}", cp);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_identifier_classes() {
+        for c in ['a', 'Z', '_', 'é', 'ℵ', '中', 'Ω', 'ｱ'] {
+            assert!(is_ident_start(c), "{:?} should start an identifier", c);
+        }
+        for c in ['0', '9', '·', '\u{0301}', '\u{0660}'] {
+            assert!(!is_ident_start(c), "{:?} should not start an identifier", c);
+            assert!(
+                is_ident_continue(c),
+                "{:?} should continue an identifier",
+                c
+            );
+        }
+        for c in ['-', ' ', '🦀', '€', '\u{200B}'] {
+            assert!(
+                !is_ident_start(c) && !is_ident_continue(c),
+                "{:?} is not an identifier char",
+                c
+            );
+        }
+    }
+
+    #[test]
+    fn test_lookup_agrees_with_linear_walk_for_every_char() {
+        assert_lookup_matches_walk("XID_START", ident_tables::XID_START);
+        assert_lookup_matches_walk("XID_CONTINUE", ident_tables::XID_CONTINUE);
+        assert_lookup_matches_walk("ZERO_WIDTH", width_tables::ZERO_WIDTH);
+        assert_lookup_matches_walk("DOUBLE_WIDTH", width_tables::DOUBLE_WIDTH);
+    }
+
+    #[test]
+    fn test_tables_are_sorted_and_disjoint() {
+        assert_well_formed("XID_START", ident_tables::XID_START);
+        assert_well_formed("XID_CONTINUE", ident_tables::XID_CONTINUE);
+        assert_well_formed("ZERO_WIDTH", width_tables::ZERO_WIDTH);
+        assert_well_formed("DOUBLE_WIDTH", width_tables::DOUBLE_WIDTH);
+    }
+
+    #[test]
+    fn test_tables_match_toolchain_unicode_version() {
+        let toolchain = char::UNICODE_VERSION;
+        let expected = (toolchain.0, toolchain.1, toolchain.2);
+        assert_eq!(
+            ident_tables::UNICODE_VERSION,
+            expected,
+            "identifier tables are out of date: run `cargo xtask unicode`"
+        );
+        assert_eq!(
+            width_tables::UNICODE_VERSION,
+            expected,
+            "width tables are out of date: run `cargo xtask unicode`"
+        );
     }
 }

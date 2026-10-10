@@ -45,6 +45,10 @@ const TABLE_PATH: &str = "src/options/rustfmt.rs";
 /// The default of `required_version`; replaced by the release's version.
 const VERSION_DEFAULT: &str = "env!(\"CARGO_PKG_VERSION\").to_owned()";
 
+/// ConfigType -> (value type, default, 2024 default) from
+/// `config_option_with_style_edition_default!`.
+type Defaults = BTreeMap<String, (String, String, Option<String>)>;
+
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
     Bool,
@@ -718,10 +722,6 @@ fn strip_links(text: &str) -> String {
     out
 }
 
-/// ConfigType -> (value type, default, 2024 default) from
-/// `config_option_with_style_edition_default!`.
-type Defaults = BTreeMap<String, (String, String, Option<String>)>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -748,6 +748,21 @@ mod tests {
         );
         assert_eq!(defaults["VersionConfig"].2.as_deref(), Some("Version::Two"));
         assert_eq!(defaults["Heur"].1, "WidthHeuristics::scaled(100)");
+    }
+
+    #[test]
+    fn test_docs_stop_at_the_details() {
+        let text = "## `indent_style`\n\nIndent on [items](#x).\nSecond line.\n\nMore.\n\n- **Default value**: `\"Block\"`\n\n## `bare`\n\n- **Default value**: `1`\n";
+        let docs = parse_docs(text);
+        assert_eq!(
+            docs["indent_style"],
+            "Indent on items. Second line.\n\nMore."
+        );
+        assert!(!docs.contains_key("bare"));
+        assert_eq!(
+            strip_links("See [RFC 3338] and [Edition 2015]() but not `#[cfg(test)]` or `[]`."),
+            "See RFC 3338 and Edition 2015 but not `#[cfg(test)]` or `[]`."
+        );
     }
 
     #[test]
@@ -786,21 +801,6 @@ mod tests {
             Some("\"1.10.0\"")
         );
         assert_eq!(render("100", &Kind::Bool), None);
-    }
-
-    #[test]
-    fn test_docs_stop_at_the_details() {
-        let text = "## `indent_style`\n\nIndent on [items](#x).\nSecond line.\n\nMore.\n\n- **Default value**: `\"Block\"`\n\n## `bare`\n\n- **Default value**: `1`\n";
-        let docs = parse_docs(text);
-        assert_eq!(
-            docs["indent_style"],
-            "Indent on items. Second line.\n\nMore."
-        );
-        assert!(!docs.contains_key("bare"));
-        assert_eq!(
-            strip_links("See [RFC 3338] and [Edition 2015]() but not `#[cfg(test)]` or `[]`."),
-            "See RFC 3338 and Edition 2015 but not `#[cfg(test)]` or `[]`."
-        );
     }
 
     #[test]

@@ -12,39 +12,101 @@ use mtindo::{
     c_yellow, collect_jobs, print_warnings, process_init, process_stdin, run_jobs,
 };
 
-/// Arguments that are not flags: (name, value, help).
-const COMMANDS: &[(&str, &str, &str)] = &[
-    (
-        "-",
-        "",
-        "Read source from stdin and write the result to stdout",
-    ),
-    (
-        "init",
-        "[DIR]",
-        "Write a default mto.toml into DIR (default: the current directory)",
-    ),
-    (
-        "config",
-        "path|print [DIR]",
-        "Show the configuration files, or the settings, that apply in DIR",
-    ),
-    (
-        "history",
-        "[show <RUN> | prune]",
-        "List the runs that wrote files, show one, or prune old ones",
-    ),
-    (
-        "restore",
-        "<RUN> [FILE...]",
-        "Undo a run (last, last~N, or a handle from mto history)",
-    ),
-    (
-        "debug",
-        "tokens|tree <FILE> [--edition YEAR]",
-        "Print the tokens or syntax tree mto sees (unstable output, for bug reports)",
-    ),
+/// mto's commands, in the order help lists them. Each has its own help page (`mto history
+/// -h`), built from this table and [`FLAGS`].
+const COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: "init",
+        args: "[DIR]",
+        summary: "Write a default mto.toml",
+        about: "Writes an mto.toml with layout turned on and every mto setting at its default, \
+                each with its summary, into DIR (default: the current directory). An existing \
+                file is never overwritten.",
+        usage: &["mto init [DIR]"],
+        options: &[],
+        examples: &["mto init", "mto init crates/core"],
+    },
+    CommandSpec {
+        name: "config",
+        args: "path|print [DIR]",
+        summary: "Show the configuration that applies in a folder",
+        about: "`path` lists the configuration files that apply in DIR (default: the current \
+                directory), and the history folder. `print` shows every setting in effect with \
+                where it came from, in sections: layout, then formatting.",
+        usage: &["mto config path [DIR]", "mto config print [OPTIONS] [DIR]"],
+        options: &[
+            (
+                "views",
+                "mto config print",
+                &[Flag::Current, Flag::Default, Flag::Minimal, Flag::User],
+            ),
+            (
+                "configuration",
+                "mto config path|print",
+                &[
+                    Flag::Config,
+                    Flag::ConfigPath,
+                    Flag::Edition,
+                    Flag::StyleEdition,
+                ],
+            ),
+        ],
+        examples: &[
+            "mto config path",
+            "mto config print --minimal",
+            "mto config print --user",
+        ],
+    },
+    CommandSpec {
+        name: "history",
+        args: "[show <RUN> | prune]",
+        summary: "List, show or prune the runs that wrote files",
+        about: "Every run that writes files is recorded. With no argument, lists the runs, \
+                newest first. `show` lists one run's files and where each stands now. `prune` \
+                removes old runs, by the user config's limits unless told otherwise. RUN is \
+                `last`, `last~N`, or a handle from the list.",
+        usage: &[
+            "mto history",
+            "mto history show <RUN>",
+            "mto history prune [--older-than DAYS] [--keep N]",
+        ],
+        options: &[(
+            "options",
+            "mto history prune",
+            &[Flag::Keep, Flag::OlderThan],
+        )],
+        examples: &[
+            "mto history",
+            "mto history show last~1",
+            "mto history prune --keep 10",
+        ],
+    },
+    CommandSpec {
+        name: "restore",
+        args: "<RUN> [FILE...]",
+        summary: "Undo a run",
+        about: "Puts back what RUN replaced, in every file it wrote or only the FILEs named. A \
+                file changed or deleted since is skipped (exit code 1) unless --force. The \
+                restore is recorded as a run of its own, so it can be undone too. RUN is \
+                `last`, `last~N`, or a handle from `mto history`.",
+        usage: &["mto restore <RUN> [FILE...] [--force]"],
+        options: &[("options", "mto restore <RUN> [FILE...]", &[Flag::Force])],
+        examples: &["mto restore last", "mto restore 3f9a src/lib.rs"],
+    },
+    CommandSpec {
+        name: "debug",
+        args: "tokens|tree <FILE>",
+        summary: "Print the tokens or syntax tree mto sees, for bug reports",
+        about: "Prints the tokens or the syntax tree of FILE as mto reads it. The output is \
+                not stable; it is meant for bug reports.",
+        usage: &["mto debug tokens|tree <FILE> [--edition YEAR]"],
+        options: &[("options", "mto debug tokens|tree <FILE>", &[Flag::Edition])],
+        examples: &["mto debug tree src/lib.rs"],
+    },
 ];
+
+/// The settings that decide which defaults apply.
+const EDITION_KEYS: [&str; 3] = ["edition", "style_edition", "version"];
 
 const EXAMPLES: &[&str] = &[
     "mto src/main.rs",
@@ -55,7 +117,6 @@ const EXAMPLES: &[&str] = &[
     "mto --config max_width=80,hard_tabs=true src/",
     "mto config print --minimal",
     "mto restore last",
-    "mto history show last~1",
 ];
 
 const EXIT_CODES: &[(&str, &str)] = &[
@@ -78,28 +139,24 @@ const EXIT_CODES: &[(&str, &str)] = &[
 
 const FLAGS: &[FlagSpec] = &[
     FlagSpec {
-        flag: Flag::Help,
-        short: Some("-h"),
-        long: "--help",
-        value: "",
-        help: "Show this help and exit",
-    },
-    FlagSpec {
-        flag: Flag::Version,
-        short: Some("-V"),
-        long: "--version",
-        value: "",
-        help: "Print the version and exit",
-    },
-    FlagSpec {
         flag: Flag::Check,
+        group: Group::Layout,
         short: None,
         long: "--check",
         value: "",
         help: "Print a diff for every file that would change; exit 1 if any",
     },
     FlagSpec {
+        flag: Flag::DryRun,
+        group: Group::Layout,
+        short: Some("-d"),
+        long: "--dry-run",
+        value: "",
+        help: "List the files that would change, without writing",
+    },
+    FlagSpec {
         flag: Flag::Emit,
+        group: Group::Layout,
         short: None,
         long: "--emit",
         value: "<files|stdout|json>",
@@ -107,13 +164,31 @@ const FLAGS: &[FlagSpec] = &[
     },
     FlagSpec {
         flag: Flag::FilesWithDiff,
+        group: Group::Layout,
         short: Some("-l"),
         long: "--files-with-diff",
         value: "",
         help: "Name the files that change (or would, with --check) instead of showing how",
     },
     FlagSpec {
+        flag: Flag::FollowLinks,
+        group: Group::Files,
+        short: None,
+        long: "--follow-links",
+        value: "",
+        help: "Also follow symlinked files and directories",
+    },
+    FlagSpec {
+        flag: Flag::Recursive,
+        group: Group::Files,
+        short: Some("-R"),
+        long: "--recursive",
+        value: "",
+        help: "Lay out every .rs file under the current directory",
+    },
+    FlagSpec {
         flag: Flag::SkipChildren,
+        group: Group::Files,
         short: None,
         long: "--skip-children",
         value: "",
@@ -121,62 +196,15 @@ const FLAGS: &[FlagSpec] = &[
     },
     FlagSpec {
         flag: Flag::StdinFilepath,
+        group: Group::Stdin,
         short: None,
         long: "--stdin-filepath",
         value: "<PATH>",
         help: "With -: where the source belongs, for its settings and in messages",
     },
     FlagSpec {
-        flag: Flag::Quiet,
-        short: Some("-q"),
-        long: "--quiet",
-        value: "",
-        help: "Print only errors and what was asked for",
-    },
-    FlagSpec {
-        flag: Flag::Verbose,
-        short: Some("-v"),
-        long: "--verbose",
-        value: "",
-        help: "Name each file as it is laid out",
-    },
-    FlagSpec {
-        flag: Flag::Color,
-        short: None,
-        long: "--color",
-        value: "<always|never|auto>",
-        help: "Color the output (default: auto, only on a terminal)",
-    },
-    FlagSpec {
-        flag: Flag::PrintConfig,
-        short: None,
-        long: "--print-config",
-        value: "<default|minimal|current> [PATH]",
-        help: "Print rustfmt's settings, as rustfmt does, and exit",
-    },
-    FlagSpec {
-        flag: Flag::UnstableFeatures,
-        short: None,
-        long: "--unstable-features",
-        value: "",
-        help: "Accepted for rustfmt compatibility; mto applies every setting on every channel",
-    },
-    FlagSpec {
-        flag: Flag::DryRun,
-        short: Some("-d"),
-        long: "--dry-run",
-        value: "",
-        help: "List the files that would change, without writing",
-    },
-    FlagSpec {
-        flag: Flag::Recursive,
-        short: Some("-R"),
-        long: "--recursive",
-        value: "",
-        help: "Lay out every .rs file under the current directory",
-    },
-    FlagSpec {
         flag: Flag::Config,
+        group: Group::Configuration,
         short: None,
         long: "--config",
         value: "<KEY=VALUE,...>",
@@ -184,6 +212,7 @@ const FLAGS: &[FlagSpec] = &[
     },
     FlagSpec {
         flag: Flag::ConfigPath,
+        group: Group::Configuration,
         short: None,
         long: "--config-path",
         value: "<FILE>",
@@ -191,106 +220,168 @@ const FLAGS: &[FlagSpec] = &[
     },
     FlagSpec {
         flag: Flag::Edition,
+        group: Group::Configuration,
         short: None,
         long: "--edition",
         value: "<YEAR>",
         help: "The Rust edition, over Cargo.toml and configuration files",
     },
     FlagSpec {
+        flag: Flag::PrintConfig,
+        group: Group::Compatibility,
+        short: None,
+        long: "--print-config",
+        value: "<default|minimal|current> [PATH]",
+        help: "Print rustfmt's settings, as rustfmt does, and exit",
+    },
+    FlagSpec {
         flag: Flag::StyleEdition,
+        group: Group::Configuration,
         short: None,
         long: "--style-edition",
         value: "<YEAR>",
         help: "The style edition, which decides the defaults",
     },
     FlagSpec {
-        flag: Flag::Default,
+        flag: Flag::UnstableFeatures,
+        group: Group::Configuration,
         short: None,
-        long: "--default",
+        long: "--unstable-features",
         value: "",
-        help: "config print: every setting at its default",
-    },
-    FlagSpec {
-        flag: Flag::Current,
-        short: None,
-        long: "--current",
-        value: "",
-        help: "config print: every setting in effect, with its source (the default)",
-    },
-    FlagSpec {
-        flag: Flag::Minimal,
-        short: None,
-        long: "--minimal",
-        value: "",
-        help: "config print: only the settings that differ from their defaults",
-    },
-    FlagSpec {
-        flag: Flag::User,
-        short: None,
-        long: "--user",
-        value: "",
-        help: "config print: the user config's settings",
-    },
-    FlagSpec {
-        flag: Flag::FollowLinks,
-        short: None,
-        long: "--follow-links",
-        value: "",
-        help: "Also follow symlinked files and directories",
-    },
-    FlagSpec {
-        flag: Flag::NoHistory,
-        short: None,
-        long: "--no-history",
-        value: "",
-        help: "Do not record this run in history (it cannot be restored)",
+        help: "Accepted for rustfmt compatibility; mto applies every setting on every channel",
     },
     FlagSpec {
         flag: Flag::AllowDirty,
+        group: Group::History,
         short: None,
         long: "--allow-dirty",
         value: "",
         help: "With history off, rewrite files that have uncommitted changes",
     },
     FlagSpec {
-        flag: Flag::Force,
+        flag: Flag::NoHistory,
+        group: Group::History,
         short: None,
-        long: "--force",
+        long: "--no-history",
         value: "",
-        help: "restore: also files changed since the run, and missing ones",
+        help: "Do not record this run in history (it cannot be restored)",
     },
     FlagSpec {
-        flag: Flag::OlderThan,
+        flag: Flag::Color,
+        group: Group::Output,
         short: None,
-        long: "--older-than",
-        value: "<DAYS>",
-        help: "history prune: remove runs this old (30, 2w, 12h)",
-    },
-    FlagSpec {
-        flag: Flag::Keep,
-        short: None,
-        long: "--keep",
-        value: "<N>",
-        help: "history prune: keep only the newest N runs",
+        long: "--color",
+        value: "<always|never|auto>",
+        help: "Color the output (default: auto, only on a terminal)",
     },
     FlagSpec {
         flag: Flag::Dbg,
+        group: Group::Output,
         short: None,
         long: "--dbg",
         value: "",
         help: "Print how each file was split into items",
     },
     FlagSpec {
+        flag: Flag::Quiet,
+        group: Group::Output,
+        short: Some("-q"),
+        long: "--quiet",
+        value: "",
+        help: "Print only errors and what was asked for",
+    },
+    FlagSpec {
+        flag: Flag::Verbose,
+        group: Group::Output,
+        short: Some("-v"),
+        long: "--verbose",
+        value: "",
+        help: "Name each file as it is laid out",
+    },
+    FlagSpec {
+        flag: Flag::Help,
+        group: Group::General,
+        short: Some("-h"),
+        long: "--help",
+        value: "",
+        help: "Show this help and exit",
+    },
+    FlagSpec {
         flag: Flag::Man,
+        group: Group::General,
         short: None,
         long: "--man",
         value: "",
         help: "Print the full manual",
     },
+    FlagSpec {
+        flag: Flag::Version,
+        group: Group::General,
+        short: Some("-V"),
+        long: "--version",
+        value: "",
+        help: "Print the version and exit",
+    },
+    FlagSpec {
+        flag: Flag::Current,
+        group: Group::Command,
+        short: None,
+        long: "--current",
+        value: "",
+        help: "Every setting in effect, with its source (the default)",
+    },
+    FlagSpec {
+        flag: Flag::Default,
+        group: Group::Command,
+        short: None,
+        long: "--default",
+        value: "",
+        help: "Every setting at its default",
+    },
+    FlagSpec {
+        flag: Flag::Minimal,
+        group: Group::Command,
+        short: None,
+        long: "--minimal",
+        value: "",
+        help: "Only the settings that differ from their defaults",
+    },
+    FlagSpec {
+        flag: Flag::User,
+        group: Group::Command,
+        short: None,
+        long: "--user",
+        value: "",
+        help: "The user config's settings",
+    },
+    FlagSpec {
+        flag: Flag::Force,
+        group: Group::Command,
+        short: None,
+        long: "--force",
+        value: "",
+        help: "Also restore files changed since the run, and missing ones",
+    },
+    FlagSpec {
+        flag: Flag::Keep,
+        group: Group::Command,
+        short: None,
+        long: "--keep",
+        value: "<N>",
+        help: "Keep only the newest N runs",
+    },
+    FlagSpec {
+        flag: Flag::OlderThan,
+        group: Group::Command,
+        short: None,
+        long: "--older-than",
+        value: "<DAYS>",
+        help: "Remove runs this old: 30 (days), 2w, 12h",
+    },
 ];
 
 /// The column where help descriptions start.
-const HELP_COLUMN: usize = 36;
+const HELP_COLUMN: usize = 30;
 
 /// The manual's opening: what mto is and how it works.
 const MAN_INTRO: &str = r#"# mtindo (mto)
@@ -371,13 +462,8 @@ directly under `// mto: on` stays inside the region; a region with no
 const USAGE_LINES: &[&str] = &[
     "mto [OPTIONS] <PATH>...",
     "mto [OPTIONS] - [--stdin-filepath PATH]",
-    "mto --print-config default|minimal|current [PATH]",
+    "mto <COMMAND> [ARGS]",
     "cargo mto [OPTIONS] [-- <MTO OPTIONS>...]",
-    "mto history [show <RUN> | prune [--older-than DAYS] [--keep N]]",
-    "mto restore <RUN> [FILE...] [--force]",
-    "mto init [DIR]",
-    "mto config path|print [OPTIONS] [DIR]",
-    "mto debug tokens|tree <FILE> [--edition YEAR]",
 ];
 
 enum CliAction {
@@ -471,6 +557,58 @@ enum Flag {
     Version,
 }
 
+/// The groups `mto -h` lists flags in, in this order. Within a group, flags are listed by
+/// name. `Command` flags belong to one command and are listed on its own help page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Group {
+    Layout,
+    Files,
+    Stdin,
+    Configuration,
+    History,
+    Output,
+    Compatibility,
+    General,
+    Command,
+}
+
+impl Group {
+    const SHOWN: [Group; 8] = [
+        Group::Layout,
+        Group::Files,
+        Group::Stdin,
+        Group::Configuration,
+        Group::History,
+        Group::Output,
+        Group::Compatibility,
+        Group::General,
+    ];
+
+    /// The command the group's flags follow, shown beside its heading.
+    fn command(self) -> &'static str {
+        match self {
+            Group::Layout | Group::Files | Group::History => "mto <PATH>...",
+            Group::Stdin => "mto -",
+            Group::Configuration | Group::Output => "mto <PATH>... | mto -",
+            Group::Compatibility | Group::General | Group::Command => "mto",
+        }
+    }
+
+    fn heading(self) -> &'static str {
+        match self {
+            Group::Layout => "layout",
+            Group::Files => "files",
+            Group::Stdin => "stdin",
+            Group::Configuration => "configuration",
+            Group::History => "history and safety",
+            Group::Output => "output",
+            Group::Compatibility => "rustfmt compatibility",
+            Group::General => "general",
+            Group::Command => "command options",
+        }
+    }
+}
+
 enum HistoryView {
     List,
     Show(String),
@@ -485,8 +623,25 @@ enum PrintKind {
     Current,
 }
 
+/// One of mto's commands: its help page, and its line in `mto -h`.
+struct CommandSpec {
+    name: &'static str,
+    /// What follows the name, for `mto -h` and the manual.
+    args: &'static str,
+    /// One line, for `mto -h`.
+    summary: &'static str,
+    /// The command's help page's description.
+    about: &'static str,
+    usage: &'static [&'static str],
+    /// The flags it takes, in sections: (heading, the command they follow, flags in the
+    /// order its help lists them).
+    options: &'static [(&'static str, &'static str, &'static [Flag])],
+    examples: &'static [&'static str],
+}
+
 struct FlagSpec {
     flag: Flag,
+    group: Group,
     short: Option<&'static str>,
     long: &'static str,
     value: &'static str,
@@ -607,6 +762,49 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     0
 }
 
+/// A flag as the manual names it: `-q, --quiet`, `--emit <files|stdout|json>`.
+fn flag_name(spec: &FlagSpec) -> String {
+    let mut name = match spec.short {
+        Some(short) => format!("{}, {}", short, spec.long),
+        None => spec.long.to_string(),
+    };
+    if !spec.value.is_empty() {
+        name.push(' ');
+        name.push_str(spec.value);
+    }
+    name
+}
+
+/// A flag's line in a help page: `  -q, --quiet   Print ...`, the short form first.
+fn flag_row(p: &HelpPalette, spec: &FlagSpec) -> String {
+    let short = spec
+        .short
+        .map(|s| format!("{}, ", p.short(s)))
+        .unwrap_or_else(|| "    ".to_string());
+    let value = if spec.value.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", p.value(spec.value))
+    };
+    let label = format!("  {}{}{}", short, p.long(spec.long), value);
+    let width = 2
+        + 4
+        + spec.long.len()
+        + if spec.value.is_empty() {
+            0
+        } else {
+            1 + spec.value.len()
+        };
+    p.row(&label, width, HELP_COLUMN, spec.help)
+}
+
+/// A group's flags, by name.
+fn flags_of(group: Group) -> Vec<&'static FlagSpec> {
+    let mut flags: Vec<&FlagSpec> = FLAGS.iter().filter(|spec| spec.group == group).collect();
+    flags.sort_by_key(|spec| spec.long);
+    flags
+}
+
 /// The user's history settings, and the history folder (which is read even with history
 /// off, so earlier runs can still be restored).
 fn history_store() -> Result<(history::Settings, mtindo::history::History), i32> {
@@ -690,6 +888,15 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.is_empty() {
         print_help();
+        return Ok(None);
+    }
+    if let Some(command) = COMMANDS.iter().find(|c| c.name == args[0])
+        && args[1..].iter().any(|a| a == "-h" || a == "--help")
+    {
+        print!(
+            "{}",
+            render_command_help(command, mtindo::color_enabled(false))
+        );
         return Ok(None);
     }
     match args[0].as_str() {
@@ -1133,6 +1340,28 @@ fn print_man_page() {
     }
 }
 
+/// A command's help page: `mto history -h`.
+fn render_command_help(command: &CommandSpec, color: bool) -> String {
+    let p = HelpPalette::new(color, "mto");
+    let mut out = usage_block(&p, command.usage);
+    out.push('\n');
+    for line in mtindo::text::color::wrap(command.about, mtindo::text::color::help_width()) {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    for (heading, after, flags) in command.options {
+        out.push_str(&section_heading(&p, heading, after));
+        for flag in *flags {
+            out.push_str(&flag_row(&p, spec_of(*flag)));
+        }
+    }
+    out.push_str(&format!("\n{}\n", p.heading("examples:")));
+    for example in command.examples {
+        out.push_str(&format!("  {}\n", p.usage_line(example)));
+    }
+    out
+}
+
 /// What `mto config path|print` shows.
 fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String {
     let mut out = String::new();
@@ -1152,27 +1381,12 @@ fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String
         }
         return out;
     }
-    if view != ConfigView::User {
-        out.push_str(&format!("# style edition {}\n", config.style_edition()));
-    }
-    let mut section = "";
-    for (setting, value, source) in config.values() {
-        let shown = match view {
-            ConfigView::Default => !setting.hidden && setting.file != File::User,
-            ConfigView::Current => {
-                setting.file != File::User && (!setting.hidden || *source != Source::Default)
+    if view == ConfigView::User {
+        let mut section = "";
+        for (setting, value, source) in config.values() {
+            if setting.file != File::User {
+                continue;
             }
-            ConfigView::Minimal => {
-                setting.file != File::User
-                    && !matches!(source, Source::Default | Source::Derived(_))
-            }
-            ConfigView::User => setting.file == File::User,
-            ConfigView::Path => false,
-        };
-        if !shown {
-            continue;
-        }
-        if view == ConfigView::User {
             // As the user config holds them: `[history]`, then `enabled = ...`.
             let (heading, key) = setting.name.split_once('.').unwrap_or(("", setting.name));
             if heading != section {
@@ -1183,76 +1397,90 @@ fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String
                 section = heading;
             }
             out.push_str(&format!("{} = {}  # {}\n", key, value.to_toml(), source));
-        } else if view == ConfigView::Default {
-            let default = setting.default_for(config.style_edition());
-            out.push_str(&format!("{} = {}\n", setting.name, default));
-        } else {
-            out.push_str(&format!(
-                "{} = {}  # {}\n",
-                setting.name,
-                value.to_toml(),
-                source
-            ));
+        }
+        return out;
+    }
+    if view == ConfigView::Default {
+        out.push_str(&format!(
+            "# defaults for style edition {}\n",
+            config.style_edition()
+        ));
+    } else {
+        out.push_str(&format!("# style edition {}\n", config.style_edition()));
+    }
+    // Layout first, then formatting; each sorted by name, so the output is the same
+    // whatever order the table holds the settings in.
+    for (file, heading) in [
+        (File::Mto, "layout (mto.toml)"),
+        (File::Format, "formatting (mto.toml or rustfmt.toml)"),
+    ] {
+        let mut lines: Vec<(&str, String)> = Vec::new();
+        for (setting, value, source) in config.values() {
+            let shown = setting.file == file
+                && match view {
+                    ConfigView::Default => !setting.hidden,
+                    ConfigView::Current => !setting.hidden || *source != Source::Default,
+                    _ => !matches!(source, Source::Default | Source::Derived(_)),
+                };
+            if !shown {
+                continue;
+            }
+            let line = if view != ConfigView::Default {
+                format!("{} = {}  # {}", setting.name, value.to_toml(), source)
+            } else if EDITION_KEYS.contains(&setting.name) {
+                // These decide which defaults apply, so they show what is in effect.
+                format!("{} = {}  # in effect", setting.name, value.to_toml())
+            } else {
+                format!(
+                    "{} = {}",
+                    setting.name,
+                    setting.default_for(config.style_edition())
+                )
+            };
+            lines.push((setting.name, line));
+        }
+        if lines.is_empty() {
+            continue;
+        }
+        lines.sort();
+        out.push_str(&format!("\n# {}\n", heading));
+        for (_, line) in lines {
+            out.push_str(&line);
+            out.push('\n');
         }
     }
-
     out
 }
 
 /// The short help. The text is fixed; only the colors depend on `color`.
 fn render_help(color: bool) -> String {
     let p = HelpPalette::new(color, "mto");
-    let mut out = String::new();
-    for (idx, line) in USAGE_LINES.iter().enumerate() {
-        let lead = if idx == 0 {
-            p.heading("usage:")
-        } else {
-            "      ".to_string()
-        };
-        out.push_str(&format!("{} {}\n", lead, p.usage_line(line)));
+    let mut out = usage_block(&p, USAGE_LINES);
+    out.push('\n');
+    let about = "Reorders the top-level items of Rust files into a predictable layout, safely \
+                 and atomically.";
+    for line in mtindo::text::color::wrap(about, mtindo::text::color::help_width()) {
+        out.push_str(&line);
+        out.push('\n');
     }
-    out.push_str("\nReorders the top-level items of Rust files into a predictable layout, safely and atomically.\n");
-    out.push_str(&format!("\n{}\n", p.heading("options:")));
-    for spec in FLAGS {
-        let short = spec
-            .short
-            .map(|s| format!("{}, ", p.short(s)))
-            .unwrap_or_else(|| "    ".to_string());
-        let value = if spec.value.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", p.value(spec.value))
-        };
-        let label = format!("  {}{}{}", short, p.long(spec.long), value);
-        let width = 2
-            + 4
-            + spec.long.len()
-            + if spec.value.is_empty() {
-                0
-            } else {
-                1 + spec.value.len()
-            };
-        out.push_str(&p.row(&label, width, HELP_COLUMN, spec.help));
+    for group in Group::SHOWN {
+        out.push_str(&section_heading(&p, group.heading(), group.command()));
+        for spec in flags_of(group) {
+            out.push_str(&flag_row(&p, spec));
+        }
     }
     out.push_str(&format!("\n{}\n", p.heading("commands:")));
-    for (name, value, help) in COMMANDS {
-        let painted_name = if *name == "-" {
-            p.short(name)
-        } else {
-            p.long(name)
-        };
-        let painted_value = if value.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", p.value(value))
-        };
-        let label = format!("  {}{}", painted_name, painted_value);
-        let width = 2 + name.len() + if value.is_empty() { 0 } else { 1 + value.len() };
-        out.push_str(&p.row(&label, width, HELP_COLUMN, help));
+    for command in COMMANDS {
+        let label = format!("  {}", p.long(command.name));
+        out.push_str(&p.row(&label, 2 + command.name.len(), HELP_COLUMN, command.summary));
     }
+    out.push_str(&format!(
+        "\nRun `{}` for a command's options.\n",
+        p.usage_line("mto <COMMAND> -h")
+    ));
     out.push_str(&format!("\n{}\n", p.heading("exit codes:")));
     for (code, meaning) in EXIT_CODES {
-        out.push_str(&format!("  {}  {}\n", p.value(code), meaning));
+        out.push_str(&p.row(&format!("  {}", p.value(code)), 3, 5, meaning));
     }
     out.push_str(&format!("\n{}\n", p.heading("examples:")));
     for example in EXAMPLES {
@@ -1278,24 +1506,42 @@ fn render_man() -> String {
          no arguments prints the short help.",
         "*   ",
     ));
-    for spec in FLAGS {
-        let mut name = match spec.short {
-            Some(short) => format!("{}, {}", short, spec.long),
-            None => spec.long.to_string(),
-        };
-        if !spec.value.is_empty() {
-            name.push(' ');
-            name.push_str(spec.value);
+    out.push_str(&wrap(
+        "`mto -`: Read source from stdin and write the result to stdout; \
+         `--stdin-filepath` says where it belongs.",
+        "*   ",
+    ));
+    for group in Group::SHOWN {
+        let heading = group.heading();
+        out.push_str(&format!(
+            "### {}{} (`{}`)\n",
+            heading[..1].to_uppercase(),
+            &heading[1..],
+            group.command()
+        ));
+        for spec in flags_of(group) {
+            out.push_str(&wrap(
+                &format!("`{}`: {}.", flag_name(spec), spec.help),
+                "*   ",
+            ));
         }
-        out.push_str(&wrap(&format!("`{}`: {}.", name, spec.help), "*   "));
     }
-    for (name, value, help) in COMMANDS {
-        let usage = if *name == "-" {
-            "mto -".to_string()
-        } else {
-            format!("mto {} {}", name, value)
-        };
-        out.push_str(&wrap(&format!("`{}`: {}.", usage.trim_end(), help), "*   "));
+    out.push_str("### Commands\n");
+    for command in COMMANDS {
+        let usage = format!("mto {} {}", command.name, command.args);
+        out.push_str(&wrap(
+            &format!("`{}`: {}", usage.trim_end(), command.about),
+            "*   ",
+        ));
+        for (_, after, flags) in command.options {
+            for flag in *flags {
+                let spec = spec_of(*flag);
+                out.push_str(&wrap(
+                    &format!("`{}` (after `{}`): {}.", flag_name(spec), after, spec.help),
+                    "    *   ",
+                ));
+            }
+        }
     }
     out.push_str("## Cargo\n");
     out.push_str(&wrap(
@@ -1306,7 +1552,7 @@ fn render_man() -> String {
          read directly; Cargo is not run. Options after `--` go to `mto`.",
         "",
     ));
-    for (flags, value, help) in mtindo::cli::CARGO_MTO_OPTIONS {
+    for (_, flags, value, help) in mtindo::cli::CARGO_MTO_OPTIONS {
         let name = if value.is_empty() {
             flags.to_string()
         } else {
@@ -1570,6 +1816,15 @@ fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) 
     finish(&done, opts)
 }
 
+/// A section heading with the command its flags follow: `layout: (mto <PATH>...)`.
+fn section_heading(p: &HelpPalette, heading: &str, command: &str) -> String {
+    format!(
+        "\n{} ({})\n",
+        p.heading(&format!("{}:", heading)),
+        p.usage_line(command)
+    )
+}
+
 /// The manual with a blank line before every heading, so sections and entries stand apart
 /// in a terminal. Code blocks are left as they are.
 fn spaced(manual: &str) -> String {
@@ -1588,6 +1843,13 @@ fn spaced(manual: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+fn spec_of(flag: Flag) -> &'static FlagSpec {
+    FLAGS
+        .iter()
+        .find(|spec| spec.flag == flag)
+        .expect("every flag has a spec")
 }
 
 /// `--config` pairs split at commas outside brackets and quotes, so
@@ -1613,6 +1875,20 @@ fn split_pairs(text: &str) -> Vec<&str> {
     pairs.into_iter().filter(|p| !p.trim().is_empty()).collect()
 }
 
+/// `usage:` and its lines, aligned.
+fn usage_block(p: &HelpPalette, lines: &[&str]) -> String {
+    let mut out = String::new();
+    for (idx, line) in lines.iter().enumerate() {
+        let lead = if idx == 0 {
+            p.heading("usage:")
+        } else {
+            "      ".to_string()
+        };
+        out.push_str(&format!("{} {}\n", lead, p.usage_line(line)));
+    }
+    out
+}
+
 /// Prints a usage error and points at the help; returns the error for `?`-style use.
 fn usage_error<T>(message: &str) -> Result<T, ()> {
     eprintln!("{}Error: {}{}", c_red(), message, c_reset(true));
@@ -1625,6 +1901,71 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[test]
+    fn test_every_command_has_a_help_page() {
+        for command in COMMANDS {
+            let page = render_command_help(command, false);
+            assert!(page.starts_with("usage: mto "), "{}", page);
+            for (_, after, _) in command.options {
+                // Each section names the command its flags follow, and it is the command's.
+                assert!(
+                    after.starts_with(&format!("mto {}", command.name)),
+                    "{}",
+                    after
+                );
+                assert!(page.contains(&format!(" ({})\n", after)), "{}", page);
+            }
+            for flag in command
+                .options
+                .iter()
+                .flat_map(|(_, _, flags)| flags.iter())
+            {
+                let spec = spec_of(*flag);
+                assert!(
+                    page.contains(spec.long),
+                    "{} not on {}'s page",
+                    spec.long,
+                    command.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_flags_appear_once_in_a_fixed_place() {
+        let help = render_help(false);
+        for spec in FLAGS {
+            let shown = help.matches(&format!(" {} ", spec.long)).count()
+                + help.matches(&format!(" {}\n", spec.long)).count();
+            // Command flags are on their command's page; the others once in `mto -h`.
+            if spec.group == Group::Command {
+                assert!(
+                    COMMANDS
+                        .iter()
+                        .flat_map(|c| c.options.iter())
+                        .any(|(_, _, flags)| flags.contains(&spec.flag)),
+                    "{} belongs to no command",
+                    spec.long
+                );
+            } else {
+                assert!(shown >= 1, "{} is not in mto -h", spec.long);
+            }
+        }
+        // Groups come in their order, and each lists its flags by name.
+        let mut last = 0;
+        for group in Group::SHOWN {
+            let at = help
+                .find(&format!("\n{}: ({})\n", group.heading(), group.command()))
+                .expect("every group has a heading");
+            assert!(at > last, "{} out of order", group.heading());
+            last = at;
+            let names: Vec<&str> = flags_of(group).iter().map(|s| s.long).collect();
+            let mut sorted = names.clone();
+            sorted.sort();
+            assert_eq!(names, sorted);
+        }
+    }
 
     #[test]
     fn test_flags_are_unique() {
@@ -1640,7 +1981,7 @@ mod tests {
     #[test]
     fn test_help_documents_every_flag_and_command() {
         let help = render_help(false);
-        for spec in FLAGS {
+        for spec in FLAGS.iter().filter(|spec| spec.group != Group::Command) {
             assert!(help.contains(spec.long), "{} missing from help", spec.long);
             if let Some(short) = spec.short {
                 assert!(
@@ -1651,11 +1992,11 @@ mod tests {
             }
             assert!(!spec.help.is_empty(), "{} has no description", spec.long);
         }
-        for (name, _, _) in COMMANDS {
+        for command in COMMANDS {
             assert!(
-                help.contains(&format!("\n  {}", name)),
+                help.contains(&format!("\n  {}", command.name)),
                 "{} missing from help",
-                name
+                command.name
             );
         }
     }
@@ -1672,5 +2013,22 @@ mod tests {
         }
         stripped.push_str(rest);
         assert_eq!(stripped, render_help(false));
+    }
+
+    #[test]
+    fn test_help_lines_fit_the_width() {
+        let width = mtindo::text::color::help_width();
+        let pages = std::iter::once(render_help(false))
+            .chain(COMMANDS.iter().map(|c| render_command_help(c, false)));
+        for page in pages {
+            for line in page.lines() {
+                // A flag label or usage line may be wider; descriptions never are.
+                let label = line.starts_with("  -") || line.starts_with("      --");
+                let usage = line.starts_with("usage:") || line.starts_with("       ");
+                if !label && !usage {
+                    assert!(line.chars().count() <= width, "too wide: {}", line);
+                }
+            }
+        }
     }
 }

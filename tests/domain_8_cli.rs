@@ -270,7 +270,19 @@ fn test_cli_config_path_and_print() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines[0], "# style edition 2024");
-    assert!(lines[1].starts_with("edition = \"2024\"  # "), "{}", stdout);
+    // Layout first, then formatting, each sorted by name.
+    assert_eq!(lines[2], "# layout (mto.toml)", "{}", stdout);
+    assert!(
+        lines[3].starts_with("group_impls = false  # "),
+        "{}",
+        stdout
+    );
+    assert_eq!(
+        lines[5], "# formatting (mto.toml or rustfmt.toml)",
+        "{}",
+        stdout
+    );
+    assert!(lines[6].starts_with("edition = \"2024\"  # "), "{}", stdout);
     assert!(
         lines.contains(&"hard_tabs = true  # command line"),
         "{}",
@@ -288,7 +300,7 @@ fn test_cli_config_path_and_print() {
         "{}",
         stdout
     );
-    assert_eq!(lines.len(), 5, "{}", stdout);
+    assert_eq!(lines.len(), 9, "{}", stdout);
 
     let output = env
         .mto_cmd()
@@ -296,7 +308,17 @@ fn test_cli_config_path_and_print() {
         .output()
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\nversion = \"Two\"\n"), "{}", stdout);
+    // The keys that pick the defaults show what is in effect, beside the defaults they pick.
+    assert!(
+        stdout.starts_with("# defaults for style edition 2024\n"),
+        "{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\nversion = \"Two\"  # in effect\n"),
+        "{}",
+        stdout
+    );
     assert!(stdout.contains("\nmax_width = 100\n"), "{}", stdout);
 
     // --edition beats Cargo.toml; --current shows every setting with its source.

@@ -6,20 +6,14 @@
 use std::fs;
 use std::path::Path;
 
-/// The first string of each tuple in `COMMANDS`.
+/// The `name:` of each command in `COMMANDS`.
 pub fn commands(main: &str) -> Result<Vec<String>, String> {
     let body = block(main, "const COMMANDS", "\n];")?;
-    let mut names = Vec::new();
-    let mut previous = "";
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if previous == "(" && trimmed.starts_with('"') {
-            names.push(trimmed.trim_end_matches(',').trim_matches('"').to_string());
-        }
-        if !trimmed.is_empty() {
-            previous = trimmed;
-        }
-    }
+    let names: Vec<String> = body
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("name: \""))
+        .map(|rest| rest.trim_end_matches(',').trim_end_matches('"').to_string())
+        .collect();
     if names.is_empty() {
         return Err("COMMANDS in src/main.rs lists nothing".to_string());
     }
@@ -91,7 +85,7 @@ mod tests {
 
     #[test]
     fn test_parsers_on_small_inputs() {
-        let main = "const COMMANDS: &[(&str, &str, &str)] = &[\n    (\n        \"init\",\n        \"[DIR]\",\n        \"Write\",\n    ),\n];\nconst FLAGS: &[FlagSpec] = &[\n    FlagSpec {\n        long: \"--check\",\n    },\n];\n";
+        let main = "const COMMANDS: &[CommandSpec] = &[\n    CommandSpec {\n        name: \"init\",\n        args: \"[DIR]\",\n    },\n];\nconst FLAGS: &[FlagSpec] = &[\n    FlagSpec {\n        long: \"--check\",\n    },\n];\n";
         assert_eq!(commands(main).unwrap(), vec!["init"]);
         assert_eq!(flags(main).unwrap(), vec!["--check"]);
         let table = "pub(super) static SETTINGS: &[Setting] = &[\n    Setting {\n        name: \"group_impls\",\n        file: File::Mto,\n    },\n];\n";
@@ -108,7 +102,6 @@ mod tests {
             "flag:--no-history",
             "command:restore",
             "command:init",
-            "command:-",
             "config:sort_imports",
             "config:type_order",
         ] {

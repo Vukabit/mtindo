@@ -200,7 +200,9 @@ mod tests {
                 "{} missing from help",
                 name
             );
-            assert!(help.contains(help_text));
+            // Descriptions wrap, so compare with runs of spaces and line breaks as one.
+            let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(flat.contains(help_text), "{}", help_text);
         }
         for (name, _, _) in gates::GATES {
             assert!(

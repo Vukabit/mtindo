@@ -7,12 +7,12 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use mtindo::cli::CARGO_MTO_OPTIONS as OPTIONS;
+use mtindo::cli::{CARGO_MTO_OPTIONS as OPTIONS, long_flag};
 use mtindo::config::workspace::{self, Selection};
 use mtindo::{HelpPalette, color_enabled};
 
 /// The column where help descriptions start.
-const HELP_COLUMN: usize = 34;
+const HELP_COLUMN: usize = 30;
 
 enum Parsed {
     Run(Args),
@@ -35,37 +35,34 @@ struct Args {
 fn help(color: bool) -> String {
     let p = HelpPalette::new(color, "cargo mto");
     let mut out = format!(
-        "{} {}\n\nLays out the targets of the current package or workspace, as cargo fmt \
-         formats them.\nOptions after -- go to mto (see mto --help).\n\n{}\n",
+        "{} {}\n\n",
         p.heading("usage:"),
-        p.usage_line("cargo mto [OPTIONS] [-- <MTO OPTIONS>...]"),
-        p.heading("options:")
+        p.usage_line("cargo mto [OPTIONS] [-- <MTO OPTIONS>...]")
     );
-    for (flags, value, text) in OPTIONS {
-        let painted = flags
-            .split(", ")
-            .map(|f| {
-                if f.starts_with("--") {
-                    p.long(f)
-                } else {
-                    p.short(f)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        let indent = if flags.starts_with("--") {
-            "      "
-        } else {
-            "  "
-        };
-        let value_part = if value.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", p.value(value))
-        };
-        let label = format!("{}{}{}", indent, painted, value_part);
-        let width = indent.len() + flags.len() + if value.is_empty() { 0 } else { 1 + value.len() };
-        out.push_str(&p.row(&label, width, HELP_COLUMN, text));
+    let about = "Lays out the targets of the current package or workspace, as cargo fmt \
+                 formats them. Options after -- go to mto (see mto --help).";
+    for line in mtindo::text::color::wrap(about, mtindo::text::color::help_width()) {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    let mut groups: Vec<&str> = Vec::new();
+    for (group, _, _, _) in OPTIONS {
+        if !groups.contains(group) {
+            groups.push(group);
+        }
+    }
+    for group in groups {
+        // Every group's flags follow `cargo mto` itself, before any `--`.
+        out.push_str(&format!(
+            "\n{} ({})\n",
+            p.heading(&format!("{}:", group)),
+            p.usage_line("cargo mto")
+        ));
+        let mut rows: Vec<_> = OPTIONS.iter().filter(|o| o.0 == group).collect();
+        rows.sort_by_key(|(_, flags, _, _)| long_flag(flags));
+        for (_, flags, value, text) in rows {
+            out.push_str(&row(&p, flags, value, text));
+        }
     }
     out
 }
@@ -231,6 +228,34 @@ fn parse(raw: &[String]) -> Result<Parsed, String> {
     Ok(Parsed::Run(args))
 }
 
+/// A flag's line in the help, the short form first.
+fn row(p: &HelpPalette, flags: &str, value: &str, text: &str) -> String {
+    let painted = flags
+        .split(", ")
+        .map(|f| {
+            if f.starts_with("--") {
+                p.long(f)
+            } else {
+                p.short(f)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let indent = if flags.starts_with("--") {
+        "      "
+    } else {
+        "  "
+    };
+    let value_part = if value.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", p.value(value))
+    };
+    let label = format!("{}{}{}", indent, painted, value_part);
+    let width = indent.len() + flags.len() + if value.is_empty() { 0 } else { 1 + value.len() };
+    p.row(&label, width, HELP_COLUMN, text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,7 +292,7 @@ mod tests {
     #[test]
     fn test_help_lists_every_option() {
         let text = help(false);
-        for (flags, _, _) in OPTIONS {
+        for (_, flags, _, _) in OPTIONS {
             assert!(text.contains(flags), "{} missing", flags);
         }
     }

@@ -3,7 +3,8 @@
 //! `mto config print --default`, which come from the same tables as the parser and the
 //! settings checks:
 //!
-//! - every flag, command and exit code in `-h` is in the manual;
+//! - every flag, command and exit code in `-h`, and every flag on each command's own help
+//!   page (`mto history -h`), is in the manual;
 //! - every key `config print --default` and `config print --user` print has an entry
 //!   (`#### \`key\``; a user key as `section.key`);
 //! - every entry is a key mto knows (printed by `config print`, or one of rustfmt's hidden
@@ -43,7 +44,7 @@ pub fn check_manual(root: &Path) -> Vec<String> {
         run(&["config", "print", "--default"]),
         run(&["config", "print", "--user"]),
     );
-    let (manual, help, defaults) = match outputs {
+    let (manual, mut help, defaults) = match outputs {
         (Ok(m), Ok(h), Ok(d), Ok(u)) => (m, h, format!("{}{}", d, user_keys(&u))),
         (m, h, d, u) => {
             return [m.err(), h.err(), d.err(), u.err()]
@@ -52,29 +53,40 @@ pub fn check_manual(root: &Path) -> Vec<String> {
                 .collect();
         }
     };
+    // Each command's help page, whose flags are not on the main one.
+    let commands: Vec<String> = section_lines(&help, "commands:")
+        .iter()
+        .filter(|line| !line.starts_with("   "))
+        .filter_map(|line| line.split_whitespace().next().map(str::to_string))
+        .collect();
+    for command in commands {
+        match run(&[command.as_str(), "-h"]) {
+            Ok(page) => {
+                help.push('\n');
+                help.push_str(&page);
+            }
+            Err(e) => return vec![e],
+        }
+    }
     let surface = fs::read_to_string(root.join("compat/rustfmt-surface.txt")).unwrap_or_default();
     problems(&manual, &help, &defaults, &surface)
 }
 
 fn problems(manual: &str, help: &str, defaults: &str, surface: &str) -> Vec<String> {
     let mut problems = Vec::new();
-    let section = |name: &str| -> Vec<&str> {
-        let start = help
-            .find(&format!("\n{}\n", name))
-            .map(|i| i + name.len() + 2);
-        let Some(start) = start else {
-            return Vec::new();
-        };
-        help[start..]
-            .lines()
-            .take_while(|line| line.starts_with("  "))
-            .collect()
-    };
+    let section = |name: &str| section_lines(help, name);
 
     // -h -> manual.
     // Only an option's label counts, not its description: the label ends where the
     // columns are two spaces apart.
-    let mto_flags: BTreeSet<&str> = section("options:")
+    // Flags are listed in groups (`layout:`, `files:`...), so every option line counts:
+    // indented, and starting with a dash.
+    // A wrapped description's next line is indented further, so it never counts.
+    let option_lines: Vec<&str> = help
+        .lines()
+        .filter(|line| line.starts_with("  -") || line.starts_with("      --"))
+        .collect();
+    let mto_flags: BTreeSet<&str> = option_lines
         .iter()
         .map(|line| {
             let label = line.trim_start();
@@ -104,6 +116,9 @@ fn problems(manual: &str, help: &str, defaults: &str, surface: &str) -> Vec<Stri
     }
     for line in section("exit codes:") {
         let code = line.split_whitespace().next().unwrap_or_default();
+        if !code.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
         if !manual.contains(&format!("*   `{}`: ", code)) {
             problems.push(format!("the manual does not document exit code {}", code));
         }
@@ -116,7 +131,7 @@ fn problems(manual: &str, help: &str, defaults: &str, surface: &str) -> Vec<Stri
         .collect();
     let printed: BTreeSet<&str> = defaults
         .lines()
-        .filter(|line| !line.starts_with('#'))
+        .filter(|line| !line.starts_with('#') && !line.is_empty())
         .filter_map(|line| line.split(" = ").next())
         .collect();
     let hidden: BTreeSet<&str> = surface
@@ -199,6 +214,20 @@ fn problems(manual: &str, help: &str, defaults: &str, surface: &str) -> Vec<Stri
         }
     }
     problems
+}
+
+/// The indented lines under `name` (`commands:`) in a help page.
+fn section_lines<'a>(help: &'a str, name: &str) -> Vec<&'a str> {
+    let start = help
+        .find(&format!("\n{}\n", name))
+        .map(|i| i + name.len() + 2);
+    let Some(start) = start else {
+        return Vec::new();
+    };
+    help[start..]
+        .lines()
+        .take_while(|line| line.starts_with("  "))
+        .collect()
 }
 
 /// `config print --user`'s keys as `section.key = value` lines, as the defaults print theirs.

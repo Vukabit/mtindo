@@ -197,7 +197,6 @@ flag    rustfmt:--unstable-features                      supported    # accepted
 flag    rustfmt:--verbose                                partial      # names each file and marks line ends in diffs (tests/domain_8_cli.rs); no timing lines
 flag    rustfmt:--version                                supported    # tests/domain_8_cli.rs
 
-mto     command:-                                        supported    # tests/domain_8_cli.rs
 mto     command:config                                   supported    # tests/domain_8_cli.rs
 mto     command:debug                                    supported    # tests/domain_8_cli.rs
 mto     command:history                                  supported    # tests/domain_8_cli.rs

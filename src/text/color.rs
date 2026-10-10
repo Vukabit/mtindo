@@ -19,11 +19,17 @@ static CONFIGURED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::ne
 pub struct HelpPalette {
     on: bool,
     program: &'static str,
+    /// The column descriptions wrap before.
+    width: usize,
 }
 
 impl HelpPalette {
     pub fn new(on: bool, program: &'static str) -> Self {
-        HelpPalette { on, program }
+        HelpPalette {
+            on,
+            program,
+            width: help_width(),
+        }
     }
 
     pub fn heading(&self, text: &str) -> String {
@@ -46,14 +52,20 @@ impl HelpPalette {
         self.paint("1;35", text)
     }
 
-    /// A help row: `label` (whose visible width is `width`) padded to `column`, then `help`.
-    /// A label too wide for the column puts the help on the next line.
+    /// A help row: `label` (whose visible width is `width`) padded to `column`, then `help`,
+    /// wrapped at the help width with its lines starting at `column`. A label too wide for
+    /// the column puts the help on the next line.
     pub fn row(&self, label: &str, width: usize, column: usize, help: &str) -> String {
-        if width + 2 <= column {
-            format!("{}{}{}\n", label, " ".repeat(column - width), help)
+        let lines = wrap(help, self.width.saturating_sub(column).max(20));
+        let indent = " ".repeat(column);
+        let mut out = if width + 2 <= column {
+            format!("{}{}", label, " ".repeat(column - width))
         } else {
-            format!("{}\n{}{}\n", label, " ".repeat(column), help)
-        }
+            format!("{}\n{}", label, indent)
+        };
+        out.push_str(&lines.join(&format!("\n{}", indent)));
+        out.push('\n');
+        out
     }
 
     pub fn short(&self, text: &str) -> String {
@@ -127,6 +139,16 @@ pub fn color_enabled(is_err: bool) -> bool {
     if is_err { stderr } else { stdout }
 }
 
+/// The width help screens wrap to: `$COLUMNS` when set, kept between 60 and 100 so the text
+/// stays readable, else 80.
+pub fn help_width() -> usize {
+    env::var("COLUMNS")
+        .ok()
+        .and_then(|c| c.trim().parse::<usize>().ok())
+        .map(|c| c.clamp(60, 100))
+        .unwrap_or(80)
+}
+
 /// Sets `--color`: `Some(true)` always, `Some(false)` never, `None` automatic.
 pub fn set_color(choice: Option<bool>) {
     CHOICE.store(code(choice), std::sync::atomic::Ordering::Relaxed);
@@ -135,6 +157,26 @@ pub fn set_color(choice: Option<bool>) {
 /// Sets the user config's `output.color`, which the environment and `--color` override.
 pub fn set_configured_color(choice: Option<bool>) {
     CONFIGURED.store(code(choice), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `text` in lines of at most `width` characters, broken at spaces; a word longer than the
+/// width gets a line of its own.
+pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() || lines.is_empty() {
+        lines.push(line);
+    }
+    lines
 }
 
 fn code(choice: Option<bool>) -> u8 {

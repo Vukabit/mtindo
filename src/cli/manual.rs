@@ -46,268 +46,268 @@ cannot set user settings, and the user configuration cannot set project ones.";
 
 /// The configuration chapter of the manual, in the manual's Markdown.
 pub fn configuration() -> String {
-    let mut out = String::from("## Configuration\n");
-    for paragraph in LOOKUP.split("\n\n") {
-        out.push_str(&wrap_block(paragraph));
-        out.push('\n');
-    }
-    out.push_str("### mto's settings\n");
-    out.push_str(&wrap(
-        "These go in `mto.toml` or `.mto.toml` only; the standard formatter would not \
+  let mut out = String::from("## Configuration\n");
+  for paragraph in LOOKUP.split("\n\n") {
+    out.push_str(&wrap_block(paragraph));
+    out.push('\n');
+  }
+  out.push_str("### mto's settings\n");
+  out.push_str(&wrap(
+    "These go in `mto.toml` or `.mto.toml` only; the standard formatter would not \
          understand them.",
-        "",
-    ));
-    for setting in options::all().filter(|s| s.file == File::Mto) {
-        out.push_str(&entry(setting));
-    }
-    out.push_str("### Formatting settings\n");
-    out.push_str(&wrap(
-        &format!(
-            "These go in `rustfmt.toml`, `.rustfmt.toml`, `mto.toml` or `.mto.toml`, \
+    "",
+  ));
+  for setting in options::all().filter(|s| s.file == File::Mto) {
+    out.push_str(&entry(setting));
+  }
+  out.push_str("### Formatting settings\n");
+  out.push_str(&wrap(
+    &format!(
+      "These go in `rustfmt.toml`, `.rustfmt.toml`, `mto.toml` or `.mto.toml`, \
              as the standard formatter {} documents them. mto reads and checks them all, \
              on every channel, so an existing `rustfmt.toml` works unchanged; the \
              standard formatter's own stability is noted for reference. Until mto \
              formats code, only `edition`, `style_edition` and `version` change what it \
              does.",
-            options::RUSTFMT_VERSION
-        ),
-        "",
-    ));
-    for setting in options::all().filter(|s| s.file == File::Format && !s.hidden) {
-        out.push_str(&entry(setting));
-    }
-    out.push_str("### Hidden formatting settings\n");
-    out.push_str(&wrap(
-        "The standard formatter leaves these out of its own listings: they are \
+      options::RUSTFMT_VERSION
+    ),
+    "",
+  ));
+  for setting in options::all().filter(|s| s.file == File::Format && !s.hidden) {
+    out.push_str(&entry(setting));
+  }
+  out.push_str("### Hidden formatting settings\n");
+  out.push_str(&wrap(
+    "The standard formatter leaves these out of its own listings: they are \
          deprecated, or set by the formatter itself. mto accepts them so that existing \
          files keep working.",
-        "",
+    "",
+  ));
+  for setting in options::all().filter(|s| s.file == File::Format && s.hidden) {
+    out.push_str(&entry(setting));
+  }
+  out.push_str("### User settings\n");
+  out.push_str(&wrap(USER, ""));
+  let mut any = false;
+  for setting in options::all().filter(|s| s.file == File::User) {
+    out.push_str(&entry(setting));
+    any = true;
+  }
+  if !any {
+    out.push_str(&wrap(
+      "There are no user settings yet, so mto does not create the file.",
+      "",
     ));
-    for setting in options::all().filter(|s| s.file == File::Format && s.hidden) {
-        out.push_str(&entry(setting));
-    }
-    out.push_str("### User settings\n");
-    out.push_str(&wrap(USER, ""));
-    let mut any = false;
-    for setting in options::all().filter(|s| s.file == File::User) {
-        out.push_str(&entry(setting));
-        any = true;
-    }
-    if !any {
-        out.push_str(&wrap(
-            "There are no user settings yet, so mto does not create the file.",
-            "",
-        ));
-    }
-    out
+  }
+  out
 }
 
 /// `text` wrapped to [`WIDTH`], the first line after `lead` and the others indented to
 /// match it.
 pub fn wrap(text: &str, lead: &str) -> String {
-    let indent = " ".repeat(lead.chars().count());
-    let mut out = String::new();
-    let mut line = lead.to_string();
-    let mut empty = true;
-    for word in unbreakable_words(text) {
-        let word = word.as_str();
-        if !empty && line.chars().count() + 1 + word.chars().count() > WIDTH {
-            out.push_str(line.trim_end());
-            out.push('\n');
-            line = indent.clone();
-            empty = true;
-        }
-        if !empty {
-            line.push(' ');
-        }
-        line.push_str(word);
-        empty = false;
+  let indent = " ".repeat(lead.chars().count());
+  let mut out = String::new();
+  let mut line = lead.to_string();
+  let mut empty = true;
+  for word in unbreakable_words(text) {
+    let word = word.as_str();
+    if !empty && line.chars().count() + 1 + word.chars().count() > WIDTH {
+      out.push_str(line.trim_end());
+      out.push('\n');
+      line = indent.clone();
+      empty = true;
     }
-    out.push_str(line.trim_end());
-    out.push('\n');
-    out
+    if !empty {
+      line.push(' ');
+    }
+    line.push_str(word);
+    empty = false;
+  }
+  out.push_str(line.trim_end());
+  out.push('\n');
+  out
 }
 
 fn default_line(setting: &Setting) -> String {
-    if setting.default.is_empty() {
-        return "Default: set by the standard formatter itself; mto ignores the value.".to_string();
-    }
-    match setting.default_2024 {
-        Some(later) => format!(
-            "Default: `{}`; `{}` from style edition 2024.",
-            setting.default, later
-        ),
-        None => format!("Default: `{}`.", setting.default),
-    }
+  if setting.default.is_empty() {
+    return "Default: set by the standard formatter itself; mto ignores the value.".to_string();
+  }
+  match setting.default_2024 {
+    Some(later) => format!(
+      "Default: `{}`; `{}` from style edition 2024.",
+      setting.default, later
+    ),
+    None => format!("Default: `{}`.", setting.default),
+  }
 }
 
 /// One setting: heading, description, then its facts as a list.
 fn entry(setting: &Setting) -> String {
-    let mut out = format!("#### `{}`\n", setting.name);
-    for paragraph in setting.doc.split("\n\n") {
-        for line in paragraph.lines() {
-            out.push_str(&wrap_block(line));
-        }
-        out.push('\n');
+  let mut out = format!("#### `{}`\n", setting.name);
+  for paragraph in setting.doc.split("\n\n") {
+    for line in paragraph.lines() {
+      out.push_str(&wrap_block(line));
     }
-    out.push_str(&wrap(&format!("Type: {}.", type_name(setting)), "*   "));
-    out.push_str(&wrap(&default_line(setting), "*   "));
-    if let Some(channels) = setting.channels {
-        out.push_str(&wrap(
-            &format!("In the standard formatter: {}.", stability(channels)),
-            "*   ",
+    out.push('\n');
+  }
+  out.push_str(&wrap(&format!("Type: {}.", type_name(setting)), "*   "));
+  out.push_str(&wrap(&default_line(setting), "*   "));
+  if let Some(channels) = setting.channels {
+    out.push_str(&wrap(
+      &format!("In the standard formatter: {}.", stability(channels)),
+      "*   ",
+    ));
+  }
+  if let Some(replacement) = setting.replaced_by {
+    out.push_str(&wrap(
+      &format!("Deprecated: use `{}`.", replacement),
+      "*   ",
+    ));
+  }
+  let choices = setting.choices();
+  if !choices.is_empty() {
+    out.push_str("*   Values:\n");
+    for choice in choices {
+      let mut text = format!("`{}`", choice.name);
+      if !choice.doc.is_empty() {
+        text.push_str(&format!(": {}", choice.doc));
+      }
+      if let Some(channels) = choice.channels
+        && setting.channels.is_some_and(|c| c != channels)
+      {
+        text.push_str(&format!(
+          " (in the standard formatter: {})",
+          stability(channels)
         ));
+      }
+      out.push_str(&wrap(&text, "    *   "));
     }
-    if let Some(replacement) = setting.replaced_by {
-        out.push_str(&wrap(
-            &format!("Deprecated: use `{}`.", replacement),
-            "*   ",
-        ));
-    }
-    let choices = setting.choices();
-    if !choices.is_empty() {
-        out.push_str("*   Values:\n");
-        for choice in choices {
-            let mut text = format!("`{}`", choice.name);
-            if !choice.doc.is_empty() {
-                text.push_str(&format!(": {}", choice.doc));
-            }
-            if let Some(channels) = choice.channels
-                && setting.channels.is_some_and(|c| c != channels)
-            {
-                text.push_str(&format!(
-                    " (in the standard formatter: {})",
-                    stability(channels)
-                ));
-            }
-            out.push_str(&wrap(&text, "    *   "));
-        }
-    }
-    out
+  }
+  out
 }
 
 fn stability(channels: Channels) -> &'static str {
-    match (channels.stable, channels.nightly) {
-        (Stability::Stable, _) => "stable",
-        (Stability::Unstable, _) => "unstable, nightly only",
-        (Stability::Absent, Stability::Absent) => "not in the pinned releases",
-        (Stability::Absent, _) => "nightly releases only",
-    }
+  match (channels.stable, channels.nightly) {
+    (Stability::Stable, _) => "stable",
+    (Stability::Unstable, _) => "unstable, nightly only",
+    (Stability::Absent, Stability::Absent) => "not in the pinned releases",
+    (Stability::Absent, _) => "nightly releases only",
+  }
 }
 
 fn type_name(setting: &Setting) -> &'static str {
-    match setting.kind {
-        Kind::Bool => "`true` or `false`",
-        Kind::Integer => "a whole number, zero or more",
-        Kind::Text => "a string",
-        Kind::Size => "a size such as `\"256MB\"`",
-        Kind::Choice(_) => "one of the values below, as a string",
-        Kind::List => "an array of strings",
-        Kind::Sequence(_) => "an array of the values below, each at most once",
-        Kind::Internal => "any value",
-    }
+  match setting.kind {
+    Kind::Bool => "`true` or `false`",
+    Kind::Integer => "a whole number, zero or more",
+    Kind::Text => "a string",
+    Kind::Size => "a size such as `\"256MB\"`",
+    Kind::Choice(_) => "one of the values below, as a string",
+    Kind::List => "an array of strings",
+    Kind::Sequence(_) => "an array of the values below, each at most once",
+    Kind::Internal => "any value",
+  }
 }
 
 /// The words of `text`, with a backticked span that holds spaces kept as one word. A
 /// backtick with no partner is an ordinary character, and a span longer than half a line
 /// may break.
 fn unbreakable_words(text: &str) -> Vec<String> {
-    let raw: Vec<&str> = text.split_whitespace().collect();
-    let ticks = |word: &str| word.matches('`').count() % 2 == 1;
-    let mut words = Vec::new();
-    let mut idx = 0;
-    while idx < raw.len() {
-        let mut word = raw[idx].to_string();
-        let close = (idx + 1..raw.len()).find(|&j| ticks(raw[j]));
-        // A span too long for a line of its own still breaks.
-        let fits =
-            |close: usize| raw[idx..=close].iter().map(|w| w.len() + 1).sum::<usize>() <= WIDTH / 2;
-        if ticks(raw[idx])
-            && let Some(close) = close.filter(|&c| fits(c))
-        {
-            for part in &raw[idx + 1..=close] {
-                word.push(' ');
-                word.push_str(part);
-            }
-            idx = close;
-        }
-        words.push(word);
-        idx += 1;
+  let raw: Vec<&str> = text.split_whitespace().collect();
+  let ticks = |word: &str| word.matches('`').count() % 2 == 1;
+  let mut words = Vec::new();
+  let mut idx = 0;
+  while idx < raw.len() {
+    let mut word = raw[idx].to_string();
+    let close = (idx + 1..raw.len()).find(|&j| ticks(raw[j]));
+    // A span too long for a line of its own still breaks.
+    let fits =
+      |close: usize| raw[idx..=close].iter().map(|w| w.len() + 1).sum::<usize>() <= WIDTH / 2;
+    if ticks(raw[idx])
+      && let Some(close) = close.filter(|&c| fits(c))
+    {
+      for part in &raw[idx + 1..=close] {
+        word.push(' ');
+        word.push_str(part);
+      }
+      idx = close;
     }
-    words
+    words.push(word);
+    idx += 1;
+  }
+  words
 }
 
 /// A paragraph, or a numbered list item, wrapped and followed by its line break.
 fn wrap_block(paragraph: &str) -> String {
-    let mut out = String::new();
-    for item in paragraph.split('\n') {
-        match item.split_once(". ") {
-            Some((number, rest)) if number.chars().all(|c| c.is_ascii_digit()) => {
-                let lead = format!("{}. ", number);
-                let indent = " ".repeat(lead.len());
-                let wrapped = wrap(rest, &indent);
-                out.push_str(&lead);
-                out.push_str(&wrapped[indent.len()..]);
-            }
-            _ => match item.strip_prefix("- ") {
-                Some(rest) => out.push_str(&wrap(rest, "*   ")),
-                None => out.push_str(&wrap(item, "")),
-            },
-        }
+  let mut out = String::new();
+  for item in paragraph.split('\n') {
+    match item.split_once(". ") {
+      Some((number, rest)) if number.chars().all(|c| c.is_ascii_digit()) => {
+        let lead = format!("{}. ", number);
+        let indent = " ".repeat(lead.len());
+        let wrapped = wrap(rest, &indent);
+        out.push_str(&lead);
+        out.push_str(&wrapped[indent.len()..]);
+      }
+      _ => match item.strip_prefix("- ") {
+        Some(rest) => out.push_str(&wrap(rest, "*   ")),
+        None => out.push_str(&wrap(item, "")),
+      },
     }
-    out
+  }
+  out
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_every_key_and_value_is_documented() {
-        let manual = configuration();
-        for setting in options::all() {
-            let heading = format!("#### `{}`\n", setting.name);
-            let at = manual
-                .find(&heading)
-                .unwrap_or_else(|| panic!("{} has no entry", setting.name));
-            let rest = &manual[at + heading.len()..];
-            let body = &rest[..rest.find("\n#").unwrap_or(rest.len())];
-            for choice in setting.choices() {
-                assert!(
-                    body.contains(&format!("`{}`", choice.name)),
-                    "{} = {} is not documented",
-                    setting.name,
-                    choice.name
-                );
-            }
-            assert!(body.contains("Default: "), "{}", setting.name);
-        }
-    }
-
-    #[test]
-    fn test_lines_fit_the_width() {
-        for line in configuration().lines() {
-            // A single word longer than the width cannot be broken.
-            let words = line.split_whitespace().count();
-            assert!(line.chars().count() <= WIDTH || words <= 2, "{}", line);
-        }
-    }
-
-    #[test]
-    fn test_wrap() {
-        let text = "one two three";
-        assert_eq!(wrap(text, "*   "), "*   one two three\n");
-        let long = "word ".repeat(30);
-        let wrapped = wrap(&long, "*   ");
-        let lines: Vec<&str> = wrapped.lines().collect();
-        assert!(lines[0].starts_with("*   word"));
-        assert!(lines[1].starts_with("    word"));
-        assert!(lines.iter().all(|l| l.len() <= WIDTH));
-        let code = format!("{} `version = \"One\"` end", "x ".repeat(36));
-        assert!(wrap(&code, "").contains("\n`version = \"One\"` end"));
-        assert_eq!(
-            wrap_block("1. first item\n2. second"),
-            "1. first item\n2. second\n"
+  #[test]
+  fn test_every_key_and_value_is_documented() {
+    let manual = configuration();
+    for setting in options::all() {
+      let heading = format!("#### `{}`\n", setting.name);
+      let at = manual
+        .find(&heading)
+        .unwrap_or_else(|| panic!("{} has no entry", setting.name));
+      let rest = &manual[at + heading.len()..];
+      let body = &rest[..rest.find("\n#").unwrap_or(rest.len())];
+      for choice in setting.choices() {
+        assert!(
+          body.contains(&format!("`{}`", choice.name)),
+          "{} = {} is not documented",
+          setting.name,
+          choice.name
         );
+      }
+      assert!(body.contains("Default: "), "{}", setting.name);
     }
+  }
+
+  #[test]
+  fn test_lines_fit_the_width() {
+    for line in configuration().lines() {
+      // A single word longer than the width cannot be broken.
+      let words = line.split_whitespace().count();
+      assert!(line.chars().count() <= WIDTH || words <= 2, "{}", line);
+    }
+  }
+
+  #[test]
+  fn test_wrap() {
+    let text = "one two three";
+    assert_eq!(wrap(text, "*   "), "*   one two three\n");
+    let long = "word ".repeat(30);
+    let wrapped = wrap(&long, "*   ");
+    let lines: Vec<&str> = wrapped.lines().collect();
+    assert!(lines[0].starts_with("*   word"));
+    assert!(lines[1].starts_with("    word"));
+    assert!(lines.iter().all(|l| l.len() <= WIDTH));
+    let code = format!("{} `version = \"One\"` end", "x ".repeat(36));
+    assert!(wrap(&code, "").contains("\n`version = \"One\"` end"));
+    assert_eq!(
+      wrap_block("1. first item\n2. second"),
+      "1. first item\n2. second\n"
+    );
+  }
 }

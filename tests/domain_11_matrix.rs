@@ -98,78 +98,78 @@ impl Alpha {
 "#;
 
 fn generate_configuration_matrix() -> Vec<LayoutConfig> {
-    let mut permutations = Vec::new();
+  let mut permutations = Vec::new();
 
-    let sort_alpha_options = [false, true];
-    let group_impls_options = [false, true];
-    let sort_imports_options = [false, true];
-    let import_grouping_options = [false, true];
-    let blank_lines_options = [0, 1, 2];
-    let max_width_options = [80, 120];
-    let tab_width_options = [2, 4];
+  let sort_alpha_options = [false, true];
+  let group_impls_options = [false, true];
+  let sort_imports_options = [false, true];
+  let import_grouping_options = [false, true];
+  let blank_lines_options = [0, 1, 2];
+  let max_width_options = [80, 120];
+  let tab_width_options = [2, 4];
 
-    for &sort_alpha in &sort_alpha_options {
-        for &group_impls in &group_impls_options {
-            for &sort_imports in &sort_imports_options {
-                for &import_grouping in &import_grouping_options {
-                    for &blank_lines in &blank_lines_options {
-                        for &max_width in &max_width_options {
-                            for &tab_width in &tab_width_options {
-                                let config = layout_from_settings(&[
-                                    ("sort_alphabetically", &sort_alpha.to_string()),
-                                    ("group_impls", &group_impls.to_string()),
-                                    ("sort_imports", &sort_imports.to_string()),
-                                    ("import_grouping", &import_grouping.to_string()),
-                                    ("blank_lines_between_blocks", &blank_lines.to_string()),
-                                    ("max_width", &max_width.to_string()),
-                                    ("tab_spaces", &tab_width.to_string()),
-                                ])
-                                .unwrap();
+  for &sort_alpha in &sort_alpha_options {
+    for &group_impls in &group_impls_options {
+      for &sort_imports in &sort_imports_options {
+        for &import_grouping in &import_grouping_options {
+          for &blank_lines in &blank_lines_options {
+            for &max_width in &max_width_options {
+              for &tab_width in &tab_width_options {
+                let config = layout_from_settings(&[
+                  ("sort_alphabetically", &sort_alpha.to_string()),
+                  ("group_impls", &group_impls.to_string()),
+                  ("sort_imports", &sort_imports.to_string()),
+                  ("import_grouping", &import_grouping.to_string()),
+                  ("blank_lines_between_blocks", &blank_lines.to_string()),
+                  ("max_width", &max_width.to_string()),
+                  ("tab_spaces", &tab_width.to_string()),
+                ])
+                .unwrap();
 
-                                permutations.push(config);
-                            }
-                        }
-                    }
-                }
+                permutations.push(config);
+              }
             }
+          }
         }
+      }
     }
+  }
 
-    permutations
+  permutations
 }
 
 #[test]
 fn test_corpus_matrix_permutations() {
-    let corpus = [
-        ("STICKY_IMPLS", CORPUS_STICKY_IMPLS),
-        ("ATTRIBUTES_AND_MACROS", CORPUS_ATTRIBUTES_AND_MACROS),
-        (
-            "DELIMITER_AND_RAW_STRINGS",
-            CORPUS_DELIMITER_AND_RAW_STRINGS,
-        ),
-        ("MIXED_HIERARCHIES", CORPUS_MIXED_HIERARCHIES),
-    ];
+  let corpus = [
+    ("STICKY_IMPLS", CORPUS_STICKY_IMPLS),
+    ("ATTRIBUTES_AND_MACROS", CORPUS_ATTRIBUTES_AND_MACROS),
+    (
+      "DELIMITER_AND_RAW_STRINGS",
+      CORPUS_DELIMITER_AND_RAW_STRINGS,
+    ),
+    ("MIXED_HIERARCHIES", CORPUS_MIXED_HIERARCHIES),
+  ];
 
-    let configs = generate_configuration_matrix();
+  let configs = generate_configuration_matrix();
 
-    for (name, snippet) in corpus {
-        for (idx, config) in configs.iter().enumerate() {
-            let first_pass = reorganize_file(snippet.to_string(), config, false);
+  for (name, snippet) in corpus {
+    for (idx, config) in configs.iter().enumerate() {
+      let first_pass = reorganize_file(snippet.to_string(), config, false);
 
-            assert!(
-                !first_pass.is_empty(),
-                "Matrix failure: Empty output in corpus '{}' under permutation index {}",
-                name,
-                idx
-            );
+      assert!(
+        !first_pass.is_empty(),
+        "Matrix failure: Empty output in corpus '{}' under permutation index {}",
+        name,
+        idx
+      );
 
-            let second_pass = reorganize_file(first_pass.clone(), config, false);
+      let second_pass = reorganize_file(first_pass.clone(), config, false);
 
-            assert_eq!(
-                first_pass, second_pass,
-                "Idempotency violation in corpus '{}' under permutation index {}",
-                name, idx
-            );
-        }
+      assert_eq!(
+        first_pass, second_pass,
+        "Idempotency violation in corpus '{}' under permutation index {}",
+        name, idx
+      );
     }
+  }
 }

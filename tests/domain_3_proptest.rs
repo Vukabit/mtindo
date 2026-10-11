@@ -3,17 +3,17 @@ use mtindo::{LayoutConfig, reorganize_file};
 use proptest::prelude::*;
 
 fn item_strategy() -> impl Strategy<Value = String> {
-    let name = "[a-z]{1,6}";
-    prop_oneof![
-        name.prop_map(|n| format!("fn {}() {{}}", n)),
-        name.prop_map(|n| format!("pub fn {}() {{\n    let s = \"{{ {} }}\";\n}}", n, n)),
-        name.prop_map(|n| format!("struct {} {{}}", n)),
-        name.prop_map(|n| format!("impl {} {{}}", n)),
-        name.prop_map(|n| format!("use std::{};", n)),
-        name.prop_map(|n| format!("const {}: u8 = 1;", n.to_uppercase())),
-        name.prop_map(|n| format!("// note {}\nfn {}_c() {{}}", n, n)),
-        name.prop_map(|n| format!("macro_rules! {} {{ () => {{}} }}", n)),
-    ]
+  let name = "[a-z]{1,6}";
+  prop_oneof![
+    name.prop_map(|n| format!("fn {}() {{}}", n)),
+    name.prop_map(|n| format!("pub fn {}() {{\n    let s = \"{{ {} }}\";\n}}", n, n)),
+    name.prop_map(|n| format!("struct {} {{}}", n)),
+    name.prop_map(|n| format!("impl {} {{}}", n)),
+    name.prop_map(|n| format!("use std::{};", n)),
+    name.prop_map(|n| format!("const {}: u8 = 1;", n.to_uppercase())),
+    name.prop_map(|n| format!("// note {}\nfn {}_c() {{}}", n, n)),
+    name.prop_map(|n| format!("macro_rules! {} {{ () => {{}} }}", n)),
+  ]
 }
 
 proptest! {

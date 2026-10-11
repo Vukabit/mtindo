@@ -301,79 +301,80 @@ syntax_kinds! {
 }
 
 impl SyntaxKind {
-    /// Nodes that own the comments directly above them and the comment at the end of their last
-    /// line. See `docs/design/comment-attachment.md`.
-    pub fn is_attachable(self) -> bool {
-        matches!(
-            self,
-            SyntaxKind::Fn
-                | SyntaxKind::Struct
-                | SyntaxKind::Enum
-                | SyntaxKind::Union
-                | SyntaxKind::Trait
-                | SyntaxKind::Impl
-                | SyntaxKind::TypeAlias
-                | SyntaxKind::Const
-                | SyntaxKind::Static
-                | SyntaxKind::Use
-                | SyntaxKind::Module
-                | SyntaxKind::ExternCrate
-                | SyntaxKind::ExternBlock
-                | SyntaxKind::MacroRules
-                | SyntaxKind::MacroCall
-        )
-    }
+  /// Nodes that own the comments directly above them and the comment at the end of their last
+  /// line. See `docs/design/comment-attachment.md`.
+  pub fn is_attachable(self) -> bool {
+    matches!(
+      self,
+      SyntaxKind::Fn
+        | SyntaxKind::Struct
+        | SyntaxKind::Enum
+        | SyntaxKind::Union
+        | SyntaxKind::Trait
+        | SyntaxKind::Impl
+        | SyntaxKind::TypeAlias
+        | SyntaxKind::Const
+        | SyntaxKind::Static
+        | SyntaxKind::Use
+        | SyntaxKind::Module
+        | SyntaxKind::ExternCrate
+        | SyntaxKind::ExternBlock
+        | SyntaxKind::MacroRules
+        | SyntaxKind::MacroCall
+    )
+  }
 
-    /// Whitespace, comments, the byte-order mark and the shebang: tokens the parser skips.
-    /// Doc comments are not trivia; they become attributes.
-    pub fn is_trivia(self) -> bool {
-        matches!(
-            self,
-            SyntaxKind::Bom
-                | SyntaxKind::Shebang
-                | SyntaxKind::Frontmatter
-                | SyntaxKind::Whitespace
-                | SyntaxKind::LineComment
-                | SyntaxKind::BlockComment
-        )
-    }
+  /// Whitespace, comments, the byte-order mark and the shebang: tokens the parser skips.
+  /// Doc comments are not trivia; they become attributes.
+  pub fn is_trivia(self) -> bool {
+    matches!(
+      self,
+      SyntaxKind::Bom
+        | SyntaxKind::Shebang
+        | SyntaxKind::Frontmatter
+        | SyntaxKind::Whitespace
+        | SyntaxKind::LineComment
+        | SyntaxKind::BlockComment
+    )
+  }
 
-    pub fn is_literal(self) -> bool {
-        matches!(
-            self,
-            SyntaxKind::IntNumber
-                | SyntaxKind::FloatNumber
-                | SyntaxKind::Char
-                | SyntaxKind::Byte
-                | SyntaxKind::Str
-                | SyntaxKind::ByteStr
-                | SyntaxKind::CStr
-                | SyntaxKind::RawStr
-                | SyntaxKind::RawByteStr
-                | SyntaxKind::RawCStr
-        )
-    }
+  pub fn is_literal(self) -> bool {
+    matches!(
+      self,
+      SyntaxKind::IntNumber
+        | SyntaxKind::FloatNumber
+        | SyntaxKind::Char
+        | SyntaxKind::Byte
+        | SyntaxKind::Str
+        | SyntaxKind::ByteStr
+        | SyntaxKind::CStr
+        | SyntaxKind::RawStr
+        | SyntaxKind::RawByteStr
+        | SyntaxKind::RawCStr
+    )
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+  use std::collections::HashSet;
 
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_every_kind_has_a_unique_name() {
-        let mut seen = HashSet::new();
-        for kind in SyntaxKind::ALL {
-            let name = kind.name();
-            assert!(!name.is_empty(), "{:?} has no name", kind);
-            assert!(
-                name.chars()
-                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
-                "{} is not SCREAMING_CASE",
-                name
-            );
-            assert!(seen.insert(name), "duplicate name {}", name);
-        }
+  #[test]
+  fn test_every_kind_has_a_unique_name() {
+    let mut seen = HashSet::new();
+    for kind in SyntaxKind::ALL {
+      let name = kind.name();
+      assert!(!name.is_empty(), "{:?} has no name", kind);
+      assert!(
+        name
+          .chars()
+          .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+        "{} is not SCREAMING_CASE",
+        name
+      );
+      assert!(seen.insert(name), "duplicate name {}", name);
     }
+  }
 }

@@ -5,7 +5,16 @@
 //! are laid out; other expressions print flat for now.
 
 use super::shape::*;
-use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
+use super::space;
+use crate::options::format::FormatConfig;
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
+use crate::text::unicode::str_width;
+
+/// A text's display width: wide characters take two columns, as the standard formatter
+/// counts them.
+trait Width {
+    fn width(&self) -> usize;
+}
 
 /// The tactic for a list, as the standard formatter's `definitive_tactic` decides it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -23,6 +32,18 @@ pub struct Link {
     /// The arguments of a method call.
     pub args: Option<Vec<SyntaxNode>>,
     pub tries: usize,
+}
+
+impl Width for String {
+    fn width(&self) -> usize {
+        str_width(self)
+    }
+}
+
+impl Width for str {
+    fn width(&self) -> usize {
+        str_width(self)
+    }
 }
 
 /// Whether the last of `count` arguments may overflow: a closure or block always; a call,
@@ -101,27 +122,48 @@ pub fn chain(node: &SyntaxNode) -> (SyntaxNode, usize, Vec<Link>) {
 
 /// The width of a text's first line.
 pub fn first_line_width(text: &str) -> usize {
-    text.lines().next().map_or(0, |l| l.chars().count())
+    text.lines().next().map_or(0, |l| l.width())
 }
 
-/// The node's tokens on one line, spaced as the Rust style spaces them.
+/// The node's tokens on one line, spaced as the Rust style spaces them ([`super::space`]);
+/// a pair no rule covers keeps a space if it was written with one.
 pub fn flat(node: &SyntaxNode) -> String {
-    let tokens: Vec<(SyntaxKind, String)> = node
+    let config = FormatConfig::default();
+    let tokens: Vec<SyntaxToken> = node
         .descendants_with_tokens()
         .into_iter()
         .filter_map(|e| match e {
-            SyntaxElement::Token(t) if !t.kind().is_trivia() => {
-                Some((t.kind(), t.text().to_string()))
-            }
+            SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
             _ => None,
         })
         .collect();
     let mut out = String::new();
-    for (i, (kind, text)) in tokens.iter().enumerate() {
-        if i > 0 && space_between(tokens[i - 1].0, &tokens[i - 1].1, *kind, text) {
-            out.push(' ');
+    for (i, token) in tokens.iter().enumerate() {
+        // On one line, a list keeps no trailing comma, except a one-element tuple's.
+        if token.kind() == SyntaxKind::Comma
+            && tokens.get(i + 1).is_some_and(|n| {
+                matches!(
+                    n.kind(),
+                    SyntaxKind::RParen | SyntaxKind::RBrack | SyntaxKind::RBrace
+                ) || (n.kind() == SyntaxKind::Gt && n.parent().kind() != SyntaxKind::BinExpr)
+            })
+            && !one_element_tuple(token)
+        {
+            continue;
         }
-        out.push_str(text);
+        if i > 0 {
+            let previous = &tokens[i - 1];
+            let written = previous.text_range().end < token.text_range().start;
+            let spaced = if written {
+                space::spacing(previous, token, Edition::E2021, &config).unwrap_or(true)
+            } else {
+                space::wants_space(previous, token, &config)
+            };
+            if spaced {
+                out.push(' ');
+            }
+        }
+        out.push_str(token.text());
     }
     out
 }
@@ -165,7 +207,7 @@ pub fn last_line_extendable(text: &str) -> bool {
 
 /// The width of a text's last line.
 pub fn last_line_width(text: &str) -> usize {
-    text.rsplit('\n').next().map_or(0, |l| l.chars().count())
+    text.rsplit('\n').next().map_or(0, |l| l.width())
 }
 
 /// The expressions of a list: call arguments, array or tuple elements.
@@ -184,7 +226,7 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
                 .find(|c| c.kind() == SyntaxKind::ArgList)
                 .map(list_items)
                 .unwrap_or_default();
-            rewrite_list(&callee, &args, shape, FN_CALL_WIDTH, "(", ")")
+            rewrite_list(&callee, &args, shape, shape.limits.fn_call, "(", ")")
         }
         kind if is_chain(node) && kind != SyntaxKind::TryExpr || chain_with_links(node) => {
             rewrite_chain(node, shape)
@@ -192,16 +234,18 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
         SyntaxKind::RecordExpr => rewrite_struct(node, shape),
         SyntaxKind::ArrayExpr if flat(node).contains(';') => {
             let text = flat(node);
-            (text.chars().count() <= shape.width).then_some(text)
+            (text.width() <= shape.width).then_some(text)
         }
-        SyntaxKind::ArrayExpr => rewrite_list("", &list_items(node), shape, ARRAY_WIDTH, "[", "]"),
+        SyntaxKind::ArrayExpr => {
+            rewrite_list("", &list_items(node), shape, shape.limits.array, "[", "]")
+        }
         SyntaxKind::TupleExpr => {
             let items = list_items(node);
             if items.len() == 1 {
                 let inner = rewrite(&items[0], shape.offset_left(1)?.sub_width(2)?)?;
                 return Some(format!("({},)", inner));
             }
-            rewrite_list("", &items, shape, FN_CALL_WIDTH, "(", ")")
+            rewrite_list("", &items, shape, shape.limits.fn_call, "(", ")")
         }
         SyntaxKind::ParenExpr => {
             let inner = rewrite(&node.children()[0], shape.offset_left(1)?.sub_width(1)?)?;
@@ -212,7 +256,7 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
             let whole = flat(node);
             let inner_flat = flat(&inner_node);
             let prefix = whole.strip_suffix(&inner_flat)?.to_string();
-            let inner = rewrite(&inner_node, shape.offset_left(prefix.chars().count())?)?;
+            let inner = rewrite(&inner_node, shape.offset_left(prefix.width())?)?;
             Some(format!("{}{}", prefix, inner))
         }
         // A literal is kept as written however long; the line runs over, as it does for the
@@ -220,7 +264,7 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
         SyntaxKind::Literal => Some(flat(node)),
         _ => {
             let text = flat(node);
-            (text.chars().count() <= shape.width).then_some(text)
+            (text.width() <= shape.width).then_some(text)
         }
     }
 }
@@ -232,11 +276,75 @@ fn chain_with_links(node: &SyntaxNode) -> bool {
 
 fn definitive(items: &[String], limit: usize) -> Tactic {
     let total: usize =
-        items.iter().map(|i| i.chars().count()).sum::<usize>() + 2 * items.len().saturating_sub(1);
+        items.iter().map(|i| i.width()).sum::<usize>() + 2 * items.len().saturating_sub(1);
     if total <= limit && !items.iter().any(|i| i.contains('\n')) {
         Tactic::Horizontal
     } else {
         Tactic::Vertical
+    }
+}
+
+/// Whether a chain's receiver, printed as `text`, ends like a block, so that the chain's
+/// links stay at its indentation rather than one level in (the standard formatter's
+/// `is_block_expr`): a call, array, struct literal, macro or block-like expression that
+/// spans lines, seen through parentheses, binary operators, indexing, unary operators,
+/// closures and `?`; a string spanning lines whose last line is short.
+fn is_block_expr(node: &SyntaxNode, text: &str) -> bool {
+    match node.kind() {
+        SyntaxKind::MacroExpr
+        | SyntaxKind::CallExpr
+        | SyntaxKind::MethodCallExpr
+        | SyntaxKind::ArrayExpr
+        | SyntaxKind::RecordExpr
+        | SyntaxKind::WhileExpr
+        | SyntaxKind::IfExpr
+        | SyntaxKind::BlockExpr
+        | SyntaxKind::LoopExpr
+        | SyntaxKind::ForExpr
+        | SyntaxKind::MatchExpr => text.contains('\n'),
+        SyntaxKind::ParenExpr
+        | SyntaxKind::BinExpr
+        | SyntaxKind::IndexExpr
+        | SyntaxKind::PrefixExpr
+        | SyntaxKind::ClosureExpr
+        | SyntaxKind::TryExpr => node
+            .children()
+            .into_iter()
+            .last()
+            .is_some_and(|inner| is_block_expr(&inner, text)),
+        SyntaxKind::Literal => {
+            text.contains('\n')
+                && text
+                    .rsplit('\n')
+                    .next()
+                    .is_some_and(|l| l.trim().width() <= 4)
+        }
+        _ => false,
+    }
+}
+
+/// A method call, or one under `&`, `?`, a cast or a unary operator.
+fn is_method_call(node: &SyntaxNode) -> bool {
+    match node.kind() {
+        SyntaxKind::MethodCallExpr => true,
+        SyntaxKind::RefExpr
+        | SyntaxKind::TryExpr
+        | SyntaxKind::CastExpr
+        | SyntaxKind::PrefixExpr => node.children().first().is_some_and(is_method_call),
+        _ => false,
+    }
+}
+
+/// A call or macro call, or one under `&`, `?`, a cast or a unary operator (the standard
+/// formatter's `is_nested_call`; a method call is not one).
+fn is_nested_call(node: &SyntaxNode) -> bool {
+    match node.kind() {
+        SyntaxKind::CallExpr | SyntaxKind::MacroExpr => true,
+        SyntaxKind::RefExpr
+        | SyntaxKind::TryExpr
+        | SyntaxKind::CastExpr
+        | SyntaxKind::PrefixExpr => node.children().first().is_some_and(is_nested_call),
+        _ => false,
     }
 }
 
@@ -247,9 +355,7 @@ fn last_item_shape(
     shape: Shape,
     max: usize,
 ) -> Option<Shape> {
-    let nested_call =
-        |n: &SyntaxNode| matches!(n.kind(), SyntaxKind::CallExpr | SyntaxKind::MethodCallExpr);
-    if items.len() == 1 && !nested_call(&items[0]) {
+    if items.len() == 1 && !is_nested_call(&items[0]) {
         return Some(shape);
     }
     let offset: usize = texts[..texts.len() - 1].iter().map(|t| 2 + t.len()).sum();
@@ -260,6 +366,18 @@ fn last_item_shape(
     .offset_left(offset)
 }
 
+/// Whether a comma is a one-element tuple's, which it makes a tuple.
+fn one_element_tuple(comma: &SyntaxToken) -> bool {
+    let parent = comma.parent();
+    matches!(
+        parent.kind(),
+        SyntaxKind::TupleExpr
+            | SyntaxKind::TupleType
+            | SyntaxKind::TuplePat
+            | SyntaxKind::TupleStructPat
+    ) && parent.children().len() == 1
+}
+
 /// A chain, as the standard formatter's block-indented chain formatter lays it out.
 fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     let (root, root_tries, links) = chain(node);
@@ -267,11 +385,19 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     let child_count = links.len();
     let mut links: &[Link] = &links;
     // A short root takes the first links onto its line.
-    let tab_width = TAB.saturating_sub(shape.offset);
-    while root_text.len() <= tab_width && !root_text.contains('\n') && !links.is_empty() {
-        let s = shape.offset_left(root_text.len())?;
+    let tab_width = shape.limits.tab.saturating_sub(shape.offset);
+    let mut joined = false;
+    while root_text.width() <= tab_width && !root_text.contains('\n') && !links.is_empty() {
+        let s = shape.offset_left(root_text.width())?;
         match rewrite_link(&links[0], s) {
-            Some(text) => root_text.push_str(&text),
+            Some(text) => {
+                // `0. .f()`: a float before a method keeps its space.
+                if space::glues(&root_text, &text) {
+                    root_text.push(' ');
+                }
+                root_text.push_str(&text);
+                joined = true;
+            }
             None => break,
         }
         links = &links[1..];
@@ -279,11 +405,17 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     if links.is_empty() {
         return wrap_str(root_text, shape);
     }
-    let block_end = last_line_extendable(&root_text);
+    // A root that took links onto its line ends as its last line does; otherwise as the
+    // kind of expression it is.
+    let block_end = if joined {
+        last_line_extendable(&root_text)
+    } else {
+        is_block_expr(&root, &root_text)
+    };
     let child_shape = if block_end {
         shape.block_indent(0)
     } else {
-        shape.block_indent(TAB)
+        shape.block_indent(shape.limits.tab)
     };
     let mut rewrites = vec![root_text];
     for link in &links[..links.len() - 1] {
@@ -294,12 +426,12 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     let almost_total = if extendable {
         last_line_width(&rewrites[0])
     } else {
-        rewrites.iter().map(|r| r.chars().count()).sum()
+        rewrites.iter().map(|r| r.width()).sum()
     } + last.tries;
     let one_line_budget = if child_count == 1 {
         shape.width
     } else {
-        shape.width.min(CHAIN_WIDTH)
+        shape.width.min(shape.limits.chain)
     }
     .saturating_sub(almost_total);
     let all_in_one_line = rewrites.iter().all(|r| !r.contains('\n')) && one_line_budget > 0;
@@ -360,10 +492,10 @@ fn rewrite_link(link: &Link, shape: Shape) -> Option<String> {
     let tries = "?".repeat(link.tries);
     let shape = shape.sub_width(link.tries)?;
     let text = match &link.args {
-        Some(args) => rewrite_list(&link.head, args, shape, FN_CALL_WIDTH, "(", ")")?,
+        Some(args) => rewrite_list(&link.head, args, shape, shape.limits.fn_call, "(", ")")?,
         None => {
             let t = link.head.clone();
-            if t.chars().count() > shape.width {
+            if t.width() > shape.width {
                 return None;
             }
             t
@@ -393,7 +525,7 @@ fn rewrite_list(
         .and_then(|s| s.sub_width(1))
         .unwrap_or(Shape { width: 0, ..shape });
     let nested = {
-        let s = shape.block_indent(TAB);
+        let s = shape.block_indent(shape.limits.tab);
         Shape {
             width: s.width.saturating_sub(1),
             ..s
@@ -406,11 +538,22 @@ fn rewrite_list(
     let mut tactic = Tactic::Vertical;
     if !items.is_empty() {
         let last = items.len() - 1;
-        let combine = items.len() == 1 && used < TAB;
+        let combine = items.len() == 1 && used < shape.limits.tab;
         let overflow = combine || can_overflow(&items[last], items.len());
+        // A method chain overflowing a list it is not combined with keeps its links on one
+        // line, though its last call's arguments may break (the standard formatter's
+        // `force_one_line_chain`).
+        let one_line_chain = !combine && is_method_call(&items[last]);
         let placeholder = if overflow {
             last_item_shape(items, &texts, one_line_shape, max_width)
                 .and_then(|s| rewrite(&items[last], s))
+                .filter(|text| {
+                    !one_line_chain
+                        || !text.lines().skip(1).any(|l| {
+                            let l = l.trim_start();
+                            l.starts_with('.') && !l.starts_with("..")
+                        })
+                })
         } else {
             None
         };
@@ -435,14 +578,14 @@ fn rewrite_list(
                 if items.len() == 1
                     && one_line_width != 0
                     && !texts[0].contains('\n')
-                    && texts[0].chars().count() <= one_line_width
+                    && texts[0].width() <= one_line_width
                 {
                     tactic = Tactic::Horizontal;
                 } else {
                     tactic = definitive(&texts, max_width.min(one_line_width));
                     if tactic == Tactic::Vertical
                         && items.iter().all(is_simple)
-                        && texts.iter().all(|t| t.chars().count() <= SHORT_ITEM)
+                        && texts.iter().all(|t| t.width() <= shape.limits.short_item)
                     {
                         tactic = Tactic::Mixed;
                     }
@@ -461,11 +604,11 @@ fn rewrite_list(
             let mut line = String::new();
             for text in &texts {
                 let added = if line.is_empty() {
-                    text.len() + 1
+                    text.width() + 1
                 } else {
-                    text.len() + 2
+                    text.width() + 2
                 };
-                if !line.is_empty() && line.len() + added > nested.width {
+                if !line.is_empty() && line.width() + added > nested.width {
                     lines.push(std::mem::take(&mut line));
                 }
                 if !line.is_empty() {
@@ -501,7 +644,18 @@ fn rewrite_list(
             close
         )
     };
-    wrap_str(text, shape)
+    // As the standard formatter's `rewrite_with_parens`: a list broken over lines is
+    // returned whatever its opening line's width, for the caller to weigh against laying it
+    // out elsewhere, though no later line may pass the line width; one kept on a line must
+    // fit.
+    if single {
+        wrap_str(text, shape)
+    } else {
+        text.lines()
+            .skip(1)
+            .all(|l| l.width() <= shape.limits.max_width)
+            .then_some(text)
+    }
 }
 
 /// A struct literal: on one line within `struct_lit_width`, else one field per line.
@@ -516,7 +670,7 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
         .children()
         .into_iter()
         .find(|c| c.kind() == SyntaxKind::RecordExprFieldList)?;
-    let v_shape = shape.block_indent(TAB);
+    let v_shape = shape.block_indent(shape.limits.tab);
     let mut fields = Vec::new();
     let mut spread = None;
     let mut after_dots = false;
@@ -532,7 +686,7 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
                     [name, value] => {
                         let name = flat(name);
                         let value =
-                            rewrite(value, v_shape.sub_width(1)?.offset_left(name.len() + 2)?)?;
+                            rewrite(value, v_shape.sub_width(1)?.offset_left(name.width() + 2)?)?;
                         format!("{}: {}", name, value)
                     }
                     _ => flat(n),
@@ -541,6 +695,10 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
             }
             _ => {}
         }
+    }
+    // `S { a, .. }`: a rest with nothing after it.
+    if after_dots && spread.is_none() {
+        spread = Some("..".to_string());
     }
     if fields.is_empty() && spread.is_none() {
         return wrap_str(format!("{} {{}}", path), shape);
@@ -551,8 +709,8 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     }
     let h_width = shape
         .width
-        .checked_sub(path.len() + 3 + 2)
-        .map(|w| w.min(STRUCT_LIT_WIDTH));
+        .checked_sub(path.width() + 3 + 2)
+        .map(|w| w.min(shape.limits.struct_lit));
     let horizontal = h_width.is_some_and(|w| definitive(&all, w) == Tactic::Horizontal);
     let text = if horizontal {
         format!("{} {{ {} }}", path, all.join(", "))
@@ -570,38 +728,13 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     wrap_str(text, shape)
 }
 
-fn space_between(
-    previous: SyntaxKind,
-    previous_text: &str,
-    next: SyntaxKind,
-    next_text: &str,
-) -> bool {
-    use SyntaxKind as K;
-    match (previous, next) {
-        (K::Comma | K::Semi, _) => true,
-        (K::Eq | K::FatArrow | K::ThinArrow | K::Plus, _)
-        | (_, K::Eq | K::FatArrow | K::ThinArrow | K::Plus) => true,
-        (K::Colon, _) => true,
-        (K::AsKw, _) | (_, K::AsKw) => true,
-        _ => word_like(previous, previous_text) && word_like(next, next_text),
-    }
-}
-
-fn word_like(kind: SyntaxKind, text: &str) -> bool {
-    text.starts_with(|c: char| c.is_alphanumeric() || c == '_' || c == '\'' || c == '"')
-        || kind.is_literal()
-}
-
 /// Whether `text` fits: its first line in the shape's width, the rest within the line width.
 fn wrap_str(text: String, shape: Shape) -> Option<String> {
     let mut lines = text.lines();
-    if lines
-        .next()
-        .is_some_and(|l| l.chars().count() > shape.width)
-    {
+    if lines.next().is_some_and(|l| l.width() > shape.width) {
         return None;
     }
-    if lines.any(|l| l.chars().count() > MAX_WIDTH) {
+    if lines.any(|l| l.width() > shape.limits.max_width) {
         return None;
     }
     Some(text)
@@ -630,7 +763,8 @@ mod tests {
             Shape {
                 indent: 4,
                 offset: column - 4,
-                width: MAX_WIDTH - column - 1,
+                width: 100 - column - 1,
+                limits: Limits::default(),
             },
         )
     }

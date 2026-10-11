@@ -51,10 +51,11 @@ fn test_contents_follow_the_line_their_owner_starts_on() {
         formatted("fn f() {\n    let g = |a: u8,\n             b: u8| {\n  a\n    };\n}\n"),
         "fn f() {\n    let g = |a: u8,\n             b: u8| {\n        a\n    };\n}\n"
     );
-    // A method call's arguments follow the line of its `.`.
+    // A method call's arguments follow the line of its `.` (the comment keeps the
+    // statement's lines as written).
     assert_eq!(
-        formatted("fn f() {\n    x\n        .g(\n  1,\n  );\n}\n"),
-        "fn f() {\n    x\n        .g(\n            1,\n        );\n}\n"
+        formatted("fn f() {\n    x // c\n        .g(\n  1,\n  );\n}\n"),
+        "fn f() {\n    x // c\n        .g(\n            1,\n        );\n}\n"
     );
     // A block standing as a statement owns itself.
     assert_eq!(
@@ -66,13 +67,13 @@ fn test_contents_follow_the_line_their_owner_starts_on() {
 #[test]
 fn test_continuation_lines_move_with_their_construct() {
     assert_eq!(
-        formatted("fn f() {\n  let x = foo\n      .bar()\n      .baz();\n}\n"),
-        "fn f() {\n    let x = foo\n        .bar()\n        .baz();\n}\n"
+        formatted("fn f() {\n  let x = foo // c\n      .bar()\n      .baz();\n}\n"),
+        "fn f() {\n    let x = foo // c\n        .bar()\n        .baz();\n}\n"
     );
     // Arguments on their own lines are one level past the call's line.
     assert_eq!(
-        formatted("fn f() {\n    g(\n  a,\n          b,\n  );\n}\n"),
-        "fn f() {\n    g(\n        a,\n        b,\n    );\n}\n"
+        formatted("fn f() {\n    g( // c\n  a,\n          b,\n  );\n}\n"),
+        "fn f() {\n    g( // c\n        a,\n        b,\n    );\n}\n"
     );
 }
 

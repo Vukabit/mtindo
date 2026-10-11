@@ -161,6 +161,17 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // The corpus sits inside this repository; a `root = true` file above its projects keeps
+    // this repository's own mto.toml from reaching them.
+    for parent in options.repos.iter().filter_map(|(_, dir)| dir.parent()) {
+        let fence = parent.join("mto.toml");
+        if !fence.exists() {
+            let _ = fs::write(
+                &fence,
+                "# Written by `cargo xtask diff`: the corpus takes no settings from above.\nroot = true\n",
+            );
+        }
+    }
     let cases = collect_cases(&options);
     eprintln!(
         "scoring {} inputs against {}...",
@@ -505,54 +516,38 @@ fn exceptions(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The formatting settings a test pair's `// rustfmt-NAME: VALUE` header lines set, of
-/// those mto reads; the rest stay at their defaults.
+/// The formatting settings a test pair's `// rustfmt-NAME: VALUE` header lines set, resolved
+/// as mto resolves `--config NAME=VALUE`: the same widths, heuristics and defaults a user
+/// gets. A header mto cannot read leaves the defaults.
 fn header_settings(input: &str) -> FormatConfig {
-    let mut config = FormatConfig::default();
-    for line in input.lines() {
-        let Some((name, value)) = line
-            .strip_prefix("// rustfmt-")
-            .and_then(|rest| rest.split_once(':'))
-        else {
-            continue;
+    // Each header mto accepts on its own command line; one it does not know is left out
+    // rather than failing the rest.
+    let accepted = |pair: &(String, String)| {
+        let one = Overrides {
+            settings: vec![pair.clone()],
+            ..Overrides::default()
         };
-        let value = value.trim();
-        let number = value.parse::<usize>().ok();
-        match name.trim() {
-            "max_width" => config.max_width = number.unwrap_or(config.max_width),
-            "tab_spaces" => config.tab_spaces = number.unwrap_or(config.tab_spaces),
-            "blank_lines_upper_bound" => {
-                config.blank_lines_upper_bound = number.unwrap_or(config.blank_lines_upper_bound)
-            }
-            "blank_lines_lower_bound" => {
-                config.blank_lines_lower_bound = number.unwrap_or(config.blank_lines_lower_bound)
-            }
-            "hard_tabs" => config.hard_tabs = value == "true",
-            "spaces_around_ranges" => config.spaces_around_ranges = value == "true",
-            "format_generated_files" => config.format_generated_files = value == "true",
-            "disable_all_formatting" => config.disable_all_formatting = value == "true",
-            "match_arm_indent" => config.match_arm_indent = value == "true",
-            "generated_marker_line_search_limit" => {
-                config.generated_marker_line_search_limit =
-                    number.unwrap_or(config.generated_marker_line_search_limit)
-            }
-            "space_before_colon" => config.space_before_colon = value == "true",
-            "space_after_colon" => config.space_after_colon = value == "true",
-            "type_punctuation_density" => {
-                config.compressed_type_punctuation = value == "Compressed"
-            }
-            "newline_style" => {
-                config.newline_style = match value {
-                    "Native" => NewlineStyle::Native,
-                    "Unix" => NewlineStyle::Unix,
-                    "Windows" => NewlineStyle::Windows,
-                    _ => NewlineStyle::Auto,
-                }
-            }
-            _ => {}
-        }
-    }
-    config
+        Resolver::new(&one, Environment::default()).is_ok()
+    };
+    let settings: Vec<(String, String)> = input
+        .lines()
+        .filter_map(|line| line.strip_prefix("// rustfmt-"))
+        .filter_map(|rest| rest.split_once(':'))
+        .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
+        .filter(accepted)
+        .collect();
+    let overrides = Overrides {
+        settings,
+        ..Overrides::default()
+    };
+    // An empty folder, so that no file's settings mix in.
+    let dir = std::env::temp_dir().join("mtindo-diff-headers");
+    let _ = fs::create_dir_all(&dir);
+    Resolver::new(&overrides, Environment::default())
+        .ok()
+        .and_then(|mut r| r.config_for(&dir).ok())
+        .map(|c| c.format())
+        .unwrap_or_default()
 }
 
 /// The kind of the outermost syntax node that starts where line `line` (0-based) of `text`

@@ -35,9 +35,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::format::space::{spacing, wants_space};
+use crate::format::stmt::rewrite_statement;
 use crate::options::format::{FormatConfig, NewlineStyle};
 use crate::syntax::ast::Attr;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, parse};
+use crate::text::unicode::char_width;
 
 /// The roles tokens play in the indentation.
 #[derive(Default)]
@@ -66,6 +68,8 @@ struct Roles {
     statements: HashMap<usize, usize>,
     /// Where line comments and line doc comments start, in order.
     line_comments: Vec<usize>,
+    /// Statements in blocks the width-budget code may lay out, by where they start.
+    layable: HashMap<usize, SyntaxNode>,
 }
 
 /// A token, with where it starts.
@@ -418,8 +422,13 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     let mut out_line_start = 0usize;
     let mut text_line_start = 0usize;
     let mut code_on_line = false;
+    // The end of a statement written out whole; its tokens are passed over.
+    let mut laid_out_to = 0usize;
     for (i, tok) in tokens.iter().enumerate() {
         let next = tokens.get(i + 1);
+        if tok.start < laid_out_to {
+            continue;
+        }
         if out.is_empty() && tok.kind == SyntaxKind::Whitespace {
             // Nothing before the first token.
             continue;
@@ -508,6 +517,23 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 Some(false) => {}
                 None => out.push_str(&tok.text),
             }
+            continue;
+        }
+        // A statement the width-budget code lays out, starting its line: written whole.
+        if let Some(node) = roles.layable.get(&tok.start)
+            && !in_verbatim(tok.start)
+            && out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
+            && let Some(text) =
+                rewrite_statement(node, width_of(&out[out_line_start..], tab), config)
+        {
+            out.push_str(&text);
+            if let Some(at) = out.rfind('\n') {
+                out_line_start = at + 1;
+            }
+            laid_out_to = node.text_range().end as usize;
+            previous_significant = None;
+            code_on_line = true;
+            comment_column = None;
             continue;
         }
         // A statement whose first line, at its new indentation, is longer than `max_width`
@@ -625,6 +651,13 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 };
                 if in_list && node.kind() != SyntaxKind::Attr && !in_expression() {
                     statements.push((range.start as usize, range.end as usize));
+                    if matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
+                        && node
+                            .parent()
+                            .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
+                    {
+                        roles.layable.insert(range.start as usize, node.clone());
+                    }
                 }
                 let unparsed_attr = node.kind() == SyntaxKind::Attr && !meta_like(node);
                 let kept = matches!(
@@ -713,11 +746,11 @@ fn skips_itself(root: &SyntaxNode) -> bool {
         .any(|a| a.is_inner() && a.is_rustfmt_skip())
 }
 
-/// The column width of an indentation, tabs counted as `tab_spaces`.
+/// The display width of text: tabs count as `tab_spaces`, wide characters as two columns.
 fn width_of(indent: &str, tab: usize) -> usize {
     indent
         .chars()
-        .map(|c| if c == '\t' { tab } else { 1 })
+        .map(|c| if c == '\t' { tab } else { char_width(c) })
         .sum()
 }
 

@@ -18,6 +18,18 @@ const GLUES: &[&str] = &[
     "&=", "|=", "<<", ">>", "<-", "//", "/*", "*/", ".=", "--", "++",
 ];
 
+/// Whether text ending with `left` and text starting with `right` would read as something
+/// else written together: a longer operator, a comment, a range.
+pub fn glues(left: &str, right: &str) -> bool {
+    match (left.chars().last(), right.chars().next()) {
+        (Some(last), Some(first)) => {
+            let pair: String = [last, first].iter().collect();
+            GLUES.contains(&pair.as_str())
+        }
+        _ => false,
+    }
+}
+
 /// Whether `a` and `b` (tokens on one line with spaces between) take one space
 /// (`Some(true)`), none (`Some(false)`), or keep what is written (`None`).
 pub fn spacing(

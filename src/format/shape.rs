@@ -1,26 +1,39 @@
-//! The space an expression is printed into, and the width limits of the Rust style at the
-//! default settings.
+//! The space an expression is printed into, and the width limits it is laid out under.
 
-/// The widest array kept on one line (`array_width`).
-pub const ARRAY_WIDTH: usize = 60;
+/// The width limits of the Rust style: the line width, one indentation level, and the widths
+/// above which a list, chain or literal is no longer kept on one line. [`Limits::default`]
+/// is the standard formatter's at its defaults.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    /// `max_width`.
+    pub max_width: usize,
+    /// `tab_spaces`: one level of indentation.
+    pub tab: usize,
+    /// `fn_call_width`: the widest argument list kept on one line.
+    pub fn_call: usize,
+    /// `chain_width`.
+    pub chain: usize,
+    /// `struct_lit_width`: the widest struct literal body kept on one line.
+    pub struct_lit: usize,
+    /// `array_width`.
+    pub array: usize,
+    /// `short_array_element_width_threshold`: the widest item in a packed list.
+    pub short_item: usize,
+}
 
-/// The widest chain kept on one line (`chain_width`).
-pub const CHAIN_WIDTH: usize = 60;
-
-/// The widest argument list kept on one line (`fn_call_width`).
-pub const FN_CALL_WIDTH: usize = 60;
-
-/// The line width.
-pub const MAX_WIDTH: usize = 100;
-
-/// The widest item in a packed list of simple items (`short_array_element_width_threshold`).
-pub const SHORT_ITEM: usize = 10;
-
-/// The widest struct literal body kept on one line (`struct_lit_width`).
-pub const STRUCT_LIT_WIDTH: usize = 18;
-
-/// One level of indentation.
-pub const TAB: usize = 4;
+impl Default for Limits {
+    fn default() -> Self {
+        Limits {
+            max_width: 100,
+            tab: 4,
+            fn_call: 60,
+            chain: 60,
+            struct_lit: 18,
+            array: 60,
+            short_item: 10,
+        }
+    }
+}
 
 /// The space an expression is printed into: its line's indentation, how far into the line it
 /// starts past that, and the width left on its first line.
@@ -29,6 +42,7 @@ pub struct Shape {
     pub indent: usize,
     pub offset: usize,
     pub width: usize,
+    pub limits: Limits,
 }
 
 impl Shape {
@@ -38,7 +52,8 @@ impl Shape {
         Shape {
             indent,
             offset: 0,
-            width: MAX_WIDTH.saturating_sub(indent),
+            width: self.limits.max_width.saturating_sub(indent),
+            limits: self.limits,
         }
     }
 
@@ -59,6 +74,8 @@ impl Shape {
 
     /// The width reserved after the shape on its line (a `;` after an expression).
     pub fn rhs_overhead(self) -> usize {
-        MAX_WIDTH.saturating_sub(self.indent + self.offset + self.width)
+        self.limits
+            .max_width
+            .saturating_sub(self.indent + self.offset + self.width)
     }
 }

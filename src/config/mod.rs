@@ -227,6 +227,35 @@ impl Config {
         config.space_before_colon = flag("space_before_colon", config.space_before_colon);
         config.space_after_colon = flag("space_after_colon", config.space_after_colon);
         config.disable_all_formatting = flag("disable_all_formatting", false);
+        // The widths: `use_small_heuristics` first (Default scales the standard formatter's
+        // percentages up past a `max_width` of 100, in steps of a tenth; Max makes every
+        // width the line width; Off lifts them), then any width set explicitly.
+        let max_width = config.max_width;
+        let scaled =
+            |percent: usize| match self.get("use_small_heuristics").and_then(Value::as_text) {
+                Some("Max") => max_width,
+                Some("Off") => usize::MAX,
+                _ => {
+                    let tenths = if max_width > 100 {
+                        (max_width * 10 + 50) / 100
+                    } else {
+                        10
+                    };
+                    (percent * tenths + 5) / 10
+                }
+            };
+        let width = |name: &str, percent: usize| match self.source(name) {
+            Some(source) if *source != Source::Default => number(name, scaled(percent)),
+            _ => scaled(percent),
+        };
+        config.fn_call_width = width("fn_call_width", 60);
+        config.chain_width = width("chain_width", 60);
+        config.struct_lit_width = width("struct_lit_width", 18);
+        config.array_width = width("array_width", 60);
+        config.short_array_element_width_threshold = number(
+            "short_array_element_width_threshold",
+            config.short_array_element_width_threshold,
+        );
         config.match_arm_indent = flag("match_arm_indent", true);
         config.format_generated_files = flag("format_generated_files", true);
         config.generated_marker_line_search_limit = number(

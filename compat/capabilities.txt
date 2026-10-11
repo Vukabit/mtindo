@@ -8,13 +8,13 @@
 # missing      not done yet
 # not-planned  deliberately left out; the note says why
 
-option  array_width                                      missing
+option  array_width                                      partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
 option  attr_fn_like_width                               missing
 option  binop_separator                                  missing
 option  blank_lines_lower_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); formatting does not add blank lines yet
 option  blank_lines_upper_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); with format = true, within blocks too (src/format/file/tests.rs)
 option  brace_style                                      missing
-option  chain_width                                      missing
+option  chain_width                                      partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
 option  color                                            missing
 option  combine_control_expr                             missing
 option  comment_width                                    missing
@@ -32,7 +32,7 @@ option  error_on_unformatted                             missing
 option  file_lines                                       missing
 option  float_literal_trailing_zero                      missing
 option  fn_args_layout                                   not-planned  # deprecated in rustfmt in favour of fn_params_layout
-option  fn_call_width                                    missing
+option  fn_call_width                                    partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
 option  fn_params_layout                                 missing
 option  fn_single_line                                   missing
 option  force_explicit_abi                               missing
@@ -58,7 +58,7 @@ option  match_arm_blocks                                 missing
 option  match_arm_indent                                 supported    # with format = true (src/format/file/tests.rs)
 option  match_arm_leading_pipes                          missing
 option  match_block_trailing_comma                       missing
-option  max_width                                        partial      # with format = true, a statement with a longer line is left as written (src/format/file/tests.rs)
+option  max_width                                        partial      # with format = true: lines broken and joined for the statements laid out so far, and statements too long left as written (src/format/stmt/tests.rs, src/format/file/tests.rs)
 option  merge_derives                                    missing
 option  merge_imports                                    not-planned  # deprecated in rustfmt in favour of imports_granularity
 option  newline_style                                    supported    # with format = true (src/format/file/tests.rs)
@@ -71,7 +71,7 @@ option  reorder_impl_items                               supported    # as rustf
 option  reorder_imports                                  partial      # mto.toml's sort_imports reorders use items (tests/domain_2_golden.rs); rustfmt's order rules not matched yet
 option  reorder_modules                                  missing
 option  required_version                                 missing
-option  short_array_element_width_threshold              missing
+option  short_array_element_width_threshold              partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
 option  show_parse_errors                                missing
 option  single_line_if_else_max_width                    missing
 option  single_line_let_else_max_width                   missing
@@ -82,7 +82,7 @@ option  space_before_colon                               supported    # with for
 option  spaces_around_ranges                             supported    # with format = true (src/format/space/tests.rs)
 option  struct_field_align_threshold                     missing
 option  struct_lit_single_line                           missing
-option  struct_lit_width                                 missing
+option  struct_lit_width                                 partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
 option  struct_variant_width                             missing
 option  style_edition                                    partial      # resolved as rustfmt resolves it and decides the defaults (src/config/tests.rs); import order follows it from N3
 option  tab_spaces                                       partial      # with format = true, the width of one indentation level (src/format/file/tests.rs)
@@ -91,7 +91,7 @@ option  trailing_semicolon                               missing
 option  type_punctuation_density                         partial      # with format = true, a bound's + and a type parameter's = (src/format/space/tests.rs)
 option  unstable_features                                missing
 option  use_field_init_shorthand                         missing
-option  use_small_heuristics                             missing
+option  use_small_heuristics                             partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
 option  use_try_shorthand                                missing
 option  verbose                                          missing
 option  version                                          partial      # deprecated in rustfmt; `Two` means style edition 2024, as in rustfmt (src/config/tests.rs)
@@ -163,9 +163,9 @@ value   trailing_comma=Never                             missing
 value   trailing_comma=Vertical                          missing
 value   type_punctuation_density=Compressed              partial      # a bound's + and a type parameter's = (src/format/space/tests.rs)
 value   type_punctuation_density=Wide                    supported    # with format = true (src/format/space/tests.rs)
-value   use_small_heuristics=Default                     missing
-value   use_small_heuristics=Max                         missing
-value   use_small_heuristics=Off                         missing
+value   use_small_heuristics=Default                     partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
+value   use_small_heuristics=Max                         partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
+value   use_small_heuristics=Off                         partial      # with format = true, for the statements laid out so far: calls, chains, struct literals, arrays, tuples (src/format/stmt/tests.rs)
 value   version=One                                      not-planned  # the version option is deprecated
 value   version=Two                                      not-planned  # the version option is deprecated
 

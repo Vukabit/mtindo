@@ -31,6 +31,14 @@ pub struct FormatConfig {
     pub compressed_type_punctuation: bool,
     /// The standard formatter's `disable_all_formatting`: files are left as written.
     pub disable_all_formatting: bool,
+    /// The widths above which an argument list, chain, struct literal or array is no longer
+    /// kept on one line, and the widest item of a packed list: `use_small_heuristics` scaled
+    /// to `max_width`, with any width set explicitly over it.
+    pub fn_call_width: usize,
+    pub chain_width: usize,
+    pub struct_lit_width: usize,
+    pub array_width: usize,
+    pub short_array_element_width_threshold: usize,
     /// Whether match arms are indented one level past their `match`.
     pub match_arm_indent: bool,
     /// Whether files marked `@generated` are formatted.
@@ -53,6 +61,11 @@ impl Default for FormatConfig {
             space_after_colon: true,
             compressed_type_punctuation: false,
             disable_all_formatting: false,
+            fn_call_width: 60,
+            chain_width: 60,
+            struct_lit_width: 18,
+            array_width: 60,
+            short_array_element_width_threshold: 10,
             match_arm_indent: true,
             format_generated_files: true,
             generated_marker_line_search_limit: 5,

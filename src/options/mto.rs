@@ -163,7 +163,12 @@ pub(super) static SETTINGS: &[Setting] = &[
         default_2024: None,
         summary: "Format code in the Rust style (preview)",
         doc: "Turns formatting on for the files this mto.toml applies to, beside or without \
-              `layout`. A preview: lines are not broken or joined yet. The lines that start \
+              `layout`. A preview. A `let` binding a name, or an expression statement, whose \
+              expression is a call, method chain, struct literal, array or tuple is laid out \
+              anew, its lines broken and joined as the Rust style does within `max_width` and \
+              the widths `use_small_heuristics` sets (unless it holds a comment, block, \
+              closure, macro, type annotation or generic arguments that would have to break); \
+              other lines are not broken or joined yet. The lines that start \
               items, statements, fields, variants, match arms and list elements are indented \
               one level past the line their block or list belongs to (match arms not, with \
               `match_arm_indent = false`), and closing delimiters at that line's indentation; \

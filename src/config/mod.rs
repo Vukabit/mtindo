@@ -272,6 +272,9 @@ impl Config {
     config.fn_call_width = width("fn_call_width", 60);
     config.chain_width = width("chain_width", 60);
     config.struct_lit_width = width("struct_lit_width", 18);
+    config.struct_variant_width = width("struct_variant_width", 35);
+    config.trailing_comma_never =
+      self.get("trailing_comma").and_then(Value::as_text) == Some("Never");
     config.array_width = width("array_width", 60);
     config.attr_fn_like_width = width("attr_fn_like_width", 70);
     config.style_edition = self.style_edition();

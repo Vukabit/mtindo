@@ -177,7 +177,10 @@ pub(super) static SETTINGS: &[Setting] = &[
               and of a function's body. An item's header (`pub fn name<T>(a: T) -> R {`, \
               `impl<T> Trait for Type {`, `pub struct Name {`) is joined onto one line when it \
               fits, else a function's parameters are put one per line, unless it holds a \
-              comment, a `where` clause, trait bounds or generics that would break. Runs of \
+              comment, a `where` clause, trait bounds or generics that would break. A struct's \
+              fields and an enum's variants are one per line, each on one line with its comma \
+              (a struct-like variant within `struct_variant_width`, else one field per line). \
+              Runs of \
               `use` items and of `mod name;` declarations \
               (no blank line between) are sorted as the Rust style sorts them, unless \
               `reorder_imports` or `reorder_modules` is off or the run holds a comment. Other \

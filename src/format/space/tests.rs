@@ -113,9 +113,11 @@ fn test_spacing_settings() {
 
 #[test]
 fn test_what_spacing_leaves_alone() {
-  // Macro bodies, comments and their spacing, and tokens that would merge.
-  let kept = "fn f() {\n    m!( a  ,b );\n    x;   // note\n}\n";
-  assert_eq!(formatted(kept), kept);
+  // Macro bodies, and tokens that would merge; a trailing comment gets one space.
+  assert_eq!(
+    formatted("fn f() {\n    m!( a  ,b );\n    x;\t  // note\n}\n"),
+    "fn f() {\n    m!( a  ,b );\n    x; // note\n}\n"
+  );
   assert_eq!(
     formatted("fn f() { a - - b; }\n"),
     "fn f() {\n    a - -b;\n}\n"

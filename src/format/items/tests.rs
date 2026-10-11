@@ -70,6 +70,26 @@ fn test_declarations_keep_a_column_free() {
 }
 
 #[test]
+fn test_fields_and_variants_take_a_line_each() {
+  assert_eq!(
+    formatted("pub struct Config { pub\nquiet: bool, #[a] x:\n  u8 }\n"),
+    "pub struct Config {\n    pub quiet: bool,\n    #[a]\n    x: u8,\n}\n"
+  );
+  // A struct-like variant stays on one line while its fields fit in 35 columns.
+  assert_eq!(
+    formatted("enum E { A, B(u8, u16), C { x: u8, y: u8 } = 1 }\n"),
+    "enum E {\n    A,\n    B(u8, u16),\n    C { x: u8, y: u8 } = 1,\n}\n"
+  );
+  let wide = "enum E {\n    A {\n        x: u8,\n        y: u8,\n        zzzzzzzzzzzzzzzzzzzz: u8,\n    },\n}\n";
+  assert_eq!(formatted(wide), wide);
+  // A documented variant makes every struct-like variant one field per line.
+  assert_eq!(
+    formatted("enum E {\n    /// doc\n    A,\n    B { x: u8 },\n}\n"),
+    "enum E {\n    /// doc\n    A,\n    B {\n        x: u8,\n    },\n}\n"
+  );
+}
+
+#[test]
 fn test_headers_join_onto_one_line() {
   assert_eq!(
     formatted("pub\nfn\n  main<T>(\n  a: T,\n) -> u8\n{\n    1\n}\n"),
@@ -98,6 +118,15 @@ fn test_long_parameter_lists_take_a_line_each() {
       "pub fn get_exclude_for_backend<'a>(backend: &str, metadata: &'a Metadata, other: u8) -> Vec<&'a str> {\n    x\n}\n"
     ),
     "pub fn get_exclude_for_backend<'a>(\n    backend: &str,\n    metadata: &'a Metadata,\n    other: u8,\n) -> Vec<&'a str> {\n    x\n}\n"
+  );
+}
+
+#[test]
+fn test_no_blank_line_between_attributes() {
+  // Only between two attributes; after the last, and around doc comments, blank lines stay.
+  assert_eq!(
+    formatted("#[a]\n\n#[b]\n\nfn f() {}\n\n/// doc\n\nfn g() {}\n"),
+    "#[a]\n#[b]\n\nfn f() {}\n\n/// doc\n\nfn g() {}\n"
   );
 }
 

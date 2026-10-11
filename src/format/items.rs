@@ -36,12 +36,156 @@ pub fn is_doc(kind: SyntaxKind) -> bool {
   )
 }
 
+/// Whether a node is a field of a struct or union definition, or an enum's variant: each
+/// starts a line of its own.
+pub fn is_field(node: &SyntaxNode) -> bool {
+  match node.kind() {
+    K::Variant => true,
+    K::RecordField => node
+      .parent()
+      .and_then(|list| list.parent())
+      .is_some_and(|owner| matches!(owner.kind(), K::Struct | K::Union)),
+    _ => false,
+  }
+}
+
 /// The items whose header this module lays out.
 pub fn is_item(kind: SyntaxKind) -> bool {
   matches!(
     kind,
     K::Fn | K::Struct | K::Enum | K::Union | K::Trait | K::Impl | K::ExternBlock | K::Module
   )
+}
+
+/// A field or variant on one line from column `indent`, with its comma (added when the last
+/// one has none), and where in the source it ends. A struct-like variant stays on one line
+/// while its fields fit in `struct_variant_width`; a wider one is left as written, as is one
+/// holding a comment or a macro, or one that does not fit.
+pub fn rewrite_field(
+  node: &SyntaxNode,
+  indent: usize,
+  config: &FormatConfig,
+) -> Option<(String, usize)> {
+  if config.hard_tabs || config.tab_spaces == 0 || !is_field(node) {
+    return None;
+  }
+  let start = header_start(node)?;
+  let elements: Vec<SyntaxElement> = node
+    .children_with_tokens()
+    .into_iter()
+    .filter(|e| e.text_range().start as usize >= start)
+    .collect();
+  let unwanted = |e: &SyntaxElement| match e {
+    SyntaxElement::Token(t) => {
+      (t.kind().is_trivia() && t.kind() != K::Whitespace) || is_doc(t.kind())
+    }
+    SyntaxElement::Node(n) => n.descendants_with_tokens().iter().any(|d| {
+      (d.kind().is_trivia() && d.kind() != K::Whitespace)
+        || is_doc(d.kind())
+        || matches!(
+          d.kind(),
+          K::Attr | K::MacroCall | K::MacroType | K::MacroExpr | K::BlockExpr
+        )
+    }),
+  };
+  if elements.iter().any(unwanted) {
+    return None;
+  }
+  let spacing = Spacing::of(config);
+  let too_wide = node.descendants().iter().any(|d| {
+    let limit = match d.kind() {
+      K::TupleType | K::TupleFieldList => config.fn_call_width,
+      K::ArrayType => config.array_width,
+      _ => return false,
+    };
+    str_width(&flat_tokens(
+      &code_tokens(&[SyntaxElement::Node(d.clone())]),
+      spacing,
+    )) > limit
+  });
+  if too_wide {
+    return None;
+  }
+  // With `trailing_comma = "Never"` the last one takes no comma; one written stays as
+  // written.
+  let comma = if comma_follows(node) {
+    ""
+  } else if config.trailing_comma_never {
+    if node
+      .parent()
+      .and_then(|list| list.children().into_iter().last())
+      .is_some_and(|last| &last == node)
+    {
+      return None;
+    }
+    ","
+  } else {
+    ","
+  };
+  let fields = node
+    .children()
+    .into_iter()
+    .find(|c| c.kind() == K::RecordFieldList);
+  // A struct-like variant whose fields pass `struct_variant_width` is written one field per
+  // line, and so are all of an enum's when it has a variant on several lines (one with
+  // attributes or doc comments is) and one on a single line, as the standard formatter's
+  // `format_variant_list` does.
+  let wide = |f: &SyntaxNode| {
+    str_width(&flat_tokens(
+      &code_tokens(&[SyntaxElement::Node(f.clone())]),
+      spacing,
+    )) > config.struct_variant_width + 4
+  };
+  if let Some(fields) = &fields
+    && !fields.children().is_empty()
+    && (wide(fields)
+      || node
+        .parent()
+        .is_some_and(|list| mixed_variants(&list, indent, config)))
+  {
+    let head: Vec<SyntaxElement> = elements
+      .iter()
+      .filter(|e| e.text_range().start < fields.text_range().start)
+      .cloned()
+      .collect();
+    let tail: Vec<SyntaxElement> = elements
+      .iter()
+      .filter(|e| e.text_range().start >= fields.text_range().end)
+      .cloned()
+      .collect();
+    let pad = " ".repeat(indent + config.tab_spaces);
+    let mut lines = String::new();
+    for field in fields.children() {
+      let text = flat_tokens(&code_tokens(&[SyntaxElement::Node(field)]), spacing);
+      if indent + config.tab_spaces + str_width(&text) + 1 > config.max_width {
+        return None;
+      }
+      lines.push_str(&format!("\n{}{},", pad, text));
+    }
+    let tail = flat_tokens(&code_tokens(&tail), spacing);
+    let tail = if tail.is_empty() {
+      String::new()
+    } else {
+      format!(" {}", tail)
+    };
+    return Some((
+      format!(
+        "{} {{{}\n{}}}{}{}",
+        flat_tokens(&code_tokens(&head), spacing),
+        lines,
+        " ".repeat(indent),
+        tail,
+        comma
+      ),
+      node.text_range().end as usize,
+    ));
+  }
+  let text = flat_tokens(&code_tokens(&elements), spacing);
+  // 1 = `,`
+  if indent + str_width(&text) + 1 > config.max_width {
+    return None;
+  }
+  Some((format!("{}{}", text, comma), node.text_range().end as usize))
 }
 
 /// The header laid out from column `indent`, and where in the source its text ends: before
@@ -252,6 +396,53 @@ fn code_tokens(elements: &[SyntaxElement]) -> Vec<SyntaxToken> {
       _ => None,
     })
     .collect()
+}
+
+/// Whether a comma follows a node, whitespace and comments aside.
+fn comma_follows(node: &SyntaxNode) -> bool {
+  let mut next = node.next_sibling_or_token();
+  while let Some(SyntaxElement::Token(token)) = next {
+    if !token.kind().is_trivia() {
+      return token.kind() == K::Comma;
+    }
+    next = token.next_sibling_or_token();
+  }
+  false
+}
+
+/// Whether an enum has both a variant written on several lines and one on a single line.
+fn mixed_variants(list: &SyntaxNode, indent: usize, config: &FormatConfig) -> bool {
+  let spacing = Spacing::of(config);
+  let one_line = |variant: &SyntaxNode| {
+    // Attributes, doc comments or comments anywhere in it put it on several lines.
+    let attributed = variant.descendants_with_tokens().iter().any(|e| {
+      e.kind() == K::Attr
+        || is_doc(e.kind())
+        || matches!(e.kind(), K::LineComment | K::BlockComment)
+    });
+    let fields_fit = variant
+      .children()
+      .iter()
+      .filter(|c| c.kind() == K::RecordFieldList)
+      .all(|f| {
+        str_width(&flat_tokens(
+          &code_tokens(&[SyntaxElement::Node(f.clone())]),
+          spacing,
+        )) <= config.struct_variant_width + 4
+      });
+    let text = flat_tokens(
+      &code_tokens(&[SyntaxElement::Node(variant.clone())]),
+      spacing,
+    );
+    // The `<` leaves a column for the comma.
+    !attributed && fields_fit && indent + str_width(&text) < config.max_width
+  };
+  let variants: Vec<SyntaxNode> = list
+    .children()
+    .into_iter()
+    .filter(|v| v.kind() == K::Variant)
+    .collect();
+  variants.iter().any(|v| !one_line(v)) && variants.iter().any(one_line)
 }
 
 /// `-> R` or `;` after a parameter list, with the space before an arrow.

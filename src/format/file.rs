@@ -77,6 +77,9 @@ struct Roles {
   /// Where a token starts that the Rust style puts at the start of a line, even when it is
   /// written after other code.
   breaks: HashSet<usize>,
+  /// Where an attribute starts that follows another of the same item: no blank line comes
+  /// between them.
+  joined: HashSet<usize>,
 }
 
 /// A token, with where it starts.
@@ -337,13 +340,18 @@ fn is_statement(kind: SyntaxKind) -> bool {
 /// tail and the closing brace. Each takes its container's indentation.
 fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
   for node in root.descendants() {
+    // Fields of a struct or union definition and an enum's variants are one per line too.
     let items = matches!(
       node.kind(),
       SyntaxKind::SourceFile
         | SyntaxKind::ItemList
         | SyntaxKind::AssocItemList
         | SyntaxKind::ExternItemList
-    );
+        | SyntaxKind::VariantList
+    ) || node.kind() == SyntaxKind::RecordFieldList
+      && node
+        .parent()
+        .is_some_and(|p| matches!(p.kind(), SyntaxKind::Struct | SyntaxKind::Union));
     // A function's body with anything in it is one of lines too (`fn_single_line` off).
     let block = node.kind() == SyntaxKind::BlockExpr
       && (node.children().iter().any(|c| is_statement(c.kind()))
@@ -376,11 +384,22 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
       // Its own attributes, each on a line, and the line after them; the comments before
       // its code, and its code's first line, are indented as it is.
       let mut after_attr = false;
+      let mut joined = Vec::new();
       for element in child.children_with_tokens() {
         match &element {
           SyntaxElement::Node(n) if n.kind() == SyntaxKind::Attr => {
             mark(n.text_range().start as usize, true);
+            if after_attr {
+              joined.push(n.text_range().start as usize);
+            }
             after_attr = true;
+          }
+          SyntaxElement::Token(t)
+            if crate::format::items::is_doc(t.kind())
+              || matches!(t.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment) =>
+          {
+            mark(t.text_range().start as usize, false);
+            after_attr = false;
           }
           SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {}
           SyntaxElement::Token(t)
@@ -394,6 +413,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
           }
         }
       }
+      roles.joined.extend(joined);
     }
     if any && node.kind() != SyntaxKind::SourceFile {
       for token in node.children_with_tokens() {
@@ -627,7 +647,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       let Some(next) = next else {
         break;
       };
-      let newlines = tok.text.matches('\n').count().max(1);
+      let newlines = if roles.joined.contains(&next.start) {
+        1
+      } else {
+        tok.text.matches('\n').count().max(1)
+      };
       let after_open = previous_significant.filter(|p| roles.openers.contains_key(p));
       let newlines = match after_open {
         Some(open) if roles.keeps_leading_blank.contains(&open) => newlines.min(max_newlines),
@@ -687,7 +711,22 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     }
     // Spaces within a line: as the Rust style spaces the two tokens around them.
     if tok.kind == SyntaxKind::Whitespace && !in_verbatim(tok.start) && i > 0 {
-      let spaced = next.and_then(|n| spacing(&tokens[i - 1].token, &n.token, edition, config));
+      // A line comment after a statement, an item, an attribute or a brace: one space. Match
+      // arms, like list items, keep their comments aligned.
+      let before = &tokens[i - 1].token;
+      let ends = match before.kind() {
+        SyntaxKind::Semi | SyntaxKind::LBrace => true,
+        SyntaxKind::RBrace => before
+          .parent()
+          .parent()
+          .is_none_or(|owner| owner.kind() != SyntaxKind::MatchArm),
+        SyntaxKind::RBrack => before.parent().kind() == SyntaxKind::Attr,
+        _ => false,
+      };
+      let spaced = match next {
+        Some(n) if n.kind == SyntaxKind::LineComment && ends => Some(true),
+        _ => next.and_then(|n| spacing(before, &n.token, edition, config)),
+      };
       match spaced {
         Some(true) => out.push(' '),
         Some(false) => {}
@@ -707,6 +746,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           SyntaxKind::Use => whole(rewrite_use(node, indent, config)),
           SyntaxKind::Attr => whole(rewrite_attr(node, indent, config)),
           // Not an item given up on whole.
+          SyntaxKind::RecordField | SyntaxKind::Variant => {
+            crate::format::items::rewrite_field(node, indent, config)
+          }
           kind if is_item(kind) => {
             if in_verbatim(node.text_range().start as usize + 1) {
               None
@@ -858,6 +900,13 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           {
             roles.layable.insert(range.start as usize, node.clone());
           }
+        }
+        // A field of a struct definition or a variant, from after its attributes.
+        if crate::format::items::is_field(node)
+          && !skipped
+          && let Some(start) = crate::format::items::header_start(node)
+        {
+          roles.layable.insert(start, node.clone());
         }
         let unparsed_attr = node.kind() == SyntaxKind::Attr && !meta_like(node);
         // Attributes of files, bodies, items, statements, fields and variants; those among

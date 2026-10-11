@@ -71,6 +71,10 @@ pub struct FormatConfig {
   pub reorder_modules: bool,
   /// `brace_style = "AlwaysNextLine"`: an item's `{` on the line after its header.
   pub brace_next_line: bool,
+  /// `struct_variant_width`: the widest struct-like variant's fields kept on one line.
+  pub struct_variant_width: usize,
+  /// `trailing_comma = "Never"`: no comma is added after the last field or variant.
+  pub trailing_comma_never: bool,
 }
 
 impl Default for FormatConfig {
@@ -101,6 +105,8 @@ impl Default for FormatConfig {
       reorder_imports: true,
       reorder_modules: true,
       brace_next_line: false,
+      struct_variant_width: 35,
+      trailing_comma_never: false,
     }
   }
 }

@@ -83,10 +83,10 @@ option  spaces_around_ranges                             supported    # with for
 option  struct_field_align_threshold                     missing
 option  struct_lit_single_line                           missing
 option  struct_lit_width                                 partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
-option  struct_variant_width                             missing
+option  struct_variant_width                             supported    # with format = true (src/format/items/tests.rs)
 option  style_edition                                    partial      # resolved as rustfmt resolves it and decides the defaults (src/config/tests.rs); import order follows it from N3
 option  tab_spaces                                       partial      # with format = true, the width of one indentation level (src/format/file/tests.rs)
-option  trailing_comma                                   missing
+option  trailing_comma                                   partial      # with format = true, for struct fields and enum variants; Never leaves a last one written with a comma as written (src/format/items/tests.rs)
 option  trailing_semicolon                               missing
 option  type_punctuation_density                         partial      # with format = true, a bound's + and a type parameter's = (src/format/space/tests.rs)
 option  unstable_features                                missing
@@ -159,8 +159,8 @@ value   style_edition=2021                               missing
 value   style_edition=2024                               missing
 value   style_edition=2027                               missing
 value   trailing_comma=Always                            missing
-value   trailing_comma=Never                             missing
-value   trailing_comma=Vertical                          missing
+value   trailing_comma=Never                             partial      # with format = true, no comma added after the last field or variant (src/format/items/tests.rs)
+value   trailing_comma=Vertical                          partial      # with format = true, for struct fields and enum variants (src/format/items/tests.rs)
 value   type_punctuation_density=Compressed              partial      # a bound's + and a type parameter's = (src/format/space/tests.rs)
 value   type_punctuation_density=Wide                    supported    # with format = true (src/format/space/tests.rs)
 value   use_small_heuristics=Default                     partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)

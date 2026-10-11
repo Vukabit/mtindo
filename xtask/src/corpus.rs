@@ -317,7 +317,7 @@ fn bench(root: &Path, markdown: bool, log: &Logger) -> u8 {
       cache_dir(root).join(&pin.name).display()
     ));
   }
-  let (code, output) = process::capture(root, "cargo", &args, &[]);
+  let (code, output) = process::capture(root, "cargo", &args, &[], process::LONG);
   let layout: f64 = output
     .lines()
     .find_map(|l| l.strip_prefix("layout-mb-per-s "))
@@ -385,12 +385,22 @@ fn check(root: &Path, flags: &[&str], with_rust: bool, log: &Logger) -> u8 {
     ));
   }
   log.info("running xtask-tools corpus-check (release build)");
-  let status = std::process::Command::new("cargo")
-    .args(&args)
-    .current_dir(root)
-    .status();
-  match status {
-    Ok(status) => process::exit_code(status).clamp(0, 255) as u8,
+  let done = process::output(
+    std::process::Command::new("cargo")
+      .args(&args)
+      .current_dir(root),
+    process::HEAVY,
+  );
+  match done {
+    Ok(done) => {
+      if done.timed_out {
+        println!(
+          "the corpus check was stopped at its time limit of {}",
+          process::duration(process::HEAVY)
+        );
+      }
+      done.code.clamp(0, 255) as u8
+    }
     Err(e) => {
       println!("cannot run cargo: {}", e);
       1
@@ -424,7 +434,7 @@ fn collect_rs(dir: &Path, files: &mut Vec<PathBuf>) {
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
   let owned: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-  let (code, output) = process::capture(dir, "git", &owned, &[]);
+  let (code, output) = process::capture(dir, "git", &owned, &[], process::NETWORK);
   if code != 0 {
     return Err(format!(
       "`git {}` failed: {}",
@@ -468,6 +478,7 @@ fn update(root: &Path, log: &Logger) -> u8 {
         "HEAD".to_string(),
       ],
       &[],
+      process::NETWORK,
     );
     let head = output.split_whitespace().next().unwrap_or("");
     if code != 0 || head.len() != 40 {

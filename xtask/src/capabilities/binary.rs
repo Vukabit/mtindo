@@ -8,10 +8,11 @@
 //!
 //! Every command runs with `RUSTUP_AUTO_INSTALL=0`, so reading never installs a toolchain.
 
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use super::surface::{Found, Kind, Reading};
 use crate::common::log::Logger;
+use crate::common::process;
 
 /// The local readings: the default `rustfmt`, plus `+nightly` when rustup has a nightly
 /// toolchain that differs from the default.
@@ -173,11 +174,13 @@ fn run(program: &str, toolchain: Option<&str>, args: &[&str]) -> Result<String, 
   if let Some(toolchain) = toolchain {
     command.arg(format!("+{}", toolchain));
   }
-  command.args(args);
-  let output = command
-    .output()
+  command
+    .args(args)
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+  let output = process::output(&mut command, process::QUICK)
     .map_err(|e| format!("cannot run {}: {}", program, e))?;
-  if !output.status.success() {
+  if output.code != 0 {
     return Err(format!(
       "`{} {}` failed: {}",
       program,

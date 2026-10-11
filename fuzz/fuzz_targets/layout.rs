@@ -1,0 +1,36 @@
+#![no_main]
+
+//! Layout must keep a program's meaning and settle in one run, whatever the input: when it
+//! arranges a file, the layout meaning check is clean on the result (mto refuses to write a
+//! file that fails it), and arranging the result again changes nothing. Inputs it declines
+//! to arrange are fine; panicking on any input is not.
+
+use libfuzzer_sys::fuzz_target;
+use mtindo::syntax::Edition;
+use mtindo::verify::verify_layout;
+use mtindo::{LayoutConfig, try_reorganize};
+
+fuzz_target!(|data: &[u8]| {
+  let Ok(text) = std::str::from_utf8(data) else {
+    return;
+  };
+  let config = LayoutConfig::default();
+  let Ok(once) = try_reorganize(text, &config, false) else {
+    return;
+  };
+  let found = verify_layout(text, &once, Edition::E2021);
+  assert!(
+    found.is_empty(),
+    "meaning changed:\n{}\n---\n{}\n{:?}",
+    text,
+    once,
+    found
+  );
+  let twice = try_reorganize(&once, &config, false);
+  assert_eq!(
+    twice.as_deref(),
+    Ok(once.as_str()),
+    "a second run changed it:\n{}",
+    text
+  );
+});

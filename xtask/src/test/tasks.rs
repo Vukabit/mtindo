@@ -3,7 +3,9 @@
 
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
+use crate::common::process;
 use crate::{capabilities, gates};
 
 pub const DEFAULT_FUZZ_TIME: u32 = 10;
@@ -12,25 +14,17 @@ pub const DEFAULT_GROUPS: &[&str] = &["gates", "tests"];
 
 pub const ENV_BLESS: &str = "MTINDO_BLESS";
 
-pub const ENV_HEAVY: &str = "MTINDO_HEAVY_TESTS";
-
 /// Environment variables the runner sets for tasks. Shown by -h.
-pub const ENV_VARS: &[(&str, &str)] = &[
-  (
-    ENV_BLESS,
-    "set to 1 for the snapshots task with --bless: rewrite expected outputs",
-  ),
-  (
-    ENV_HEAVY,
-    "set to 1 for domain_13_rw: run the real-world crate check instead of skipping it",
-  ),
-];
+pub const ENV_VARS: &[(&str, &str)] = &[(
+  ENV_BLESS,
+  "set to 1 for the snapshots task with --bless: rewrite expected outputs",
+)];
 
 /// Every group, with what it covers. The help gate checks that each one is in `-h`.
 pub const GROUPS: &[(&str, &str)] = &[
   (
     "gates",
-    "Repository rules: clippy, dependencies, layering, docs, capabilities, rustfmt, mto on itself, help text",
+    "Repository rules: clippy, dependencies, layering, docs, naming, planning ids, capabilities, rustfmt, mto on itself, help text",
   ),
   (
     "tests",
@@ -118,6 +112,9 @@ pub const TEST_REGISTRY: &[(&str, &str, &str)] = &[
 /// How long `fuzz-24h` runs each target.
 const FUZZ_24H_SECONDS: u32 = 24 * 60 * 60;
 
+/// The time limit of a heavy or bench task: clones, builds of real crates, whole-corpus runs.
+const HEAVY_LIMIT: Duration = Duration::from_secs(3 * 60 * 60);
+
 /// What a task does: run a program, or a check inside this process that returns its
 /// problems (none means it passed).
 pub enum Action {
@@ -141,6 +138,8 @@ pub struct Task {
   pub action: Action,
   pub env: Vec<(String, String)>,
   pub requires: Vec<&'static str>,
+  /// The longest the task may run; past it, it is stopped and fails.
+  pub limit: Duration,
   /// Runs only when named with `--target`, never as part of a group or `--full`.
   pub target_only: bool,
   pub state: State,
@@ -158,6 +157,10 @@ impl Task {
       action,
       env: Vec::new(),
       requires: Vec::new(),
+      limit: match group {
+        "heavy" | "bench" => HEAVY_LIMIT,
+        _ => process::LONG,
+      },
       target_only: false,
       state: State::Pending,
       seconds: 0.0,
@@ -168,6 +171,11 @@ impl Task {
 
   fn requires(mut self, tools: &[&'static str]) -> Task {
     self.requires = tools.to_vec();
+    self
+  }
+
+  fn limit(mut self, limit: Duration) -> Task {
+    self.limit = limit;
     self
   }
 
@@ -209,7 +217,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
   );
   tasks.push(Task::new(
     "deps",
-    "No runtime dependencies",
+    "mtindo has no runtime dependencies; xtask does not depend on mtindo",
     "gates",
     Action::Check(gate("deps")),
   ));
@@ -230,6 +238,12 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     "The reference formatter is named only where the name does work",
     "gates",
     Action::Check(gate("naming")),
+  ));
+  tasks.push(Task::new(
+    "planning",
+    "Comments in src/, tests/ and fuzz/ name no stages, milestones or decision ids",
+    "gates",
+    Action::Check(gate("planning")),
   ));
   tasks.push(Task::new(
     "capabilities",
@@ -256,15 +270,27 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     ),
   ));
   if root.join("fuzz").exists() {
-    tasks.push(Task::new(
-      "fuzz-build",
-      "Fuzz crate compiles",
-      "gates",
-      command(
-        "cargo",
-        &["check", "--quiet", "--manifest-path", "fuzz/Cargo.toml"],
-      ),
-    ));
+    // Outside the workspace, so the workspace's clippy does not cover it.
+    tasks.push(
+      Task::new(
+        "fuzz-build",
+        "Fuzz crate compiles, clippy warnings are errors",
+        "gates",
+        command(
+          "cargo",
+          &[
+            "clippy",
+            "--quiet",
+            "--manifest-path",
+            "fuzz/Cargo.toml",
+            "--",
+            "-D",
+            "warnings",
+          ],
+        ),
+      )
+      .requires(&["clippy"]),
+    );
   }
   tasks.push(Task::new(
     "help",
@@ -288,6 +314,11 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
   let test_files = stems(&root.join("tests"));
   for (id, title, group) in TEST_REGISTRY {
     let action = match *id {
+      // Ignored by a plain `cargo test`, since it needs the network: run here on purpose.
+      "domain_13_rw" if test_files.iter().any(|f| f == id) => command(
+        "cargo",
+        &["test", "--test", id, "--quiet", "--", "--include-ignored"],
+      ),
       "lib" => command("cargo", &["test", "--lib", "--bins", "--quiet"]),
       "xtask" => command(
         "cargo",
@@ -314,7 +345,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
       }
     }
     if *id == "domain_13_rw" {
-      task = task.requires(&["git"]).with_env(ENV_HEAVY, "1");
+      task = task.requires(&["git"]);
     }
     tasks.push(task);
   }
@@ -447,7 +478,9 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
           ],
         ),
       )
-      .requires(&["cargo-fuzz"]),
+      .requires(&["cargo-fuzz"])
+      // The fuzzing, then building and filing what it found.
+      .limit(Duration::from_secs(fuzz_time.into()) + 2 * process::LONG),
     );
   }
   tasks.push(
@@ -478,38 +511,50 @@ fn command(program: &str, args: &[&str]) -> Action {
   )
 }
 
-/// The final stage 1 gate: the lexer and parser targets fuzzed at the same time, each for
-/// [`FUZZ_24H_SECONDS`]. A crash in either is a problem, with the end of its output. Like
-/// every fuzz task, it fails if the machine slept (the runner keeps it awake and checks).
+/// Every fuzz target at the same time, each for [`FUZZ_24H_SECONDS`]; what they find is
+/// filed once all have finished. A target that fails is a problem, with the end of what it
+/// said. Like every fuzz task, it fails if the machine slept (the runner keeps it awake and
+/// checks).
 fn fuzz_24h(root: &Path) -> Vec<String> {
+  /// A target's exit code and the end of what it said.
+  type Fuzzed = (i32, Vec<String>);
   let targets = stems(&root.join("fuzz").join("fuzz_targets"));
   let log = crate::common::log::Logger::new(root, "fuzz");
-  let run = |target: &str| {
-    let code = crate::fuzz::run_target(root, target, FUZZ_24H_SECONDS, &log);
-    (target.to_string(), (code, String::new()))
-  };
-  let results = std::thread::scope(|scope| {
+  let results: Vec<(String, std::thread::Result<Fuzzed>)> = std::thread::scope(|scope| {
     let handles: Vec<_> = targets
       .iter()
-      .map(|target| scope.spawn(|| run(target)))
+      .map(|target| {
+        let log = &log;
+        (
+          target.clone(),
+          scope.spawn(move || crate::fuzz::fuzz_target(root, target, FUZZ_24H_SECONDS, log)),
+        )
+      })
       .collect();
     handles
       .into_iter()
-      .filter_map(|h| h.join().ok())
-      .collect::<Vec<_>>()
+      .map(|(target, handle)| (target, handle.join()))
+      .collect()
   });
+  let filed = crate::fuzz::collect(root, &log);
   let mut problems = Vec::new();
-  for (target, (code, output)) in results {
-    if code != 0 {
-      let tail: Vec<&str> = output.lines().rev().take(30).collect();
-      let tail: Vec<&str> = tail.into_iter().rev().collect();
-      problems.push(format!(
+  for (target, result) in results {
+    match result {
+      Ok((0, _)) => {}
+      Ok((code, said)) => problems.push(format!(
         "fuzz target {} failed (exit {}):\n{}",
         target,
         code,
-        tail.join("\n")
-      ));
+        said.join("\n")
+      )),
+      Err(_) => problems.push(format!("fuzzing {} panicked in the runner", target)),
     }
+  }
+  if filed > 0 {
+    problems.push(format!(
+      "filed {} crash(es) under fuzz/crashes/ (cargo xtask fuzz list)",
+      filed
+    ));
   }
   problems
 }
@@ -549,4 +594,91 @@ fn stems(dir: &Path) -> Vec<String> {
     .collect();
   stems.sort();
   stems
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
+  }
+
+  #[test]
+  fn test_bless_sets_its_variable_and_the_network_test_runs_on_purpose() {
+    let (tasks, _) = build(root(), true, DEFAULT_FUZZ_TIME);
+    let env = |id: &str| tasks.iter().find(|t| t.id == id).unwrap().env.clone();
+    assert_eq!(
+      env("snapshots"),
+      vec![(ENV_BLESS.to_string(), "1".to_string())]
+    );
+    assert!(env("domain_13_rw").is_empty());
+    let rw = tasks.iter().find(|t| t.id == "domain_13_rw").unwrap();
+    assert!(
+      matches!(&rw.action, Action::Command(_, args) if args.iter().any(|a| a == "--include-ignored"))
+    );
+    let (tasks, _) = build(root(), false, DEFAULT_FUZZ_TIME);
+    assert!(
+      tasks
+        .iter()
+        .find(|t| t.id == "snapshots")
+        .unwrap()
+        .env
+        .is_empty()
+    );
+  }
+
+  #[test]
+  fn test_every_gate_runs_in_the_suite() {
+    let (tasks, _) = build(root(), false, DEFAULT_FUZZ_TIME);
+    for (name, _, _) in gates::GATES {
+      let task = tasks.iter().find(|t| t.id == *name);
+      assert!(
+        task.is_some(),
+        "gate {} is not a task of cargo xtask test",
+        name
+      );
+      assert_eq!(task.unwrap().group, "gates", "gate {}", name);
+    }
+  }
+
+  #[test]
+  fn test_every_task_has_a_known_group_and_a_limit() {
+    let (tasks, _) = build(root(), false, DEFAULT_FUZZ_TIME);
+    let mut ids = std::collections::BTreeSet::new();
+    for task in &tasks {
+      assert!(ids.insert(task.id.clone()), "task id {} twice", task.id);
+      assert!(
+        GROUPS.iter().any(|(g, _)| *g == task.group),
+        "task {} has group {}",
+        task.id,
+        task.group
+      );
+      assert!(task.limit >= Duration::from_secs(60), "task {}", task.id);
+    }
+  }
+
+  #[test]
+  fn test_fuzz_tasks_outlast_their_fuzzing() {
+    let (tasks, _) = build(root(), false, 600);
+    let fuzz: Vec<&Task> = tasks
+      .iter()
+      .filter(|t| t.group == "fuzz" && t.id != "fuzz-24h")
+      .collect();
+    assert!(!fuzz.is_empty());
+    for task in fuzz {
+      assert!(task.limit > Duration::from_secs(600), "task {}", task.id);
+      assert_eq!(task.requires, vec!["cargo-fuzz"], "task {}", task.id);
+    }
+  }
+
+  #[test]
+  fn test_rust_version_and_stems() {
+    assert!(rust_version(root()).is_some_and(|v| v.split('.').count() >= 2));
+    let stems = stems(&root().join("fuzz").join("fuzz_targets"));
+    assert!(stems.contains(&"format".to_string()), "{:?}", stems);
+    let mut sorted = stems.clone();
+    sorted.sort();
+    assert_eq!(stems, sorted);
+  }
 }

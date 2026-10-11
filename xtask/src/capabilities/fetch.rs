@@ -7,9 +7,10 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::common::log::Logger;
+use crate::common::process;
 
 const DIST_URL: &str = "https://static.rust-lang.org/dist";
 
@@ -128,21 +129,23 @@ pub fn latest(root: &Path, channel: &str, log: &Logger) -> Result<Release, Strin
   fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
   let path = dir.join(format!("channel-rust-{}.toml", channel));
   log.info(&format!("curl {}", url));
-  let status = Command::new("curl")
-    .args([
-      "--fail",
-      "--silent",
-      "--show-error",
-      "--location",
-      "--max-time",
-      "60",
-      "--output",
-    ])
-    .arg(&path)
-    .arg(&url)
-    .status()
-    .map_err(|e| format!("cannot run curl: {}", e))?;
-  if !status.success() {
+  let done = process::output(
+    Command::new("curl")
+      .args([
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--max-time",
+        "60",
+        "--output",
+      ])
+      .arg(&path)
+      .arg(&url),
+    process::NETWORK,
+  )
+  .map_err(|e| format!("cannot run curl: {}", e))?;
+  if done.code != 0 {
     return Err(format!("cannot download {}", url));
   }
   let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -186,13 +189,17 @@ pub fn parse_channel_manifest(text: &str) -> Result<Release, String> {
 
 /// Runs git in `dir` and returns its standard output.
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-  let output = Command::new("git")
-    .arg("-C")
-    .arg(dir)
-    .args(args)
-    .output()
-    .map_err(|e| format!("cannot run git: {}", e))?;
-  if !output.status.success() {
+  let output = process::output(
+    Command::new("git")
+      .arg("-C")
+      .arg(dir)
+      .args(args)
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::NETWORK,
+  )
+  .map_err(|e| format!("cannot run git: {}", e))?;
+  if output.code != 0 {
     return Err(format!(
       "`git {}` failed: {}",
       args.join(" "),

@@ -11,6 +11,10 @@ mod lexdiff;
 #[path = "../../src/common/log.rs"]
 mod log;
 mod parsecheck;
+// The same child-process helpers as xtask, with their time limits.
+#[allow(dead_code)]
+#[path = "../../src/common/process.rs"]
+mod process;
 mod toml_test;
 mod unformat;
 

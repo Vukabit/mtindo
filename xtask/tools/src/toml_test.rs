@@ -25,33 +25,13 @@ pub fn run(args: &[String]) -> ExitCode {
     eprintln!("toml-test: needs the suite's directory");
     return ExitCode::from(2);
   };
-  let tests = Path::new(dir).join("tests");
-  let list = match fs::read_to_string(tests.join("files-toml-1.0.0")) {
-    Ok(list) => list,
+  let (passed, failures) = match run_suite(Path::new(dir)) {
+    Ok(result) => result,
     Err(e) => {
-      println!("cannot read the suite's file list: {}", e);
+      println!("{}", e);
       return ExitCode::from(1);
     }
   };
-  let mut passed = 0;
-  let mut failures = Vec::new();
-  for case in list.lines().map(str::trim).filter(|l| l.ends_with(".toml")) {
-    let path = tests.join(case);
-    let Ok(bytes) = fs::read(&path) else {
-      failures.push(format!("{}: cannot read", case));
-      continue;
-    };
-    let result = match std::str::from_utf8(&bytes) {
-      Ok(text) => check(case, text, &tests),
-      // Invalid UTF-8 is an invalid document, which a caller sees as a read error.
-      Err(_) if case.starts_with("invalid/") => Ok(()),
-      Err(_) => Err("not valid UTF-8".to_string()),
-    };
-    match result {
-      Ok(()) => passed += 1,
-      Err(reason) => failures.push(format!("{}: {}", case, reason)),
-    }
-  }
   for failure in failures.iter() {
     println!("  {}", failure);
   }
@@ -337,6 +317,37 @@ fn parse_json(text: &str) -> Result<Json, String> {
   Ok(value)
 }
 
+/// Runs every case the suite in `dir` lists: how many passed, and each failure. A list
+/// with no cases is an error, since it would check nothing.
+fn run_suite(dir: &Path) -> Result<(usize, Vec<String>), String> {
+  let tests = dir.join("tests");
+  let list = fs::read_to_string(tests.join("files-toml-1.0.0"))
+    .map_err(|e| format!("cannot read the suite's file list: {}", e))?;
+  let mut passed = 0;
+  let mut failures = Vec::new();
+  for case in list.lines().map(str::trim).filter(|l| l.ends_with(".toml")) {
+    let path = tests.join(case);
+    let Ok(bytes) = fs::read(&path) else {
+      failures.push(format!("{}: cannot read", case));
+      continue;
+    };
+    let result = match std::str::from_utf8(&bytes) {
+      Ok(text) => check(case, text, &tests),
+      // Invalid UTF-8 is an invalid document, which a caller sees as a read error.
+      Err(_) if case.starts_with("invalid/") => Ok(()),
+      Err(_) => Err("not valid UTF-8".to_string()),
+    };
+    match result {
+      Ok(()) => passed += 1,
+      Err(reason) => failures.push(format!("{}: {}", case, reason)),
+    }
+  }
+  if passed + failures.len() == 0 {
+    return Err("the suite's file list names no .toml cases, so nothing was checked".into());
+  }
+  Ok((passed, failures))
+}
+
 fn same_float(value: f64, want: &str) -> bool {
   match want {
     "nan" | "+nan" | "-nan" => value.is_nan(),
@@ -355,6 +366,75 @@ fn skip(chars: &[char], pos: &mut usize) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  /// A scratch suite of `files`, as (path under `tests/`, contents); removed when dropped.
+  struct Suite(std::path::PathBuf);
+
+  impl Suite {
+    fn new(name: &str, files: &[(&str, &str)]) -> Suite {
+      let dir = std::env::temp_dir().join(format!("toml-test-{}-{}", name, std::process::id()));
+      let _ = fs::remove_dir_all(&dir);
+      let tests = dir.join("tests");
+      let mut list = String::new();
+      for (path, text) in files {
+        let file = tests.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, text).unwrap();
+        list.push_str(path);
+        list.push('\n');
+      }
+      fs::create_dir_all(&tests).unwrap();
+      fs::write(tests.join("files-toml-1.0.0"), list).unwrap();
+      Suite(dir)
+    }
+  }
+
+  impl Drop for Suite {
+    fn drop(&mut self) {
+      let _ = fs::remove_dir_all(&self.0);
+    }
+  }
+
+  #[test]
+  fn test_a_suite_passes_and_fails_as_it_should() {
+    let good = Suite::new(
+      "good",
+      &[
+        ("valid/a.toml", "x = 42\n"),
+        (
+          "valid/a.json",
+          r#"{"x": {"type": "integer", "value": "42"}}"#,
+        ),
+        ("invalid/b.toml", "x = \n"),
+      ],
+    );
+    assert_eq!(run_suite(&good.0), Ok((2, vec![])));
+    let bad = Suite::new(
+      "bad",
+      &[
+        ("valid/a.toml", "x = 42\n"),
+        (
+          "valid/a.json",
+          r#"{"x": {"type": "integer", "value": "43"}}"#,
+        ),
+        ("invalid/b.toml", "x = 1\n"),
+      ],
+    );
+    let (passed, failures) = run_suite(&bad.0).unwrap();
+    assert_eq!(passed, 0);
+    assert_eq!(failures.len(), 2, "{:?}", failures);
+    assert!(failures[1].starts_with("invalid/b.toml: accepted an invalid document"));
+  }
+
+  #[test]
+  fn test_an_empty_suite_checks_nothing_and_fails() {
+    let empty = Suite::new("empty", &[]);
+    assert!(
+      run_suite(&empty.0)
+        .unwrap_err()
+        .contains("nothing was checked")
+    );
+  }
 
   #[test]
   fn test_datetime_normalization() {

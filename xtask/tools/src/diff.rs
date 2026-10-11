@@ -15,17 +15,21 @@
 //!   text.
 //!
 //! The standard formatter's outputs are cached by input, edition, configuration file and
-//! version, so a rerun only runs mto. Mismatching files are grouped by the syntax kind of the
+//! version, so a rerun only runs mto. An input it refuses (a non-zero exit) is cached too,
+//! with what it said, and counted as skipped; the skipped count is part of the record and
+//! may not grow. A run of it that says nothing about the input (it could not start, was
+//! killed, or passed its time limit) is never cached, and fails the run, as does mto
+//! panicking on an input: neither may pass for a number. Mismatching files are grouped by the syntax kind of the
 //! innermost node at their first differing line. The numbers are compared with the record in
 //! `compat/compatibility.txt`, which they may only climb above: a drop fails the run, and
 //! `--update` records new numbers.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::history::sha256;
@@ -33,10 +37,29 @@ use mtindo::options::format::{FormatConfig, NewlineStyle};
 use mtindo::syntax::{Edition, SyntaxElement, SyntaxKind, parse};
 
 use crate::common::edition_for;
+use crate::process;
 use crate::unformat::unformat;
+
+/// The first line of a cached refusal; a marker without it predates the refusals being
+/// told apart from failures to run, so it is run again.
+const REFUSED_HEADER: &str = "refused: exit ";
+
+/// The longest the standard formatter may take on one input.
+const STANDARD_LIMIT: Duration = Duration::from_secs(120);
 
 /// The mismatch groups the report lists.
 const TOP_KINDS: usize = 50;
+
+/// What the standard formatter made of an input.
+#[derive(Debug, PartialEq)]
+pub enum Answer {
+  /// Its output.
+  Text(String),
+  /// It ran and refused the input (a non-zero exit): its exit code and what it said.
+  Refused(String),
+  /// It did not run on the input: why. Says nothing about the input, so never cached.
+  NotRun(String),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Set {
@@ -106,8 +129,13 @@ struct Options {
 /// One scored case.
 #[derive(Default)]
 struct Score {
-  /// The answer could not be had: the standard formatter failed on the input.
+  /// The answer could not be had: the standard formatter refused the input.
   skipped: bool,
+  /// The standard formatter did not run on the input (it could not start, was killed or
+  /// passed its time limit): why. Fails the run.
+  unanswered: Option<String>,
+  /// mto panicked on the input: the panic message. Fails the run.
+  panicked: Option<String>,
   matches: bool,
   lines: usize,
   matched_lines: usize,
@@ -192,6 +220,9 @@ pub fn run(args: &[String]) -> ExitCode {
   let mut kinds: BTreeMap<String, (usize, String)> = BTreeMap::new();
   for (case, score) in cases.iter().zip(&scores) {
     let tally = tallies.entry(case.set).or_default();
+    if score.unanswered.is_some() || score.panicked.is_some() {
+      continue;
+    }
     if score.skipped {
       tally.skipped += 1;
       continue;
@@ -212,6 +243,24 @@ pub fn run(args: &[String]) -> ExitCode {
     "{}",
     report(&tallies, &kinds, &options.reference, options.markdown)
   );
+  let not_scored: Vec<String> = cases
+    .iter()
+    .zip(&scores)
+    .filter_map(|(case, score)| {
+      let (what, why) = match (&score.panicked, &score.unanswered) {
+        (Some(message), _) => ("mto panicked", message),
+        (None, Some(reason)) => ("no answer", reason),
+        (None, None) => return None,
+      };
+      Some(format!(
+        "{} [{}]: {}: {}",
+        case.name,
+        case.set.key(),
+        what,
+        why
+      ))
+    })
+    .collect();
   // The meaning check on the standard formatter's own output: anything it flags is a
   // rewrite the allowed list lacks, or a bug of the formatter's (F2).
   let flagged: Vec<String> = cases
@@ -305,6 +354,21 @@ pub fn run(args: &[String]) -> ExitCode {
       }
     }
   }
+  if !not_scored.is_empty() {
+    println!(
+      "{} input(s) could not be scored, so these numbers are not a measurement:",
+      not_scored.len()
+    );
+    for line in not_scored.iter().take(20) {
+      println!("  {}", line.chars().take(200).collect::<String>());
+    }
+    if let Some(dir) = options.broke_log.as_ref().and_then(|log| log.parent()) {
+      let path = dir.join("diff-not-scored.txt");
+      let _ = fs::write(&path, not_scored.join("\n") + "\n");
+      println!("  (all of them in {})", path.display());
+    }
+    return ExitCode::from(1);
+  }
   if !own.is_empty() {
     for line in own.iter().take(20) {
       println!("  {}", line.chars().take(200).collect::<String>());
@@ -328,8 +392,8 @@ pub fn run(args: &[String]) -> ExitCode {
   ratchet(&options, &tallies)
 }
 
-/// The standard formatter's output for `input` formatted from `dir`, from the cache or a
-/// run; `None` when it fails on the input.
+/// The standard formatter's answer for `input` formatted from `dir`, from the cache or a
+/// run.
 pub fn standard_output(
   input: &str,
   edition: Edition,
@@ -337,7 +401,7 @@ pub fn standard_output(
   reference: &str,
   cache: &Path,
   home: &Path,
-) -> Option<String> {
+) -> Answer {
   let config = nearest_config(dir);
   let edition = edition_year(edition);
   let mut key = String::new();
@@ -352,22 +416,50 @@ pub fn standard_output(
   let cached = cache.join(&hash[..2]).join(&hash[2..]);
   let failed = cached.with_extension("failed");
   if let Ok(text) = fs::read_to_string(&cached) {
-    return Some(text);
+    return Answer::Text(text);
   }
-  if failed.exists() {
-    return None;
+  if let Ok(said) = fs::read_to_string(&failed) {
+    if said.starts_with(REFUSED_HEADER) {
+      return Answer::Refused(said);
+    }
+    let _ = fs::remove_file(&failed);
   }
-  let result = run_standard(input, edition, dir, home);
+  let answer = run_standard(input, edition, dir, home);
   let _ = fs::create_dir_all(cached.parent().unwrap_or(cache));
-  match &result {
-    Some(text) => {
+  match &answer {
+    Answer::Text(text) => {
       let _ = fs::write(&cached, text);
     }
-    None => {
-      let _ = fs::write(&failed, "");
+    Answer::Refused(said) => {
+      let _ = fs::write(&failed, said);
     }
+    Answer::NotRun(_) => {}
   }
-  result
+  answer
+}
+
+/// What a finished run of the standard formatter says about its input.
+fn classify(done: process::Separate) -> Answer {
+  let stderr = String::from_utf8_lossy(&done.stderr);
+  if done.timed_out {
+    return Answer::NotRun(format!(
+      "rustfmt passed its time limit of {}s",
+      STANDARD_LIMIT.as_secs()
+    ));
+  }
+  match done.code {
+    0 => match String::from_utf8(done.stdout) {
+      Ok(text) => Answer::Text(text),
+      Err(_) => Answer::NotRun("rustfmt wrote invalid UTF-8".to_string()),
+    },
+    // A shell's 128 + signal: killed, not refusing.
+    code if !(0..=128).contains(&code) => Answer::NotRun(format!(
+      "rustfmt ended without an exit status (code {}): {}",
+      code,
+      stderr.trim()
+    )),
+    code => Answer::Refused(format!("{}{}\n{}", REFUSED_HEADER, code, stderr)),
+  }
 }
 
 /// Every input, in a fixed order: the test pairs, then the corpus as fetched, then unformatted.
@@ -551,6 +643,52 @@ fn compare_scores(log: &Path, cases: &[Case], scores: &[Score]) {
   }
 }
 
+/// Every way `tallies` fall below the record: a lower share of files or lines matching, or
+/// more inputs the standard formatter refuses.
+fn drops(
+  recorded: &BTreeMap<String, (Tally, bool)>,
+  tallies: &BTreeMap<Set, Tally>,
+) -> Vec<String> {
+  let mut drops = Vec::new();
+  for (set, now) in tallies {
+    let Some((then, has_skipped)) = recorded.get(set.key()) else {
+      continue;
+    };
+    if *has_skipped && now.skipped > then.skipped {
+      drops.push(format!(
+        "{}: {} inputs the standard formatter refuses, recorded {} (the files cannot be \
+         scored; see the .failed markers in the cache)",
+        set.title(),
+        now.skipped,
+        then.skipped
+      ));
+    }
+    // a/b < c/d without division: a*d < c*b.
+    let below = |a: usize, b: usize, c: usize, d: usize| a * d.max(1) < c * b.max(1);
+    if below(now.matched_files, now.files, then.matched_files, then.files) {
+      drops.push(format!(
+        "{}: files {} of {}, recorded {} of {}",
+        set.title(),
+        now.matched_files,
+        now.files,
+        then.matched_files,
+        then.files
+      ));
+    }
+    if below(now.matched_lines, now.lines, then.matched_lines, then.lines) {
+      drops.push(format!(
+        "{}: lines {} of {}, recorded {} of {}",
+        set.title(),
+        now.matched_lines,
+        now.lines,
+        then.matched_lines,
+        then.lines
+      ));
+    }
+  }
+  drops
+}
+
 fn edition_year(edition: Edition) -> &'static str {
   match edition {
     Edition::E2015 => "2015",
@@ -673,6 +811,15 @@ fn nearest_config(dir: &Path) -> String {
   String::new()
 }
 
+/// The text a panic carried.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+  payload
+    .downcast_ref::<&str>()
+    .map(|s| s.to_string())
+    .or_else(|| payload.downcast_ref::<String>().cloned())
+    .unwrap_or_else(|| "a panic without a message".to_string())
+}
+
 fn parse_args(args: &[String]) -> Result<Options, String> {
   let mut options = Options {
     tests: None,
@@ -724,7 +871,9 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
   Ok(options)
 }
 
-fn parse_record(text: &str) -> (String, BTreeMap<String, Tally>) {
+/// The reference and each set's numbers; the flag says whether the record has the set's
+/// skipped count.
+fn parse_record(text: &str) -> (String, BTreeMap<String, (Tally, bool)>) {
   let mut reference = String::new();
   let mut sets = BTreeMap::new();
   for line in text.lines() {
@@ -732,19 +881,28 @@ fn parse_record(text: &str) -> (String, BTreeMap<String, Tally>) {
       reference = r.to_string();
     }
     let words: Vec<&str> = line.split_whitespace().collect();
-    if let ["set", name, "files", mf, f, "lines", ml, l] = words.as_slice() {
-      let n = |s: &str| s.parse::<usize>().unwrap_or(0);
-      sets.insert(
-        name.to_string(),
+    let n = |s: &str| s.parse::<usize>().unwrap_or(0);
+    let (name, mf, f, ml, l, skipped) = match words.as_slice() {
+      ["set", name, "files", mf, f, "lines", ml, l, "skipped", k] => {
+        (name, mf, f, ml, l, Some(n(k)))
+      }
+      // Records from before the skipped count was kept.
+      ["set", name, "files", mf, f, "lines", ml, l] => (name, mf, f, ml, l, None),
+      _ => continue,
+    };
+    sets.insert(
+      name.to_string(),
+      (
         Tally {
           matched_files: n(mf),
           files: n(f),
           matched_lines: n(ml),
           lines: n(l),
-          skipped: 0,
+          skipped: skipped.unwrap_or(0),
         },
-      );
-    }
+        skipped.is_some(),
+      ),
+    );
   }
   (reference, sets)
 }
@@ -772,6 +930,7 @@ fn ratchet(options: &Options, tallies: &BTreeMap<Set, Tally>) -> ExitCode {
     return ExitCode::from(1);
   };
   let (reference, recorded) = parse_record(&text);
+  let drops = drops(&recorded, tallies);
   if reference != options.reference {
     println!(
       "the record was made with {}, this run with {}; check the numbers, then run \
@@ -779,34 +938,6 @@ fn ratchet(options: &Options, tallies: &BTreeMap<Set, Tally>) -> ExitCode {
       reference, options.reference
     );
     return ExitCode::from(1);
-  }
-  let mut drops = Vec::new();
-  for (set, now) in tallies {
-    let Some(then) = recorded.get(set.key()) else {
-      continue;
-    };
-    // a/b < c/d without division: a*d < c*b.
-    let below = |a: usize, b: usize, c: usize, d: usize| a * d.max(1) < c * b.max(1);
-    if below(now.matched_files, now.files, then.matched_files, then.files) {
-      drops.push(format!(
-        "{}: files {} of {}, recorded {} of {}",
-        set.title(),
-        now.matched_files,
-        now.files,
-        then.matched_files,
-        then.files
-      ));
-    }
-    if below(now.matched_lines, now.lines, then.matched_lines, then.lines) {
-      drops.push(format!(
-        "{}: lines {} of {}, recorded {} of {}",
-        set.title(),
-        now.matched_lines,
-        now.lines,
-        then.matched_lines,
-        then.lines
-      ));
-    }
   }
   if drops.is_empty() {
     println!("compatibility: ok, at or above the record");
@@ -824,26 +955,27 @@ fn ratchet(options: &Options, tallies: &BTreeMap<Set, Tally>) -> ExitCode {
 fn record_text(reference: &str, tallies: &BTreeMap<Set, Tally>) -> String {
   let mut out = String::from(
     "# How much of the Rust style mto reproduces: files and lines matching the standard\n\
-         # formatter exactly, per input set (`cargo xtask diff`). The numbers may only go up;\n\
-         # `cargo xtask diff --update` records new ones.\n",
+         # formatter exactly, per input set (`cargo xtask diff`), and the inputs it refuses\n\
+         # (skipped). Matches may only go up, skipped only down; `cargo xtask diff --update`\n\
+         # records new numbers.\n",
   );
   out.push_str(&format!("reference {}\n", reference));
   for (set, t) in tallies {
     out.push_str(&format!(
-      "set {} files {} {} lines {} {}\n",
+      "set {} files {} {} lines {} {} skipped {}\n",
       set.key(),
       t.matched_files,
       t.files,
       t.matched_lines,
-      t.lines
+      t.lines,
+      t.skipped
     ));
   }
   out
 }
 
-/// The standard formatter's output for a case, from the cache or a run; `None` when it
-/// fails on the input.
-fn reference_output(case: &Case, options: &Options, home: &Path) -> Option<String> {
+/// The standard formatter's answer for a case, from the cache or a run.
+fn reference_output(case: &Case, options: &Options, home: &Path) -> Answer {
   standard_output(
     &case.input,
     case.edition,
@@ -937,41 +1069,43 @@ fn report(
 }
 
 /// The standard formatter on `text` from `dir`, with an empty home folder.
-fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Option<String> {
-  let mut child = Command::new("rustfmt")
-    .args(["--edition", edition, "--emit", "stdout"])
-    .current_dir(dir)
-    .env("HOME", home)
-    .env_remove("XDG_CONFIG_HOME")
-    .env("RUSTUP_AUTO_INSTALL", "0")
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null())
-    .spawn()
-    .ok()?;
-  let mut stdin = child.stdin.take()?;
-  let input = text.to_string();
-  let writer = std::thread::spawn(move || {
-    let _ = stdin.write_all(input.as_bytes());
-  });
-  let output = child.wait_with_output().ok()?;
-  let _ = writer.join();
-  if !output.status.success() {
-    return None;
+fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answer {
+  let done = process::output_with_input(
+    Command::new("rustfmt")
+      .args(["--edition", edition, "--emit", "stdout"])
+      .current_dir(dir)
+      .env("HOME", home)
+      .env_remove("XDG_CONFIG_HOME")
+      .env("RUSTUP_AUTO_INSTALL", "0")
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    Some(text.as_bytes()),
+    STANDARD_LIMIT,
+  );
+  match done {
+    Ok(done) => classify(done),
+    Err(e) => Answer::NotRun(format!("cannot run rustfmt: {}", e)),
   }
-  String::from_utf8(output.stdout).ok()
 }
 
 fn score(case: &Case, options: &Options, home: &Path) -> Score {
   let answer = match &case.expected {
-    Some(expected) => Some(expected.clone()),
-    None => reference_output(case, options, home),
-  };
-  let Some(answer) = answer else {
-    return Score {
-      skipped: true,
-      ..Score::default()
-    };
+    Some(expected) => expected.clone(),
+    None => match reference_output(case, options, home) {
+      Answer::Text(text) => text,
+      Answer::Refused(_) => {
+        return Score {
+          skipped: true,
+          ..Score::default()
+        };
+      }
+      Answer::NotRun(why) => {
+        return Score {
+          unanswered: Some(why),
+          ..Score::default()
+        };
+      }
+    },
   };
   let meaning = {
     let found = mtindo::verify::format::verify_format(&case.input, &answer, case.edition);
@@ -1019,6 +1153,8 @@ fn score(case: &Case, options: &Options, home: &Path) -> Score {
   });
   Score {
     skipped: false,
+    unanswered: None,
+    panicked: None,
     matches,
     lines: expected.len(),
     matched_lines,
@@ -1044,7 +1180,14 @@ fn score_all(cases: &[Case], options: &Options, home: &Path) -> Vec<Score> {
             let Some(case) = cases.get(at) else {
               break;
             };
-            mine.push((at, score(case, options, home)));
+            // A panic in mto is a finding about that input, not a reason to lose the batch.
+            let scored =
+              std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| score(case, options, home)))
+                .unwrap_or_else(|payload| Score {
+                  panicked: Some(panic_message(&*payload)),
+                  ..Score::default()
+                });
+            mine.push((at, scored));
             let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
             if finished.is_multiple_of(2000) {
               eprintln!("  {} of {}", finished, cases.len());
@@ -1062,7 +1205,15 @@ fn score_all(cases: &[Case], options: &Options, home: &Path) -> Vec<Score> {
   for (at, score) in results {
     scores[at] = Some(score);
   }
-  scores.into_iter().map(Option::unwrap_or_default).collect()
+  scores
+    .into_iter()
+    .map(|score| {
+      score.unwrap_or_else(|| Score {
+        panicked: Some("its worker thread died before scoring it".to_string()),
+        ..Score::default()
+      })
+    })
+    .collect()
 }
 
 /// Whether a string literal holds a line break: line endings inside it are its contents.
@@ -1080,6 +1231,15 @@ fn strings_span_lines(text: &str, edition: Edition) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  fn finished(code: i32, stdout: &str, stderr: &str, timed_out: bool) -> process::Separate {
+    process::Separate {
+      code,
+      stdout: stdout.as_bytes().to_vec(),
+      stderr: stderr.as_bytes().to_vec(),
+      timed_out,
+    }
+  }
 
   #[test]
   fn test_common_lines_is_the_longest_common_subsequence() {
@@ -1107,6 +1267,30 @@ mod tests {
   }
 
   #[test]
+  fn test_only_a_real_refusal_is_a_refusal() {
+    assert_eq!(
+      classify(finished(0, "fn f() {}\n", "", false)),
+      Answer::Text("fn f() {}\n".into())
+    );
+    assert_eq!(
+      classify(finished(1, "", "error: expected item", false)),
+      Answer::Refused(format!("{}1\nerror: expected item", REFUSED_HEADER))
+    );
+    assert!(matches!(
+      classify(finished(137, "", "", false)),
+      Answer::NotRun(_)
+    ));
+    assert!(matches!(
+      classify(finished(-1, "", "", false)),
+      Answer::NotRun(_)
+    ));
+    assert!(matches!(
+      classify(finished(process::TIMED_OUT, "", "", true)),
+      Answer::NotRun(_)
+    ));
+  }
+
+  #[test]
   fn test_records_round_trip_and_drops_are_found() {
     let mut tallies = BTreeMap::new();
     tallies.insert(
@@ -1122,6 +1306,18 @@ mod tests {
     let text = record_text("rustfmt 1.0", &tallies);
     let (reference, sets) = parse_record(&text);
     assert_eq!(reference, "rustfmt 1.0");
-    assert_eq!(sets["corpus"].matched_lines, 90);
+    assert_eq!(sets["corpus"].0.matched_lines, 90);
+    assert!(sets["corpus"].1);
+    let old = parse_record("set corpus files 4 10 lines 90 100\n").1;
+    assert_eq!((old["corpus"].0.files, old["corpus"].1), (10, false));
+    assert!(drops(&sets, &tallies).is_empty());
+    let mut worse = tallies.clone();
+    worse.get_mut(&Set::Corpus).unwrap().matched_lines = 89;
+    worse.get_mut(&Set::Corpus).unwrap().skipped = 1;
+    let found = drops(&sets, &worse);
+    assert_eq!(found.len(), 2, "{:?}", found);
+    assert!(found[0].contains("refuses"), "{:?}", found);
+    // A record without skipped counts does not hold them against a run.
+    assert_eq!(drops(&old, &worse).len(), 1);
   }
 }

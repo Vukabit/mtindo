@@ -381,10 +381,14 @@ is expected to leave the layout alone.
 
 ## Development
 
-`cargo xtask test` runs every gate and test suite and reports each as passed,
-failed or skipped (with the reason). `cargo xtask test -h` lists every group,
-task, flag and environment variable. Each run is logged, with every task's full
-output, to `logs/test.log` (not tracked by git). While it runs, the machine is
+`cargo xtask test` runs every gate and test suite and reports each as passed
+or failed; tasks outside the chosen groups are listed as skipped, with how to
+run them. A chosen task whose tool is missing fails instead of being skipped,
+and every task runs under a time limit, so a green run means every chosen task
+ran and passed. `cargo xtask test -h` lists every group, task, flag and
+environment variable. Each run is logged, with every task's full output, to
+`logs/test.log`, and each green run is added to `logs/last-green.tsv` with the
+exact tree it ran on (neither is tracked by git). While it runs, the machine is
 kept awake (`caffeinate` on macOS, `systemd-inhibit` on Linux), and a fuzz task
 fails if the machine slept anyway, since sleep would cut its fuzzing short.
 

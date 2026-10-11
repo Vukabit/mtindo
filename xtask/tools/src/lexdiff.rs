@@ -11,9 +11,6 @@ use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::{Edition, SyntaxKind};
 use ra_ap_rustc_lexer as rustc;
 
-/// Directories compared when no paths are given.
-const DEFAULT_PATHS: &[&str] = &["src", "tests", "benches", "xtask/src", "fuzz/fuzz_targets"];
-
 /// How many differences to print per file.
 const SHOWN_PER_FILE: usize = 3;
 
@@ -52,13 +49,17 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     }
     idx += 1;
   }
+  let mut files = Vec::new();
   if paths.is_empty() {
-    for path in DEFAULT_PATHS {
-      paths.push(root.join(path));
+    // Every file of the repository.
+    match crate::common::repo_rust_files(root) {
+      Ok(all) => files.extend(all),
+      Err(e) => {
+        eprintln!("lexdiff: {}", e);
+        return ExitCode::from(1);
+      }
     }
   }
-
-  let mut files = Vec::new();
   for path in paths.iter() {
     collect(path, &mut files);
   }
@@ -71,7 +72,11 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
   for file in files.iter() {
     let text = match fs::read_to_string(file) {
       Ok(text) => text,
-      Err(_) => continue,
+      Err(e) => {
+        differing += 1;
+        println!("{}: cannot read: {}", file.display(), e);
+        continue;
+      }
     };
     compared += 1;
     let (ours, theirs) = (mto_spans(&text, edition), rustc_spans(&text));
@@ -105,6 +110,10 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     differing,
     expected_lines.len()
   );
+  if compared == 0 {
+    println!("lexdiff: no files compared, so nothing was checked");
+    return ExitCode::from(1);
+  }
   if differing == 0 {
     ExitCode::SUCCESS
   } else {
@@ -338,4 +347,58 @@ fn rustc_spans(text: &str) -> Vec<Span> {
     offset = end;
   }
   spans
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// A scratch folder holding `files`; removed when dropped.
+  struct Scratch(PathBuf);
+
+  impl Scratch {
+    fn new(name: &str, files: &[(&str, &str)]) -> Scratch {
+      let dir = std::env::temp_dir().join(format!("{}-{}", name, std::process::id()));
+      let _ = fs::remove_dir_all(&dir);
+      fs::create_dir_all(&dir).unwrap();
+      for (path, text) in files {
+        fs::write(dir.join(path), text).unwrap();
+      }
+      Scratch(dir)
+    }
+
+    fn arg(&self) -> Vec<String> {
+      vec![self.0.display().to_string()]
+    }
+  }
+
+  impl Drop for Scratch {
+    fn drop(&mut self) {
+      let _ = fs::remove_dir_all(&self.0);
+    }
+  }
+
+  #[test]
+  fn test_a_known_difference_is_expected_not_unexplained() {
+    let (unexplained, expected, _) = differences("k#y\n", Edition::E2021);
+    assert!(unexplained.is_empty(), "{:?}", unexplained);
+    assert_eq!(expected.len(), 1, "{:?}", expected);
+  }
+
+  #[test]
+  fn test_a_run_passes_on_clean_files_and_fails_on_none() {
+    let clean = Scratch::new("lexdiff-clean", &[("a.rs", "fn f() {}\n")]);
+    assert_eq!(run(&clean.0, &clean.arg()), ExitCode::SUCCESS);
+    let empty = Scratch::new("lexdiff-empty", &[]);
+    assert_eq!(run(&empty.0, &empty.arg()), ExitCode::from(1));
+  }
+
+  #[test]
+  fn test_ordinary_code_lexes_the_same() {
+    let text = "fn f<'a>(x: &'a str) -> u8 { b'x' + 0x1f_u8 } // done\n/* nested /* */ */\n";
+    let (unexplained, expected, tokens) = differences(text, Edition::E2021);
+    assert!(unexplained.is_empty(), "{:?}", unexplained);
+    assert!(expected.is_empty(), "{:?}", expected);
+    assert!(tokens > 10);
+  }
 }

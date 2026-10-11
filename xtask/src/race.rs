@@ -47,7 +47,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::{IsTerminal, Read, Write};
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Instant;
@@ -174,6 +174,9 @@ const NOISY_PERCENT: f64 = 5.0;
 const REAL_ROW: &str = "real code (largest corpus files)";
 
 const STARTUP_ROW: &str = "process start-up (per run)";
+
+/// The longest one tool may take on one input.
+const TOOL_LIMIT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 const TOOLS: [Tool; 3] = [Tool::Stable, Tool::Nightly, Tool::Mto];
 
@@ -1117,6 +1120,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     "cargo",
     &["build", "--quiet", "--release", "--bin", "mto"].map(String::from),
     &[],
+    process::LONG,
   );
   if code != 0 {
     return Err(format!("cannot build mto:\n{}", out));
@@ -1130,6 +1134,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
       "HEAD".to_string(),
     ],
     &[],
+    process::QUICK,
   )
   .1;
   let (_, mto_version) = process::capture(
@@ -1137,6 +1142,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     &mto_binary(root).display().to_string(),
     &["--version".to_string()],
     &[],
+    process::QUICK,
   );
   versions.insert(
     Tool::Mto,
@@ -1820,30 +1826,26 @@ fn run_tool_full(
       c
     }
   };
-  let child = command
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn();
-  let Ok(mut child) = child else {
+  let done = process::output_with_input(
+    command.stdout(Stdio::piped()).stderr(Stdio::piped()),
+    Some(text.as_bytes()),
+    TOOL_LIMIT,
+  );
+  let Ok(done) = done else {
     return (None, String::new(), String::new());
   };
-  if let Some(mut stdin) = child.stdin.take() {
-    let bytes = text.as_bytes().to_vec();
-    std::thread::spawn(move || {
-      let _ = stdin.write_all(&bytes);
-    });
+  let mut stderr = String::from_utf8_lossy(&done.stderr).into_owned();
+  if done.timed_out {
+    stderr.push_str(&format!(
+      "stopped at the time limit of {}\n",
+      process::duration(TOOL_LIMIT)
+    ));
   }
-  let mut stdout = String::new();
-  let mut stderr = String::new();
-  if let Some(mut out) = child.stdout.take() {
-    let _ = out.read_to_string(&mut stdout);
-  }
-  if let Some(mut err) = child.stderr.take() {
-    let _ = err.read_to_string(&mut stderr);
-  }
-  let code = child.wait().ok().and_then(|s| s.code());
-  (code, stdout, stderr)
+  (
+    Some(done.code),
+    String::from_utf8_lossy(&done.stdout).into_owned(),
+    stderr,
+  )
 }
 
 fn rustfmt_version(root: &Path, tool: Tool) -> String {
@@ -1853,7 +1855,7 @@ fn rustfmt_version(root: &Path, tool: Tool) -> String {
   }
   args.push("--version".to_string());
   let env = [("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())];
-  let (code, out) = process::capture(root, "rustfmt", &args, &env);
+  let (code, out) = process::capture(root, "rustfmt", &args, &env, process::QUICK);
   if code != 0 {
     return String::new();
   }

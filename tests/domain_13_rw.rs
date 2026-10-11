@@ -25,50 +25,74 @@ const LAYOUT_CONFIGS: &[(&str, &str)] = &[
   ),
 ];
 
-const REAL_WORLD_TARGETS: &[(&str, &str)] = &[
+/// The crates, smallest first. Each is checked out at the commit `compat/corpus.txt` pins
+/// it to, so the result changes only when mto or a pin does.
+const REAL_WORLD_TARGETS: &[&str] = &[
   // Small
-  (
-    "lazy_static",
-    "https://github.com/rust-lang-nursery/lazy-static.rs.git",
-  ),
-  ("itoa", "https://github.com/dtolnay/itoa.git"),
-  ("termcolor", "https://github.com/BurntSushi/termcolor.git"),
-  ("logos", "https://github.com/maciejhirsz/logos.git"),
-  ("once_cell", "https://github.com/matklad/once_cell.git"),
+  "lazy_static",
+  "itoa",
+  "termcolor",
+  "logos",
+  "once_cell",
   // Medium
-  ("bitflags", "https://github.com/bitflags/bitflags.git"),
-  ("bytes", "https://github.com/tokio-rs/bytes.git"),
-  ("crossbeam", "https://github.com/crossbeam-rs/crossbeam.git"),
-  ("uuid", "https://github.com/uuid-rs/uuid.git"),
-  ("anyhow", "https://github.com/dtolnay/anyhow.git"),
+  "bitflags",
+  "bytes",
+  "crossbeam",
+  "uuid",
+  "anyhow",
   // Large
-  ("clap", "https://github.com/clap-rs/clap.git"),
-  ("serde", "https://github.com/serde-rs/serde.git"),
-  ("tokio", "https://github.com/tokio-rs/tokio.git"),
-  ("rayon", "https://github.com/rayon-rs/rayon.git"),
-  ("rand", "https://github.com/rust-random/rand.git"),
+  "clap",
+  "serde",
+  "tokio",
+  "rayon",
+  "rand",
 ];
 
-#[test]
-fn test_realworld_compilation_invariance() {
-  if std::env::var("MTINDO_HEAVY_TESTS").is_err() {
-    println!("Skipping Domain 13: Set MTINDO_HEAVY_TESTS=1 to execute real-world clone checks.");
-    return;
-  }
+fn git(dir: &std::path::Path, args: &[&str]) -> bool {
+  Command::new("git")
+    .args(args)
+    .current_dir(dir)
+    .status()
+    .is_ok_and(|s| s.success())
+}
 
+/// The URL and commit `compat/corpus.txt` pins `name` to.
+fn pin(name: &str) -> (String, String) {
+  let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("compat/corpus.txt");
+  let pins = std::fs::read_to_string(&path).expect("compat/corpus.txt is readable");
+  pins
+    .lines()
+    .map(|line| line.split_whitespace().collect::<Vec<_>>())
+    .find(|words| words.len() >= 3 && words[0] == name)
+    .map(|words| (words[1].to_string(), words[2].to_string()))
+    .unwrap_or_else(|| panic!("compat/corpus.txt pins no commit for {}", name))
+}
+
+#[test]
+#[ignore = "network: clones 15 crates and builds each four times; \
+            run with `cargo xtask test --target domain_13_rw`"]
+fn test_realworld_compilation_invariance() {
   let env = TestEnvironment::new();
   let mut failures = Vec::new();
 
-  for (name, url) in REAL_WORLD_TARGETS {
-    println!(">>> Evaluating Ecosystem Target: {}", name);
+  for name in REAL_WORLD_TARGETS {
+    let (url, commit) = pin(name);
+    println!(
+      ">>> Evaluating Ecosystem Target: {} at {}",
+      name,
+      &commit[..12]
+    );
     let repo_dir = env.dir.path().join(name);
-
-    let mut clone_cmd = Command::new("git");
-    clone_cmd
-      .args(["clone", "--depth", "1", url, name])
-      .current_dir(env.dir.path());
-    if !clone_cmd.status().unwrap().success() {
-      failures.push(format!("{}: clone failed", name));
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    // Only the pinned commit, fetched by its hash.
+    let fetched = git(&repo_dir, &["init", "--quiet"])
+      && git(
+        &repo_dir,
+        &["fetch", "--quiet", "--depth", "1", &url, &commit],
+      )
+      && git(&repo_dir, &["checkout", "--quiet", "FETCH_HEAD"]);
+    if !fetched {
+      failures.push(format!("{}: cannot fetch {} at {}", name, url, commit));
       continue;
     }
 
@@ -86,12 +110,11 @@ fn test_realworld_compilation_invariance() {
     // Each configuration from a clean checkout: the defaults, then two mixes that
     // between them turn every layout setting away from its default.
     for (label, settings) in LAYOUT_CONFIGS {
-      let clean = Command::new("git")
-        .args(["checkout", "--quiet", "--", "."])
-        .current_dir(&repo_dir)
-        .status()
-        .unwrap();
-      assert!(clean.success(), "{}: git checkout failed", name);
+      assert!(
+        git(&repo_dir, &["checkout", "--quiet", "--", "."]),
+        "{}: git checkout failed",
+        name
+      );
       std::fs::write(
         repo_dir.join("mto.toml"),
         format!("root = true\nlayout = true\n{}", settings),

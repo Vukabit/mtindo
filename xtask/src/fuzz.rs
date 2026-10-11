@@ -27,10 +27,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::common::log::{Logger, timestamp};
-use crate::common::process;
+use crate::common::{process, tree};
 
 const INDEX_HEADER: &str = "crashed\ttarget\tkind\tstatus\tcommit\tfolder\n";
 
@@ -47,9 +47,141 @@ const RSS_LIMIT_MB: &str = "-rss_limit_mb=4096";
 /// Beside a staged input: the output of the run that found it.
 const SAID_SUFFIX: &str = ".said";
 
+/// Replays an input: whether it still fails (`fails`, `no longer fails` or `replay did not
+/// run`), and the end of what the run printed.
+type Replayer = dyn Fn(&Path, &str, &Path) -> (&'static str, Vec<String>);
+
+/// What a recheck found, by replay status.
+#[derive(Debug, Default, PartialEq)]
+struct Counts {
+  fails: usize,
+  fixed: usize,
+  unknown: usize,
+}
+
 /// Files every input waiting in the staging folders, cargo-fuzz's default artifacts folder
 /// and the repository root; returns how many were filed.
 pub fn collect(root: &Path, log: &Logger) -> usize {
+  collect_with(root, log, &replay)
+}
+
+/// Fuzzes `target` for `seconds` with libFuzzer's inputs staged for filing and the run's
+/// failure output saved beside the one it failed on, without filing them, so that several
+/// targets can run at once and [`collect`] once after. Returns libFuzzer's exit code and
+/// the end of what the run said.
+pub fn fuzz_target(root: &Path, target: &str, seconds: u32, log: &Logger) -> (i32, Vec<String>) {
+  let incoming = crashes(root).join(".incoming").join(target);
+  if let Err(e) = fs::create_dir_all(&incoming) {
+    return (
+      1,
+      vec![format!("cannot create {}: {}", incoming.display(), e)],
+    );
+  }
+  let before: Vec<PathBuf> = staged(&incoming);
+  let args: Vec<String> = vec![
+    "+nightly".into(),
+    "fuzz".into(),
+    "run".into(),
+    target.into(),
+    "--".into(),
+    format!("-max_total_time={}", seconds),
+    RSS_LIMIT_MB.into(),
+    // libFuzzer joins the prefix and the name as given, so it ends with a separator.
+    format!("-artifact_prefix={}/", incoming.display()),
+  ];
+  log.info(&format!("fuzzing {} for {}s", target, seconds));
+  // Building comes first, under the long limit; then the fuzzing itself.
+  let limit = Duration::from_secs(seconds.into()) + process::LONG;
+  let (code, output) = process::capture(root, "cargo", &args, &[], limit);
+  let said = failure_lines(&output);
+  log.info(&format!("fuzzed {}: exit {}", target, code));
+  // What the run said goes beside each input it left (libFuzzer stops at the first crash).
+  for input in staged(&incoming)
+    .into_iter()
+    .filter(|p| !before.contains(p))
+  {
+    let note = format!(
+      "run: cargo {}\nexit: {}\n\n{}\n",
+      args.join(" "),
+      code,
+      said.join("\n")
+    );
+    let _ = fs::write(format!("{}{}", input.display(), SAID_SUFFIX), note);
+  }
+  (code, said)
+}
+
+pub fn run(root: &Path, args: &[String]) -> ExitCode {
+  let log = Logger::new(root, "fuzz");
+  log.info(&format!("cargo xtask fuzz {}", args.join(" ")));
+  match args.first().map(String::as_str) {
+    Some("run") => {
+      let Some(target) = args.get(1) else {
+        return usage();
+      };
+      let seconds = match args.get(2).map(String::as_str) {
+        None => 60,
+        Some("--time") => match args.get(3).and_then(|s| s.parse::<u32>().ok()) {
+          Some(seconds) => seconds,
+          None => return usage(),
+        },
+        Some(_) => return usage(),
+      };
+      ExitCode::from(run_target(root, target, seconds, &log) as u8)
+    }
+    Some("collect") => {
+      let filed = collect(root, &log);
+      println!("filed {} crash(es) under fuzz/crashes/", filed);
+      ExitCode::SUCCESS
+    }
+    Some("recheck") => {
+      log.info("recheck: replaying every filed crash");
+      let counts = recheck(root, &log, &replay);
+      let summary = format!(
+        "{} still fail, {} no longer fail, {} could not be replayed",
+        counts.fails, counts.fixed, counts.unknown
+      );
+      println!("{}", summary);
+      log.info(&format!("recheck done: {}", summary));
+      // A replay that did not run proves nothing, so it does not pass either.
+      if counts.fails + counts.unknown > 0 {
+        ExitCode::from(1)
+      } else {
+        ExitCode::SUCCESS
+      }
+    }
+    Some("list") => {
+      match fs::read_to_string(crashes(root).join("INDEX.tsv")) {
+        Ok(index) => print!("{}", index),
+        Err(_) => println!("no crashes filed yet"),
+      }
+      ExitCode::SUCCESS
+    }
+    _ => usage(),
+  }
+}
+
+/// Fuzzes `target` for `seconds` (see [`fuzz_target`]), then files what it found. The exit
+/// code is libFuzzer's (0 when nothing was found), clamped to a byte.
+pub fn run_target(root: &Path, target: &str, seconds: u32, log: &Logger) -> i32 {
+  let (code, said) = fuzz_target(root, target, seconds, log);
+  if code == 0 {
+    println!("fuzzed {} for {}s: nothing found", target, seconds);
+  } else {
+    println!("{}", said.join("\n"));
+  }
+  let filed = collect(root, log);
+  if filed > 0 {
+    println!(
+      "filed {} crash(es) under fuzz/crashes/{}/ (cargo xtask fuzz list)",
+      filed, target
+    );
+  }
+  code.clamp(0, 255)
+}
+
+/// [`collect`], replaying with `replayer`.
+fn collect_with(root: &Path, log: &Logger, replayer: &Replayer) -> usize {
   let mut waiting: Vec<(String, PathBuf)> = Vec::new();
   for dir in [
     crashes(root).join(".incoming"),
@@ -83,12 +215,12 @@ pub fn collect(root: &Path, log: &Logger) -> usize {
     }
   }
   waiting.sort();
-  let commit = commit(root);
+  let commit = tree::identity(root);
   let mut filed = 0;
   for (target, path) in waiting {
     let said_path = PathBuf::from(format!("{}{}", path.display(), SAID_SUFFIX));
     let said = fs::read_to_string(&said_path).ok();
-    match file_one(root, &target, &path, said.as_deref(), &commit) {
+    match file_one(root, &target, &path, said.as_deref(), &commit, replayer) {
       Ok(folder) => {
         log.info(&format!("filed {} as {}", path.display(), folder.display()));
         let _ = fs::remove_file(&path);
@@ -102,123 +234,6 @@ pub fn collect(root: &Path, log: &Logger) -> usize {
     }
   }
   filed
-}
-
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
-  let log = Logger::new(root, "fuzz");
-  log.info(&format!("cargo xtask fuzz {}", args.join(" ")));
-  match args.first().map(String::as_str) {
-    Some("run") => {
-      let Some(target) = args.get(1) else {
-        return usage();
-      };
-      let seconds = match args.get(2).map(String::as_str) {
-        None => 60,
-        Some("--time") => match args.get(3).and_then(|s| s.parse::<u32>().ok()) {
-          Some(seconds) => seconds,
-          None => return usage(),
-        },
-        Some(_) => return usage(),
-      };
-      ExitCode::from(run_target(root, target, seconds, &log) as u8)
-    }
-    Some("collect") => {
-      let filed = collect(root, &log);
-      println!("filed {} crash(es) under fuzz/crashes/", filed);
-      ExitCode::SUCCESS
-    }
-    Some("recheck") => {
-      recheck(root, &log);
-      ExitCode::SUCCESS
-    }
-    Some("list") => {
-      match fs::read_to_string(crashes(root).join("INDEX.tsv")) {
-        Ok(index) => print!("{}", index),
-        Err(_) => println!("no crashes filed yet"),
-      }
-      ExitCode::SUCCESS
-    }
-    _ => usage(),
-  }
-}
-
-/// Fuzzes `target` for `seconds` with libFuzzer's inputs staged for filing and the run's
-/// failure output saved beside the one it failed on, then files them. The exit code is
-/// libFuzzer's (0 when nothing was found), clamped to a byte.
-pub fn run_target(root: &Path, target: &str, seconds: u32, log: &Logger) -> i32 {
-  let incoming = crashes(root).join(".incoming").join(target);
-  if let Err(e) = fs::create_dir_all(&incoming) {
-    println!("cannot create {}: {}", incoming.display(), e);
-    return 1;
-  }
-  let before: Vec<PathBuf> = staged(&incoming);
-  let args: Vec<String> = vec![
-    "+nightly".into(),
-    "fuzz".into(),
-    "run".into(),
-    target.into(),
-    "--".into(),
-    format!("-max_total_time={}", seconds),
-    RSS_LIMIT_MB.into(),
-    // libFuzzer joins the prefix and the name as given, so it ends with a separator.
-    format!("-artifact_prefix={}/", incoming.display()),
-  ];
-  log.info(&format!("fuzzing {} for {}s", target, seconds));
-  let (code, output) = process::capture(root, "cargo", &args, &[]);
-  let said = failure_lines(&output);
-  if code != 0 {
-    println!("{}", said.join("\n"));
-  }
-  // What the run said goes beside each input it left (libFuzzer stops at the first crash).
-  for input in staged(&incoming)
-    .into_iter()
-    .filter(|p| !before.contains(p))
-  {
-    let note = format!(
-      "run: cargo {}\nexit: {}\n\n{}\n",
-      args.join(" "),
-      code,
-      said.join("\n")
-    );
-    let _ = fs::write(format!("{}{}", input.display(), SAID_SUFFIX), note);
-  }
-  let filed = collect(root, log);
-  if filed > 0 {
-    println!(
-      "filed {} crash(es) under fuzz/crashes/{}/ (cargo xtask fuzz list)",
-      filed, target
-    );
-  }
-  code.clamp(0, 255)
-}
-
-/// The commit checked out; with uncommitted changes, `-dirty.` and a digest of them.
-fn commit(root: &Path) -> String {
-  let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-  let (code, hash) = process::capture(root, "git", &args(&["rev-parse", "--short", "HEAD"]), &[]);
-  if code != 0 {
-    return "unknown".to_string();
-  }
-  let (_, status) = process::capture(root, "git", &args(&["status", "--porcelain"]), &[]);
-  if status.trim().is_empty() {
-    return hash.trim().to_string();
-  }
-  // Uncommitted changes, named by a digest of the diff against HEAD and of the untracked
-  // files, so that a status recorded on a dirty tree says which tree it was.
-  let (_, diff) = process::capture(root, "git", &args(&["diff", "HEAD", "--binary"]), &[]);
-  let (_, untracked) = process::capture(
-    root,
-    "git",
-    &args(&["ls-files", "--others", "--exclude-standard"]),
-    &[],
-  );
-  let mut changes = diff.into_bytes();
-  for file in untracked.lines() {
-    changes.extend_from_slice(file.as_bytes());
-    changes.extend(fs::read(root.join(file)).unwrap_or_default());
-  }
-  let digest = crate::sha256::hex_digest(&changes);
-  format!("{}-dirty.{}", hash.trim(), &digest[..8])
 }
 
 /// `2026-10-11T15:17:30.123Z` as `20261011-151730`, for folder names.
@@ -257,6 +272,7 @@ fn file_one(
   path: &Path,
   said: Option<&str>,
   commit: &str,
+  replayer: &Replayer,
 ) -> Result<PathBuf, String> {
   let name = path
     .file_name()
@@ -275,7 +291,7 @@ fn file_one(
   fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
   let input = folder.join("input");
   fs::write(&input, &bytes).map_err(|e| e.to_string())?;
-  let (status, replay_output) = replay(root, target, &input);
+  let (status, replay_output) = replayer(root, target, &input);
   let now = timestamp(SystemTime::now());
   let mut info = String::new();
   info.push_str(&format!("target:   {}\n", target));
@@ -330,7 +346,7 @@ fn file_one(
     commit,
     relative(root, &folder)
   ));
-  fs::write(&index, text).map_err(|e| e.to_string())?;
+  write_atomic(&index, &text).map_err(|e| e.to_string())?;
   Ok(folder)
 }
 
@@ -344,13 +360,14 @@ fn latest_replay(when: &str, commit: &str, output: &[String]) -> String {
 }
 
 /// Replays every filed crash, adding the result to its history and the index.
-fn recheck(root: &Path, log: &Logger) {
+fn recheck(root: &Path, log: &Logger, replayer: &Replayer) -> Counts {
+  let mut counts = Counts::default();
   let index_path = crashes(root).join("INDEX.tsv");
   let Ok(index) = fs::read_to_string(&index_path) else {
     println!("no crashes filed yet");
-    return;
+    return counts;
   };
-  let commit = commit(root);
+  let commit = tree::identity(root);
   let now = timestamp(SystemTime::now());
   let mut out = String::from(INDEX_HEADER);
   for line in index.lines().skip(1) {
@@ -361,7 +378,12 @@ fn recheck(root: &Path, log: &Logger) {
       continue;
     }
     let folder = root.join(&fields[5]);
-    let (status, replay_output) = replay(root, &fields[1], &folder.join("input"));
+    let (status, replay_output) = replayer(root, &fields[1], &folder.join("input"));
+    match status {
+      "fails" => counts.fails += 1,
+      "no longer fails" => counts.fixed += 1,
+      _ => counts.unknown += 1,
+    }
     println!("{}  {} at {}", fields[5], status, commit);
     log.info(&format!(
       "rechecked {}: {} at {}",
@@ -392,12 +414,13 @@ fn recheck(root: &Path, log: &Logger) {
         updated.join("\n"),
         latest_replay(&now, &commit, &replay_output)
       );
-      let _ = fs::write(folder.join("info.txt"), text);
+      let _ = write_atomic(&folder.join("info.txt"), &text);
     }
     out.push_str(&fields.join("\t"));
     out.push('\n');
   }
-  let _ = fs::write(&index_path, out);
+  let _ = write_atomic(&index_path, &out);
+  counts
 }
 
 fn relative(root: &Path, path: &Path) -> String {
@@ -420,7 +443,7 @@ fn replay(root: &Path, target: &str, input: &Path) -> (&'static str, Vec<String>
     RSS_LIMIT_MB.into(),
     REPLAY_TIMEOUT.into(),
   ];
-  let (code, output) = process::capture(root, "cargo", &args, &[]);
+  let (code, output) = process::capture(root, "cargo", &args, &[], process::LONG);
   // Only what libFuzzer says counts: a clean run reports `Executed <input> in`, a failing
   // one a panic or its own error. Anything else (a build error, no nightly toolchain) means
   // the replay did not run, which proves nothing either way.
@@ -459,5 +482,200 @@ fn staged(folder: &Path) -> Vec<PathBuf> {
 
 fn usage() -> ExitCode {
   eprintln!("Usage: cargo xtask fuzz run TARGET [--time SECONDS] | collect | recheck | list");
+  eprintln!("recheck exits 1 while any crash still fails or could not be replayed.");
   ExitCode::from(2)
+}
+
+/// Writes through a temporary file and a rename, so a reader never sees half a file.
+fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+  let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
+  fs::write(&temporary, text)?;
+  fs::rename(&temporary, path)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// A scratch repository root, removed when dropped.
+  struct Scratch(PathBuf);
+
+  impl Scratch {
+    fn new(name: &str) -> Scratch {
+      let dir = std::env::temp_dir().join(format!("xtask-fuzz-{}-{}", name, std::process::id()));
+      let _ = fs::remove_dir_all(&dir);
+      fs::create_dir_all(&dir).unwrap();
+      Scratch(dir)
+    }
+  }
+
+  impl Drop for Scratch {
+    fn drop(&mut self) {
+      let _ = fs::remove_dir_all(&self.0);
+    }
+  }
+
+  fn did_not_run(_: &Path, _: &str, _: &Path) -> (&'static str, Vec<String>) {
+    ("replay did not run", vec!["error: no nightly".to_string()])
+  }
+
+  fn fails(_: &Path, _: &str, _: &Path) -> (&'static str, Vec<String>) {
+    (
+      "fails",
+      vec!["thread panicked at src/x.rs:1:1:".to_string()],
+    )
+  }
+
+  fn filed_folders(root: &Path, target: &str) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = fs::read_dir(crashes(root).join(target))
+      .map(|d| d.flatten().map(|e| e.path()).collect())
+      .unwrap_or_default();
+    folders.sort();
+    folders
+  }
+
+  fn fixed(_: &Path, _: &str, _: &Path) -> (&'static str, Vec<String>) {
+    (
+      "no longer fails",
+      vec!["Executed input in 1 ms".to_string()],
+    )
+  }
+
+  #[test]
+  fn test_collect_files_a_staged_input_with_what_it_said() {
+    let scratch = Scratch::new("collect");
+    let root = &scratch.0;
+    let log = Logger::new(root, "fuzz");
+    let incoming = crashes(root).join(".incoming").join("format");
+    fs::create_dir_all(&incoming).unwrap();
+    fs::write(incoming.join("crash-0123456789abcdef"), b"fn f() {}").unwrap();
+    fs::write(
+      incoming.join(format!("crash-0123456789abcdef{}", SAID_SUFFIX)),
+      "thread panicked at src/format/stmt.rs:312:9:\na second run changed it\n",
+    )
+    .unwrap();
+    assert_eq!(collect_with(root, &log, &fails), 1);
+    assert!(staged(&incoming).is_empty(), "the staged input is left");
+    assert!(
+      !incoming
+        .join(format!("crash-0123456789abcdef{}", SAID_SUFFIX))
+        .exists()
+    );
+    let folders = filed_folders(root, "format");
+    assert_eq!(folders.len(), 1);
+    let name = folders[0]
+      .file_name()
+      .unwrap()
+      .to_string_lossy()
+      .into_owned();
+    assert!(name.ends_with("-crash-01234567"), "{}", name);
+    assert_eq!(fs::read(folders[0].join("input")).unwrap(), b"fn f() {}");
+    let info = fs::read_to_string(folders[0].join("info.txt")).unwrap();
+    assert!(info.contains("target:   format\n"));
+    assert!(info.contains("status:   fails at unknown\n"), "{}", info);
+    assert!(info.contains("  a second run changed it\n"));
+    assert!(info.contains("  | fn f() {}\n"));
+    assert!(info.contains("latest replay ("));
+    let index = fs::read_to_string(crashes(root).join("INDEX.tsv")).unwrap();
+    let lines: Vec<&str> = index.lines().collect();
+    assert_eq!(lines[0], INDEX_HEADER.trim_end());
+    assert_eq!(lines.len(), 2);
+    assert!(
+      lines[1].contains("\tformat\tcrash\tfails at unknown\t"),
+      "{}",
+      lines[1]
+    );
+    assert!(!crashes(root).join("INDEX.tmp").exists());
+  }
+
+  #[test]
+  fn test_collect_files_inputs_left_at_the_root_as_unknown_target() {
+    let scratch = Scratch::new("root");
+    let root = &scratch.0;
+    let log = Logger::new(root, "fuzz");
+    fs::write(root.join("oom-fedcba9876543210"), b"x").unwrap();
+    fs::write(root.join("README.md"), b"not a crash").unwrap();
+    assert_eq!(collect_with(root, &log, &fails), 1);
+    assert!(!root.join("oom-fedcba9876543210").exists());
+    assert!(root.join("README.md").exists());
+    let folders = filed_folders(root, "unknown-target");
+    assert_eq!(folders.len(), 1);
+    let info = fs::read_to_string(folders[0].join("info.txt")).unwrap();
+    assert!(info.contains("kind:     oom\n"));
+    assert!(info.contains("not seen: found as a file"));
+  }
+
+  #[test]
+  fn test_compact_time() {
+    let time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_760_195_850);
+    assert_eq!(compact(time), "20251011-151730");
+  }
+
+  #[test]
+  fn test_failure_lines_start_at_the_panic() {
+    let mut output: Vec<String> = (0..50).map(|n| format!("#{} NEW", n)).collect();
+    output.push("thread '<unnamed>' panicked at src/x.rs:1:1:".to_string());
+    output.push("boom".to_string());
+    let said = failure_lines(&output.join("\n"));
+    assert_eq!(said[0], "thread '<unnamed>' panicked at src/x.rs:1:1:");
+    assert_eq!(said.len(), 2);
+    let quiet: Vec<String> = (0..50).map(|n| format!("line {}", n)).collect();
+    assert_eq!(failure_lines(&quiet.join("\n")).len(), 20);
+  }
+
+  #[test]
+  fn test_recheck_counts_and_records_each_status() {
+    let scratch = Scratch::new("recheck");
+    let root = &scratch.0;
+    let log = Logger::new(root, "fuzz");
+    let incoming = crashes(root).join(".incoming").join("lexer");
+    fs::create_dir_all(&incoming).unwrap();
+    fs::write(incoming.join("crash-aaaaaaaaaaaa"), b"a").unwrap();
+    fs::write(incoming.join("crash-bbbbbbbbbbbb"), b"b").unwrap();
+    assert_eq!(collect_with(root, &log, &fails), 2);
+
+    let counts = recheck(root, &log, &fails);
+    assert_eq!(
+      counts,
+      Counts {
+        fails: 2,
+        fixed: 0,
+        unknown: 0
+      }
+    );
+    let counts = recheck(root, &log, &did_not_run);
+    assert_eq!(
+      counts,
+      Counts {
+        fails: 0,
+        fixed: 0,
+        unknown: 2
+      }
+    );
+    let counts = recheck(root, &log, &fixed);
+    assert_eq!(
+      counts,
+      Counts {
+        fails: 0,
+        fixed: 2,
+        unknown: 0
+      }
+    );
+
+    let index = fs::read_to_string(crashes(root).join("INDEX.tsv")).unwrap();
+    assert_eq!(
+      index.matches("no longer fails at unknown").count(),
+      2,
+      "{}",
+      index
+    );
+    let info = fs::read_to_string(filed_folders(root, "lexer")[0].join("info.txt")).unwrap();
+    assert!(info.contains("status:   no longer fails at unknown\n"));
+    // Filing, then three rechecks: four lines of history, one latest replay.
+    let history = info.split("\nhistory:\n").nth(1).unwrap();
+    let history = history.split("\nlatest replay (").next().unwrap();
+    assert_eq!(history.lines().count(), 4, "{}", history);
+    assert_eq!(info.matches("latest replay (").count(), 1);
+    assert!(info.contains("  Executed input in 1 ms\n"));
+  }
 }

@@ -19,7 +19,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
@@ -31,6 +30,7 @@ use mtindo::{LayoutConfig, try_reorganize};
 
 use crate::common;
 use crate::log::Logger;
+use crate::process;
 
 const BASELINE_PATH: &str = "compat/baseline.txt";
 
@@ -40,6 +40,9 @@ const RUSTFMT_IMPLS: [&str; 4] = [
   "--config",
   "reorder_impl_items=true",
 ];
+
+/// The longest rustfmt may take on one file.
+const RUSTFMT_LIMIT: Duration = Duration::from_secs(120);
 
 /// rustfmt as the agreement checks run it: the stable toolchain, and nightly with its
 /// unstable `reorder_impl_items` on.
@@ -500,20 +503,19 @@ fn impl_config(edition: Edition) -> LayoutConfig {
 /// (`error[internal]: ...`) do not.
 fn rustfmt_accepts(path: &Path, edition: Edition) -> Option<bool> {
   let text = fs::read(path).ok()?;
-  let mut child = Command::new("rustfmt")
-    .args(["--edition", edition_year(edition), "--emit", "stdout"])
-    .env("RUSTUP_AUTO_INSTALL", "0")
-    .stdin(Stdio::piped())
-    .stdout(Stdio::null())
-    .stderr(Stdio::piped())
-    .spawn()
-    .ok()?;
-  let mut stdin = child.stdin.take()?;
-  let writer = std::thread::spawn(move || {
-    let _ = stdin.write_all(&text);
-  });
-  let output = child.wait_with_output().ok()?;
-  let _ = writer.join();
+  let output = process::output_with_input(
+    Command::new("rustfmt")
+      .args(["--edition", edition_year(edition), "--emit", "stdout"])
+      .env("RUSTUP_AUTO_INSTALL", "0")
+      .stdout(Stdio::null())
+      .stderr(Stdio::piped()),
+    Some(&text),
+    RUSTFMT_LIMIT,
+  )
+  .ok()?;
+  if output.timed_out {
+    return None;
+  }
   let stderr = String::from_utf8_lossy(&output.stderr);
   Some(
     !stderr
@@ -572,24 +574,19 @@ fn rustfmt_agreement(
 
 /// rustfmt's formatting of `text`, or `None` if it fails.
 fn rustfmt_stdout(text: &str, edition: Edition, dir: &Path, rustfmt: &[&str]) -> Option<String> {
-  let mut child = Command::new("rustfmt")
-    .args(rustfmt)
-    .args(["--edition", edition_year(edition), "--emit", "stdout"])
-    .current_dir(dir)
-    .env("RUSTUP_AUTO_INSTALL", "0")
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null())
-    .spawn()
-    .ok()?;
-  let mut stdin = child.stdin.take()?;
-  let input = text.to_string();
-  let writer = std::thread::spawn(move || {
-    let _ = stdin.write_all(input.as_bytes());
-  });
-  let output = child.wait_with_output().ok()?;
-  let _ = writer.join();
-  if !output.status.success() {
+  let output = process::output_with_input(
+    Command::new("rustfmt")
+      .args(rustfmt)
+      .args(["--edition", edition_year(edition), "--emit", "stdout"])
+      .current_dir(dir)
+      .env("RUSTUP_AUTO_INSTALL", "0")
+      .stdout(Stdio::piped())
+      .stderr(Stdio::null()),
+    Some(text.as_bytes()),
+    RUSTFMT_LIMIT,
+  )
+  .ok()?;
+  if output.code != 0 {
     return None;
   }
   String::from_utf8(output.stdout).ok()

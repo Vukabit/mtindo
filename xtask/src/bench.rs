@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::common::log::Logger;
 use crate::common::process;
@@ -32,6 +32,9 @@ pub const MIN_SPEEDUP: f64 = 2.0;
 
 /// The settings mto is timed with: layout on, and no configuration from outside the copy.
 const MTO_CONFIG: &str = "layout = true\nroot = true\n";
+
+/// The longest one timed command may run.
+const TIMED_LIMIT: Duration = Duration::from_secs(30 * 60);
 
 struct Copies {
   base: PathBuf,
@@ -115,8 +118,20 @@ pub fn run(root: &Path, repos: &[(String, PathBuf)], markdown: bool, log: &Logge
     .find(|r| r.tool.starts_with("mto, laid-out"))
     .map(Row::throughput)
     .unwrap_or(0.0);
+  let references: Vec<&Row> = rows
+    .iter()
+    .filter(|r| r.tool.starts_with("rustfmt") && r.bytes > 0 && r.wall > 0.0)
+    .collect();
+  if references.is_empty() {
+    println!(
+      "S2-1: not checked, so this fails: no rustfmt toolchain formatted anything to compare \
+       against. Install one with: rustup toolchain install stable --component rustfmt"
+    );
+    log.error("speed target not checked: no rustfmt reference row");
+    return 1;
+  }
   let mut failed = false;
-  for row in rows.iter().filter(|r| r.tool.starts_with("rustfmt")) {
+  for row in references {
     let speedup = laid / row.throughput();
     let verdict = if speedup >= MIN_SPEEDUP {
       "ok"
@@ -293,20 +308,25 @@ fn prepare(root: &Path, repos: &[(String, PathBuf)], log: &Logger) -> Result<Cop
   // Lay the copy out with the mto being measured; on a laid-out copy this changes little.
   println!("building mto (release) and laying out the copy...");
   let build = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
-  if process::capture(root, "cargo", &build, &[]).0 != 0 {
+  if process::capture(root, "cargo", &build, &[], process::LONG).0 != 0 {
     return Err("cannot build mto".to_string());
   }
   let mto = root.join("target").join("release").join("mto");
-  let status = Command::new(&mto)
-    .arg("--config-path")
-    .arg(base.join("mto-bench.toml"))
-    .arg(".")
-    .current_dir(&copies.laid)
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .status()
-    .map_err(|e| e.to_string())?;
-  if status.code() == Some(4) {
+  let laid_out = process::output(
+    Command::new(&mto)
+      .arg("--config-path")
+      .arg(base.join("mto-bench.toml"))
+      .arg(".")
+      .current_dir(&copies.laid)
+      .stdout(Stdio::null())
+      .stderr(Stdio::null()),
+    TIMED_LIMIT,
+  )
+  .map_err(|e| e.to_string())?;
+  if laid_out.timed_out {
+    return Err("laying out the bench copy passed its time limit".to_string());
+  }
+  if laid_out.code == 4 {
     return Err("mto reported a verifier failure; run `cargo xtask corpus check`".to_string());
   }
   log.info(&format!("bench copies ready under {}", base.display()));
@@ -341,12 +361,17 @@ fn rust_files(dir: &Path) -> (usize, u64) {
 }
 
 fn rustfmt_row(raw: &Path, toolchain: &str, log: &Logger) -> Result<Row, String> {
-  let version = Command::new("rustfmt")
-    .arg(format!("+{}", toolchain))
-    .arg("--version")
-    .output()
-    .map_err(|e| format!("rustfmt cannot be run: {}", e))?;
-  if !version.status.success() {
+  let version = process::output(
+    Command::new("rustfmt")
+      .arg(format!("+{}", toolchain))
+      .arg("--version")
+      .env("RUSTUP_AUTO_INSTALL", "0")
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::QUICK,
+  )
+  .map_err(|e| format!("rustfmt cannot be run: {}", e))?;
+  if version.code != 0 {
     return Err(format!("toolchain {} is not installed", toolchain));
   }
   let version = String::from_utf8_lossy(&version.stdout).trim().to_string();
@@ -421,17 +446,27 @@ fn timed(program: &Path, args: &[String], dir: &Path, keep_stdout: bool) -> Resu
     Command::new(program)
   };
   let started = Instant::now();
-  let output = command
-    .args(args)
-    .current_dir(dir)
-    .env("CI", "1")
-    .stdout(if keep_stdout {
-      Stdio::piped()
-    } else {
-      Stdio::null()
-    })
-    .output()
-    .map_err(|e| format!("cannot run {}: {}", program.display(), e))?;
+  let output = process::output(
+    command
+      .args(args)
+      .current_dir(dir)
+      .env("CI", "1")
+      .stdout(if keep_stdout {
+        Stdio::piped()
+      } else {
+        Stdio::null()
+      })
+      .stderr(Stdio::piped()),
+    TIMED_LIMIT,
+  )
+  .map_err(|e| format!("cannot run {}: {}", program.display(), e))?;
+  if output.timed_out {
+    return Err(format!(
+      "{} was stopped at its time limit of {}",
+      program.display(),
+      process::duration(TIMED_LIMIT)
+    ));
+  }
   let wall = started.elapsed().as_secs_f64();
   let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
   let mut cpu = None;
@@ -456,7 +491,7 @@ fn timed(program: &Path, args: &[String], dir: &Path, keep_stdout: bool) -> Resu
     wall,
     cpu,
     output: rest,
-    code: output.status.code(),
+    code: Some(output.code),
   })
 }
 

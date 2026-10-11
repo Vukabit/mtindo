@@ -39,6 +39,7 @@ impl KeepAwake {
       if !process::on_path(program) {
         continue;
       }
+      // Not under a time limit: it runs as long as the guard lives, and the guard kills it.
       let child = Command::new(program)
         .args(&args)
         .stdin(Stdio::null())

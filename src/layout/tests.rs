@@ -39,6 +39,18 @@ fn test_a_comment_trailing_the_header_stays_in_it() {
   );
 }
 
+/// A file ending in a carriage return, the last character of its last line comment, keeps
+/// its end: a line break after it would make that a CRLF line ending, taking the character
+/// from the comment and mixing the file's line endings. Found by the layout fuzz target.
+#[test]
+fn test_a_final_carriage_return_is_kept_as_written() {
+  let source = "\n  //\0 ?/\n//\t\r";
+  let out = arranged(source);
+  assert_eq!(out, "//\0 ?/\n//\t\r");
+  assert!(crate::verify::verify_layout(source, &out, crate::syntax::Edition::E2021).is_empty());
+  assert_eq!(arranged(&out), out);
+}
+
 #[test]
 fn test_cfg_variants_move_together() {
   let source = "#[cfg(unix)]\nfn z() {}\n#[cfg(windows)]\nfn z() {}\nfn a() {}\n";

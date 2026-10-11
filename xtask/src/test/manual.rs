@@ -17,19 +17,25 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+use crate::common::process;
 
 pub fn check_manual(root: &Path) -> Vec<String> {
   let run = |args: &[&str]| -> Result<String, String> {
-    let output = Command::new("cargo")
-      .args(["run", "--quiet", "--bin", "mto", "--"])
-      .args(args)
-      .current_dir(root)
-      .env("NO_COLOR", "1")
-      .env("CI", "1")
-      .output()
-      .map_err(|e| format!("cannot run mto: {}", e))?;
-    if !output.status.success() {
+    let output = process::output(
+      Command::new("cargo")
+        .args(["run", "--quiet", "--bin", "mto", "--"])
+        .args(args)
+        .current_dir(root)
+        .env("NO_COLOR", "1")
+        .env("CI", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped()),
+      process::LONG,
+    )
+    .map_err(|e| format!("cannot run mto: {}", e))?;
+    if output.code != 0 {
       return Err(format!(
         "mto {} failed: {}",
         args.join(" "),

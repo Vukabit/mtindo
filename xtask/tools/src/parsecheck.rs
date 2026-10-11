@@ -12,22 +12,30 @@ use mtindo::text::line_index::LineIndex;
 
 use crate::common;
 
-const DEFAULT_PATHS: &[&str] = &["src", "tests", "benches", "xtask/src", "fuzz/fuzz_targets"];
-
 const SHOWN_MESSAGES: usize = 25;
 
 const SHOWN_PER_FILE: usize = 2;
 
 pub fn run(root: &Path, args: &[String]) -> ExitCode {
-  let mut paths: Vec<PathBuf> = args.iter().map(PathBuf::from).collect();
-  // The repository's own fixtures include deliberately broken files; skip them by default.
-  let skip_fixtures = paths.is_empty();
-  if paths.is_empty() {
-    paths = DEFAULT_PATHS.iter().map(|p| root.join(p)).collect();
-  }
+  let paths: Vec<PathBuf> = args.iter().map(PathBuf::from).collect();
   let mut files = Vec::new();
+  if paths.is_empty() {
+    // Every file of the repository, but its fixtures, which include deliberately broken
+    // files.
+    match common::repo_rust_files(root) {
+      Ok(all) => files.extend(
+        all
+          .into_iter()
+          .filter(|f| !f.components().any(|c| c.as_os_str() == "fixtures")),
+      ),
+      Err(e) => {
+        eprintln!("parsecheck: {}", e);
+        return ExitCode::from(1);
+      }
+    }
+  }
   for path in paths.iter() {
-    collect(path, skip_fixtures, &mut files);
+    collect(path, &mut files);
   }
   files.sort();
 
@@ -37,7 +45,11 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
   for file in files.iter() {
     let text = match fs::read_to_string(file) {
       Ok(text) => text,
-      Err(_) => continue,
+      Err(e) => {
+        failing += 1;
+        println!("{}: cannot read: {}", file.display(), e);
+        continue;
+      }
     };
     parsed += 1;
     let edition = common::edition_for(file, &text);
@@ -76,6 +88,10 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     }
   }
   println!("parsecheck: {} files, {} with errors", parsed, failing);
+  if parsed == 0 {
+    println!("parsecheck: no files parsed, so nothing was checked");
+    return ExitCode::from(1);
+  }
   if failing == 0 {
     ExitCode::SUCCESS
   } else {
@@ -83,7 +99,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
   }
 }
 
-fn collect(path: &Path, skip_fixtures: bool, files: &mut Vec<PathBuf>) {
+fn collect(path: &Path, files: &mut Vec<PathBuf>) {
   if path.is_file() {
     if path.extension().is_some_and(|ext| ext == "rs") {
       files.push(path.to_path_buf());
@@ -98,13 +114,57 @@ fn collect(path: &Path, skip_fixtures: bool, files: &mut Vec<PathBuf>) {
     let child = entry.path();
     let name = entry.file_name().to_string_lossy().to_string();
     let is_build_dir = name == "target" && path.join("Cargo.toml").exists();
-    if is_build_dir || name == ".git" || (skip_fixtures && name == "fixtures") {
+    if is_build_dir || name == ".git" {
       continue;
     }
     if child.is_dir() {
-      collect(&child, skip_fixtures, files);
+      collect(&child, files);
     } else if child.extension().is_some_and(|ext| ext == "rs") {
       files.push(child);
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// A scratch folder holding `files`; removed when dropped.
+  struct Scratch(PathBuf);
+
+  impl Scratch {
+    fn new(name: &str, files: &[(&str, &str)]) -> Scratch {
+      let dir = std::env::temp_dir().join(format!("{}-{}", name, std::process::id()));
+      let _ = fs::remove_dir_all(&dir);
+      fs::create_dir_all(&dir).unwrap();
+      for (path, text) in files {
+        fs::write(dir.join(path), text).unwrap();
+      }
+      Scratch(dir)
+    }
+
+    fn arg(&self) -> Vec<String> {
+      vec![self.0.display().to_string()]
+    }
+  }
+
+  impl Drop for Scratch {
+    fn drop(&mut self) {
+      let _ = fs::remove_dir_all(&self.0);
+    }
+  }
+
+  #[test]
+  fn test_errors_fail_and_clean_files_pass() {
+    let clean = Scratch::new("parsecheck-clean", &[("a.rs", "fn f() {}\n")]);
+    assert_eq!(run(&clean.0, &clean.arg()), ExitCode::SUCCESS);
+    let broken = Scratch::new("parsecheck-broken", &[("a.rs", "fn f( {\n")]);
+    assert_eq!(run(&broken.0, &broken.arg()), ExitCode::from(1));
+  }
+
+  #[test]
+  fn test_no_files_is_a_failure() {
+    let empty = Scratch::new("parsecheck-empty", &[("notes.txt", "no rust here")]);
+    assert_eq!(run(&empty.0, &empty.arg()), ExitCode::from(1));
   }
 }

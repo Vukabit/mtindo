@@ -4,7 +4,7 @@
 //! `--update` records new numbers; `--markdown` prints a shareable report.
 
 use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 
 use crate::capabilities::{fetch as surface_fetch, load_surface};
 use crate::common::log::Logger;
@@ -29,12 +29,15 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
       return ExitCode::from(1);
     }
   };
-  let reference = match Command::new("rustfmt")
-    .arg("--version")
-    .env("RUSTUP_AUTO_INSTALL", "0")
-    .output()
-  {
-    Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+  let reference = match process::output(
+    Command::new("rustfmt")
+      .arg("--version")
+      .env("RUSTUP_AUTO_INSTALL", "0")
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::QUICK,
+  ) {
+    Ok(out) if out.code == 0 => String::from_utf8_lossy(&out.stdout).trim().to_string(),
     _ => {
       println!("the standard formatter (rustfmt) could not be run");
       return ExitCode::from(1);
@@ -76,20 +79,30 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     ));
   }
   log.info("running xtask-tools diff (release build)");
-  let status = Command::new("cargo")
-    .args([
-      "run",
-      "--quiet",
-      "--release",
-      "--package",
-      "xtask-tools",
-      "--",
-    ])
-    .args(&forwarded)
-    .current_dir(root)
-    .status();
-  match status {
-    Ok(status) => ExitCode::from(process::exit_code(status).clamp(0, 255) as u8),
+  let done = process::output(
+    Command::new("cargo")
+      .args([
+        "run",
+        "--quiet",
+        "--release",
+        "--package",
+        "xtask-tools",
+        "--",
+      ])
+      .args(&forwarded)
+      .current_dir(root),
+    process::HEAVY,
+  );
+  match done {
+    Ok(done) => {
+      if done.timed_out {
+        println!(
+          "the diff was stopped at its time limit of {}",
+          process::duration(process::HEAVY)
+        );
+      }
+      ExitCode::from(done.code.clamp(0, 255) as u8)
+    }
     Err(e) => {
       println!("cannot run cargo: {}", e);
       ExitCode::from(1)

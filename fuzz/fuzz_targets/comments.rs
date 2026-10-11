@@ -29,7 +29,7 @@ fuzz_target!(|data: &[u8]| {
   let Ok(source) = std::str::from_utf8(rest) else {
     return;
   };
-  if source.contains('\r') || parse(source, Edition::E2021).errors().len() > 0 {
+  if source.contains('\r') || !parse(source, Edition::E2021).errors().is_empty() {
     return;
   }
   let config = settings(head[0], head[1]);
@@ -71,19 +71,21 @@ fuzz_target!(|data: &[u8]| {
 
 /// Layout settings from two bytes, so the fuzzer explores them as it explores the source.
 fn settings(a: u8, b: u8) -> LayoutConfig {
-  let mut config = LayoutConfig::default();
-  config.blank_lines_between_blocks = usize::from(a & 1);
-  config.sort_alphabetically = a & 2 == 0;
-  config.group_impls = a & 4 == 0;
-  config.sort_imports = a & 8 == 0;
-  config.import_grouping = a & 16 == 0;
-  config.test_module_in_place = a & 32 != 0;
-  config.reorder_impl_items = a & 64 != 0;
-  config.impl_method_order_trait = a & 128 != 0;
-  config.name_sort = match b % 3 {
-    0 => NameSort::Version,
-    1 => NameSort::Bytes,
-    _ => NameSort::CaseInsensitive,
+  let mut config = LayoutConfig {
+    blank_lines_between_blocks: usize::from(a & 1),
+    sort_alphabetically: a & 2 == 0,
+    group_impls: a & 4 == 0,
+    sort_imports: a & 8 == 0,
+    import_grouping: a & 16 == 0,
+    test_module_in_place: a & 32 != 0,
+    reorder_impl_items: a & 64 != 0,
+    impl_method_order_trait: a & 128 != 0,
+    name_sort: match b % 3 {
+      0 => NameSort::Version,
+      1 => NameSort::Bytes,
+      _ => NameSort::CaseInsensitive,
+    },
+    ..LayoutConfig::default()
   };
   if b & 4 != 0 {
     config.trait_impl_sort = TraitImplSort::Original;

@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
+
+use crate::common::process;
 
 pub const GATES: &[Gate] = &[
   (
@@ -10,7 +12,7 @@ pub const GATES: &[Gate] = &[
   ),
   (
     "deps",
-    "mtindo and xtask have no runtime dependencies; xtask/tools only allowed ones",
+    "mtindo has no runtime dependencies; xtask does not depend on mtindo",
     check_dependencies,
   ),
   (
@@ -35,12 +37,13 @@ pub const GATES: &[Gate] = &[
   ),
 ];
 
-/// Each manifest and the dependencies it may declare. mtindo is std-only; xtask (the test
-/// runner) must build even when mtindo does not, so it may not depend on it either.
-const ALLOWED_DEPENDENCIES: &[(&str, &[&str])] = &[
-  ("Cargo.toml", &[]),
-  ("xtask/Cargo.toml", &[]),
-  ("xtask/tools/Cargo.toml", &["mtindo", "ra-ap-rustc_lexer"]),
+/// Each manifest and the dependencies it may declare. mtindo and the mto binary are
+/// std-only. The dev tooling may use crates, but xtask (the test runner) must build even
+/// when mtindo does not, so it may not depend on mtindo; xtask/tools exists to use it.
+const ALLOWED_DEPENDENCIES: &[(&str, Allowed)] = &[
+  ("Cargo.toml", Allowed::Only(&[])),
+  ("xtask/Cargo.toml", Allowed::AnyBut(&["mtindo"])),
+  ("xtask/tools/Cargo.toml", Allowed::AnyBut(&[])),
 ];
 
 /// The widest a line of public Markdown may be, in characters.
@@ -98,6 +101,14 @@ const NAMING_README_SECTIONS: &[&str] = &["## Credits", "## Development"];
 /// A gate: (name, what it checks, check returning the problems found).
 type Gate = (&'static str, &'static str, fn(&Path) -> Vec<String>);
 
+/// What a manifest may depend on.
+enum Allowed {
+  /// Only these.
+  Only(&'static [&'static str]),
+  /// Anything but these.
+  AnyBut(&'static [&'static str]),
+}
+
 /// Every manifest may only declare the runtime dependencies allowed for it.
 pub fn check_dependencies(root: &Path) -> Vec<String> {
   let mut problems = Vec::new();
@@ -111,7 +122,11 @@ pub fn check_dependencies(root: &Path) -> Vec<String> {
     };
     for entry in runtime_dependencies(&text) {
       let name = entry.rsplit(' ').next().unwrap_or("");
-      if !allowed.contains(&name) {
+      let ok = match allowed {
+        Allowed::Only(names) => names.contains(&name),
+        Allowed::AnyBut(names) => !names.contains(&name),
+      };
+      if !ok {
         problems.push(format!(
           "{}: runtime dependency `{}` is not allowed",
           manifest, entry
@@ -124,19 +139,23 @@ pub fn check_dependencies(root: &Path) -> Vec<String> {
 
 /// Public Markdown (tracked or new, not git-ignored) keeps lines within the column limit.
 pub fn check_docs(root: &Path) -> Vec<String> {
-  let output = Command::new("git")
-    .args([
-      "ls-files",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "--",
-      "*.md",
-    ])
-    .current_dir(root)
-    .output();
+  let output = process::output(
+    Command::new("git")
+      .args([
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "--",
+        "*.md",
+      ])
+      .current_dir(root)
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::QUICK,
+  );
   let listing = match output {
-    Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).to_string(),
+    Ok(output) if output.code == 0 => String::from_utf8_lossy(&output.stdout).to_string(),
     _ => return vec!["docs: cannot list Markdown files with git".to_string()],
   };
   let mut files: Vec<&str> = listing.lines().filter(|line| !line.is_empty()).collect();
@@ -181,12 +200,16 @@ pub fn check_layering(root: &Path) -> Vec<String> {
 /// The reference formatter is named only where the name does work (S3-9): elsewhere, prose
 /// says "the Rust style" or "the standard formatter".
 pub fn check_naming(root: &Path) -> Vec<String> {
-  let output = Command::new("git")
-    .args(["ls-files", "--cached", "--others", "--exclude-standard"])
-    .current_dir(root)
-    .output();
+  let output = process::output(
+    Command::new("git")
+      .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+      .current_dir(root)
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::QUICK,
+  );
   let listing = match output {
-    Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).to_string(),
+    Ok(output) if output.code == 0 => String::from_utf8_lossy(&output.stdout).to_string(),
     _ => return vec!["naming: cannot list files with git".to_string()],
   };
   let mut files: Vec<&str> = listing.lines().filter(|line| !line.is_empty()).collect();

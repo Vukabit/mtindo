@@ -1,10 +1,15 @@
 //! `cargo xtask test`: runs mtindo's gates and test suites and reports each task as passed,
 //! failed or skipped with a reason.
 //!
-//! Exit codes: 0 when nothing failed (skips never fail a run), 1 when anything failed, 2
-//! for bad arguments. Every run is logged to `logs/test.log` with each task's full output.
-//! The last commit that passed a default or full run on a clean tree is kept in
-//! `logs/.last_success`; after a failure the runner shows what changed since then.
+//! Exit codes: 0 when nothing failed, 1 when anything failed, 2 for bad arguments. Only a
+//! task outside the chosen groups is skipped; a chosen task that cannot run (its tool is
+//! missing) fails, and a task past its time limit is stopped and fails, so a green run
+//! means every chosen task ran and passed. Every run is logged to `logs/test.log` with
+//! each task's full output.
+//!
+//! Every green default or full run is added to `logs/last-green.tsv`, named by its exact
+//! tree (`<commit>` or `<commit>-dirty.<digest>`); after a failure the runner shows the
+//! last green tree and what changed since.
 //!
 //! The runner does not depend on mtindo, so it builds and reports even when the library
 //! does not compile. Ctrl-C stops the runner and the running task together.
@@ -24,7 +29,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use tasks::{
   Action, DEFAULT_FUZZ_TIME, DEFAULT_GROUPS, ENV_VARS, GROUPS, State, TEST_REGISTRY, Task,
@@ -32,8 +37,8 @@ use tasks::{
 
 use crate::common::awake::{self, KeepAwake, Stamp};
 use crate::common::color::{HelpPalette, color_enabled};
-use crate::common::log::Logger;
-use crate::common::process;
+use crate::common::log::{Logger, timestamp};
+use crate::common::{process, tree};
 
 /// Lines of a failed task's output shown in the terminal; the log has all of it.
 const FAILURE_TAIL_LINES: usize = 60;
@@ -76,10 +81,13 @@ const FLAGS: &[(&str, &str, &str)] = &[
 /// More sleep than this during a fuzz task fails it.
 const FUZZ_SLEEP_ALLOWED_SECONDS: u64 = 60;
 
+/// One line per green default or full run: when, tree, groups, seconds.
+const GREEN_FILE: &str = "logs/last-green.tsv";
+
+const GREEN_HEADER: &str = "when\ttree\tgroups\tseconds\n";
+
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 28;
-
-const STATE_FILE: &str = "logs/.last_success";
 
 const USAGE: &str = "cargo xtask test [-h] [--group GROUP] [--full] [--target ID] [--fuzz-time SECONDS] [--bless] [--list]";
 
@@ -233,25 +241,22 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     return ExitCode::SUCCESS;
   }
 
-  let commit = current_commit(root);
-  let dirty = tree_is_dirty(root);
-  let mut revision = "no git".to_string();
-  if !commit.is_empty() {
-    revision = commit[..7.min(commit.len())].to_string();
-    if dirty {
-      revision.push_str(" + uncommitted changes");
-    }
-  }
+  let revision = tree::identity(root);
   log.info(&format!(
     "Starting run: groups={} target={} revision={}",
     groups.join(","),
     options.target,
     revision
   ));
+  let chosen = if options.target.is_empty() {
+    groups.join(", ")
+  } else {
+    format!("target {}", options.target)
+  };
   println!(
     "{}{}",
     colors.paint("1", "mtindo checks"),
-    colors.paint("90", &format!("  ({} | {})", groups.join(", "), revision))
+    colors.paint("90", &format!("  ({} | {})", chosen, revision))
   );
   println!("========================================");
 
@@ -280,18 +285,12 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
   if failed == 0 {
     let default_groups = groups.iter().any(|g| g == "gates") && groups.iter().any(|g| g == "tests");
     if options.target.is_empty() && !options.bless && default_groups {
-      record_success(root, &commit, dirty, &log);
+      record_green(root, &revision, &groups, elapsed, &log);
     }
     return ExitCode::SUCCESS;
   }
-  print_changes_since_last_good(root, &commit, dirty, &log, &colors);
+  print_changes_since_last_green(root, &revision, &colors);
   ExitCode::from(1)
-}
-
-fn current_commit(root: &Path) -> String {
-  git(root, &["rev-parse", "HEAD"])
-    .map(|out| out.trim().to_string())
-    .unwrap_or_default()
 }
 
 fn describe(task: &Task) -> String {
@@ -317,8 +316,31 @@ fn git(root: &Path, args: &[&str]) -> Option<String> {
     return None;
   }
   let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-  let (code, output) = process::capture(root, "git", &args, &[]);
+  let (code, output) = process::capture(root, "git", &args, &[], process::QUICK);
   (code == 0).then_some(output)
+}
+
+/// How to get a missing tool, for the failure message.
+fn install_hint(tool: &str) -> &'static str {
+  match tool {
+    "clippy" => "Install it with: rustup component add clippy",
+    "rustfmt" => "Install it with: rustup component add rustfmt",
+    "cargo-fuzz" => "Install it with: rustup toolchain install nightly && cargo install cargo-fuzz",
+    "rustup" => "Install it from https://rustup.rs",
+    _ => "Install it and make sure it is on PATH.",
+  }
+}
+
+/// The latest line of [`GREEN_FILE`]: when, and which tree.
+fn last_green(root: &Path) -> Option<(String, String)> {
+  let text = fs::read_to_string(root.join(GREEN_FILE)).ok()?;
+  let line = text
+    .lines()
+    .skip(1)
+    .filter(|l| !l.trim().is_empty())
+    .last()?;
+  let mut fields = line.split('\t');
+  Some((fields.next()?.to_string(), fields.next()?.to_string()))
 }
 
 fn parse_args(args: &[String]) -> Result<Options, String> {
@@ -392,36 +414,37 @@ fn print_blessed_changes(root: &Path, colors: &Colors) {
   }
 }
 
-fn print_changes_since_last_good(
-  root: &Path,
-  commit: &str,
-  dirty: bool,
-  log: &Logger,
-  colors: &Colors,
-) {
-  let last_good = fs::read_to_string(root.join(STATE_FILE))
-    .map(|text| text.trim().to_string())
-    .unwrap_or_default();
-  if last_good.is_empty() {
+/// After a failure: the last green tree, and what changed since its commit.
+fn print_changes_since_last_green(root: &Path, revision: &str, colors: &Colors) {
+  let Some((when, last)) = last_green(root) else {
     return;
-  }
-  if last_good == commit && !dirty {
+  };
+  if last == revision {
     println!(
-      "\nThis commit passed before with a clean tree; the failure likely comes from the environment."
+      "\nThis exact tree passed at {}; the failure likely comes from the environment.",
+      when
     );
     return;
   }
-  let Some(stat) = git(root, &["diff", "--stat", &last_good]) else {
+  let commit = tree::commit_of(&last);
+  let Some(stat) = git(root, &["diff", "--stat", commit]) else {
     return;
   };
-  let short = &last_good[..7.min(last_good.len())];
+  let since = if last.contains("-dirty.") {
+    format!(
+      "{} (green at {} with uncommitted changes of its own)",
+      commit, when
+    )
+  } else {
+    format!("{} (green at {})", commit, when)
+  };
   println!(
     "\n{}",
     colors.paint(
       "93",
       &format!(
-        "Changes since the last passing commit ({}), including uncommitted work:",
-        short
+        "Changes since the last green tree, {}, including uncommitted work:",
+        since
       )
     )
   );
@@ -434,10 +457,10 @@ fn print_changes_since_last_good(
       untracked.trim().lines().count()
     );
   }
-  if let Some(full) = git(root, &["diff", &last_good]) {
-    log.error(&format!("Full diff against {}:\n{}", short, full));
-  }
-  println!("{}", colors.paint("90", "Full diff in logs/test.log"));
+  println!(
+    "{}",
+    colors.paint("90", &format!("See it all with: git diff {}", commit))
+  );
 }
 
 fn print_plan(tasks: &[Task], groups: &[String], colors: &Colors) {
@@ -495,9 +518,11 @@ fn print_task_line(task: &Task, colors: &Colors) {
   };
   let mut line = format!("{} {}", mark, task.title);
   match task.state {
-    State::Pass | State::Fail => {
-      line.push_str(&colors.paint("90", &format!(" ({})", seconds(task.seconds))))
-    }
+    State::Pass => line.push_str(&colors.paint("90", &format!(" ({})", seconds(task.seconds)))),
+    State::Fail => line.push_str(&colors.paint(
+      "90",
+      &format!(" ({}, {})", task.note, seconds(task.seconds)),
+    )),
     State::Skip => line.push_str(&colors.paint("90", &format!(" (skipped: {})", task.note))),
     _ => {}
   }
@@ -526,20 +551,20 @@ fn print_task_line(task: &Task, colors: &Colors) {
   let _ = std::io::stdout().flush();
 }
 
-fn record_success(root: &Path, commit: &str, dirty: bool, log: &Logger) {
-  if commit.is_empty() {
-    return;
-  }
-  if dirty {
-    log.info("All tasks passed, but the working tree has uncommitted changes; known-good commit not updated.");
-    return;
-  }
-  let path = root.join(STATE_FILE);
-  let written =
-    fs::create_dir_all(root.join("logs")).and_then(|_| fs::write(&path, format!("{}\n", commit)));
+fn record_green(root: &Path, revision: &str, groups: &[String], elapsed: f64, log: &Logger) {
+  let path = root.join(GREEN_FILE);
+  let mut text = fs::read_to_string(&path).unwrap_or_else(|_| GREEN_HEADER.to_string());
+  text.push_str(&format!(
+    "{}\t{}\t{}\t{:.1}\n",
+    timestamp(SystemTime::now()),
+    revision,
+    groups.join(","),
+    elapsed
+  ));
+  let written = fs::create_dir_all(root.join("logs")).and_then(|_| fs::write(&path, text));
   match written {
-    Ok(()) => log.info(&format!("Recorded known-good commit {}", commit)),
-    Err(e) => log.warning(&format!("cannot write {}: {}", STATE_FILE, e)),
+    Ok(()) => log.info(&format!("Recorded green tree {}", revision)),
+    Err(e) => log.warning(&format!("cannot write {}: {}", GREEN_FILE, e)),
   }
 }
 
@@ -621,8 +646,8 @@ fn render_help(root: &Path, color: bool) -> String {
       "what cargo xtask capabilities read, fetched and wrote",
     ),
     (
-      "logs/.last_success",
-      "last commit that passed a default or full run on a clean tree",
+      "logs/last-green.tsv",
+      "every green default or full run, by exact tree",
     ),
     (
       "compat/rustfmt-surface.txt",
@@ -636,8 +661,7 @@ fn render_help(root: &Path, color: bool) -> String {
     out.push_str(&format!("  {:<28}{}\n", path, info));
   }
   out.push_str(&format!("\n{}\n", p.heading("exit codes:")));
-  out
-    .push_str("  0 nothing failed (skips never fail a run), 1 something failed, 2 bad arguments\n");
+  out.push_str("  0 every chosen task ran and passed, 1 something failed, 2 bad arguments\n");
   out
 }
 
@@ -650,8 +674,14 @@ fn run_task(
 ) {
   for tool in task.requires.clone() {
     if !tool_available(root, tool, cache, log) {
-      task.state = State::Skip;
+      task.state = State::Fail;
       task.note = format!("{} is not available", tool);
+      task.output = format!(
+        "This task needs {}, which is not available, so it could not run. {}\n",
+        tool,
+        install_hint(tool)
+      );
+      log.error(&format!("Failed [{}]: {} is not available", task.id, tool));
       return;
     }
   }
@@ -659,8 +689,13 @@ fn run_task(
   let spinner = Spinner::start(&task.title, colors);
   let stamp = Stamp::now();
   let started = Instant::now();
+  let mut timed_out = false;
   let (code, output) = match &task.action {
-    Action::Command(program, args) => process::capture(root, program, args, &task.env),
+    Action::Command(program, args) => {
+      let outcome = process::run(root, program, args, &task.env, task.limit);
+      timed_out = outcome.timed_out;
+      (outcome.code, outcome.output)
+    }
     Action::Check(check) => {
       let problems = check(root);
       if problems.is_empty() {
@@ -701,8 +736,15 @@ fn run_task(
     ));
   } else {
     task.state = State::Fail;
-    task.note = format!("exit code {}", code);
-    log.error(&format!("Failed [{}] with exit code {}", task.id, code));
+    task.note = if timed_out {
+      format!(
+        "stopped at its time limit of {}",
+        process::duration(task.limit)
+      )
+    } else {
+      format!("exit code {}", code)
+    };
+    log.error(&format!("Failed [{}]: {}", task.id, task.note));
   }
 }
 
@@ -755,7 +797,7 @@ fn tool_available(
   let works = |args: &[&str]| {
     let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     let env = [("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())];
-    process::capture(root, "cargo", &args, &env).0 == 0
+    process::capture(root, "cargo", &args, &env, process::QUICK).0 == 0
   };
   let available = match tool {
     "rustfmt" => works(&["fmt", "--version"]),
@@ -766,10 +808,6 @@ fn tool_available(
   cache.insert(tool, available);
   log.info(&format!("Tool check: {} available={}", tool, available));
   available
-}
-
-fn tree_is_dirty(root: &Path) -> bool {
-  git(root, &["status", "--porcelain"]).is_none_or(|out| !out.trim().is_empty())
 }
 
 #[cfg(test)]

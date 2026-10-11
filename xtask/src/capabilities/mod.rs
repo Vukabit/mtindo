@@ -469,7 +469,7 @@ fn run_cases(root: &Path, surface: &Surface, log: &Logger) -> Cases {
     &dir.display().to_string(),
   ]
   .map(String::from);
-  let (code, output) = process::capture(root, "cargo", &args, &[]);
+  let (code, output) = process::capture(root, "cargo", &args, &[], process::LONG);
   let counts: Vec<usize> = output
     .lines()
     .find_map(|line| line.strip_prefix("cases "))

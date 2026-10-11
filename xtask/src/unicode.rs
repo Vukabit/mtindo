@@ -2,10 +2,10 @@
 //! Character Database. Downloads are cached in `compat/cache/unicode/<version>/`.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+use crate::common::process;
 use crate::sha256;
 
 const BASE_URL: &str = "https://www.unicode.org/Public";
@@ -110,22 +110,16 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
 }
 
 pub(crate) fn rustfmt(source: &str) -> Result<String, String> {
-  let mut child = Command::new("rustfmt")
-    .args(["--edition", "2024", "--emit", "stdout"])
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-    .map_err(|e| format!("cannot run rustfmt: {}", e))?;
-  if let Some(mut stdin) = child.stdin.take() {
-    stdin
-      .write_all(source.as_bytes())
-      .map_err(|e| format!("cannot write to rustfmt: {}", e))?;
-  }
-  let output = child
-    .wait_with_output()
-    .map_err(|e| format!("rustfmt failed: {}", e))?;
-  if !output.status.success() {
+  let output = process::output_with_input(
+    Command::new("rustfmt")
+      .args(["--edition", "2024", "--emit", "stdout"])
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    Some(source.as_bytes()),
+    process::QUICK,
+  )
+  .map_err(|e| format!("cannot run rustfmt: {}", e))?;
+  if output.code != 0 {
     return Err(format!(
       "rustfmt failed: {}",
       String::from_utf8_lossy(&output.stderr)
@@ -150,21 +144,23 @@ fn fetch(root: &Path, version: &str, name: &'static str, path: &str) -> Result<D
   if !cached.exists() {
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
     let partial = dir.join(format!("{}.partial", name));
-    let status = Command::new("curl")
-      .args([
-        "--fail",
-        "--silent",
-        "--show-error",
-        "--location",
-        "--retry",
-        "2",
-        "--output",
-      ])
-      .arg(&partial)
-      .arg(&url)
-      .status()
-      .map_err(|e| format!("cannot run curl: {}", e))?;
-    if !status.success() {
+    let done = process::output(
+      Command::new("curl")
+        .args([
+          "--fail",
+          "--silent",
+          "--show-error",
+          "--location",
+          "--retry",
+          "2",
+          "--output",
+        ])
+        .arg(&partial)
+        .arg(&url),
+      process::NETWORK,
+    )
+    .map_err(|e| format!("cannot run curl: {}", e))?;
+    if done.code != 0 {
       let _ = fs::remove_file(&partial);
       return Err(format!("download failed: {}", url));
     }

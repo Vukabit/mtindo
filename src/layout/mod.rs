@@ -338,8 +338,10 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
   }
   // Every piece ends where its last element ends, so only the final line break is added;
   // trailing spaces inside a last comment stay. A module body keeps what was after its
-  // last element instead.
-  if top {
+  // last element instead. A file ending in a carriage return (the last character of a
+  // line comment, with no line break after it) keeps its end as written: a line break
+  // added after it would turn the comment's last character into a CRLF line ending.
+  if top && !output.ends_with('\r') {
     output.push('\n');
   }
   output

@@ -121,6 +121,27 @@ struct Tally {
     skipped: usize,
 }
 
+/// Every `.rs` file under `dir`, without `.git` and `target` folders.
+pub fn collect_rs(dir: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            let name = entry.file_name();
+            if name != ".git" && name != "target" {
+                collect_rs(&path, files);
+            }
+        } else if kind.is_file() && path.extension().is_some_and(|e| e == "rs") {
+            files.push(path);
+        }
+    }
+}
+
 pub fn run(args: &[String]) -> ExitCode {
     let options = match parse_args(args) {
         Ok(options) => options,
@@ -220,6 +241,48 @@ pub fn run(args: &[String]) -> ExitCode {
     ratchet(&options, &tallies)
 }
 
+/// The standard formatter's output for `input` formatted from `dir`, from the cache or a
+/// run; `None` when it fails on the input.
+pub fn standard_output(
+    input: &str,
+    edition: Edition,
+    dir: &Path,
+    reference: &str,
+    cache: &Path,
+    home: &Path,
+) -> Option<String> {
+    let config = nearest_config(dir);
+    let edition = edition_year(edition);
+    let mut key = String::new();
+    key.push_str(reference);
+    key.push('\0');
+    key.push_str(edition);
+    key.push('\0');
+    key.push_str(&config);
+    key.push('\0');
+    key.push_str(input);
+    let hash = sha256::hex(key.as_bytes());
+    let cached = cache.join(&hash[..2]).join(&hash[2..]);
+    let failed = cached.with_extension("failed");
+    if let Ok(text) = fs::read_to_string(&cached) {
+        return Some(text);
+    }
+    if failed.exists() {
+        return None;
+    }
+    let result = run_standard(input, edition, dir, home);
+    let _ = fs::create_dir_all(cached.parent().unwrap_or(cache));
+    match &result {
+        Some(text) => {
+            let _ = fs::write(&cached, text);
+        }
+        None => {
+            let _ = fs::write(&failed, "");
+        }
+    }
+    result
+}
+
 /// Every input, in a fixed order: the test pairs, then the corpus as fetched, then unformatted.
 fn collect_cases(options: &Options) -> Vec<Case> {
     let mut cases = Vec::new();
@@ -292,27 +355,6 @@ fn collect_cases(options: &Options) -> Vec<Case> {
         });
     }
     cases
-}
-
-/// Every `.rs` file under `dir`, without `.git` and `target` folders.
-fn collect_rs(dir: &Path, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        if kind.is_dir() {
-            let name = entry.file_name();
-            if name != ".git" && name != "target" {
-                collect_rs(&path, files);
-            }
-        } else if kind.is_file() && path.extension().is_some_and(|e| e == "rs") {
-            files.push(path);
-        }
-    }
 }
 
 /// How many lines `got` shares with `want` in order: the length of their longest common
@@ -603,36 +645,14 @@ fn record_text(reference: &str, tallies: &BTreeMap<Set, Tally>) -> String {
 /// The standard formatter's output for a case, from the cache or a run; `None` when it
 /// fails on the input.
 fn reference_output(case: &Case, options: &Options, home: &Path) -> Option<String> {
-    let config = nearest_config(&case.dir);
-    let edition = edition_year(case.edition);
-    let mut key = String::new();
-    key.push_str(&options.reference);
-    key.push('\0');
-    key.push_str(edition);
-    key.push('\0');
-    key.push_str(&config);
-    key.push('\0');
-    key.push_str(&case.input);
-    let hash = sha256::hex(key.as_bytes());
-    let cached = options.cache.join(&hash[..2]).join(&hash[2..]);
-    let failed = cached.with_extension("failed");
-    if let Ok(text) = fs::read_to_string(&cached) {
-        return Some(text);
-    }
-    if failed.exists() {
-        return None;
-    }
-    let result = run_standard(&case.input, edition, &case.dir, home);
-    let _ = fs::create_dir_all(cached.parent().unwrap_or(&options.cache));
-    match &result {
-        Some(text) => {
-            let _ = fs::write(&cached, text);
-        }
-        None => {
-            let _ = fs::write(&failed, "");
-        }
-    }
-    result
+    standard_output(
+        &case.input,
+        case.edition,
+        &case.dir,
+        &options.reference,
+        &options.cache,
+        home,
+    )
 }
 
 fn report(

@@ -515,9 +515,18 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
       }
     }
   }
+  // When the last link cannot overflow (a closure whose body would break, which the standard
+  // formatter breaks and then finds longer than the link on a line of its own), it takes a
+  // line of its own.
   let last_text = match last_text {
     Some(t) => t,
-    None => rewrite_link(last, last_shape)?,
+    None => match rewrite_link(last, last_shape) {
+      Some(t) => t,
+      None => rewrite_link(
+        last,
+        child_shape.sub_width(shape.rhs_overhead() + last.tries)?,
+      )?,
+    },
   };
   rewrites.push(last_text);
   let connector = if fits_single_line {
@@ -644,6 +653,16 @@ fn rewrite_list(
         }
       }
     }
+  }
+  // A closure last in a list that does not stay on one line is overflowed by the standard
+  // formatter with its body broken into a block, which is not done here: the list fails, so
+  // that what holds it is laid out another way or left as written.
+  if tactic != Tactic::Horizontal
+    && items
+      .last()
+      .is_some_and(|i| i.kind() == SyntaxKind::ClosureExpr)
+  {
+    return None;
   }
   let trailing = if !shape.limits.attribute || items.last().is_some_and(comma_after) {
     ","

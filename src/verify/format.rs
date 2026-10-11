@@ -206,12 +206,20 @@ fn doc_attribute(attr: &SyntaxNode) -> Option<String> {
 /// A doc comment's text without its markers or any whitespace, behind its kind and a NUL:
 /// the form `doc-text` compares (`outer` or `inner`).
 fn doc_text(kind: &str, text: &str) -> String {
-  let body = text
-    .trim_start_matches("///")
-    .trim_start_matches("//!")
-    .trim_start_matches("/**")
-    .trim_start_matches("/*!")
-    .trim_end_matches("*/");
+  // A line doc comment loses only its `///` or `//!`; a block one its `/**` or `/*!` and its
+  // closing `*/`, each once. A `*/` ending a line doc comment is text (and before a `\r`
+  // it would not even be last).
+  let body = if let Some(block) = text
+    .strip_prefix("/**")
+    .or_else(|| text.strip_prefix("/*!"))
+  {
+    block.strip_suffix("*/").unwrap_or(block)
+  } else {
+    text
+      .strip_prefix("///")
+      .or_else(|| text.strip_prefix("//!"))
+      .unwrap_or(text)
+  };
   let mut out = format!("{}\u{0}", kind);
   for line in body.lines() {
     let line = line.trim_start().trim_start_matches('*');

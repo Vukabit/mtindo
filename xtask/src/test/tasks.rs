@@ -406,7 +406,10 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
       "unicode",
       "Unicode tables match the generator",
       "heavy",
-      Action::Command(this_binary, vec!["unicode".into(), "--check".into()]),
+      Action::Command(
+        this_binary.clone(),
+        vec!["unicode".into(), "--check".into()],
+      ),
     )
     .requires(&["curl"]),
   );
@@ -426,16 +429,22 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
       .requires(&["rustup"]),
     );
   }
+  // Through `cargo xtask fuzz run`, which keeps what a run finds under fuzz/crashes/.
   for target in stems(&root.join("fuzz").join("fuzz_targets")) {
-    let max_time = format!("-max_total_time={}", fuzz_time);
     tasks.push(
       Task::new(
         &target,
         &format!("Fuzz {} for {}s", target, fuzz_time),
         "fuzz",
-        command(
-          "cargo",
-          &["+nightly", "fuzz", "run", &target, "--", &max_time],
+        Action::Command(
+          this_binary.clone(),
+          vec![
+            "fuzz".into(),
+            "run".into(),
+            target.clone(),
+            "--time".into(),
+            fuzz_time.to_string(),
+          ],
         ),
       )
       .requires(&["cargo-fuzz"]),
@@ -474,22 +483,10 @@ fn command(program: &str, args: &[&str]) -> Action {
 /// every fuzz task, it fails if the machine slept (the runner keeps it awake and checks).
 fn fuzz_24h(root: &Path) -> Vec<String> {
   let targets = stems(&root.join("fuzz").join("fuzz_targets"));
+  let log = crate::common::log::Logger::new(root, "fuzz");
   let run = |target: &str| {
-    let args: Vec<String> = [
-      "+nightly",
-      "fuzz",
-      "run",
-      target,
-      "--",
-      &format!("-max_total_time={}", FUZZ_24H_SECONDS),
-    ]
-    .iter()
-    .map(|a| a.to_string())
-    .collect();
-    (
-      target.to_string(),
-      crate::common::process::capture(root, "cargo", &args, &[]),
-    )
+    let code = crate::fuzz::run_target(root, target, FUZZ_24H_SECONDS, &log);
+    (target.to_string(), (code, String::new()))
   };
   let results = std::thread::scope(|scope| {
     let handles: Vec<_> = targets

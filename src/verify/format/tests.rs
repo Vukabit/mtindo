@@ -17,6 +17,16 @@ fn same(input: &str, output: &str) {
 }
 
 #[test]
+fn test_a_line_doc_comment_ending_in_a_block_closer() {
+  // `*/` ending a line doc comment is its text: kept whatever the line ending, and not the
+  // same as a doc without it. (Found by the `format` fuzz target, with Windows endings.)
+  same("//!Z\0\0*/\0\0*/\n", "//!Z\0\0*/\0\0*/\r\n");
+  assert!(rules("//! a */\nfn f() {}\n", "//! a\nfn f() {}\n").contains(&Rule::MeaningChanged));
+  // A block doc comment loses its markers once: `/** a */` is `a`.
+  same("/** a */\nfn f() {}\n", "/// a\nfn f() {}\n");
+}
+
+#[test]
 fn test_broken_output_is_reported_alone() {
   assert_eq!(rules("fn f() {}\n", "fn f( {}\n"), vec![Rule::OutputBroken]);
 }

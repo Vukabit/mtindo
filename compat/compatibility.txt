@@ -4,5 +4,5 @@
 reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
 set tests files 278 462 lines 9042 11227
 set tests-with-settings files 191 559 lines 15427 22055
-set corpus files 9750 10436 lines 2643972 2653974
-set corpus-unformatted files 1684 10416 lines 2067352 2772411
+set corpus files 9752 10436 lines 2643988 2653974
+set corpus-unformatted files 2651 10416 lines 2083019 2772411

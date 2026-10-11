@@ -3,15 +3,18 @@
 //!
 //! Only the statements the expression code covers are taken: a `let` with an initializer,
 //! or an expression with a `;`, whose expression is a call, a method chain, a struct literal,
-//! an array or a tuple. A statement holding a comment, a block, a macro, an attribute or a
-//! string spanning lines is left to the whole-file rules, which keep its lines as written.
+//! an array or a tuple; any other statement is put on one line when it fits there. A
+//! statement holding a comment, a block, a macro or a string spanning lines is left to the
+//! whole-file rules, which keep its lines as written; its attributes, and comments before
+//! it, are laid out on their own.
 
 use SyntaxKind as K;
 
-use super::expr::{flat, is_chain, rewrite};
+use super::expr::{flat, flat_tokens, is_chain, rewrite};
+use super::items::header_start;
 use super::shape::{Limits, Shape, Spacing};
 use crate::options::format::FormatConfig;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, parse};
 use crate::text::unicode::str_width;
 
 /// The statement laid out, starting at column `indent` on a line of its own, its later lines
@@ -33,7 +36,7 @@ pub fn rewrite_statement(
     .descendants()
     .iter()
     .any(|d| d.kind() == K::GenericArgList);
-  if generics && indent + str_width(&flat(node, Spacing::of(config))) > config.max_width {
+  if generics && indent + str_width(&flat_code(node, Spacing::of(config))) > config.max_width {
     return None;
   }
   let text = laid_out(node, indent, config)?;
@@ -68,18 +71,13 @@ pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig
     .all(|n| rewrite(n, shape).is_some_and(|t| !t.contains('\n')))
 }
 
-/// Whether `text` holds the statement's tokens, commas aside (a list laid out vertically
-/// gains a trailing comma, one laid out on a line loses it).
+/// Whether `text` holds the statement's code tokens, commas aside (a list laid out
+/// vertically gains a trailing comma, one laid out on a line loses it).
 pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
-  let theirs = node
-    .descendants_with_tokens()
+  let theirs = code_tokens(node)
     .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
-        Some(t.text().to_string())
-      }
-      _ => None,
-    });
+    .filter(|t| t.kind() != K::Comma)
+    .map(|t| t.text().to_string());
   // Inside a function body, where the statement stands, so that tokens split as they do
   // there (`>>` closing two generic lists).
   let parsed = parse(&format!("fn f() {{\n{}\n}}", text), Edition::E2021).syntax_node();
@@ -119,25 +117,55 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
       && w[2].kind() == K::Dot
       && w[3].kind() == K::IntNumber
   });
+  // From after its attributes and the comments before it, which are laid out on their own.
+  let Some(start) = header_start(node) else {
+    return false;
+  };
   matches!(node.kind(), K::ExprStmt | K::LetStmt)
     && !spaced_tuple_field
-    && node.descendants_with_tokens().iter().all(|e| match e {
-      SyntaxElement::Token(t) => {
-        !matches!(
-          t.kind(),
-          K::LineComment
-            | K::BlockComment
-            | K::OuterLineDoc
-            | K::InnerLineDoc
-            | K::OuterBlockDoc
-            | K::InnerBlockDoc
-        ) && !(t.kind().is_literal() && t.text().contains('\n'))
+    && node
+      .children_with_tokens()
+      .iter()
+      .filter(|e| e.text_range().start as usize >= start)
+      .flat_map(|e| match e {
+        SyntaxElement::Node(n) => n.descendants_with_tokens(),
+        token => vec![token.clone()],
+      })
+      .all(|e| match &e {
+        SyntaxElement::Token(t) => {
+          !matches!(
+            t.kind(),
+            K::LineComment
+              | K::BlockComment
+              | K::OuterLineDoc
+              | K::InnerLineDoc
+              | K::OuterBlockDoc
+              | K::InnerBlockDoc
+          ) && !(t.kind().is_literal() && t.text().contains('\n'))
+        }
+        SyntaxElement::Node(n) => !matches!(
+          n.kind(),
+          K::BlockExpr | K::MatchArmList | K::MacroExpr | K::MacroCall | K::Attr | K::LetElse
+        ),
+      })
+}
+
+/// The statement's code tokens, from after its attributes and the comments before it, which
+/// are laid out on their own.
+fn code_tokens(node: &SyntaxNode) -> Vec<SyntaxToken> {
+  let start = header_start(node).unwrap_or(node.text_range().start as usize);
+  node
+    .descendants_with_tokens()
+    .into_iter()
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t)
+        if !t.kind().is_trivia() && t.text_range().start as usize >= start =>
+      {
+        Some(t)
       }
-      SyntaxElement::Node(n) => !matches!(
-        n.kind(),
-        K::BlockExpr | K::MatchArmList | K::MacroExpr | K::MacroCall | K::Attr | K::LetElse
-      ),
+      _ => None,
     })
+    .collect()
 }
 
 /// The statement's expression: an expression statement's, or a `let`'s initializer.
@@ -163,11 +191,16 @@ fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
 
 /// The statement's tokens before `expression`, flat.
 fn flat_before(node: &SyntaxNode, expression: &SyntaxNode, spacing: Spacing) -> Option<String> {
-  let whole = flat(node, spacing);
+  let whole = flat_code(node, spacing);
   let rest = format!("{};", flat(expression, spacing));
   whole
     .strip_suffix(&rest)
     .map(|head| head.trim_end().to_string())
+}
+
+/// The statement's code on one line.
+fn flat_code(node: &SyntaxNode, spacing: Spacing) -> String {
+  flat_tokens(&code_tokens(node), spacing)
 }
 
 fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
@@ -235,7 +268,7 @@ fn last_line_used(text: &str, indent: usize) -> usize {
 /// line), the type on the pattern's last line; `None` when it does not fit, the type is
 /// flat for now.
 fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<String> {
-  let pattern = node.children().into_iter().next()?;
+  let pattern = node.children().into_iter().find(|c| c.kind() != K::Attr)?;
   let flat_head = flat_before(node, expression, shape.limits.spacing)?;
   let flat_pattern = flat(&pattern, shape.limits.spacing);
   // Only a plain `let`: `super let` and the like are left as written.
@@ -255,7 +288,7 @@ fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   if !matches!(node.kind(), K::ExprStmt | K::LetStmt) {
     return None;
   }
-  let text = flat(node, Spacing::of(config));
+  let text = flat_code(node, Spacing::of(config));
   if indent + str_width(&text) > config.max_width {
     return None;
   }

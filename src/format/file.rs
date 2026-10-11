@@ -161,7 +161,7 @@ fn construct_start(element: &SyntaxElement) -> Option<usize> {
       if matches!(
         token.kind(),
         SyntaxKind::LineComment | SyntaxKind::BlockComment
-      ) =>
+      ) || crate::format::items::is_doc(token.kind()) =>
     {
       Some(token.text_range().start as usize)
     }
@@ -409,6 +409,20 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
           }
           other => {
             mark(other.text_range().start as usize, after_attr);
+            // A statement's, field's, variant's or foreign item's attributes join it with no
+            // blank line, as the standard formatter combines them; an item's in a file or
+            // module keep one.
+            let combined = node.kind() == SyntaxKind::ExternItemList
+              || matches!(
+                child.kind(),
+                SyntaxKind::LetStmt
+                  | SyntaxKind::ExprStmt
+                  | SyntaxKind::RecordField
+                  | SyntaxKind::Variant
+              );
+            if after_attr && combined {
+              joined.push(other.text_range().start as usize);
+            }
             break;
           }
         }
@@ -749,8 +763,19 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           SyntaxKind::RecordField | SyntaxKind::Variant => {
             crate::format::items::rewrite_field(node, indent, config)
           }
+          // Not an item given up on whole: a region left as written that covers all of it
+          // (a verbatim attribute inside one is not that).
           kind if is_item(kind) => {
-            if in_verbatim(node.text_range().start as usize + 1) {
+            let (start, end) = (
+              node.text_range().start as usize,
+              node.text_range().end as usize,
+            );
+            let covered = roles
+              .verbatim
+              .iter()
+              .chain(gave_up.borrow().iter())
+              .any(|&(s, e)| s <= start && end <= e);
+            if covered {
               None
             } else {
               rewrite_header(node, indent, config)
@@ -897,8 +922,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             && node
               .parent()
               .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
+            && let Some(start) = crate::format::items::header_start(node)
           {
-            roles.layable.insert(range.start as usize, node.clone());
+            roles.layable.insert(start, node.clone());
           }
         }
         // A field of a struct definition or a variant, from after its attributes.

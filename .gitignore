@@ -3,6 +3,14 @@ target/
 fuzz/target/
 fuzz/corpus/
 fuzz/artifacts/
+# Crashes the fuzz targets found, filed by `cargo xtask fuzz` (see xtask/src/fuzz.rs)
+fuzz/crashes/
+# What libFuzzer writes to the current folder when run by hand from the root
+/crash-*
+/oom-*
+/timeout-*
+/leak-*
+/slow-unit-*
 fuzz/coverage/
 # Logs and run state from cargo xtask commands
 /logs/

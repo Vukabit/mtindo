@@ -10,6 +10,7 @@ mod capabilities;
 mod common;
 mod corpus;
 mod diff;
+mod fuzz;
 mod gates;
 mod race;
 mod settings;
@@ -48,6 +49,12 @@ const COMMANDS: &[Command] = &[
     "[--update] [--markdown]",
     "How much of the Rust style mto reproduces, against compat/compatibility.txt",
     diff::run,
+  ),
+  (
+    "fuzz",
+    "run TARGET [--time SECONDS]|collect|recheck|list",
+    "Fuzz a target; crashes are kept under fuzz/crashes/ with when, commit and what they said",
+    fuzz::run,
   ),
   (
     "gates",

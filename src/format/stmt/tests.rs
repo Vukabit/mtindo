@@ -18,6 +18,13 @@ fn formatted(source: &str) -> String {
 }
 
 #[test]
+fn test_a_closure_last_keeps_its_list_on_one_line() {
+  // The last link takes a line of its own rather than breaking the closure's list.
+  let kept = "impl X {\n    fn split(self) {\n        let update = self\n            .split_count\n            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |c| c.checked_sub(1));\n    }\n}\n";
+  assert_eq!(formatted(kept), kept);
+}
+
+#[test]
 fn test_calls_are_joined_and_broken_to_fit() {
   assert_eq!(
     formatted("fn f() {\n    let x = foo(\n        a,\n        b,\n    );\n}\n"),
@@ -103,6 +110,15 @@ fn test_returns_tries_and_closures() {
       "fn f() {\n    let v = g(\n        a,\n    )?;\n    let w = v.iter().map(|x| x + 1).collect();\n}\n"
     ),
     "fn f() {\n    let v = g(a)?;\n    let w = v.iter().map(|x| x + 1).collect();\n}\n"
+  );
+}
+
+#[test]
+fn test_statements_after_their_attributes() {
+  // The statement is laid out after its attribute, with no blank line between.
+  assert_eq!(
+    formatted("fn f() {\n    #[allow(unused_mut)]\n\n    let mut ret: Self =\n        g(x);\n}\n"),
+    "fn f() {\n    #[allow(unused_mut)]\n    let mut ret: Self = g(x);\n}\n"
   );
 }
 

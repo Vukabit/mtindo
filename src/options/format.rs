@@ -21,6 +21,14 @@ pub struct FormatConfig {
     pub newline_style: NewlineStyle,
     pub blank_lines_upper_bound: usize,
     pub blank_lines_lower_bound: usize,
+    /// `a .. b` rather than `a..b`.
+    pub spaces_around_ranges: bool,
+    /// `a : T` rather than `a: T`.
+    pub space_before_colon: bool,
+    /// `a: T` rather than `a:T`.
+    pub space_after_colon: bool,
+    /// `A+B` and `T=U` in types and bounds rather than `A + B` and `T = U`.
+    pub compressed_type_punctuation: bool,
 }
 
 impl Default for FormatConfig {
@@ -32,6 +40,10 @@ impl Default for FormatConfig {
             newline_style: NewlineStyle::Auto,
             blank_lines_upper_bound: 1,
             blank_lines_lower_bound: 0,
+            spaces_around_ranges: false,
+            space_before_colon: false,
+            space_after_colon: true,
+            compressed_type_punctuation: false,
         }
     }
 }

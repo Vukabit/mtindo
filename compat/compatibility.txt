@@ -2,7 +2,7 @@
 # formatter exactly, per input set (`cargo xtask diff`). The numbers may only go up;
 # `cargo xtask diff --update` records new ones.
 reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
-set tests files 244 462 lines 8621 11227
-set tests-with-settings files 161 559 lines 14125 22055
-set corpus files 9420 10436 lines 2635316 2653974
-set corpus-unformatted files 121 10416 lines 956611 2772411
+set tests files 258 462 lines 8697 11227
+set tests-with-settings files 166 559 lines 14296 22055
+set corpus files 9468 10436 lines 2635565 2653974
+set corpus-unformatted files 138 10416 lines 974385 2772411

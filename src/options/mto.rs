@@ -167,13 +167,17 @@ pub(super) static SETTINGS: &[Setting] = &[
               items, statements, fields, variants, match arms and list elements are indented \
               one level past the line their block or list belongs to, and closing delimiters \
               at that line's indentation; the lines that continue them move along with them. \
-              Trailing whitespace is trimmed after code and line comments, blank lines are \
+              Within a line, tokens are spaced as the Rust style spaces them (`a + b`, \
+              `f(x)`, `a::b`, `x: T`), honoring `spaces_around_ranges`, `space_before_colon`, \
+              `space_after_colon` and `type_punctuation_density`; a pair no rule covers keeps \
+              its spacing. Trailing whitespace is trimmed after code and line comments, blank lines are \
               kept within `blank_lines_upper_bound` and dropped at the start and end of a \
               container (a module body keeps its first), lines end as `newline_style` says and the file ends \
               with one line break, honoring `tab_spaces` and `hard_tabs`. As the standard \
               formatter does, mto leaves as written macro bodies, anything marked \
-              `#[rustfmt::skip]`, `// mto: off` regions and a statement with a line longer \
-              than `max_width`. Every change is checked to keep the program's tokens and \
+              `#[rustfmt::skip]`, `// mto: off` regions, `macro_rules!` definitions, \
+              attributes whose arguments are not names, `name = literal` or lists of them, and \
+              a statement or item with a line longer than `max_width`. Every change is checked to keep the program's tokens and \
               comments.",
         channels: None,
         hidden: false,

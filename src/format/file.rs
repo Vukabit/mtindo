@@ -15,21 +15,26 @@
 //!   multi-line expression keeps its shape. A comment just before a closing delimiter moves
 //!   with its container, and a line comment written under a comment that ends a line of
 //!   code stays under it.
+//! - **Within a line**, the space between two tokens follows [`super::space`].
 //! - Trailing whitespace is trimmed after code and line comments (doc comments keep
 //!   theirs), blank lines are kept within `blank_lines_upper_bound` and dropped at the start
 //!   and end of a container (a module body keeps its first), and the file ends with one line
 //!   break, in the `newline_style`.
 //!
-//! Left as written, as the standard formatter leaves them: macro bodies, anything marked
+//! Left as written, as the standard formatter leaves them: macro bodies, `macro_rules!`
+//! definitions, attributes it cannot read as names and values, anything marked
 //! `#[rustfmt::skip]`, `// mto: off` regions, files that skip themselves, files with syntax
-//! errors, and a statement with a line of code past its first longer than `max_width`,
-//! which the standard formatter gives up on.
+//! errors, and a statement or item with a line of code longer than `max_width`, which the
+//! standard formatter gives up on. Lines after a statement's first are measured as written;
+//! its first line is measured as the pass reaches it, at its new indentation, so that a
+//! second run decides the same.
 
 use std::collections::{HashMap, HashSet};
 
+use crate::format::space::{spacing, wants_space};
 use crate::options::format::{FormatConfig, NewlineStyle};
 use crate::syntax::ast::Attr;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, parse};
 
 /// The roles tokens play in the indentation.
 #[derive(Default)]
@@ -47,6 +52,10 @@ struct Roles {
     keeps_leading_blank: HashSet<usize>,
     /// Ranges left exactly as written.
     verbatim: Vec<(usize, usize)>,
+    /// Statements and items, by where they start: where they end.
+    statements: HashMap<usize, usize>,
+    /// Where line comments and line doc comments start, in order.
+    line_comments: Vec<usize>,
 }
 
 /// A token, with where it starts.
@@ -54,6 +63,7 @@ struct Tok {
     kind: SyntaxKind,
     text: String,
     start: usize,
+    token: SyntaxToken,
 }
 
 /// The file formatted; the input itself when it cannot be formatted safely.
@@ -85,7 +95,7 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
     if skips_itself(&root) {
         return source.to_string();
     }
-    let body = reindent(&root, &text, config);
+    let body = reindent(&root, &text, edition, config);
     // Line endings inside a multi-line string are part of the string: a file whose strings
     // hold line breaks keeps its own endings.
     let strings_span_lines = root.descendants_with_tokens().iter().any(|e| {
@@ -238,12 +248,53 @@ fn is_container(kind: SyntaxKind) -> bool {
     )
 }
 
+/// Whether an attribute's arguments are what the standard formatter can format: names and
+/// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
+/// else (a closure, a path as a value) is left as written.
+fn meta_like(attr: &SyntaxNode) -> bool {
+    let mut previous: Option<SyntaxKind> = None;
+    for element in attr.descendants_with_tokens() {
+        let SyntaxElement::Token(token) = element else {
+            if previous == Some(SyntaxKind::Eq) && element.kind() != SyntaxKind::Literal {
+                return false;
+            }
+            continue;
+        };
+        let kind = token.kind();
+        if kind.is_trivia() {
+            continue;
+        }
+        let allowed = kind.is_literal()
+            || kind.name().ends_with("_KW")
+            || matches!(
+                kind,
+                SyntaxKind::Ident
+                    | SyntaxKind::RawIdent
+                    | SyntaxKind::Colon2
+                    | SyntaxKind::Comma
+                    | SyntaxKind::Eq
+                    | SyntaxKind::LParen
+                    | SyntaxKind::RParen
+                    | SyntaxKind::LBrack
+                    | SyntaxKind::RBrack
+                    | SyntaxKind::Pound
+                    | SyntaxKind::Bang
+            );
+        if !allowed || (previous == Some(SyntaxKind::Eq) && !kind.is_literal()) {
+            return false;
+        }
+        previous = Some(kind);
+    }
+    true
+}
+
 /// The statements (`statements` in tree order) with a line of their own code wider than
 /// `max_width`, as written: a line belongs to the innermost statement it starts in, and its
-/// code ends where a line comment starts. A statement's first line is not measured: it is
+/// code ends where a line comment starts or the statement ends. A statement's first line is not measured: it is
 /// indented anew, so measuring it would decide differently on a second run.
 fn overflowing(
     statements: &[(usize, usize)],
+    attrs: &[(usize, usize)],
     line_comments: &[usize],
     text: &str,
     config: &FormatConfig,
@@ -264,16 +315,24 @@ fn overflowing(
             next += 1;
         }
         open.retain(|&(_, end, _)| end > first);
+        // Attributes are formatted on their own; a long one does not stop its item.
+        let in_attr = || {
+            let idx = attrs.partition_point(|&(start, _)| start <= first);
+            idx > 0 && first < attrs[idx - 1].1
+        };
         if let Some(innermost) = open.last_mut()
             && innermost.0 < at
             && !innermost.2
+            && !in_attr()
         {
             let comment = line_comments.partition_point(|&c| c < at);
+            // Up to a line comment, or the statement's end when other code follows it.
             let code_end = line_comments
                 .get(comment)
                 .filter(|&&c| c < line_end)
                 .copied()
-                .unwrap_or(line_end);
+                .unwrap_or(line_end)
+                .min(innermost.1);
             if width_of(text[at..code_end].trim_end(), tab) > config.max_width {
                 innermost.2 = true;
                 found.push((innermost.0, innermost.1));
@@ -284,11 +343,15 @@ fn overflowing(
     found
 }
 
-fn reindent(root: &SyntaxNode, text: &str, config: &FormatConfig) -> String {
+fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConfig) -> String {
     let roles = roles(root, text, config);
+    // Statements given up on as the pass reaches them (see below), beside the ranges known
+    // before it.
+    let gave_up: std::cell::RefCell<Vec<(usize, usize)>> = Default::default();
     let in_verbatim = |at: usize| {
         let idx = roles.verbatim.partition_point(|&(start, _)| start < at);
-        idx > 0 && at < roles.verbatim[idx - 1].1
+        (idx > 0 && at < roles.verbatim[idx - 1].1)
+            || gave_up.borrow().iter().any(|&(s, e)| s < at && at < e)
     };
     let tokens: Vec<Tok> = root
         .descendants_with_tokens()
@@ -298,6 +361,7 @@ fn reindent(root: &SyntaxNode, text: &str, config: &FormatConfig) -> String {
                 kind: t.kind(),
                 text: t.text().to_string(),
                 start: t.text_range().start as usize,
+                token: t,
             }),
             _ => None,
         })
@@ -385,6 +449,41 @@ fn reindent(root: &SyntaxNode, text: &str, config: &FormatConfig) -> String {
         if tok.kind == SyntaxKind::Whitespace && next.is_none() {
             break;
         }
+        // Spaces within a line: as the Rust style spaces the two tokens around them.
+        if tok.kind == SyntaxKind::Whitespace && !in_verbatim(tok.start) && i > 0 {
+            let spaced =
+                next.and_then(|n| spacing(&tokens[i - 1].token, &n.token, edition, config));
+            match spaced {
+                Some(true) => out.push(' '),
+                Some(false) => {}
+                None => out.push_str(&tok.text),
+            }
+            continue;
+        }
+        // A statement whose first line, at its new indentation, is longer than `max_width`
+        // is left as written, as the standard formatter gives up on it. Measured here, where
+        // the indentation is known, so that a second run decides the same.
+        if let Some(&end) = roles.statements.get(&tok.start)
+            && tok.kind != SyntaxKind::Pound
+            && !in_verbatim(tok.start)
+        {
+            let line_end = text[tok.start..]
+                .find('\n')
+                .map_or(text.len(), |i| tok.start + i);
+            let comment = roles.line_comments.partition_point(|&c| c < tok.start);
+            let code_end = roles
+                .line_comments
+                .get(comment)
+                .copied()
+                .unwrap_or(text.len())
+                .min(line_end)
+                .min(end);
+            let width = width_of(&out[out_line_start..], tab)
+                + width_of(text[tok.start..code_end].trim_end(), tab);
+            if width > config.max_width {
+                gave_up.borrow_mut().push((tok.start, end));
+            }
+        }
         if let Some(&base) = roles.openers.get(&tok.start) {
             let idx = lines.partition_point(|&(start, _, _)| start <= base);
             let (_, was, new) = lines[idx.saturating_sub(1)];
@@ -402,6 +501,15 @@ fn reindent(root: &SyntaxNode, text: &str, config: &FormatConfig) -> String {
         } else {
             &tok.text
         });
+        // Two tokens written touching that the Rust style spaces.
+        if let Some(next) = next
+            && next.kind != SyntaxKind::Whitespace
+            && !in_verbatim(tok.start)
+            && !in_verbatim(next.start)
+            && wants_space(&tok.token, &next.token, config)
+        {
+            out.push(' ');
+        }
         if !tok.kind.is_trivia() || tok.kind == SyntaxKind::BlockComment {
             code_on_line = true;
         }
@@ -426,6 +534,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     }
     let mut region: Option<usize> = None;
     let mut statements = Vec::new();
+    let mut attrs = Vec::new();
     let mut line_comments = Vec::new();
     for element in root.descendants_with_tokens() {
         match &element {
@@ -437,13 +546,28 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                         .into_iter()
                         .filter_map(Attr::cast)
                         .any(|a| a.is_rustfmt_skip());
-                if node
-                    .parent()
-                    .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
-                {
+                let in_list = node.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind(),
+                        SyntaxKind::BlockExpr
+                            | SyntaxKind::SourceFile
+                            | SyntaxKind::ItemList
+                            | SyntaxKind::AssocItemList
+                            | SyntaxKind::ExternItemList
+                    )
+                });
+                if node.kind() == SyntaxKind::Attr {
+                    attrs.push((range.start as usize, range.end as usize));
+                }
+                if in_list && node.kind() != SyntaxKind::Attr {
                     statements.push((range.start as usize, range.end as usize));
                 }
-                if node.kind() == SyntaxKind::TokenTree || skipped {
+                let unparsed_attr = node.kind() == SyntaxKind::Attr && !meta_like(node);
+                let kept = matches!(
+                    node.kind(),
+                    SyntaxKind::TokenTree | SyntaxKind::MacroRules | SyntaxKind::MacroDef
+                );
+                if kept || skipped || unparsed_attr {
                     roles
                         .verbatim
                         .push((range.start as usize, range.end as usize));
@@ -455,8 +579,13 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             SyntaxElement::Token(token) => {
                 let marker = token.text().trim();
                 let start = token.text_range().start as usize;
-                if token.kind() == SyntaxKind::LineComment {
+                if matches!(
+                    token.kind(),
+                    SyntaxKind::LineComment | SyntaxKind::OuterLineDoc | SyntaxKind::InnerLineDoc
+                ) {
                     line_comments.push(start);
+                }
+                if token.kind() == SyntaxKind::LineComment {
                     if marker == "// mto: off" && region.is_none() {
                         region = Some(start);
                     } else if marker == "// mto: on"
@@ -471,9 +600,15 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     if let Some(from) = region {
         roles.verbatim.push((from, text.len()));
     }
-    roles
-        .verbatim
-        .extend(overflowing(&statements, &line_comments, text, config));
+    roles.verbatim.extend(overflowing(
+        &statements,
+        &attrs,
+        &line_comments,
+        text,
+        config,
+    ));
+    roles.statements = statements.iter().copied().collect();
+    roles.line_comments = line_comments;
     // Sorted and merged, for looking up by binary search.
     roles.verbatim.sort_unstable();
     let mut merged: Vec<(usize, usize)> = Vec::with_capacity(roles.verbatim.len());

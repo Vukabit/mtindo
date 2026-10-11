@@ -80,12 +80,14 @@ default.
 ## Formatting (preview)
 
 `format = true` in an `mto.toml` turns on formatting in the Rust style, with
-or without layout. It is a preview: today it indents, keeps blank lines
-within `blank_lines_upper_bound`, trims trailing whitespace after code and
-line comments and writes line endings in the `newline_style`. It does not
-break or join lines yet. Like the standard formatter, it leaves alone macro
-bodies, anything marked `#[rustfmt::skip]`, `// mto: off` regions and a
-statement with a line longer than `max_width`.
+or without layout. It is a preview: today it indents, spaces the tokens
+within a line (`a + b`, `f(x)`, `a::b`, `x: T`), keeps blank lines within
+`blank_lines_upper_bound`, trims trailing whitespace after code and line
+comments and writes line endings in the `newline_style`. It does not break or
+join lines yet. Like the standard formatter, it leaves alone macro bodies,
+`macro_rules!` definitions, anything marked `#[rustfmt::skip]`,
+`// mto: off` regions and a statement or item with a line longer than
+`max_width`.
 
 Formatting changes only whitespace, and a meaning check runs on every
 formatted file before anything is written: the tokens must match the input's,

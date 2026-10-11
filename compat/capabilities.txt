@@ -77,9 +77,9 @@ option  single_line_if_else_max_width                    missing
 option  single_line_let_else_max_width                   missing
 option  skip_children                                    missing
 option  skip_macro_invocations                           missing
-option  space_after_colon                                missing
-option  space_before_colon                               missing
-option  spaces_around_ranges                             missing
+option  space_after_colon                                supported    # with format = true (src/format/space/tests.rs)
+option  space_before_colon                               supported    # with format = true (src/format/space/tests.rs)
+option  spaces_around_ranges                             supported    # with format = true (src/format/space/tests.rs)
 option  struct_field_align_threshold                     missing
 option  struct_lit_single_line                           missing
 option  struct_lit_width                                 missing
@@ -88,7 +88,7 @@ option  style_edition                                    partial      # resolved
 option  tab_spaces                                       partial      # with format = true, the width of one indentation level (src/format/file/tests.rs)
 option  trailing_comma                                   missing
 option  trailing_semicolon                               missing
-option  type_punctuation_density                         missing
+option  type_punctuation_density                         partial      # with format = true, a bound's + and a type parameter's = (src/format/space/tests.rs)
 option  unstable_features                                missing
 option  use_field_init_shorthand                         missing
 option  use_small_heuristics                             missing
@@ -161,8 +161,8 @@ value   style_edition=2027                               missing
 value   trailing_comma=Always                            missing
 value   trailing_comma=Never                             missing
 value   trailing_comma=Vertical                          missing
-value   type_punctuation_density=Compressed              missing
-value   type_punctuation_density=Wide                    missing
+value   type_punctuation_density=Compressed              partial      # a bound's + and a type parameter's = (src/format/space/tests.rs)
+value   type_punctuation_density=Wide                    supported    # with format = true (src/format/space/tests.rs)
 value   use_small_heuristics=Default                     missing
 value   use_small_heuristics=Max                         missing
 value   use_small_heuristics=Off                         missing
@@ -203,7 +203,7 @@ mto     command:history                                  supported    # tests/do
 mto     command:init                                     supported    # tests/domain_8_cli.rs
 mto     command:restore                                  supported    # tests/domain_8_cli.rs
 mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
-mto     config:format                                    partial      # indentation, blank lines, trailing whitespace and line endings; no line breaking yet (src/format/file/tests.rs, tests/domain_8_cli.rs)
+mto     config:format                                    partial      # indentation, spacing within lines, blank lines, trailing whitespace and line endings; no line breaking yet (src/format/file/tests.rs, src/format/space/tests.rs, tests/domain_8_cli.rs)
 mto     config:group_impls                               supported    # tests/domain_2_golden.rs
 mto     config:ignore_dirs                               supported    # tests/domain_9_config_hierarchy.rs
 mto     config:impl_method_order                         supported    # src/layout/tests.rs

@@ -528,6 +528,12 @@ fn header_settings(input: &str) -> FormatConfig {
                 config.blank_lines_lower_bound = number.unwrap_or(config.blank_lines_lower_bound)
             }
             "hard_tabs" => config.hard_tabs = value == "true",
+            "spaces_around_ranges" => config.spaces_around_ranges = value == "true",
+            "space_before_colon" => config.space_before_colon = value == "true",
+            "space_after_colon" => config.space_after_colon = value == "true",
+            "type_punctuation_density" => {
+                config.compressed_type_punctuation = value == "Compressed"
+            }
             "newline_style" => {
                 config.newline_style = match value {
                     "Native" => NewlineStyle::Native,

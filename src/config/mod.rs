@@ -215,6 +215,16 @@ impl Config {
             .get("hard_tabs")
             .and_then(Value::as_bool)
             .unwrap_or(config.hard_tabs);
+        let flag = |name: &str, fallback: bool| {
+            self.get(name).and_then(Value::as_bool).unwrap_or(fallback)
+        };
+        config.spaces_around_ranges = flag("spaces_around_ranges", config.spaces_around_ranges);
+        config.space_before_colon = flag("space_before_colon", config.space_before_colon);
+        config.space_after_colon = flag("space_after_colon", config.space_after_colon);
+        config.compressed_type_punctuation = self
+            .get("type_punctuation_density")
+            .and_then(Value::as_text)
+            == Some("Compressed");
         config.newline_style = match self.get("newline_style").and_then(Value::as_text) {
             Some("Native") => NewlineStyle::Native,
             Some("Unix") => NewlineStyle::Unix,

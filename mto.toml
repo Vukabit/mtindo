@@ -1,36 +1,49 @@
-# mto configuration file
-layout = true
-format = true
-sort_alphabetically = true
-group_impls = true
-sort_imports = true
-import_grouping = true
-blank_lines_between_blocks = 1
-type_order = [
-  "ModDecl",
-  "UseDecl",
-  "MacroDecl",
-  "MacroDef",
-  "ConstDecl",
-  "StaticDecl",
-  "TypeAlias",
-  "TraitDecl",
-  "EnumDecl",
-  "StructDecl",
-  "Union",
-  "ImplBlock",
-  "ExternBlock",
-  "FnDecl",
-  "Unknown"
-]
+# mto configuration file; `mto --man` explains every setting.
 
-ignore_dirs = [
-    ".git",
-    "target",
-    "node_modules",
-    "vendor",
-    "dist",
-    ".venv",
-    "fixtures",
-    "cache"
-]
+# Rearrange the items of each file.
+layout = true
+
+# Format code in the Rust style (preview)
+format = true
+
+# Blank lines between items
+blank_lines_between_blocks = 1
+
+# Place each impl block right after the type it is for
+group_impls = true
+
+# Folder names mto never enters
+ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv", "fixtures", "cache"]
+
+# The order of functions in trait impls
+impl_method_order = "written"
+
+# Group imports into std, external crates and local paths
+import_grouping = true
+
+# The style edition imports are sorted by
+import_sort = "style_edition"
+
+# How items of one kind are sorted by name
+name_sort = "version"
+
+# Sort items of the same kind by name
+sort_alphabetically = true
+
+# Sort imports by path
+sort_imports = true
+
+# Where `#[cfg(test)]` modules go
+test_module = "last"
+
+# Traits whose impls come first under a type
+trait_impl_order = []
+
+# How trait impls under a type are ordered
+trait_impl_sort = "name"
+
+# The order of item kinds in a file
+type_order = ["ModDecl", "UseDecl", "MacroDecl", "MacroDef", "ConstDecl", "StaticDecl", "TypeAlias", "TraitDecl", "EnumDecl", "StructDecl", "Union", "ImplBlock", "ExternBlock", "FnDecl", "Unknown"]
+
+# The order of visibilities within a kind
+visibility_order = ["Pub", "PubCrate", "PubIn", "PubSuper", "Private"]

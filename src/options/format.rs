@@ -1,5 +1,20 @@
 //! The formatting settings the formatter reads, resolved from the settings table.
 
+/// How the items of a `use` list are laid out when they do not fit on one line
+/// (`imports_layout`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImportsLayout {
+  /// Items fill lines.
+  #[default]
+  Mixed,
+  /// One line, or one item per line.
+  HorizontalVertical,
+  /// One item per line.
+  Vertical,
+  /// One line.
+  Horizontal,
+}
+
 /// How lines end in the output (`newline_style`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NewlineStyle {
@@ -45,6 +60,7 @@ pub struct FormatConfig {
   pub format_generated_files: bool,
   /// How many lines from the top are searched for the `@generated` mark.
   pub generated_marker_line_search_limit: usize,
+  pub imports_layout: ImportsLayout,
 }
 
 impl Default for FormatConfig {
@@ -69,6 +85,7 @@ impl Default for FormatConfig {
       match_arm_indent: true,
       format_generated_files: true,
       generated_marker_line_search_limit: 5,
+      imports_layout: ImportsLayout::Mixed,
     }
   }
 }

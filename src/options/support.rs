@@ -47,7 +47,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("ignore", "partial"),
   ("imports_granularity", "missing"),
   ("imports_indent", "missing"),
-  ("imports_layout", "missing"),
+  ("imports_layout", "partial"),
   ("indent_style", "missing"),
   ("inline_attribute_width", "missing"),
   ("make_backup", "missing"),

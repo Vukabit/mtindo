@@ -34,6 +34,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::format::imports::rewrite_use;
 use crate::format::space::{spacing, wants_space};
 use crate::format::stmt::rewrite_statement;
 use crate::options::format::{FormatConfig, NewlineStyle};
@@ -68,7 +69,8 @@ struct Roles {
   statements: HashMap<usize, usize>,
   /// Where line comments and line doc comments start, in order.
   line_comments: Vec<usize>,
-  /// Statements in blocks the width-budget code may lay out, by where they start.
+  /// Statements in blocks the width-budget code may lay out, and `use` declarations, by
+  /// where they start.
   layable: HashMap<usize, SyntaxNode>,
 }
 
@@ -517,11 +519,18 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       }
       continue;
     }
-    // A statement the width-budget code lays out, starting its line: written whole.
+    // A statement or `use` declaration laid out anew, starting its line: written whole.
     if let Some(node) = roles.layable.get(&tok.start)
       && !in_verbatim(tok.start)
       && out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
-      && let Some(text) = rewrite_statement(node, width_of(&out[out_line_start..], tab), config)
+      && let Some(text) = {
+        let indent = width_of(&out[out_line_start..], tab);
+        if node.kind() == SyntaxKind::Use {
+          rewrite_use(node, indent, config)
+        } else {
+          rewrite_statement(node, indent, config)
+        }
+      }
     {
       out.push_str(&text);
       if let Some(at) = out.rfind('\n') {
@@ -646,10 +655,11 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         };
         if in_list && node.kind() != SyntaxKind::Attr && !in_expression() {
           statements.push((range.start as usize, range.end as usize));
-          if matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
-            && node
-              .parent()
-              .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
+          if node.kind() == SyntaxKind::Use
+            || matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
+              && node
+                .parent()
+                .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
           {
             roles.layable.insert(range.start as usize, node.clone());
           }

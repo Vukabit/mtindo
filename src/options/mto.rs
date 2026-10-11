@@ -169,7 +169,9 @@ pub(super) static SETTINGS: &[Setting] = &[
               style does within `max_width` and the widths `use_small_heuristics` sets (unless \
               it holds a comment, block, closure or macro, or a type or generic arguments that \
               would have to break); \
-              other lines are not broken or joined yet. The lines that start \
+              so is a `use` declaration, its lists laid out as `imports_layout` says, unless \
+              it holds a comment, an attribute or a list of one item, which the Rust style \
+              would rewrite; other lines are not broken or joined yet. The lines that start \
               items, statements, fields, variants, match arms and list elements are indented \
               one level past the line their block or list belongs to (match arms not, with \
               `match_arm_indent = false`), and closing delimiters at that line's indentation; \

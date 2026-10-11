@@ -375,11 +375,13 @@ fn collect_cases(options: &Options) -> Vec<Case> {
   let mut cases = Vec::new();
   // Settings as mto resolves them for each folder, with no user configuration.
   let mut resolver = Resolver::new(&Overrides::default(), Environment::default()).ok();
+  // The corpus is answered by the stable release, which ignores nightly-only settings; mto
+  // honors them on every channel, so they are dropped here (S3-2).
   let mut format_for = |dir: &Path| -> FormatConfig {
     resolver
       .as_mut()
       .and_then(|r| r.config_for(dir).ok())
-      .map(|c| c.format())
+      .map(|c| c.stable_only().format())
       .unwrap_or_default()
   };
   if let Some(tests) = &options.tests {

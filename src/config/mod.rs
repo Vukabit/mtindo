@@ -36,9 +36,9 @@ use std::rc::Rc;
 pub use files::Environment;
 pub use value::Value;
 
-use crate::options::format::{FormatConfig, NewlineStyle};
+use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle};
 use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
-use crate::options::{self, File, Setting};
+use crate::options::{self, Channels, File, Setting, Stability};
 
 /// Keys mto used to accept, and the key that replaced each.
 const RENAMED: &[(&str, &str)] = &[("tab_width", "tab_spaces")];
@@ -97,7 +97,7 @@ impl fmt::Display for Source {
 }
 
 /// The settings in effect for one folder.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Config {
   values: BTreeMap<&'static str, (Value, Source)>,
   style_edition: u16,
@@ -108,6 +108,28 @@ impl Config {
   /// The configuration files that apply, lowest precedence first.
   pub fn files(&self) -> &[(FileKind, PathBuf)] {
     &self.files
+  }
+
+  /// These settings as the standard formatter's stable release reads them: a setting or a
+  /// value only its nightly release knows is dropped, so its default applies.
+  pub fn stable_only(&self) -> Config {
+    let stable =
+      |channels: Option<Channels>| channels.is_none_or(|c| c.stable == Stability::Stable);
+    let mut config = self.clone();
+    config.values.retain(|name, (value, _)| {
+      let Some(setting) = options::all().find(|s| s.name == *name) else {
+        return true;
+      };
+      let value_stable = value.as_text().is_none_or(|text| {
+        setting
+          .choices()
+          .iter()
+          .find(|c| c.name.eq_ignore_ascii_case(text))
+          .is_none_or(|c| stable(c.channels))
+      });
+      stable(setting.channels) && value_stable
+    });
+    config
   }
 
   pub fn get(&self, name: &str) -> Option<&Value> {
@@ -265,6 +287,12 @@ impl Config {
       .get("type_punctuation_density")
       .and_then(Value::as_text)
       == Some("Compressed");
+    config.imports_layout = match self.get("imports_layout").and_then(Value::as_text) {
+      Some("HorizontalVertical") => ImportsLayout::HorizontalVertical,
+      Some("Vertical") => ImportsLayout::Vertical,
+      Some("Horizontal") => ImportsLayout::Horizontal,
+      _ => ImportsLayout::Mixed,
+    };
     config.newline_style = match self.get("newline_style").and_then(Value::as_text) {
       Some("Native") => NewlineStyle::Native,
       Some("Unix") => NewlineStyle::Unix,

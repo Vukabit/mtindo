@@ -37,6 +37,38 @@ pub fn rewrite_statement(
   same_tokens(node, &text).then_some(text)
 }
 
+/// Whether `text` holds the statement's tokens, commas aside (a list laid out vertically
+/// gains a trailing comma, one laid out on a line loses it).
+pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
+  let theirs = node
+    .descendants_with_tokens()
+    .into_iter()
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
+        Some(t.text().to_string())
+      }
+      _ => None,
+    });
+  // Inside a function body, where the statement stands, so that tokens split as they do
+  // there (`>>` closing two generic lists).
+  let parsed = parse(&format!("fn f() {{\n{}\n}}", text), Edition::E2021).syntax_node();
+  let ours = parsed
+    .descendants_with_tokens()
+    .into_iter()
+    .skip_while(|e| e.kind() != K::LBrace)
+    .skip(1)
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
+        Some(t.text().to_string())
+      }
+      _ => None,
+    });
+  // The function's closing brace ends what was parsed.
+  let mut ours: Vec<String> = ours.collect();
+  ours.pop();
+  theirs.eq(ours)
+}
+
 /// The statement's expression: an expression statement's, or a `let`'s initializer.
 fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
   let children = node.children();
@@ -155,38 +187,6 @@ fn prefer_next_line(same: &str, next: &str) -> bool {
       || ['(', '{', '[']
         .iter()
         .any(|&c| opens(same, c) && !opens(next, c)))
-}
-
-/// Whether `text` holds the statement's tokens, commas aside (a list laid out vertically
-/// gains a trailing comma, one laid out on a line loses it).
-fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
-  let theirs = node
-    .descendants_with_tokens()
-    .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
-        Some(t.text().to_string())
-      }
-      _ => None,
-    });
-  // Inside a function body, where the statement stands, so that tokens split as they do
-  // there (`>>` closing two generic lists).
-  let parsed = parse(&format!("fn f() {{\n{}\n}}", text), Edition::E2021).syntax_node();
-  let ours = parsed
-    .descendants_with_tokens()
-    .into_iter()
-    .skip_while(|e| e.kind() != K::LBrace)
-    .skip(1)
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
-        Some(t.text().to_string())
-      }
-      _ => None,
-    });
-  // The function's closing brace ends what was parsed.
-  let mut ours: Vec<String> = ours.collect();
-  ours.pop();
-  theirs.eq(ours)
 }
 
 /// Whether the statement is one this module lays out.

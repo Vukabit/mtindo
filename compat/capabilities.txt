@@ -50,7 +50,7 @@ option  hide_parse_errors                                not-planned  # deprecat
 option  ignore                                           partial      # mto.toml's ignore_dirs skips directories by name (tests/domain_9_config_hierarchy.rs); no paths or globs
 option  imports_granularity                              missing
 option  imports_indent                                   missing
-option  imports_layout                                   missing
+option  imports_layout                                   partial      # with format = true, for use declarations; Horizontal leaves a list too wide for its line as written (src/format/imports/tests.rs)
 option  indent_style                                     missing
 option  inline_attribute_width                           missing
 option  make_backup                                      missing
@@ -140,10 +140,10 @@ value   imports_granularity=One                          missing
 value   imports_granularity=Preserve                     missing
 value   imports_indent=Block                             missing
 value   imports_indent=Visual                            missing
-value   imports_layout=Horizontal                        missing
-value   imports_layout=HorizontalVertical                missing
-value   imports_layout=Mixed                             missing
-value   imports_layout=Vertical                          missing
+value   imports_layout=Horizontal                        partial      # with format = true, for use declarations; a list too wide for its line is left as written (src/format/imports/tests.rs)
+value   imports_layout=HorizontalVertical                supported    # with format = true, for use declarations (src/format/imports/tests.rs)
+value   imports_layout=Mixed                             supported    # with format = true, for use declarations (src/format/imports/tests.rs)
+value   imports_layout=Vertical                          supported    # with format = true, for use declarations (src/format/imports/tests.rs)
 value   indent_style=Block                               missing
 value   indent_style=Visual                              missing
 value   match_arm_leading_pipes=Always                   missing

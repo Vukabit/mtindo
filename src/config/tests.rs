@@ -289,6 +289,30 @@ fn test_mto_toml_wins_over_the_standard_file_with_a_warning() {
 }
 
 #[test]
+fn test_stable_only_drops_what_only_nightly_reads() {
+  let tree = Tree::new(&[
+    (
+      "rustfmt.toml",
+      "max_width = 90\nimports_layout = \"Vertical\"\n",
+    ),
+    ("mto.toml", "layout = true\n"),
+  ]);
+  let (config, _) = config(&tree, "");
+  assert_eq!(
+    config.format().imports_layout,
+    crate::options::format::ImportsLayout::Vertical
+  );
+  let stable = config.stable_only();
+  assert_eq!(stable.format().max_width, 90);
+  assert_eq!(
+    stable.format().imports_layout,
+    crate::options::format::ImportsLayout::Mixed
+  );
+  // mto's own settings are kept.
+  assert!(stable.layout_on());
+}
+
+#[test]
 fn test_the_standard_file_is_found_as_the_standard_formatter_finds_it() {
   let tree = Tree::new(&[
     ("rustfmt.toml", "max_width = 80\n"),

@@ -182,6 +182,10 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
     }
     return (!unreadable_arguments(bang)).then_some(false);
   }
+  // After a restricted visibility: `pub(crate) fn`, `pub(super) x: u8`.
+  if ka == K::RParen && pa == K::Visibility && (kb == K::Ident || is_keyword(kb)) {
+    return Some(true);
+  }
   // After an attribute: `#[a] x`.
   if ka == K::RBrack && pa == K::Attr {
     return Some(true);

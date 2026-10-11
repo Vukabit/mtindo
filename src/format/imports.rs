@@ -10,6 +10,7 @@
 use SyntaxKind as K;
 
 use super::expr::flat;
+use super::shape::Spacing;
 use super::stmt::same_tokens;
 use crate::options::format::{FormatConfig, ImportsLayout};
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
@@ -28,8 +29,8 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   // `pub use `, everything before the tree.
   let head = format!(
     "{} ",
-    flat(node)
-      .strip_suffix(&format!("{};", flat(&tree)))?
+    flat(node, Spacing::of(config))
+      .strip_suffix(&format!("{};", flat(&tree, Spacing::of(config))))?
       .trim_end()
   );
   // 1 = `;`
@@ -134,14 +135,16 @@ fn tree_text(
   width: usize,
   config: &FormatConfig,
 ) -> Option<String> {
-  let whole = flat(tree);
+  let whole = flat(tree, Spacing::of(config));
   match tree
     .children()
     .into_iter()
     .find(|c| c.kind() == K::UseTreeList)
   {
     Some(list) => {
-      let head = whole.strip_suffix(&flat(&list))?.to_string();
+      let head = whole
+        .strip_suffix(&flat(&list, Spacing::of(config)))?
+        .to_string();
       let rest = width.checked_sub(str_width(&head))?;
       Some(format!(
         "{}{}",

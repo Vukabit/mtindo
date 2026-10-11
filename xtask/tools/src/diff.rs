@@ -401,7 +401,7 @@ fn collect_cases(options: &Options) -> Vec<Case> {
       } else {
         Set::Tests
       };
-      let format = header_settings(&input);
+      let format = header_settings(&input, &tests.join("config"));
       // The pairs are stored with `\n` endings whatever the header asks for; the
       // standard formatter's own test runner ignores endings.
       let edition = edition_for(&target, &input);
@@ -508,7 +508,8 @@ fn common_lines<'a>(got: &[&'a str], want: &[&'a str]) -> usize {
 }
 
 /// Writes each file's matched lines to `log` and lists the files that matched fewer lines
-/// than at the run before, which a total alone hides behind gains elsewhere.
+/// than at the run before, which a total alone hides behind gains elsewhere; beside it,
+/// `diff-first.txt` names each mismatching file's first differing line and its kind.
 fn compare_scores(log: &Path, cases: &[Case], scores: &[Score]) {
   let before: HashMap<String, usize> = fs::read_to_string(log)
     .unwrap_or_default()
@@ -519,9 +520,13 @@ fn compare_scores(log: &Path, cases: &[Case], scores: &[Score]) {
     })
     .collect();
   let mut now = String::new();
+  let mut first = String::new();
   let mut lost = Vec::new();
   for (case, score) in cases.iter().zip(scores).filter(|(_, s)| !s.skipped) {
     let key = format!("[{}] {}", case.set.key(), case.name);
+    if let Some((line, kind)) = &score.first {
+      first.push_str(&format!("{} {}:{}\n", kind, key, line));
+    }
     if let Some(&old) = before.get(&key)
       && score.matched_lines < old
     {
@@ -533,6 +538,8 @@ fn compare_scores(log: &Path, cases: &[Case], scores: &[Score]) {
     ));
   }
   let _ = fs::write(log, now);
+  // Each mismatching file's first differing line and its syntax kind, to sample a kind by.
+  let _ = fs::write(log.with_file_name("diff-first.txt"), first);
   if !lost.is_empty() {
     println!(
       "files matching fewer lines than at the last run: {}",
@@ -569,7 +576,7 @@ fn exceptions(path: &Path) -> Vec<String> {
 /// The formatting settings a test pair's `// rustfmt-NAME: VALUE` header lines set, resolved
 /// as mto resolves `--config NAME=VALUE`: the same widths, heuristics and defaults a user
 /// gets. A header mto cannot read leaves the defaults.
-fn header_settings(input: &str) -> FormatConfig {
+fn header_settings(input: &str, config_dir: &Path) -> FormatConfig {
   // Each header mto accepts on its own command line; one it does not know is left out
   // rather than failing the rest.
   let accepted = |pair: &(String, String)| {
@@ -586,7 +593,15 @@ fn header_settings(input: &str) -> FormatConfig {
     .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
     .filter(accepted)
     .collect();
+  // `// rustfmt-config: file.toml` names a file in the suite's `config` folder, read as
+  // `--config-path` reads one.
+  let config_path = input
+    .lines()
+    .filter_map(|line| line.strip_prefix("// rustfmt-config:"))
+    .map(|name| config_dir.join(name.trim()))
+    .next();
   let overrides = Overrides {
+    config_path,
     settings,
     ..Overrides::default()
   };
@@ -1076,9 +1091,12 @@ mod tests {
 
   #[test]
   fn test_header_settings_are_read() {
-    let config = header_settings("// rustfmt-tab_spaces: 2\n// rustfmt-hard_tabs: true\n");
+    let config = header_settings(
+      "// rustfmt-tab_spaces: 2\n// rustfmt-hard_tabs: true\n",
+      Path::new("."),
+    );
     assert_eq!((config.tab_spaces, config.hard_tabs), (2, true));
-    assert_eq!(header_settings("fn f() {}\n").tab_spaces, 4);
+    assert_eq!(header_settings("fn f() {}\n", Path::new(".")).tab_spaces, 4);
   }
 
   #[test]

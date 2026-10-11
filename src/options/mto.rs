@@ -168,11 +168,15 @@ pub(super) static SETTINGS: &[Setting] = &[
               out anew, a `let`'s pattern with it, its lines broken and joined as the Rust \
               style does within `max_width` and the widths `use_small_heuristics` sets (unless \
               it holds a comment, block, closure or macro, or a type or generic arguments that \
-              would have to break); \
-              so is a `use` declaration, its lists laid out as `imports_layout` says, unless \
+              would have to break); so is a `use` declaration, its lists laid out as `imports_layout` says, unless \
               it holds a comment, an attribute or a list of one item, which the Rust style \
-              would rewrite; other lines are not broken or joined yet. The lines that start \
-              items, statements, fields, variants, match arms and list elements are indented \
+              would rewrite; and so is an attribute of a file, body, item, statement, field or \
+              variant whose arguments are names and values, within `attr_fn_like_width` \
+              (`#[derive(...)]` its own way). Items, attributes and statements start lines \
+              of their own, as do the tail and closing brace of a block holding a statement \
+              and of a function's body. Other lines are not broken or joined yet. The lines \
+              that start items, statements, fields, variants, match arms and list elements are \
+              indented \
               one level past the line their block or list belongs to (match arms not, with \
               `match_arm_indent = false`), and closing delimiters at that line's indentation; \
               the lines that continue them move along with them. Within a line, tokens are \

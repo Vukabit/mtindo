@@ -9,7 +9,7 @@
 use SyntaxKind as K;
 
 use super::expr::{flat, rewrite};
-use super::shape::{Limits, Shape};
+use super::shape::{Limits, Shape, Spacing};
 use crate::options::format::FormatConfig;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
 use crate::text::unicode::str_width;
@@ -30,7 +30,7 @@ pub fn rewrite_statement(
     .descendants()
     .iter()
     .any(|d| d.kind() == K::GenericArgList);
-  if generics && indent + str_width(&flat(node)) > config.max_width {
+  if generics && indent + str_width(&flat(node, Spacing::of(config))) > config.max_width {
     return None;
   }
   let text = laid_out(node, indent, config)?;
@@ -91,9 +91,9 @@ fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
 }
 
 /// The statement's tokens before `expression`, flat.
-fn flat_before(node: &SyntaxNode, expression: &SyntaxNode) -> Option<String> {
-  let whole = flat(node);
-  let rest = format!("{};", flat(expression));
+fn flat_before(node: &SyntaxNode, expression: &SyntaxNode, spacing: Spacing) -> Option<String> {
+  let whole = flat(node, spacing);
+  let rest = format!("{};", flat(expression, spacing));
   whole
     .strip_suffix(&rest)
     .map(|head| head.trim_end().to_string())
@@ -108,6 +108,8 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
     struct_lit: config.struct_lit_width,
     array: config.array_width,
     short_item: config.short_array_element_width_threshold,
+    spacing: Spacing::of(config),
+    attribute: false,
   };
   let shape = Shape {
     indent,
@@ -163,8 +165,8 @@ fn last_line_used(text: &str, indent: usize) -> usize {
 /// flat for now.
 fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<String> {
   let pattern = node.children().into_iter().next()?;
-  let flat_head = flat_before(node, expression)?;
-  let flat_pattern = flat(&pattern);
+  let flat_head = flat_before(node, expression, shape.limits.spacing)?;
+  let flat_pattern = flat(&pattern, shape.limits.spacing);
   // Only a plain `let`: `super let` and the like are left as written.
   let after = flat_head
     .strip_prefix("let ")?

@@ -1,5 +1,7 @@
 //! The space an expression is printed into, and the width limits it is laid out under.
 
+use crate::options::format::FormatConfig;
+
 /// The width limits of the Rust style: the line width, one indentation level, and the widths
 /// above which a list, chain or literal is no longer kept on one line. [`Limits::default`]
 /// is the standard formatter's at its defaults.
@@ -19,6 +21,11 @@ pub struct Limits {
   pub array: usize,
   /// `short_array_element_width_threshold`: the widest item in a packed list.
   pub short_item: usize,
+  /// The settings tokens are spaced by.
+  pub spacing: Spacing,
+  /// Laying out attribute arguments: a list keeps a trailing comma only where written, on
+  /// one line too, and an overflowing nested list is not held to the list width.
+  pub attribute: bool,
 }
 
 impl Default for Limits {
@@ -31,6 +38,8 @@ impl Default for Limits {
       struct_lit: 18,
       array: 60,
       short_item: 10,
+      spacing: Spacing::default(),
+      attribute: false,
     }
   }
 }
@@ -78,5 +87,43 @@ impl Shape {
       .limits
       .max_width
       .saturating_sub(self.indent + self.offset + self.width)
+  }
+}
+
+/// The settings spacing within a line reads: `spaces_around_ranges`, `space_before_colon`,
+/// `space_after_colon` and `type_punctuation_density`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Spacing {
+  pub spaces_around_ranges: bool,
+  pub space_before_colon: bool,
+  pub space_after_colon: bool,
+  pub compressed_type_punctuation: bool,
+}
+
+impl Spacing {
+  pub fn of(config: &FormatConfig) -> Spacing {
+    Spacing {
+      spaces_around_ranges: config.spaces_around_ranges,
+      space_before_colon: config.space_before_colon,
+      space_after_colon: config.space_after_colon,
+      compressed_type_punctuation: config.compressed_type_punctuation,
+    }
+  }
+
+  /// The defaults with these settings, for the spacing rules to read.
+  pub fn config(self) -> FormatConfig {
+    FormatConfig {
+      spaces_around_ranges: self.spaces_around_ranges,
+      space_before_colon: self.space_before_colon,
+      space_after_colon: self.space_after_colon,
+      compressed_type_punctuation: self.compressed_type_punctuation,
+      ..FormatConfig::default()
+    }
+  }
+}
+
+impl Default for Spacing {
+  fn default() -> Self {
+    Spacing::of(&FormatConfig::default())
   }
 }

@@ -61,6 +61,8 @@ pub struct FormatConfig {
   /// How many lines from the top are searched for the `@generated` mark.
   pub generated_marker_line_search_limit: usize,
   pub imports_layout: ImportsLayout,
+  /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
+  pub attr_fn_like_width: usize,
 }
 
 impl Default for FormatConfig {
@@ -86,6 +88,7 @@ impl Default for FormatConfig {
       format_generated_files: true,
       generated_marker_line_search_limit: 5,
       imports_layout: ImportsLayout::Mixed,
+      attr_fn_like_width: 70,
     }
   }
 }

@@ -34,6 +34,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::format::attrs::rewrite_attr;
 use crate::format::imports::rewrite_use;
 use crate::format::space::{spacing, wants_space};
 use crate::format::stmt::rewrite_statement;
@@ -69,9 +70,12 @@ struct Roles {
   statements: HashMap<usize, usize>,
   /// Where line comments and line doc comments start, in order.
   line_comments: Vec<usize>,
-  /// Statements in blocks the width-budget code may lay out, and `use` declarations, by
-  /// where they start.
+  /// Statements in blocks the width-budget code may lay out, `use` declarations and
+  /// attributes, by where they start.
   layable: HashMap<usize, SyntaxNode>,
+  /// Where a token starts that the Rust style puts at the start of a line, even when it is
+  /// written after other code.
+  breaks: HashSet<usize>,
 }
 
 /// A token, with where it starts.
@@ -80,6 +84,8 @@ struct Tok {
   text: String,
   start: usize,
   token: SyntaxToken,
+  /// An empty space put between two tokens written touching, where a line may break.
+  synthetic: bool,
 }
 
 /// The file formatted; the input itself when it cannot be formatted safely.
@@ -291,10 +297,113 @@ fn is_generated(text: &str, config: &FormatConfig) -> bool {
     })
 }
 
+/// Whether a block's child is a statement, which makes the block one of lines.
+fn is_statement(kind: SyntaxKind) -> bool {
+  matches!(
+    kind,
+    SyntaxKind::LetStmt
+      | SyntaxKind::ExprStmt
+      | SyntaxKind::Fn
+      | SyntaxKind::Struct
+      | SyntaxKind::Enum
+      | SyntaxKind::Union
+      | SyntaxKind::Use
+      | SyntaxKind::Const
+      | SyntaxKind::Static
+      | SyntaxKind::Impl
+      | SyntaxKind::Trait
+      | SyntaxKind::TypeAlias
+      | SyntaxKind::Module
+      | SyntaxKind::MacroRules
+      | SyntaxKind::MacroDef
+      | SyntaxKind::ExternCrate
+      | SyntaxKind::ExternBlock
+      | SyntaxKind::MacroCall
+  )
+}
+
+/// What the Rust style starts a line with wherever it is written: the items and attributes
+/// of a file or a body, an item's or a statement's first token after its attributes, and in
+/// a block holding a statement, or a function's body holding anything, each statement, the
+/// tail and the closing brace. Each takes its container's indentation.
+fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
+  for node in root.descendants() {
+    let items = matches!(
+      node.kind(),
+      SyntaxKind::SourceFile
+        | SyntaxKind::ItemList
+        | SyntaxKind::AssocItemList
+        | SyntaxKind::ExternItemList
+    );
+    // A function's body with anything in it is one of lines too (`fn_single_line` off).
+    let block = node.kind() == SyntaxKind::BlockExpr
+      && (node.children().iter().any(|c| is_statement(c.kind()))
+        || node.parent().is_some_and(|p| p.kind() == SyntaxKind::Fn)
+          && node
+            .children()
+            .iter()
+            .any(|c| c.kind() != SyntaxKind::Label));
+    if !items && !block {
+      continue;
+    }
+    let mut any = false;
+    for child in node.children() {
+      if child.kind() == SyntaxKind::Label {
+        continue;
+      }
+      any = true;
+      let start = child.text_range().start as usize;
+      roles.breaks.insert(start);
+      let container = roles.starts.get(&start).copied();
+      let mut mark = |at: usize| {
+        roles.breaks.insert(at);
+        if let Some(container) = container {
+          roles.starts.entry(at).or_insert(container);
+        }
+      };
+      // Its own attributes, each on a line, and the line after them.
+      let mut after_attr = false;
+      for element in child.children_with_tokens() {
+        match &element {
+          SyntaxElement::Node(n) if n.kind() == SyntaxKind::Attr => {
+            mark(n.text_range().start as usize);
+            after_attr = true;
+          }
+          SyntaxElement::Token(t) if t.kind().is_trivia() => {}
+          other if after_attr => {
+            mark(other.text_range().start as usize);
+            break;
+          }
+          _ => break,
+        }
+      }
+    }
+    if any && node.kind() != SyntaxKind::SourceFile {
+      for token in node.children_with_tokens() {
+        if token.kind() == SyntaxKind::RBrace {
+          roles.breaks.insert(token.text_range().start as usize);
+        }
+      }
+    }
+  }
+}
+
 /// Whether an attribute's arguments are what the standard formatter can format: names and
 /// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
 /// else (a closure, a path as a value) is left as written.
 fn meta_like(attr: &SyntaxNode) -> bool {
+  // Inside an argument list a path's `::` is two colons, written touching.
+  let colons: Vec<(usize, usize)> = attr
+    .descendants_with_tokens()
+    .into_iter()
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) if t.kind() == SyntaxKind::Colon => {
+        Some((t.text_range().start as usize, t.text_range().end as usize))
+      }
+      _ => None,
+    })
+    .collect();
+  let in_path = |start: usize, end: usize| colons.iter().any(|&(s, e)| e == start || s == end);
   let mut previous: Option<SyntaxKind> = None;
   for element in attr.descendants_with_tokens() {
     let SyntaxElement::Token(token) = element else {
@@ -323,6 +432,16 @@ fn meta_like(attr: &SyntaxNode) -> bool {
           | SyntaxKind::Pound
           | SyntaxKind::Bang
       );
+    // A `!` only as an inner attribute's own: a macro call among the arguments is not a
+    // name or a value.
+    let allowed =
+      allowed && (kind != SyntaxKind::Bang || token.parent().kind() == SyntaxKind::Attr);
+    let allowed = allowed
+      || kind == SyntaxKind::Colon
+        && in_path(
+          token.text_range().start as usize,
+          token.text_range().end as usize,
+        );
     if !allowed || (previous == Some(SyntaxKind::Eq) && !kind.is_literal()) {
       return false;
     }
@@ -405,10 +524,31 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         text: t.text().to_string(),
         start: t.text_range().start as usize,
         token: t,
+        synthetic: false,
       }),
       _ => None,
     })
     .collect();
+  // A space where none is written before what must start a line, for the line break to
+  // take its place.
+  let mut spaced: Vec<Tok> = Vec::with_capacity(tokens.len());
+  for tok in tokens {
+    if roles.breaks.contains(&tok.start)
+      && spaced
+        .last()
+        .is_some_and(|before| before.kind != SyntaxKind::Whitespace)
+    {
+      spaced.push(Tok {
+        kind: SyntaxKind::Whitespace,
+        text: String::new(),
+        start: tok.start,
+        token: tok.token.clone(),
+        synthetic: true,
+      });
+    }
+    spaced.push(tok);
+  }
+  let tokens = spaced;
   let tab = config.tab_spaces.max(1);
   let max_newlines = config.blank_lines_upper_bound + 1;
   let mut out = String::with_capacity(text.len());
@@ -435,11 +575,30 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       // Nothing before the first token.
       continue;
     }
-    if tok.kind == SyntaxKind::Whitespace && tok.text.contains('\n') {
-      let written_text = tok.text.rsplit('\n').next().unwrap_or("");
+    // Space before what the Rust style starts a line with, written after other code: a
+    // line break, the construct measured from the column it was written at.
+    let breaks = tok.kind == SyntaxKind::Whitespace
+      && !tok.text.contains('\n')
+      && code_on_line
+      && !in_verbatim(tok.start)
+      && next.is_some_and(|n| roles.breaks.contains(&n.start) && !in_verbatim(n.start));
+    if tok.synthetic && !breaks {
+      continue;
+    }
+    if tok.kind == SyntaxKind::Whitespace && (breaks || tok.text.contains('\n')) {
+      let (written_text, next_start) = match next {
+        Some(next) if breaks => {
+          let line_start = text[..next.start].rfind('\n').map_or(0, |at| at + 1);
+          (&text[line_start..next.start], next.start)
+        }
+        _ => {
+          let written_text = tok.text.rsplit('\n').next().unwrap_or("");
+          let next_start = tok.start + tok.text.len();
+          text_line_start = next_start - written_text.len();
+          (written_text, next_start)
+        }
+      };
       let written = width_of(written_text, tab);
-      let next_start = tok.start + tok.text.len();
-      text_line_start = next_start - written_text.len();
       code_on_line = false;
       if in_verbatim(tok.start) {
         out.push_str(&tok.text);
@@ -451,7 +610,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       let Some(next) = next else {
         break;
       };
-      let newlines = tok.text.matches('\n').count();
+      let newlines = tok.text.matches('\n').count().max(1);
       let after_open = previous_significant.filter(|p| roles.openers.contains_key(p));
       let newlines = match after_open {
         Some(open) if roles.keeps_leading_blank.contains(&open) => newlines.min(max_newlines),
@@ -519,16 +678,17 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       }
       continue;
     }
-    // A statement or `use` declaration laid out anew, starting its line: written whole.
+    // A statement, `use` declaration or attribute laid out anew, starting its line: written
+    // whole.
     if let Some(node) = roles.layable.get(&tok.start)
       && !in_verbatim(tok.start)
       && out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
       && let Some(text) = {
         let indent = width_of(&out[out_line_start..], tab);
-        if node.kind() == SyntaxKind::Use {
-          rewrite_use(node, indent, config)
-        } else {
-          rewrite_statement(node, indent, config)
+        match node.kind() {
+          SyntaxKind::Use => rewrite_use(node, indent, config),
+          SyntaxKind::Attr => rewrite_attr(node, indent, config),
+          _ => rewrite_statement(node, indent, config),
         }
       }
     {
@@ -665,6 +825,26 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           }
         }
         let unparsed_attr = node.kind() == SyntaxKind::Attr && !meta_like(node);
+        // Attributes of files, bodies, items, statements, fields and variants; those among
+        // match arms or in expressions the standard formatter leaves as written.
+        let attr_owner = node.parent().is_some_and(|p| {
+          is_statement(p.kind())
+            || matches!(
+              p.kind(),
+              SyntaxKind::SourceFile
+                | SyntaxKind::ItemList
+                | SyntaxKind::AssocItemList
+                | SyntaxKind::ExternItemList
+                | SyntaxKind::RecordField
+                | SyntaxKind::TupleField
+                | SyntaxKind::Variant
+            )
+            || p.kind() == SyntaxKind::BlockExpr
+              && p.parent().is_some_and(|f| f.kind() == SyntaxKind::Fn)
+        });
+        if node.kind() == SyntaxKind::Attr && !unparsed_attr && !skipped && attr_owner {
+          roles.layable.insert(range.start as usize, node.clone());
+        }
         let kept = matches!(
           node.kind(),
           SyntaxKind::TokenTree | SyntaxKind::MacroRules | SyntaxKind::MacroDef
@@ -730,6 +910,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   roles.statements = statements.iter().copied().collect();
   roles.line_comments = line_comments;
+  line_starts(root, &mut roles);
   // Sorted and merged, for looking up by binary search.
   roles.verbatim.sort_unstable();
   let mut merged: Vec<(usize, usize)> = Vec::with_capacity(roles.verbatim.len());

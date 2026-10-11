@@ -6,7 +6,6 @@
 
 use super::shape::*;
 use super::space;
-use crate::options::format::FormatConfig;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::text::unicode::str_width;
 
@@ -65,7 +64,7 @@ pub fn can_overflow(node: &SyntaxNode, count: usize) -> bool {
 }
 
 /// A chain cut into its root (with the `?`s after it) and links, innermost first.
-pub fn chain(node: &SyntaxNode) -> (SyntaxNode, usize, Vec<Link>) {
+pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Link>) {
   let mut links: Vec<Link> = Vec::new();
   let root_tries;
   let mut current = node.clone();
@@ -97,7 +96,7 @@ pub fn chain(node: &SyntaxNode) -> (SyntaxNode, usize, Vec<Link>) {
             SyntaxElement::Node(n) if n.kind() == SyntaxKind::ArgList => {
               args = Some(list_items(n));
             }
-            SyntaxElement::Node(n) => head.push_str(&flat(n)),
+            SyntaxElement::Node(n) => head.push_str(&flat(n, spacing)),
             SyntaxElement::Token(t) if !t.kind().is_trivia() => head.push_str(t.text()),
             _ => {}
           }
@@ -127,8 +126,8 @@ pub fn first_line_width(text: &str) -> usize {
 
 /// The node's tokens on one line, spaced as the Rust style spaces them ([`super::space`]);
 /// a pair no rule covers keeps a space if it was written with one.
-pub fn flat(node: &SyntaxNode) -> String {
-  let config = FormatConfig::default();
+pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
+  let config = spacing.config();
   let tokens: Vec<SyntaxToken> = node
     .descendants_with_tokens()
     .into_iter()
@@ -184,7 +183,7 @@ pub fn is_chain(node: &SyntaxNode) -> bool {
 pub fn is_simple(node: &SyntaxNode) -> bool {
   match node.kind() {
     SyntaxKind::Literal => true,
-    SyntaxKind::PathExpr => !flat(node).contains("::"),
+    SyntaxKind::PathExpr => !flat(node, Spacing::default()).contains("::"),
     SyntaxKind::RefExpr | SyntaxKind::FieldExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr => {
       node.children().first().is_some_and(is_simple)
     }
@@ -231,8 +230,8 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
       rewrite_chain(node, shape)
     }
     SyntaxKind::RecordExpr | SyntaxKind::RecordPat => rewrite_struct(node, shape),
-    SyntaxKind::ArrayExpr if flat(node).contains(';') => {
-      let text = flat(node);
+    SyntaxKind::ArrayExpr if flat(node, shape.limits.spacing).contains(';') => {
+      let text = flat(node, shape.limits.spacing);
       (text.width() <= shape.width).then_some(text)
     }
     SyntaxKind::ArrayExpr | SyntaxKind::SlicePat => {
@@ -258,17 +257,17 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     }
     SyntaxKind::RefExpr | SyntaxKind::PrefixExpr => {
       let inner_node = node.children().into_iter().last()?;
-      let whole = flat(node);
-      let inner_flat = flat(&inner_node);
+      let whole = flat(node, shape.limits.spacing);
+      let inner_flat = flat(&inner_node, shape.limits.spacing);
       let prefix = whole.strip_suffix(&inner_flat)?.to_string();
       let inner = rewrite(&inner_node, shape.offset_left(prefix.width())?)?;
       Some(format!("{}{}", prefix, inner))
     }
     // A literal is kept as written however long; the line runs over, as it does for the
     // standard formatter.
-    SyntaxKind::Literal => Some(flat(node)),
+    SyntaxKind::Literal => Some(flat(node, shape.limits.spacing)),
     _ => {
-      let text = flat(node);
+      let text = flat(node, shape.limits.spacing);
       (text.width() <= shape.width).then_some(text)
     }
   }
@@ -276,7 +275,19 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
 
 /// A `?` around a chain is part of the chain; around anything else it is a suffix.
 fn chain_with_links(node: &SyntaxNode) -> bool {
-  node.kind() == SyntaxKind::TryExpr && !chain(node).2.is_empty()
+  node.kind() == SyntaxKind::TryExpr && !chain(node, Spacing::default()).2.is_empty()
+}
+
+/// Whether a comma is written after `node`, comments and whitespace aside.
+fn comma_after(node: &SyntaxNode) -> bool {
+  let mut next = node.next_sibling_or_token();
+  while let Some(SyntaxElement::Token(token)) = next {
+    if !token.kind().is_trivia() {
+      return token.kind() == SyntaxKind::Comma;
+    }
+    next = token.next_sibling_or_token();
+  }
+  false
 }
 
 fn definitive(items: &[String], limit: usize) -> Tactic {
@@ -358,7 +369,8 @@ fn last_item_shape(
   shape: Shape,
   max: usize,
 ) -> Option<Shape> {
-  if items.len() == 1 && !is_nested_call(&items[0]) {
+  // An attribute's nested list is not an expression, so not a nested call.
+  if items.len() == 1 && (shape.limits.attribute || !is_nested_call(&items[0])) {
     return Some(shape);
   }
   let offset: usize = texts[..texts.len() - 1].iter().map(|t| 2 + t.len()).sum();
@@ -383,7 +395,7 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
 
 /// A chain, as the standard formatter's block-indented chain formatter lays it out.
 fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let (root, root_tries, links) = chain(node);
+  let (root, root_tries, links) = chain(node, shape.limits.spacing);
   let mut root_text = format!("{}{}", rewrite(&root, shape)?, "?".repeat(root_tries));
   let child_count = links.len();
   let mut links: &[Link] = &links;
@@ -548,7 +560,17 @@ fn rewrite_list(
     // `force_one_line_chain`).
     let one_line_chain = !combine && is_method_call(&items[last]);
     let placeholder = if overflow {
-      last_item_shape(items, &texts, one_line_shape, max_width)
+      // An attribute's nested list overflowing its parent stops a column short, as the
+      // standard formatter writes it (found by measuring it).
+      let overflow_shape = if shape.limits.attribute {
+        one_line_shape.sub_width(1).unwrap_or(Shape {
+          width: 0,
+          ..one_line_shape
+        })
+      } else {
+        one_line_shape
+      };
+      last_item_shape(items, &texts, overflow_shape, max_width)
         .and_then(|s| rewrite(&items[last], s))
         .filter(|text| {
           !one_line_chain
@@ -596,11 +618,20 @@ fn rewrite_list(
       }
     }
   }
+  let trailing = if !shape.limits.attribute || items.last().is_some_and(comma_after) {
+    ","
+  } else {
+    ""
+  };
   let body = match tactic {
+    // Attribute arguments keep a written trailing comma on one line too.
+    Tactic::Horizontal if shape.limits.attribute => {
+      format!("{}{}", texts.join(", "), trailing)
+    }
     Tactic::Horizontal => texts.join(", "),
     Tactic::Vertical => {
       let sep = format!(",\n{}", " ".repeat(nested.indent));
-      format!("{},", texts.join(&sep))
+      format!("{}{}", texts.join(&sep), trailing)
     }
     Tactic::Mixed => {
       let mut lines: Vec<String> = Vec::new();
@@ -621,7 +652,7 @@ fn rewrite_list(
       }
       lines.push(line);
       let sep = format!(",\n{}", " ".repeat(nested.indent));
-      format!("{},", lines.join(&sep))
+      format!("{}{}", lines.join(&sep), trailing)
     }
   };
   // wrap_items: on the opening line when it is horizontal and its first line fits.
@@ -669,7 +700,7 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .children()
     .into_iter()
     .find(|c| c.kind() == SyntaxKind::Path)
-    .map(|p| flat(&p))
+    .map(|p| flat(&p, shape.limits.spacing))
     .unwrap_or_default();
   let list = node.children().into_iter().find(|c| {
     matches!(
@@ -706,11 +737,11 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
         let parts = n.children();
         let text = match parts.as_slice() {
           [name, value] => {
-            let name = flat(name);
+            let name = flat(name, shape.limits.spacing);
             let value = rewrite(value, v_shape.sub_width(1)?.offset_left(name.width() + 2)?)?;
             format!("{}: {}", name, value)
           }
-          _ => flat(n),
+          _ => flat(n, shape.limits.spacing),
         };
         fields.push(text);
       }

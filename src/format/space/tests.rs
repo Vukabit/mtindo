@@ -53,7 +53,7 @@ fn test_generics_closures_and_braces() {
   );
   assert_eq!(
     formatted("fn f() { let g = | a , b | a + b ; S {a , b} ; }\n"),
-    "fn f() { let g = |a, b| a + b; S { a, b }; }\n"
+    "fn f() {\n    let g = |a, b| a + b;\n    S { a, b };\n}\n"
   );
 }
 
@@ -65,11 +65,11 @@ fn test_operators_are_spaced_and_prefixes_bind() {
   );
   assert_eq!(
     formatted("fn f(x :& mut u8) -> bool { * x<1 && ! g ( & x ) }\n"),
-    "fn f(x: &mut u8) -> bool { *x < 1 && !g(&x) }\n"
+    "fn f(x: &mut u8) -> bool {\n    *x < 1 && !g(&x)\n}\n"
   );
   assert_eq!(
     formatted("fn f() { for i in 0 .. n { a [ ..= 2 ] ; } }\n"),
-    "fn f() { for i in 0..n { a[..=2]; } }\n"
+    "fn f() {\n    for i in 0..n {\n        a[..=2];\n    }\n}\n"
   );
 }
 
@@ -81,10 +81,14 @@ fn test_paths_calls_and_fields_are_tight() {
     "fn f() {\n    a.b(1, 2)[0].c;\n}\n"
   );
   assert_eq!(formatted("use a :: { b ,c };\n"), "use a::{b, c};\n");
+  assert_eq!(
+    formatted("#[cfg(x)]\npub(crate)  use a::b;\n"),
+    "#[cfg(x)]\npub(crate) use a::b;\n"
+  );
   // The macro's name and `!` are tightened; its body is left as written.
   assert_eq!(
     formatted("fn f() { foo ! ( x ) ; }\n"),
-    "fn f() { foo!( x ); }\n"
+    "fn f() {\n    foo!( x );\n}\n"
   );
 }
 
@@ -101,7 +105,7 @@ fn test_spacing_settings() {
   let once = format_file(source, Edition::E2021, &config);
   assert_eq!(
     once,
-    "fn f<T :A+B>(x :u8) { let r = 0 .. x; g::<Item=u8>(); }\n"
+    "fn f<T :A+B>(x :u8) {\n    let r = 0 .. x;\n    g::<Item=u8>();\n}\n"
   );
   assert!(verify_format(source, &once, Edition::E2021).is_empty());
   assert_eq!(format_file(&once, Edition::E2021, &config), once);
@@ -112,6 +116,9 @@ fn test_what_spacing_leaves_alone() {
   // Macro bodies, comments and their spacing, and tokens that would merge.
   let kept = "fn f() {\n    m!( a  ,b );\n    x;   // note\n}\n";
   assert_eq!(formatted(kept), kept);
-  assert_eq!(formatted("fn f() { a - - b; }\n"), "fn f() { a - -b; }\n");
-  assert_eq!(formatted("fn f() { & & x; }\n"), "fn f() { &&x; }\n");
+  assert_eq!(
+    formatted("fn f() { a - - b; }\n"),
+    "fn f() {\n    a - -b;\n}\n"
+  );
+  assert_eq!(formatted("fn f() { & & x; }\n"), "fn f() {\n    &&x;\n}\n");
 }

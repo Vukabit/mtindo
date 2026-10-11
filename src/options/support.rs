@@ -6,7 +6,7 @@
 /// sorted by name.
 pub const OPTIONS: &[(&str, &str)] = &[
   ("array_width", "partial"),
-  ("attr_fn_like_width", "missing"),
+  ("attr_fn_like_width", "supported"),
   ("binop_separator", "missing"),
   ("blank_lines_lower_bound", "partial"),
   ("blank_lines_upper_bound", "partial"),

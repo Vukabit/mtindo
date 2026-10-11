@@ -174,7 +174,11 @@ pub(super) static SETTINGS: &[Setting] = &[
               variant whose arguments are names and values, within `attr_fn_like_width` \
               (`#[derive(...)]` its own way). Items, attributes and statements start lines \
               of their own, as do the tail and closing brace of a block holding a statement \
-              and of a function's body. Runs of `use` items and of `mod name;` declarations \
+              and of a function's body. An item's header (`pub fn name<T>(a: T) -> R {`, \
+              `impl<T> Trait for Type {`, `pub struct Name {`) is joined onto one line when it \
+              fits, else a function's parameters are put one per line, unless it holds a \
+              comment, a `where` clause, trait bounds or generics that would break. Runs of \
+              `use` items and of `mod name;` declarations \
               (no blank line between) are sorted as the Rust style sorts them, unless \
               `reorder_imports` or `reorder_modules` is off or the run holds a comment. Other \
               lines are not broken or joined yet. The lines \

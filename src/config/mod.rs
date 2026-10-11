@@ -277,6 +277,8 @@ impl Config {
     config.style_edition = self.style_edition();
     config.reorder_imports = flag("reorder_imports", true);
     config.reorder_modules = flag("reorder_modules", true);
+    config.brace_next_line =
+      self.get("brace_style").and_then(Value::as_text) == Some("AlwaysNextLine");
     config.short_array_element_width_threshold = number(
       "short_array_element_width_threshold",
       config.short_array_element_width_threshold,

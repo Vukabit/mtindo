@@ -127,7 +127,6 @@ pub fn first_line_width(text: &str) -> usize {
 /// The node's tokens on one line, spaced as the Rust style spaces them ([`super::space`]);
 /// a pair no rule covers keeps a space if it was written with one.
 pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
-  let config = spacing.config();
   let tokens: Vec<SyntaxToken> = node
     .descendants_with_tokens()
     .into_iter()
@@ -136,6 +135,12 @@ pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
       _ => None,
     })
     .collect();
+  flat_tokens(&tokens, spacing)
+}
+
+/// Tokens on one line, spaced as [`flat`] spaces a node's.
+pub fn flat_tokens(tokens: &[SyntaxToken], spacing: Spacing) -> String {
+  let config = spacing.config();
   let mut out = String::new();
   for (i, token) in tokens.iter().enumerate() {
     // On one line, a list keeps no trailing comma, except a one-element tuple's.

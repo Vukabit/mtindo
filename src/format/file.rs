@@ -36,6 +36,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::format::attrs::rewrite_attr;
 use crate::format::imports::rewrite_use;
+use crate::format::items::{is_item, rewrite_header};
 use crate::format::space::{spacing, wants_space};
 use crate::format::stmt::rewrite_statement;
 use crate::options::format::{FormatConfig, NewlineStyle};
@@ -363,26 +364,34 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
       let start = child.text_range().start as usize;
       roles.breaks.insert(start);
       let container = roles.starts.get(&start).copied();
-      let mut mark = |at: usize| {
-        roles.breaks.insert(at);
+      // Indented as the item; `breaks` also starts a line wherever it is written.
+      let mut mark = |at: usize, breaks: bool| {
+        if breaks {
+          roles.breaks.insert(at);
+        }
         if let Some(container) = container {
           roles.starts.entry(at).or_insert(container);
         }
       };
-      // Its own attributes, each on a line, and the line after them.
+      // Its own attributes, each on a line, and the line after them; the comments before
+      // its code, and its code's first line, are indented as it is.
       let mut after_attr = false;
       for element in child.children_with_tokens() {
         match &element {
           SyntaxElement::Node(n) if n.kind() == SyntaxKind::Attr => {
-            mark(n.text_range().start as usize);
+            mark(n.text_range().start as usize, true);
             after_attr = true;
           }
-          SyntaxElement::Token(t) if t.kind().is_trivia() => {}
-          other if after_attr => {
-            mark(other.text_range().start as usize);
+          SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {}
+          SyntaxElement::Token(t)
+            if t.kind().is_trivia() || crate::format::items::is_doc(t.kind()) =>
+          {
+            mark(t.text_range().start as usize, false);
+          }
+          other => {
+            mark(other.text_range().start as usize, after_attr);
             break;
           }
-          _ => break,
         }
       }
     }
@@ -686,17 +695,26 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       }
       continue;
     }
-    // A statement, `use` declaration or attribute laid out anew, starting its line: written
-    // whole.
+    // A statement, `use` declaration, attribute or item header laid out anew, starting its
+    // line: written whole, up to where its layout ends.
     if let Some(node) = roles.layable.get(&tok.start)
       && !in_verbatim(tok.start)
       && out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
-      && let Some(text) = {
+      && let Some((text, to)) = {
         let indent = width_of(&out[out_line_start..], tab);
+        let whole = |text: Option<String>| text.map(|t| (t, node.text_range().end as usize));
         match node.kind() {
-          SyntaxKind::Use => rewrite_use(node, indent, config),
-          SyntaxKind::Attr => rewrite_attr(node, indent, config),
-          _ => rewrite_statement(node, indent, config),
+          SyntaxKind::Use => whole(rewrite_use(node, indent, config)),
+          SyntaxKind::Attr => whole(rewrite_attr(node, indent, config)),
+          // Not an item given up on whole.
+          kind if is_item(kind) => {
+            if in_verbatim(node.text_range().start as usize + 1) {
+              None
+            } else {
+              rewrite_header(node, indent, config)
+            }
+          }
+          _ => whole(rewrite_statement(node, indent, config)),
         }
       }
     {
@@ -704,7 +722,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       if let Some(at) = out.rfind('\n') {
         out_line_start = at + 1;
       }
-      laid_out_to = node.text_range().end as usize;
+      laid_out_to = to;
       previous_significant = None;
       code_on_line = true;
       comment_column = None;
@@ -823,9 +841,14 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         };
         if in_list && node.kind() != SyntaxKind::Attr && !in_expression() {
           statements.push((range.start as usize, range.end as usize));
-          // A `use` from its visibility or `use` on, after its attributes.
+          // A `use` from its visibility or `use` on, and an item's header, after their
+          // attributes.
           if node.kind() == SyntaxKind::Use
             && let Some(start) = crate::format::imports::body_start(node)
+          {
+            roles.layable.insert(start, node.clone());
+          } else if is_item(node.kind())
+            && let Some(start) = crate::format::items::header_start(node)
           {
             roles.layable.insert(start, node.clone());
           } else if matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)

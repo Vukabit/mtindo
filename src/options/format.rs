@@ -69,6 +69,8 @@ pub struct FormatConfig {
   pub reorder_imports: bool,
   /// Whether runs of `mod name;` declarations are sorted.
   pub reorder_modules: bool,
+  /// `brace_style = "AlwaysNextLine"`: an item's `{` on the line after its header.
+  pub brace_next_line: bool,
 }
 
 impl Default for FormatConfig {
@@ -98,6 +100,7 @@ impl Default for FormatConfig {
       style_edition: 2015,
       reorder_imports: true,
       reorder_modules: true,
+      brace_next_line: false,
     }
   }
 }

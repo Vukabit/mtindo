@@ -23,9 +23,14 @@ pub struct Limits {
   pub short_item: usize,
   /// The settings tokens are spaced by.
   pub spacing: Spacing,
-  /// Laying out attribute arguments: a list keeps a trailing comma only where written, on
-  /// one line too, and an overflowing nested list is not held to the list width.
+  /// Laying out attribute arguments: an overflowing nested list is not held to the list
+  /// width, and stops a column short.
   pub attribute: bool,
+  /// A list keeps a trailing comma only where written, on one line too (attribute and macro
+  /// arguments).
+  pub comma_as_written: bool,
+  /// Style edition 2024 or later, for the choices that differ.
+  pub style_2024: bool,
 }
 
 impl Default for Limits {
@@ -40,6 +45,8 @@ impl Default for Limits {
       short_item: 10,
       spacing: Spacing::default(),
       attribute: false,
+      comma_as_written: false,
+      style_2024: false,
     }
   }
 }

@@ -9,6 +9,31 @@ use super::space;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::text::unicode::str_width;
 
+/// Format-like macros, with how many arguments come before the format string (the standard
+/// formatter's `SPECIAL_CASE_MACROS`).
+const SPECIAL_MACROS: &[(&str, usize)] = &[
+  ("eprint!", 0),
+  ("eprintln!", 0),
+  ("format!", 0),
+  ("format_args!", 0),
+  ("print!", 0),
+  ("println!", 0),
+  ("panic!", 0),
+  ("unreachable!", 0),
+  ("debug!", 0),
+  ("error!", 0),
+  ("info!", 0),
+  ("warn!", 0),
+  ("assert!", 1),
+  ("debug_assert!", 1),
+  ("write!", 1),
+  ("writeln!", 1),
+  ("assert_eq!", 2),
+  ("assert_ne!", 2),
+  ("debug_assert_eq!", 2),
+  ("debug_assert_ne!", 2),
+];
+
 /// A text's display width: wide characters take two columns, as the standard formatter
 /// counts them.
 trait Width {
@@ -21,6 +46,9 @@ enum Tactic {
   Horizontal,
   Vertical,
   Mixed,
+  /// A format-like macro's arguments: those before the format string on the first line,
+  /// the format string on a line of its own, the rest together on the next.
+  Special(usize),
 }
 
 /// One link of a chain: `.name::<T>(args)`, `.field`, `.await`, each with the `?`s after it.
@@ -54,7 +82,8 @@ pub fn can_overflow(node: &SyntaxNode, count: usize) -> bool {
     | SyntaxKind::ArrayExpr
     | SyntaxKind::CallExpr
     | SyntaxKind::MethodCallExpr
-    | SyntaxKind::TupleExpr => count == 1,
+    | SyntaxKind::TupleExpr
+    | SyntaxKind::MacroExpr => count == 1,
     SyntaxKind::RefExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr => node
       .children()
       .first()
@@ -142,7 +171,17 @@ pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
 pub fn flat_tokens(tokens: &[SyntaxToken], spacing: Spacing) -> String {
   let config = spacing.config();
   let mut out = String::new();
+  // Inside a macro's token tree the tokens are not code yet (`::` is two colons, `,` may
+  // follow nothing): their commas stay and their spacing is as written, any space one space.
+  let in_tree = |t: &SyntaxToken| t.parent().kind() == SyntaxKind::TokenTree;
   for (i, token) in tokens.iter().enumerate() {
+    if in_tree(token) {
+      if i > 0 && tokens[i - 1].text_range().end < token.text_range().start {
+        out.push(' ');
+      }
+      out.push_str(token.text());
+      continue;
+    }
     // On one line, a list keeps no trailing comma, except a one-element tuple's.
     if token.kind() == SyntaxKind::Comma
       && tokens.get(i + 1).is_some_and(|n| {
@@ -292,6 +331,7 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
       let inner = rewrite(&inner_node, inner_shape)?;
       Some(format!("{}{}", prefix, inner))
     }
+    SyntaxKind::MacroExpr | SyntaxKind::MacroCall => rewrite_macro(node, shape),
     // A literal is kept as written however long; the line runs over, as it does for the
     // standard formatter.
     SyntaxKind::Literal => Some(flat(node, shape.limits.spacing)),
@@ -594,7 +634,10 @@ fn rewrite_list(
     // A method chain overflowing a list it is not combined with keeps its links on one
     // line, though its last call's arguments may break (the standard formatter's
     // `force_one_line_chain`).
-    let one_line_chain = !combine && is_method_call(&items[last]);
+    // For a macro's arguments only from style edition 2024, as the standard formatter has it.
+    let one_line_chain = !combine
+      && is_method_call(&items[last])
+      && (!ident.ends_with('!') || shape.limits.style_2024);
     let placeholder = if overflow {
       // An attribute's nested list overflowing its parent stops a column short, as the
       // standard formatter writes it (found by measuring it).
@@ -644,11 +687,28 @@ fn rewrite_list(
           tactic = Tactic::Horizontal;
         } else {
           tactic = definitive(&texts, max_width.min(one_line_width));
-          if tactic == Tactic::Vertical
-            && items.iter().all(is_simple)
-            && texts.iter().all(|t| t.width() <= shape.limits.short_item)
-          {
-            tactic = Tactic::Mixed;
+          let special = SPECIAL_MACROS
+            .iter()
+            .find(|(name, _)| *name == ident)
+            .map(|&(_, before)| before);
+          if tactic == Tactic::Vertical {
+            if let Some(before) = special {
+              // The standard formatter's `maybe_get_args_offset`: the arguments around the
+              // format string are simple, and each group fits on a line.
+              let fits = |texts: &[String]| definitive(texts, nested.width) == Tactic::Horizontal;
+              if items.len() > before
+                && items[..before].iter().all(is_simple)
+                && items[before + 1..].iter().all(is_simple)
+                && fits(&texts[..before])
+                && fits(&texts[before + 1..])
+              {
+                tactic = Tactic::Special(before);
+              }
+            } else if items.iter().all(is_simple)
+              && texts.iter().all(|t| t.width() <= shape.limits.short_item)
+            {
+              tactic = Tactic::Mixed;
+            }
           }
         }
       }
@@ -664,14 +724,14 @@ fn rewrite_list(
   {
     return None;
   }
-  let trailing = if !shape.limits.attribute || items.last().is_some_and(comma_after) {
+  let trailing = if !shape.limits.comma_as_written || items.last().is_some_and(comma_after) {
     ","
   } else {
     ""
   };
   let body = match tactic {
-    // Attribute arguments keep a written trailing comma on one line too.
-    Tactic::Horizontal if shape.limits.attribute => {
+    // Attribute and macro arguments keep a written trailing comma on one line too.
+    Tactic::Horizontal if shape.limits.comma_as_written => {
       format!("{}{}", texts.join(", "), trailing)
     }
     Tactic::Horizontal => texts.join(", "),
@@ -699,6 +759,22 @@ fn rewrite_list(
       lines.push(line);
       let sep = format!(",\n{}", " ".repeat(nested.indent));
       format!("{}{}", lines.join(&sep), trailing)
+    }
+    Tactic::Special(before) => {
+      let mut body = String::new();
+      for (i, text) in texts.iter().enumerate() {
+        if i > 0 {
+          body.push(',');
+          if i < before || i > before + 1 {
+            body.push(' ');
+          } else {
+            body.push('\n');
+            body.push_str(&" ".repeat(nested.indent));
+          }
+        }
+        body.push_str(text);
+      }
+      format!("{}{}", body, trailing)
     }
   };
   // wrap_items: on the opening line when it is horizontal and its first line fits.
@@ -737,6 +813,180 @@ fn rewrite_list(
       .all(|l| l.width() <= shape.limits.max_width)
       .then_some(text)
   }
+}
+
+/// A macro call whose arguments read as a call's or an array's, laid out as one under the
+/// macro's name (the standard formatter's `rewrite_macro_inner`): `name!(...)` as a call
+/// within `fn_call_width`, `name![...]` as an array, each keeping a trailing comma only where
+/// written (`vec![...]` as an array does). Arguments in braces, or that do not parse, or hold a
+/// comment, make it `None`, left as written.
+fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let call = if node.kind() == SyntaxKind::MacroExpr {
+    node
+      .children()
+      .into_iter()
+      .find(|c| c.kind() == SyntaxKind::MacroCall)?
+  } else {
+    node.clone()
+  };
+  let tree = call
+    .children()
+    .into_iter()
+    .find(|c| c.kind() == SyntaxKind::TokenTree)?;
+  if tree
+    .descendants_with_tokens()
+    .iter()
+    .any(|e| e.kind().is_trivia() && e.kind() != SyntaxKind::Whitespace)
+  {
+    return None;
+  }
+  let path = call
+    .children()
+    .into_iter()
+    .find(|c| c.kind() == SyntaxKind::Path)?;
+  let name = format!("{}!", flat(&path, shape.limits.spacing));
+  let inner = tree.text().to_string();
+  let delimiter = tree
+    .children_with_tokens()
+    .into_iter()
+    .find(|e| !e.kind().is_trivia())?
+    .kind();
+  let (source, list_kind, open, close, width) = match delimiter {
+    // `vec!(...)` the standard formatter writes as `vec![...]`, which changes tokens.
+    SyntaxKind::LParen if name != "vec!" => (
+      format!("fn f() {{\n__mto_macro{};\n}}", inner),
+      SyntaxKind::ArgList,
+      "(",
+      ")",
+      shape.limits.fn_call,
+    ),
+    SyntaxKind::LBrack => (
+      format!("fn f() {{\n{};\n}}", inner),
+      SyntaxKind::ArrayExpr,
+      "[",
+      "]",
+      shape.limits.array,
+    ),
+    _ => return None,
+  };
+  let parsed = crate::syntax::parse(&source, Edition::E2021);
+  if !parsed.errors().is_empty() {
+    return None;
+  }
+  let root = parsed.syntax_node();
+  let statement = root
+    .descendants()
+    .into_iter()
+    .find(|n| n.kind() == SyntaxKind::ExprStmt)?;
+  let expression = statement.children().into_iter().next()?;
+  let list = match list_kind {
+    SyntaxKind::ArgList => {
+      if expression.kind() != SyntaxKind::CallExpr {
+        return None;
+      }
+      expression
+        .children()
+        .into_iter()
+        .find(|c| c.kind() == SyntaxKind::ArgList)?
+    }
+    _ => {
+      if expression.kind() != SyntaxKind::ArrayExpr {
+        return None;
+      }
+      expression
+    }
+  };
+  // What rustc would not parse, and so the standard formatter leaves as written, though
+  // this parser takes it: a comparison chained to another (`-a <"v"> "s"`), a comma after no
+  // item (`[,]`, `(a,,b)`).
+  let comparison = |n: &SyntaxNode| {
+    n.kind() == SyntaxKind::BinExpr
+      && n.children_with_tokens().iter().any(|e| {
+        matches!(
+          e.kind(),
+          SyntaxKind::Lt
+            | SyntaxKind::Gt
+            | SyntaxKind::LtEq
+            | SyntaxKind::GtEq
+            | SyntaxKind::EqEq
+            | SyntaxKind::Neq
+        )
+      })
+  };
+  if list
+    .descendants()
+    .iter()
+    .any(|n| comparison(n) && n.children().iter().any(comparison))
+  {
+    return None;
+  }
+  // `<-` written touching (the obsolete in-place arrow) and `builtin #` rustc rejects or
+  // keeps apart; a `#` outside an attribute is left as written.
+  let tokens: Vec<SyntaxToken> = list
+    .descendants_with_tokens()
+    .into_iter()
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
+      _ => None,
+    })
+    .collect();
+  if tokens.windows(2).any(|w| {
+    w[0].kind() == SyntaxKind::Lt
+      && w[1].kind() == SyntaxKind::Minus
+      && w[0].text_range().end == w[1].text_range().start
+  }) || tokens.iter().any(|t| t.kind() == SyntaxKind::Pound)
+  {
+    return None;
+  }
+  // Generic arguments that would have to break are not laid out yet (as in statements).
+  if list
+    .descendants()
+    .iter()
+    .any(|d| d.kind() == SyntaxKind::GenericArgList)
+    && name.width() + flat(&list, shape.limits.spacing).width() > shape.width
+  {
+    return None;
+  }
+  let items = list_items(&list);
+  let commas = list
+    .children_with_tokens()
+    .iter()
+    .filter(|e| e.kind() == SyntaxKind::Comma)
+    .count();
+  if commas + 1 != items.len() && commas != items.len() {
+    return None;
+  }
+  // An attribute among the arguments is not an argument of its own; blocks, `match` arms,
+  // `let else` and macros in braces are not laid out yet: left as written, as a statement
+  // holding them is.
+  if list.descendants().iter().any(|d| {
+    matches!(
+      d.kind(),
+      SyntaxKind::Attr | SyntaxKind::BlockExpr | SyntaxKind::MatchArmList | SyntaxKind::LetElse
+    )
+  }) || list.descendants_with_tokens().iter().any(
+    |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_literal() && t.text().contains('\n')),
+  ) {
+    return None;
+  }
+  // `vec![x; n]`: on one line, or left as written.
+  if list
+    .children_with_tokens()
+    .iter()
+    .any(|e| e.kind() == SyntaxKind::Semi)
+  {
+    let text = format!("{}{}", name, flat(&list, shape.limits.spacing));
+    return (text.width() <= shape.width).then_some(text);
+  }
+  let shape = Shape {
+    limits: Limits {
+      // `vec![...]` follows the array rule, unless it is inside another macro.
+      comma_as_written: name != "vec!" || shape.limits.comma_as_written,
+      ..shape.limits
+    },
+    ..shape
+  };
+  rewrite_list(&name, &list_items(&list), shape, width, open, close)
 }
 
 /// A struct literal or pattern: on one line within `struct_lit_width`, else one field per
@@ -815,8 +1065,21 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
   } else {
     let pad = " ".repeat(v_shape.indent);
     let mut body = String::new();
-    for field in &fields {
-      body.push_str(&format!("\n{}{},", pad, field));
+    // Inside a macro the last field keeps a comma only where written.
+    let last_written = list
+      .children()
+      .into_iter()
+      .rev()
+      .find(|c| c.kind() == SyntaxKind::RecordExprField)
+      .is_some_and(|last| comma_after(&last));
+    for (i, field) in fields.iter().enumerate() {
+      let last = i + 1 == fields.len() && spread.is_none();
+      let comma = if last && shape.limits.comma_as_written && !last_written {
+        ""
+      } else {
+        ","
+      };
+      body.push_str(&format!("\n{}{}{}", pad, field, comma));
     }
     if let Some(s) = &spread {
       body.push_str(&format!("\n{}{}", pad, s));

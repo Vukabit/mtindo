@@ -335,10 +335,18 @@ fn emit_element(
         && parent
           .parent()
           .is_some_and(|p| p.kind() == SyntaxKind::ClosureExpr);
+      // A comma straight after an opening delimiter (`[,]`, `m!(,)`) follows no item: it is
+      // not a trailing comma, and dropping it changes the tokens.
+      let after_item = previous_significant(element).is_some_and(|k| {
+        !matches!(
+          k,
+          SyntaxKind::LParen | SyntaxKind::LBrack | SyntaxKind::LBrace | SyntaxKind::Lt
+        )
+      });
       if kind == SyntaxKind::Comma
         && !single_tuple(parent)
         && (parent.kind() == SyntaxKind::MatchArm
-          || next.is_none_or(is_closer)
+          || after_item && next.is_none_or(is_closer)
           || (closure_params && next == Some(SyntaxKind::Pipe)))
       {
         return;

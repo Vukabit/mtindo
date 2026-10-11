@@ -85,10 +85,10 @@ fn test_paths_calls_and_fields_are_tight() {
     formatted("#[cfg(x)]\npub(crate)  use a::b;\n"),
     "#[cfg(x)]\npub(crate) use a::b;\n"
   );
-  // The macro's name and `!` are tightened; its body is left as written.
+  // The macro's name and `!` are tightened, and its arguments laid out as a call's.
   assert_eq!(
     formatted("fn f() { foo ! ( x ) ; }\n"),
-    "fn f() {\n    foo!( x );\n}\n"
+    "fn f() {\n    foo!(x);\n}\n"
   );
 }
 
@@ -113,10 +113,11 @@ fn test_spacing_settings() {
 
 #[test]
 fn test_what_spacing_leaves_alone() {
-  // Macro bodies, and tokens that would merge; a trailing comment gets one space.
+  // Macro arguments that do not read as expressions, and tokens that would merge; a trailing
+  // comment gets one space.
   assert_eq!(
-    formatted("fn f() {\n    m!( a  ,b );\n    x;\t  // note\n}\n"),
-    "fn f() {\n    m!( a  ,b );\n    x; // note\n}\n"
+    formatted("fn f() {\n    m!( a  => b );\n    x;\t  // note\n}\n"),
+    "fn f() {\n    m!( a  => b );\n    x; // note\n}\n"
   );
   assert_eq!(
     formatted("fn f() { a - - b; }\n"),

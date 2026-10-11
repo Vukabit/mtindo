@@ -165,7 +165,9 @@ pub(super) static SETTINGS: &[Setting] = &[
     doc: "Turns formatting on for the files this mto.toml applies to, beside or without \
               `layout`. A preview. A `let` with an initializer, or an expression statement, \
               whose expression is a call, method chain (`?` and `.await` too), struct literal, \
-              array, tuple or `return` is laid out anew, a `let`'s pattern with it, its lines broken and joined as the Rust \
+              array, tuple, macro call or `return` is laid out anew (a macro's arguments in \
+              parentheses as a call's, in brackets as an array's, when they read as \
+              expressions; in braces left as written after `name! `), a `let`'s pattern with it, its lines broken and joined as the Rust \
               style does within `max_width` and the widths `use_small_heuristics` sets (unless \
               it holds a comment, block or macro, a closure that would break, or a type or \
               generic arguments that would have to break); any other statement is put on one \

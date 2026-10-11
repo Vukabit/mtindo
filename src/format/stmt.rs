@@ -3,10 +3,10 @@
 //!
 //! Only the statements the expression code covers are taken: a `let` with an initializer,
 //! or an expression with a `;`, whose expression is a call, a method chain, a struct literal,
-//! an array or a tuple; any other statement is put on one line when it fits there. A
-//! statement holding a comment, a block, a macro or a string spanning lines is left to the
-//! whole-file rules, which keep its lines as written; its attributes, and comments before
-//! it, are laid out on their own.
+//! an array, a tuple or a macro call in parentheses or brackets; any other statement is put
+//! on one line when it fits there. A statement holding a comment, a block, a macro in braces
+//! or a string spanning lines is left to the whole-file rules, which keep its lines as
+//! written; its attributes, and comments before it, are laid out on their own.
 
 use SyntaxKind as K;
 
@@ -55,6 +55,7 @@ pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig
       || matches!(
         n.kind(),
         K::CallExpr
+          | K::MacroExpr
           | K::RecordExpr
           | K::ArrayExpr
           | K::TupleExpr
@@ -96,6 +97,22 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
   let mut ours: Vec<String> = ours.collect();
   ours.pop();
   theirs.eq(ours)
+}
+
+/// Whether a macro call's arguments are in braces: they are left as written, and so is a
+/// statement holding them.
+fn braced(call: &SyntaxNode) -> bool {
+  call
+    .children()
+    .iter()
+    .find(|c| c.kind() == K::TokenTree)
+    .and_then(|tree| {
+      tree
+        .children_with_tokens()
+        .into_iter()
+        .find(|e| !e.kind().is_trivia())
+    })
+    .is_none_or(|first| first.kind() == K::LBrace)
 }
 
 /// Whether the statement holds nothing laying it out would lose or misplace: a comment, a
@@ -143,10 +160,12 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
               | K::InnerBlockDoc
           ) && !(t.kind().is_literal() && t.text().contains('\n'))
         }
-        SyntaxElement::Node(n) => !matches!(
-          n.kind(),
-          K::BlockExpr | K::MatchArmList | K::MacroExpr | K::MacroCall | K::Attr | K::LetElse
-        ),
+        SyntaxElement::Node(n) => {
+          !matches!(
+            n.kind(),
+            K::BlockExpr | K::MatchArmList | K::Attr | K::LetElse
+          ) && !(n.kind() == K::MacroCall && braced(n))
+        }
       })
 }
 
@@ -214,6 +233,8 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
     short_item: config.short_array_element_width_threshold,
     spacing: Spacing::of(config),
     attribute: false,
+    comma_as_written: false,
+    style_2024: config.style_edition >= 2024,
   };
   let shape = Shape {
     indent,
@@ -321,6 +342,8 @@ fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
     short_item: config.short_array_element_width_threshold,
     spacing: Spacing::of(config),
     attribute: false,
+    comma_as_written: false,
+    style_2024: config.style_edition >= 2024,
   };
   Some(Shape {
     indent,
@@ -339,7 +362,7 @@ fn takes(node: &SyntaxNode) -> bool {
       is_chain(&expression)
         || matches!(
           expression.kind(),
-          K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr
+          K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr | K::MacroExpr
         )
         // `return` with a value.
         || expression.kind() == K::ReturnExpr && !expression.children().is_empty()

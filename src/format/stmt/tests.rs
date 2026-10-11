@@ -88,6 +88,44 @@ fn test_let_patterns_and_types() {
 }
 
 #[test]
+fn test_macros_laid_out_as_calls_and_arrays() {
+  assert_eq!(
+    formatted(
+      "fn f() {\n    println!(\"name: {:?}\",\ncli.name);\n    let v = vec![1,\n 2,];\n}\n"
+    ),
+    "fn f() {\n    println!(\"name: {:?}\", cli.name);\n    let v = vec![1, 2];\n}\n"
+  );
+  // A format-like macro: the format string on a line of its own, the simple rest together.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    println!(\"a very long format string that goes on and on and on {} {}\", first_arg, second_arg);\n}\n"
+    ),
+    "fn f() {\n    println!(\n        \"a very long format string that goes on and on and on {} {}\",\n        first_arg, second_arg\n    );\n}\n"
+  );
+  // Inside a macro a written trailing comma stays, one not written is not added.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    m!(a,);\n    m!(alpha_beta_gamma_delta, alpha_beta_gamma_delta, alpha_beta_gamma_delta);\n}\n"
+    ),
+    "fn f() {\n    m!(a,);\n    m!(\n        alpha_beta_gamma_delta,\n        alpha_beta_gamma_delta,\n        alpha_beta_gamma_delta\n    );\n}\n"
+  );
+}
+
+#[test]
+fn test_macros_left_as_written() {
+  // Arguments rustc would not parse, or that this parser reads differently; braces.
+  for kept in [
+    "fn f() {\n    let x: Token![,] = y;\n}\n",
+    "fn f() {\n    demo!(i <- 0);\n}\n",
+    "fn f() {\n    arg!(-a <\"v\"> \"s\");\n}\n",
+    "fn f() {\n    m!(a => b);\n}\n",
+    "fn f() {\n    m! {  a  };\n}\n",
+  ] {
+    assert_eq!(formatted(kept), kept);
+  }
+}
+
+#[test]
 fn test_other_statements_on_one_line_when_they_fit() {
   assert_eq!(
     formatted("fn f() {\n    let name =\n    \"my-app\";\n    x\n        += 1;\n    let y;\n}\n"),
@@ -128,7 +166,7 @@ fn test_statements_left_to_the_whole_file_rules() {
   for kept in [
     "fn f() {\n    let x = foo(\n        a, // why\n        b,\n    );\n}\n",
     "fn f() {\n    let x = foo(\n        a,\n        || {\n            b\n        },\n    );\n}\n",
-    "fn f() {\n    let x = foo(\n        a,\n        m!(b),\n    );\n}\n",
+    "fn f() {\n    let x = foo(\n        a,\n        m! { b },\n    );\n}\n",
   ] {
     assert_eq!(formatted(kept), kept);
   }

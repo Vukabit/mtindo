@@ -101,6 +101,8 @@ fn call(
     short_item: config.short_array_element_width_threshold,
     spacing: Spacing::of(config),
     attribute: true,
+    comma_as_written: true,
+    style_2024: config.style_edition >= 2024,
   };
   // 1 = `]`
   let width = config

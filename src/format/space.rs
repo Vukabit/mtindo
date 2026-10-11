@@ -177,8 +177,8 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
     )
   {
     if ka == K::Bang && kb == K::LBrace {
-      // `name! { ... }` is written with a space.
-      return None;
+      // `name! { ... }`: one space, as the standard formatter always writes it.
+      return Some(true);
     }
     return (!unreadable_arguments(bang)).then_some(false);
   }

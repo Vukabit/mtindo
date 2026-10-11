@@ -1,6 +1,7 @@
-//! The order the standard formatter gives imports and module declarations, so that the
-//! standard formatter leaves mto's layout alone. Ported from the standard
-//! formatter's `imports.rs`, `reorder.rs` and `sort.rs` (MIT OR Apache-2.0, like mtindo).
+//! The order the standard formatter gives imports and module declarations, which layout
+//! keeps (so the standard formatter leaves its output alone) and formatting applies. Ported
+//! from the standard formatter's `imports.rs`, `reorder.rs` and `sort.rs` (MIT OR
+//! Apache-2.0, like mtindo).
 //!
 //! The standard formatter sorts a run of `use` items by their use trees after normalizing
 //! them: a sole braced item loses its braces (`a::{b}` is `a::b`), `a::self` is `a`, and

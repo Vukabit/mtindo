@@ -68,8 +68,8 @@ option  overflow_delimited_expr                          missing
 option  print_misformatted_file_names                    missing
 option  remove_nested_parens                             missing
 option  reorder_impl_items                               supported    # as rustfmt nightly applies it (src/layout/tests.rs; corpus check agreement)
-option  reorder_imports                                  partial      # mto.toml's sort_imports reorders use items (tests/domain_2_golden.rs); rustfmt's order rules not matched yet
-option  reorder_modules                                  missing
+option  reorder_imports                                  partial      # with format = true, runs of use items sorted as the standard formatter sorts them; a run holding a comment keeps its order, and lists inside an item are not sorted yet (src/format/reorder/tests.rs)
+option  reorder_modules                                  partial      # with format = true, runs of `mod name;` sorted by name; a run holding a comment keeps its order (src/format/reorder/tests.rs)
 option  required_version                                 missing
 option  short_array_element_width_threshold              partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  show_parse_errors                                missing

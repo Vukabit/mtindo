@@ -2,8 +2,8 @@
 //! the name it sorts by, the type an impl belongs to, and the attributes that pin modules.
 
 use super::Unit;
-use super::imports::UseTree;
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
+use crate::order::UseTree;
 use crate::syntax::ast::{self, Attr, Item};
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
 

@@ -121,6 +121,14 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
   if skips_itself(&root) {
     return source.to_string();
   }
+  // Imports and module declarations sorted first; the sorted text is what is formatted.
+  let (text, root) = match crate::format::reorder::reorder(&root, &text, edition, config) {
+    Some(sorted) => {
+      let root = parse(&sorted, edition).syntax_node();
+      (sorted, root)
+    }
+    None => (text, root),
+  };
   let body = reindent(&root, &text, edition, config);
   // Line endings inside a multi-line string are part of the string: a file whose strings
   // hold line breaks keeps its own endings.
@@ -815,11 +823,15 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         };
         if in_list && node.kind() != SyntaxKind::Attr && !in_expression() {
           statements.push((range.start as usize, range.end as usize));
+          // A `use` from its visibility or `use` on, after its attributes.
           if node.kind() == SyntaxKind::Use
-            || matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
-              && node
-                .parent()
-                .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
+            && let Some(start) = crate::format::imports::body_start(node)
+          {
+            roles.layable.insert(start, node.clone());
+          } else if matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
+            && node
+              .parent()
+              .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
           {
             roles.layable.insert(range.start as usize, node.clone());
           }

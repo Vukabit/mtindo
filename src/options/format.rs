@@ -63,6 +63,12 @@ pub struct FormatConfig {
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
+  /// The style edition in effect (2015, 2018, 2021, 2024...), for the orders that differ.
+  pub style_edition: u16,
+  /// Whether runs of `use` declarations are sorted.
+  pub reorder_imports: bool,
+  /// Whether runs of `mod name;` declarations are sorted.
+  pub reorder_modules: bool,
 }
 
 impl Default for FormatConfig {
@@ -89,6 +95,9 @@ impl Default for FormatConfig {
       generated_marker_line_search_limit: 5,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
+      style_edition: 2015,
+      reorder_imports: true,
+      reorder_modules: true,
     }
   }
 }

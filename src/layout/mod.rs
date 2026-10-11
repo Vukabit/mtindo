@@ -30,7 +30,6 @@
 
 mod classify;
 mod impls;
-pub mod imports;
 mod order;
 
 use std::collections::HashSet;
@@ -103,7 +102,7 @@ pub struct Unit {
   /// For a `use`: standard library, external crate or this crate.
   pub import_group: Option<ImportGroup>,
   /// For a `use`: its tree as the standard formatter sorts it.
-  pub use_tree: Option<imports::UseTree>,
+  pub use_tree: Option<crate::order::UseTree>,
 }
 
 /// Arranges the items of `source`; `Err` with the reason when the file is left alone.

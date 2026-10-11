@@ -87,7 +87,8 @@ comments and writes line endings in the `newline_style`. It puts items,
 attributes and statements on lines of their own, and breaks and joins the
 lines of attributes, `use` declarations and simple statements whose
 expression is a call, method chain, struct literal, array or tuple, as the
-Rust style lays them out; other lines stay where they are written for now.
+Rust style lays them out, and sorts runs of imports and module declarations;
+other lines stay where they are written for now.
 Like the standard formatter, it leaves alone macro bodies, `macro_rules!`
 definitions, anything marked `#[rustfmt::skip]`, `// mto: off` regions and a
 statement or item with a line longer than `max_width`.

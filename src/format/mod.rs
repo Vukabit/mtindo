@@ -8,6 +8,7 @@ pub mod attrs;
 pub mod expr;
 pub mod file;
 pub mod imports;
+pub mod reorder;
 pub mod shape;
 pub mod space;
 pub mod stmt;

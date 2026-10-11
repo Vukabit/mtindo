@@ -4,6 +4,7 @@ pub mod format;
 pub mod history;
 pub mod layout;
 pub mod options;
+pub mod order;
 pub mod syntax;
 pub mod text;
 pub mod verify;

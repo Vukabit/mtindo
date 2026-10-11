@@ -18,6 +18,26 @@ fn formatted(source: &str) -> String {
 }
 
 #[test]
+fn test_attributes_and_comments_before_are_laid_out_on_their_own() {
+  assert_eq!(
+    formatted(
+      "// why
+#[cfg( test )]
+pub use
+    a::{
+    b,
+    c,
+};
+"
+    ),
+    "// why
+#[cfg(test)]
+pub use a::{b, c};
+"
+  );
+}
+
+#[test]
 fn test_imports_layout() {
   use crate::options::format::ImportsLayout;
   let long = "use lists::{definitive_tactic, itemize_list, shape_for_tactic, struct_lit_formatting, struct_lit_shape};\n";
@@ -63,7 +83,7 @@ fn test_lists_holding_lists_take_a_line_per_path() {
 fn test_lists_join_onto_one_line_when_they_fit() {
   assert_eq!(
     formatted("pub(crate) use a::{b,\n c};\nuse\n  a::b\n  ;\n"),
-    "pub(crate) use a::{b, c};\nuse a::b;\n"
+    "use a::b;\npub(crate) use a::{b, c};\n"
   );
 }
 
@@ -79,12 +99,10 @@ fn test_long_lists_fill_lines() {
 
 #[test]
 fn test_what_is_left_as_written() {
-  // A list of one would be rewritten (`a::{b}` to `a::b`); comments and attributes stay
-  // where they are.
+  // A list of one would be rewritten (`a::{b}` to `a::b`); a comment stays where it is.
   for kept in [
     "use a::{\n    b,\n};\n",
     "use a::{\n    b, // why\n    c,\n};\n",
-    "#[cfg(test)]\nuse a::{\n    b,\n    c,\n};\n",
   ] {
     assert_eq!(formatted(kept), kept);
   }

@@ -26,8 +26,8 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use super::Unit;
-use super::imports::version_sort;
 use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
+use crate::order::version_sort;
 
 /// The units in their new order.
 pub(super) fn arrange(units: &[Unit], config: &LayoutConfig) -> Result<Vec<Unit>, String> {

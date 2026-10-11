@@ -5,40 +5,70 @@
 //!
 //! The standard formatter also rewrites trees (`a::{b}` to `a::b`, lists sorted, duplicates
 //! dropped); a declaration that would need one of those, a list of fewer than two items, is
-//! left as written, as is one holding a comment or an attribute.
+//! left as written, as is one holding a comment. Its attributes are laid out on their own.
 
 use SyntaxKind as K;
 
 use super::expr::flat;
 use super::shape::Spacing;
-use super::stmt::same_tokens;
 use crate::options::format::{FormatConfig, ImportsLayout};
-use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
 use crate::text::unicode::str_width;
+
+/// Where a declaration's own text starts: its visibility or `use`, after its attributes and
+/// the comments before it.
+pub fn body_start(node: &SyntaxNode) -> Option<usize> {
+  node
+    .children_with_tokens()
+    .into_iter()
+    .find(|e| matches!(e.kind(), K::Visibility | K::UseKw))
+    .map(|e| e.text_range().start as usize)
+}
 
 /// The declaration laid out, starting at column `indent` on a line of its own, its later
 /// lines indented in full; `None` when it is not one this module takes.
 pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
-  if config.hard_tabs || config.tab_spaces == 0 || !takes(node) {
+  if config.hard_tabs || config.tab_spaces == 0 || node.kind() != K::Use {
+    return None;
+  }
+  // From the visibility or `use` on; the attributes and comments before are laid out on
+  // their own.
+  let start = body_start(node)?;
+  let body: Vec<SyntaxElement> = node
+    .children_with_tokens()
+    .into_iter()
+    .filter(|e| e.text_range().start as usize >= start)
+    .collect();
+  let comment = |e: &SyntaxElement| match e {
+    SyntaxElement::Token(t) => t.kind().is_trivia() && t.kind() != K::Whitespace,
+    SyntaxElement::Node(n) => n
+      .descendants_with_tokens()
+      .iter()
+      .any(|d| d.kind().is_trivia() && d.kind() != K::Whitespace),
+  };
+  if body.iter().any(comment) {
     return None;
   }
   let tree = node
     .children()
     .into_iter()
     .find(|c| c.kind() == K::UseTree)?;
+  let spacing = Spacing::of(config);
   // `pub use `, everything before the tree.
-  let head = format!(
-    "{} ",
-    flat(node, Spacing::of(config))
-      .strip_suffix(&format!("{};", flat(&tree, Spacing::of(config))))?
-      .trim_end()
-  );
+  let head = match node
+    .children()
+    .into_iter()
+    .find(|c| c.kind() == K::Visibility)
+  {
+    Some(visibility) => format!("{} use ", flat(&visibility, spacing)),
+    None => "use ".to_string(),
+  };
   // 1 = `;`
   let width = config
     .max_width
     .checked_sub(indent + str_width(&head) + 1)?;
   let text = format!("{}{};", head, tree_text(&tree, indent, width, config)?);
-  same_tokens(node, &text).then_some(text)
+  same_tokens(&body, &text).then_some(text)
 }
 
 /// The items of a list, its trees.
@@ -118,13 +148,30 @@ fn list_text(
   Some(format!("{{\n{}{}\n{}}}", pad, out, " ".repeat(indent)))
 }
 
-/// Whether the declaration is one this module lays out: no attribute and no comment.
-fn takes(node: &SyntaxNode) -> bool {
-  node.kind() == K::Use
-    && node.descendants_with_tokens().iter().all(|e| match e {
-      SyntaxElement::Token(t) => !t.kind().is_trivia() || t.kind() == K::Whitespace,
-      SyntaxElement::Node(n) => n.kind() != K::Attr,
+/// Whether `text` holds the tokens of `body`, commas aside.
+fn same_tokens(body: &[SyntaxElement], text: &str) -> bool {
+  let code = |e: &SyntaxElement| match e {
+    SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
+      Some(t.text().to_string())
+    }
+    _ => None,
+  };
+  let theirs: Vec<String> = body
+    .iter()
+    .flat_map(|e| match e {
+      SyntaxElement::Node(n) => n.descendants_with_tokens(),
+      token => vec![token.clone()],
     })
+    .filter_map(|e| code(&e))
+    .collect();
+  let parsed = parse(&format!("{}\nfn f() {{}}", text), Edition::E2021).syntax_node();
+  let ours: Vec<String> = parsed
+    .descendants_with_tokens()
+    .iter()
+    .take_while(|e| e.kind() != K::FnKw)
+    .filter_map(code)
+    .collect();
+  theirs == ours
 }
 
 /// A tree's text, its path up to the last segment within `width`: a list after it laid out

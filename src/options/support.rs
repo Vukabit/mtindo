@@ -66,7 +66,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("remove_nested_parens", "missing"),
   ("reorder_impl_items", "supported"),
   ("reorder_imports", "partial"),
-  ("reorder_modules", "missing"),
+  ("reorder_modules", "partial"),
   ("required_version", "missing"),
   ("short_array_element_width_threshold", "partial"),
   ("show_parse_errors", "missing"),

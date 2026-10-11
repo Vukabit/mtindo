@@ -174,7 +174,10 @@ pub(super) static SETTINGS: &[Setting] = &[
               variant whose arguments are names and values, within `attr_fn_like_width` \
               (`#[derive(...)]` its own way). Items, attributes and statements start lines \
               of their own, as do the tail and closing brace of a block holding a statement \
-              and of a function's body. Other lines are not broken or joined yet. The lines \
+              and of a function's body. Runs of `use` items and of `mod name;` declarations \
+              (no blank line between) are sorted as the Rust style sorts them, unless \
+              `reorder_imports` or `reorder_modules` is off or the run holds a comment. Other \
+              lines are not broken or joined yet. The lines \
               that start items, statements, fields, variants, match arms and list elements are \
               indented \
               one level past the line their block or list belongs to (match arms not, with \

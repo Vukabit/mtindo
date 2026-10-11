@@ -274,6 +274,9 @@ impl Config {
     config.struct_lit_width = width("struct_lit_width", 18);
     config.array_width = width("array_width", 60);
     config.attr_fn_like_width = width("attr_fn_like_width", 70);
+    config.style_edition = self.style_edition();
+    config.reorder_imports = flag("reorder_imports", true);
+    config.reorder_modules = flag("reorder_modules", true);
     config.short_array_element_width_threshold = number(
       "short_array_element_width_threshold",
       config.short_array_element_width_threshold,

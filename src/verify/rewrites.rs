@@ -1,4 +1,4 @@
-//! The rewrites formatting may make to a program's tokens (S3-3), each with why it keeps the
+//! The rewrites formatting may make to a program's tokens, each with why it keeps the
 //! program's meaning. The meaning check canonicalizes both texts by these rules
 //! ([`super::format`]), so a rewrite in either direction compares equal, and anything else
 //! is a change of meaning. Each rule has its own test in `tests.rs`.

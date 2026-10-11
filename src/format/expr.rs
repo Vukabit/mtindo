@@ -1,5 +1,5 @@
 //! Expressions printed into the space left for them: the standard formatter's width-budget
-//! rewriting, ported (chosen by the F3 spike, S3-10). `rewrite(node, shape)` returns the
+//! rewriting, ported. `rewrite(node, shape)` returns the
 //! node's text in `shape`, or `None` when it cannot fit; callers try their layouts in order
 //! and keep the first that works. Calls, method chains, struct literals, arrays and tuples
 //! are laid out; other expressions print flat for now.

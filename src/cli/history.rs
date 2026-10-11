@@ -1,9 +1,9 @@
 //! `mto history` and `mto restore`, and what a run that writes files records: the user
 //! config's history settings read once, the record finished and pruned at the end.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::{Resolver, user};
 use crate::history::{self, Entry, History, Limits, Run, State, id};
@@ -127,44 +127,146 @@ pub fn finish_record(recorder: &mut history::Recorder, limits: Limits, quiet: bo
     }
 }
 
-/// `mto history`: the runs, newest first.
-pub fn list(history: &History) -> Result<String, String> {
+/// `mto history`: the runs, newest first. With `here`, only the runs that wrote files in
+/// that folder's project (see [`project_root`]), or every run with a note when there are
+/// none; without it, every run.
+pub fn list(history: &History, here: Option<&Path>) -> Result<String, String> {
     let ids = history
         .ids()
         .map_err(|e| format!("cannot read history: {}", e))?;
     if ids.is_empty() {
         return Ok("No runs recorded yet.\n".to_string());
     }
-    let mut rows = Vec::new();
+    let mut roots: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut runs = Vec::new();
     for id in ids.iter().rev() {
+        let run = history.read(id);
+        // The project its files are in; for files in several, the folder it ran in's.
+        let project = run.as_ref().ok().map(|run| {
+            let mut root_of = |dir: &Path| {
+                roots
+                    .entry(dir.to_path_buf())
+                    .or_insert_with(|| project_root(dir))
+                    .clone()
+            };
+            let found: HashSet<PathBuf> = run
+                .entries
+                .iter()
+                .filter_map(|e| e.path.parent())
+                .map(&mut root_of)
+                .collect();
+            match found.len() {
+                1 => found.into_iter().next().unwrap_or_default(),
+                _ => root_of(&run.cwd),
+            }
+        });
+        runs.push((id, run, project));
+    }
+    let mut note = String::new();
+    if let Some(here) = here {
+        let root = project_root(here);
+        let inside = |run: &Run| run.entries.iter().any(|e| is_under(&e.path, &root));
+        if runs
+            .iter()
+            .any(|(_, run, _)| run.as_ref().is_ok_and(inside))
+        {
+            runs.retain(|(_, run, _)| run.as_ref().is_ok_and(inside));
+        } else {
+            note = format!(
+                "No runs wrote files in {}; listing every run.\n\n",
+                root.display()
+            );
+        }
+    }
+    let name = |project: &Option<PathBuf>| {
+        project
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| shorten(&n.to_string_lossy(), 20))
+            .unwrap_or_default()
+    };
+    // Cells: run, when, files, project, then the command, which is not padded.
+    let mut table = vec![[
+        "RUN".to_string(),
+        "WHEN (UTC)".to_string(),
+        "FILES".to_string(),
+        "PROJECT".to_string(),
+        "COMMAND".to_string(),
+    ]];
+    for (id, run, project) in &runs {
         let handle = id::handle(id, &ids);
         let when = utc(id::millis(id));
-        match history.read(id) {
+        table.push(match run {
             Ok(run) => {
                 let restores = run
                     .restore_of
                     .as_ref()
                     .map(|of| format!(" (restores {})", id::handle(of, &ids)))
                     .unwrap_or_default();
-                rows.push(format!(
-                    "{:<8} {}  {:>8}  {}{}\n",
+                [
                     handle,
                     when,
-                    files(run.entries.len()),
-                    shorten(&run.command, 60),
-                    restores
-                ));
+                    run.entries.len().to_string(),
+                    name(project),
+                    format!("{}{}", shorten(&run.command, 60), restores),
+                ]
             }
-            Err(e) => rows.push(format!("{:<8} {}  unreadable: {}\n", handle, when, e)),
-        }
+            Err(e) => [
+                handle,
+                when,
+                String::new(),
+                String::new(),
+                format!("unreadable: {}", e),
+            ],
+        });
     }
-    Ok(format!(
-        "{:<8} {:<20}  {:>8}  COMMAND\n{}",
-        "RUN",
-        "WHEN (UTC)",
-        "FILES",
-        rows.concat()
-    ))
+    let width = |column: usize| {
+        table
+            .iter()
+            .map(|row| row[column].chars().count())
+            .max()
+            .unwrap_or(0)
+    };
+    // The file count right-aligned, its noun after it: "   1 file", "8754 files".
+    let digits = table[1..].iter().map(|row| row[2].len()).max().unwrap_or(0);
+    let files = |count: &str| match count {
+        "" | "FILES" => count.to_string(),
+        "1" => format!("{:>digits$} file", count),
+        _ => format!("{:>digits$} files", count),
+    };
+    let widths = [
+        width(0),
+        width(1),
+        (digits + " files".len()).max("FILES".len()),
+        width(3),
+    ];
+    let mut out = note;
+    for [run, when, count, project, command] in &table {
+        out.push_str(&format!(
+            "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {}\n",
+            run,
+            when,
+            files(count),
+            project,
+            command,
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2],
+            w3 = widths[3]
+        ));
+    }
+    Ok(out)
+}
+
+/// The project a folder belongs to: the nearest folder at or above it holding `.git`, else
+/// the nearest holding `Cargo.toml`, else the folder itself.
+pub fn project_root(dir: &Path) -> PathBuf {
+    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let nearest = |marker: &str| dir.ancestors().find(|a| a.join(marker).exists());
+    nearest(".git")
+        .or_else(|| nearest("Cargo.toml"))
+        .unwrap_or(&dir)
+        .to_path_buf()
 }
 
 /// `mto history prune`: the user config's limits, with the command line's over them.
@@ -195,7 +297,7 @@ pub fn restore(
     only: &[PathBuf],
     force: bool,
 ) -> Result<i32, String> {
-    let id = history.resolve(spec)?;
+    let id = resolve_here(history, spec)?;
     let run = history.read(&id).map_err(|e| e.to_string())?;
     let ids = history.ids().unwrap_or_default();
     let handle = id::handle(&id, &ids);
@@ -286,7 +388,7 @@ pub fn restore(
 
 /// `mto history show ID`: a run, and where each of its files stands now.
 pub fn show(history: &History, spec: &str) -> Result<String, String> {
-    let id = history.resolve(spec)?;
+    let id = resolve_here(history, spec)?;
     let run = history.read(&id).map_err(|e| e.to_string())?;
     let ids = history.ids().unwrap_or_default();
     let mut out = format!(
@@ -376,6 +478,62 @@ fn files(count: usize) -> String {
     } else {
         format!("{} files", count)
     }
+}
+
+/// Whether `path` lies in `root`, as written or with symlinks resolved (a record holds paths
+/// as they were given, which may differ from the folder's resolved path).
+fn is_under(path: &Path, root: &Path) -> bool {
+    if path.starts_with(root) {
+        return true;
+    }
+    let resolved = |p: &Path| fs::canonicalize(p).ok();
+    let path = path
+        .parent()
+        .and_then(resolved)
+        .map(|parent| parent.join(path.file_name().unwrap_or_default()));
+    matches!((path, resolved(root)), (Some(path), Some(root)) if path.starts_with(&root))
+}
+
+/// A run named on the command line: `last` and `last~N` count the runs of the current
+/// folder's project, as `mto history` lists them, so a restore never reaches into another
+/// project; a handle names its run wherever mto runs.
+fn resolve_here(history: &History, spec: &str) -> Result<String, String> {
+    let Some(back) = history::steps_back(spec)? else {
+        return history.resolve(spec);
+    };
+    let here =
+        std::env::current_dir().map_err(|e| format!("cannot read the current folder: {}", e))?;
+    let root = project_root(&here);
+    let ids = history
+        .ids()
+        .map_err(|e| format!("cannot read history: {}", e))?;
+    if ids.is_empty() {
+        // Says the history is empty.
+        return history.resolve(spec);
+    }
+    let mine: Vec<&String> = ids
+        .iter()
+        .rev()
+        .filter(|id| {
+            history
+                .read(id)
+                .is_ok_and(|run| run.entries.iter().any(|e| is_under(&e.path, &root)))
+        })
+        .collect();
+    if mine.is_empty() {
+        return Err(format!(
+            "no run wrote files in {}; name one by its handle from `mto history --all`",
+            root.display()
+        ));
+    }
+    mine.get(back).map(|id| (*id).clone()).ok_or_else(|| {
+        format!(
+            "{} run(s) wrote files in {}; `{}` goes back too far",
+            mine.len(),
+            root.display(),
+            spec
+        )
+    })
 }
 
 /// `text` cut to `width` characters, with `...` when cut.

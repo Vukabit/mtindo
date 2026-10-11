@@ -235,17 +235,7 @@ impl History {
         if ids.is_empty() {
             return Err("history is empty: no run has written files yet".into());
         }
-        let back = match spec {
-            "last" => Some(0),
-            _ => spec
-                .strip_prefix("last~")
-                .map(|n| {
-                    n.parse::<usize>()
-                        .map_err(|_| format!("`{}` is not last~N", spec))
-                })
-                .transpose()?,
-        };
-        if let Some(back) = back {
+        if let Some(back) = steps_back(spec)? {
             return ids.iter().rev().nth(back).cloned().ok_or_else(|| {
                 format!(
                     "history holds {} run(s); `{}` goes back too far",
@@ -442,6 +432,20 @@ pub fn now_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// How many runs back `last` (0) or `last~N` (N) goes; `None` for anything else.
+pub fn steps_back(spec: &str) -> Result<Option<usize>, String> {
+    match spec {
+        "last" => Ok(Some(0)),
+        _ => spec
+            .strip_prefix("last~")
+            .map(|n| {
+                n.parse::<usize>()
+                    .map_err(|_| format!("`{}` is not last~N", spec))
+            })
+            .transpose(),
+    }
 }
 
 /// `text` with backslashes, line feeds and carriage returns escaped, so it fits on a line.

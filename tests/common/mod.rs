@@ -14,7 +14,7 @@ pub struct TestEnvironment {
 impl TestEnvironment {
     pub fn new() -> Self {
         let dir = tempdir().unwrap();
-        // Layout is opt-in (S2-10); the tests run with it on unless they say otherwise.
+        // Layout is opt-in; the tests run with it on unless they say otherwise.
         fs::write(dir.path().join("mto.toml"), "layout = true\n").unwrap();
         TestEnvironment { dir }
     }

@@ -28,6 +28,11 @@ pub const GATES: &[Gate] = &[
         "the reference formatter is named only where the name does work",
         check_naming,
     ),
+    (
+        "planning",
+        "comments in src/, tests/ and fuzz/ name no stages, milestones or decision ids",
+        check_planning,
+    ),
 ];
 
 /// Each manifest and the dependencies it may declare. mtindo is std-only; xtask (the test
@@ -202,6 +207,29 @@ pub fn check_naming(root: &Path) -> Vec<String> {
     problems
 }
 
+/// The plan lives in docs/internal/: the code says what it does and why, not which stage,
+/// milestone or decision brought it. Test inputs under tests/fixtures/ are left alone.
+pub fn check_planning(root: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    collect_rust_files(&root.join("src"), &mut files);
+    collect_rust_files(&root.join("tests"), &mut files);
+    collect_rust_files(&root.join("fuzz/fuzz_targets"), &mut files);
+    files.sort();
+    let fixtures = root.join("tests/fixtures");
+    let mut problems = Vec::new();
+    for file in files.iter().filter(|f| !f.starts_with(&fixtures)) {
+        let shown = file
+            .strip_prefix(root)
+            .unwrap_or(file)
+            .display()
+            .to_string();
+        if let Ok(text) = fs::read_to_string(file) {
+            problems.extend(planning_ids(&shown, &text));
+        }
+    }
+    problems
+}
+
 pub fn run(root: &Path, args: &[String]) -> ExitCode {
     let which = args.first().map(String::as_str).unwrap_or("all");
     let mut problems = Vec::new();
@@ -335,6 +363,52 @@ fn long_lines(file: &str, text: &str) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// The comment lines of `text` that name a stage ("stage 3"), a milestone ("F4", "M7") or
+/// a decision ("S3-9").
+fn planning_ids(file: &str, text: &str) -> Vec<String> {
+    let is_id = |word: &str| {
+        let mut chars = word.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        let rest = chars.as_str();
+        let digits = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit());
+        let milestone = matches!(first, 'F' | 'M' | 'N') && digits(rest) && rest.len() <= 2;
+        let decision = first == 'S'
+            && rest
+                .split_once('-')
+                .is_some_and(|(stage, n)| digits(stage) && digits(n));
+        milestone || decision
+    };
+    let mut problems = Vec::new();
+    for (idx, line) in text.lines().enumerate() {
+        let Some(at) = line.find("//") else {
+            continue;
+        };
+        let comment = &line[at..];
+        let lower = comment.to_ascii_lowercase();
+        let stage = lower.match_indices("stage ").any(|(i, m)| {
+            lower[i + m.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit())
+        });
+        let id = comment
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+            .any(is_id);
+        if stage || id {
+            problems.push(format!(
+                "{}:{}: names a stage, milestone or decision; the plan stays in \
+                 docs/internal/: {}",
+                file,
+                idx + 1,
+                line.trim()
+            ));
+        }
+    }
+    problems
 }
 
 /// Runtime dependency entries in a manifest, as "<section> <name>".
@@ -479,6 +553,17 @@ mod tests {
             .map(|p| p.split(':').nth(1).unwrap().to_string())
             .collect();
         assert_eq!(lines, ["2", "6"]);
+    }
+
+    #[test]
+    fn test_planning_ids_are_found_only_in_comments() {
+        let text = "// formatting (stage 3)\n// the F4 rules\n// decided in S3-9\n\
+                    let f4 = \"M7\";\n// an F12-key, Stage two, S3 and MS-DOS\n";
+        let lines: Vec<String> = planning_ids("src/a.rs", text)
+            .iter()
+            .map(|p| p.split(':').nth(1).unwrap().to_string())
+            .collect();
+        assert_eq!(lines, ["1", "2", "3"]);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Typed views over the syntax tree, for the parts stage 2's layout needs: a file's items,
+//! Typed views over the syntax tree, for the parts layout needs: a file's items,
 //! their kind, name, visibility, attributes and doc comments, an impl's self type and trait,
 //! and the root of a `use` path.
 //!

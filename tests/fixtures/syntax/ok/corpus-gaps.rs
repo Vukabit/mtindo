@@ -1,5 +1,5 @@
 // edition: 2024
-// Valid syntax the corpus check found mto rejecting (stage 1, M7).
+// Valid syntax the corpus check found mto rejecting.
 type GenericArgBounds = Foo<Item<T>: Bound, Item::<T>: Bound, Item(T): Bound, Item(..) = Item>;
 type const FOO: i32 = 2;
 gen fn numbers() {}

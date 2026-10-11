@@ -11,8 +11,8 @@
 option  array_width                                      missing
 option  attr_fn_like_width                               missing
 option  binop_separator                                  missing
-option  blank_lines_lower_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); formatting from stage 3
-option  blank_lines_upper_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); formatting from stage 3
+option  blank_lines_lower_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); formatting does not add blank lines yet
+option  blank_lines_upper_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); with format = true, within blocks too (src/format/file/tests.rs)
 option  brace_style                                      missing
 option  chain_width                                      missing
 option  color                                            missing
@@ -44,7 +44,7 @@ option  format_macro_matchers                            missing
 option  format_strings                                   missing
 option  generated_marker_line_search_limit               missing
 option  group_imports                                    partial      # mto.toml's import_grouping groups use items (tests/domain_2_golden.rs); not rustfmt's StdExternalCrate
-option  hard_tabs                                        missing
+option  hard_tabs                                        partial      # with format = true, indentation uses tabs (src/format/file/tests.rs)
 option  hex_literal_case                                 missing
 option  hide_parse_errors                                not-planned  # deprecated in rustfmt in favour of show_parse_errors
 option  ignore                                           partial      # mto.toml's ignore_dirs skips directories by name (tests/domain_9_config_hierarchy.rs); no paths or globs
@@ -58,10 +58,10 @@ option  match_arm_blocks                                 missing
 option  match_arm_indent                                 missing
 option  match_arm_leading_pipes                          missing
 option  match_block_trailing_comma                       missing
-option  max_width                                        missing      # mto.toml accepts max_width but nothing uses it until the formatter
+option  max_width                                        partial      # with format = true, a statement with a longer line is left as written (src/format/file/tests.rs)
 option  merge_derives                                    missing
 option  merge_imports                                    not-planned  # deprecated in rustfmt in favour of imports_granularity
-option  newline_style                                    missing
+option  newline_style                                    supported    # with format = true (src/format/file/tests.rs)
 option  normalize_comments                               missing
 option  normalize_doc_attributes                         missing
 option  overflow_delimited_expr                          missing
@@ -85,7 +85,7 @@ option  struct_lit_single_line                           missing
 option  struct_lit_width                                 missing
 option  struct_variant_width                             missing
 option  style_edition                                    partial      # resolved as rustfmt resolves it and decides the defaults (src/config/tests.rs); import order follows it from N3
-option  tab_spaces                                       missing      # mto.toml's tab_width is reserved for the formatter
+option  tab_spaces                                       partial      # with format = true, the width of one indentation level (src/format/file/tests.rs)
 option  trailing_comma                                   missing
 option  trailing_semicolon                               missing
 option  type_punctuation_density                         missing
@@ -149,10 +149,10 @@ value   indent_style=Visual                              missing
 value   match_arm_leading_pipes=Always                   missing
 value   match_arm_leading_pipes=Never                    missing
 value   match_arm_leading_pipes=Preserve                 missing
-value   newline_style=Auto                               missing
-value   newline_style=Native                             missing
-value   newline_style=Unix                               missing
-value   newline_style=Windows                            missing
+value   newline_style=Auto                               supported    # with format = true (src/format/file/tests.rs)
+value   newline_style=Native                             supported    # with format = true; the platform's ending, as Unix or Windows (src/format/file/tests.rs)
+value   newline_style=Unix                               supported    # with format = true (src/format/file/tests.rs)
+value   newline_style=Windows                            supported    # with format = true (src/format/file/tests.rs)
 value   style_edition=2015                               missing
 value   style_edition=2018                               missing
 value   style_edition=2021                               missing
@@ -203,6 +203,7 @@ mto     command:history                                  supported    # tests/do
 mto     command:init                                     supported    # tests/domain_8_cli.rs
 mto     command:restore                                  supported    # tests/domain_8_cli.rs
 mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
+mto     config:format                                    partial      # indentation, blank lines, trailing whitespace and line endings; no line breaking yet (src/format/file/tests.rs, tests/domain_8_cli.rs)
 mto     config:group_impls                               supported    # tests/domain_2_golden.rs
 mto     config:ignore_dirs                               supported    # tests/domain_9_config_hierarchy.rs
 mto     config:impl_method_order                         supported    # src/layout/tests.rs
@@ -217,6 +218,7 @@ mto     config:trait_impl_order                          supported    # src/layo
 mto     config:trait_impl_sort                           supported    # src/layout/tests.rs
 mto     config:type_order                                supported    # tests/domain_1_unit.rs
 mto     config:visibility_order                          supported    # src/layout/tests.rs
+mto     flag:--all                                       supported    # tests/domain_8_cli.rs
 mto     flag:--allow-dirty                               supported    # tests/domain_8_cli.rs
 mto     flag:--check                                     supported    # tests/domain_8_cli.rs
 mto     flag:--color                                     supported    # tests/domain_8_cli.rs

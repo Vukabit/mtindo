@@ -1,5 +1,5 @@
 //! The space an expression is printed into, and the width limits of the Rust style at the
-//! default settings. (F4 will read the limits from the configuration.)
+//! default settings.
 
 /// The widest array kept on one line (`array_width`).
 pub const ARRAY_WIDTH: usize = 60;

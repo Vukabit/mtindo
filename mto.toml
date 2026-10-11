@@ -1,5 +1,6 @@
 # mto configuration file
 layout = true
+format = true
 sort_alphabetically = true
 group_impls = true
 sort_imports = true

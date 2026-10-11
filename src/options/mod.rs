@@ -6,6 +6,7 @@
 //! settings`); mto's own keys are written by hand (`mto.rs`). The manual, `mto config
 //! print` and configuration checking all read this table, so they cannot disagree.
 
+pub mod format;
 pub mod layout;
 mod mto;
 mod rustfmt;

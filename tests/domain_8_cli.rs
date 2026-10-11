@@ -89,7 +89,11 @@ fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
     assert_eq!(output.status.code(), Some(0));
     let history = env.mto_cmd().arg("history").output().unwrap();
     let history = String::from_utf8(history.stdout).unwrap();
-    assert!(history.contains("4 files  cargo mto -q\n"), "{}", history);
+    assert!(
+        history.contains("4 files") && history.contains("  cargo mto -q\n"),
+        "{}",
+        history
+    );
 }
 
 #[test]
@@ -421,7 +425,7 @@ fn test_cli_config_sets_values_and_refuses_a_file() {
     assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
 
     // The standard formatter's meaning: `--config FILE` is a mistake for `--config-path
-    // FILE` (S2-12).
+    // FILE`.
     let output = env
         .mto_cmd()
         .args(["--config", "custom.toml", "main.rs"])
@@ -592,6 +596,45 @@ fn test_cli_files_bring_their_modules() {
 }
 
 #[test]
+fn test_cli_format_works_with_and_without_layout() {
+    let env = TestEnvironment::new();
+    let messy = "fn b() {\n        let x = 1;   \n\n\n\n  x;\n}\n\n\n\nfn a() {}\n";
+    let formatted = "fn b() {\n    let x = 1;\n\n    x;\n}\n\nfn a() {}\n";
+
+    // Formatting alone: indentation and blank lines change, the order does not.
+    env.write_file("mto.toml", "format = true\n");
+    env.write_file("main.rs", messy);
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    assert_eq!(
+        std::fs::read_to_string(env.dir.path().join("main.rs")).unwrap(),
+        formatted
+    );
+    let output = env.mto_cmd().arg("-").write_stdin(messy).output().unwrap();
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), formatted);
+
+    // With layout too: reordered, then formatted.
+    env.write_file("mto.toml", "layout = true\nformat = true\n");
+    env.write_file("main.rs", messy);
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    assert_eq!(
+        std::fs::read_to_string(env.dir.path().join("main.rs")).unwrap(),
+        "fn a() {}\n\nfn b() {\n    let x = 1;\n\n    x;\n}\n"
+    );
+
+    // A file with syntax errors is reported, not formatted.
+    env.write_file("mto.toml", "format = true\n");
+    env.write_file("main.rs", "fn b( {\n");
+    let output = env.mto_cmd().arg("main.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(3), "{:?}", output);
+    assert_eq!(
+        std::fs::read_to_string(env.dir.path().join("main.rs")).unwrap(),
+        "fn b( {\n"
+    );
+}
+
+#[test]
 fn test_cli_help_color_follows_no_color_and_force_color() {
     let env = TestEnvironment::new();
     let (_, forced) = help_output(&env, &["-h"], &[("FORCE_COLOR", "1")]);
@@ -615,6 +658,91 @@ fn test_cli_help_color_follows_no_color_and_force_color() {
         })
         .collect::<String>();
     assert_eq!(stripped, plain, "colors must be the only difference");
+}
+
+#[test]
+fn test_cli_history_lists_this_project_unless_all() {
+    let env = TestEnvironment::new();
+    for project in ["alpha", "beta", "gamma"] {
+        env.write_file(&format!("{}/Cargo.toml", project), "[package]\n");
+    }
+    env.write_file("alpha/main.rs", UNSORTED);
+    env.write_file("beta/main.rs", UNSORTED);
+    assert_eq!(mto(&env, &["alpha/main.rs"]).0, 0);
+    assert_eq!(mto(&env, &["beta/main.rs"]).0, 0);
+    let history = |dir: &str, args: &[&str]| {
+        let output = env
+            .mto_cmd()
+            .current_dir(env.dir.path().join(dir))
+            .arg("history")
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0), "{:?}", output);
+        String::from_utf8(output.stdout).unwrap()
+    };
+    // In a project: its runs only, with the project named.
+    let alpha = history("alpha", &[]);
+    assert!(alpha.contains("PROJECT"), "{}", alpha);
+    assert!(
+        alpha.contains("alpha") && !alpha.contains("beta"),
+        "{}",
+        alpha
+    );
+    // --all: every project's.
+    let all = history("alpha", &["--all"]);
+    assert!(all.contains("alpha") && all.contains("beta"), "{}", all);
+    assert!(!all.contains("No runs wrote files"), "{}", all);
+    // A project with no runs: every run, saying so.
+    let gamma = history("gamma", &[]);
+    assert!(gamma.contains("No runs wrote files in "), "{}", gamma);
+    assert!(
+        gamma.contains("alpha") && gamma.contains("beta"),
+        "{}",
+        gamma
+    );
+    // --all goes with `mto history` only.
+    assert_eq!(mto(&env, &["--all", "."]).0, 2);
+
+    // `last` counts this project's runs: in alpha, beta's later run is not last.
+    let in_dir = |dir: &str, args: &[&str]| {
+        env.mto_cmd()
+            .current_dir(env.dir.path().join(dir))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let shown = in_dir("alpha", &["history", "show", "last"]);
+    let shown = String::from_utf8(shown.stdout).unwrap();
+    assert!(shown.contains("alpha/main.rs"), "{}", shown);
+    let output = in_dir("alpha", &["history", "show", "last~1"]);
+    assert_eq!(output.status.code(), Some(2), "{:?}", output);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("goes back too far"),
+        "{:?}",
+        output
+    );
+    let output = in_dir("alpha", &["restore", "last"]);
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    assert_eq!(env.read_file("alpha/main.rs"), UNSORTED);
+    assert_eq!(env.read_file("beta/main.rs"), SORTED);
+    // A project with no runs refuses `last`; a handle works anywhere.
+    let output = in_dir("gamma", &["restore", "last"]);
+    assert_eq!(output.status.code(), Some(2), "{:?}", output);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no run wrote files in"),
+        "{:?}",
+        output
+    );
+    let handle = all
+        .lines()
+        .find(|line| line.contains("beta"))
+        .and_then(|line| line.split_whitespace().next())
+        .unwrap()
+        .to_string();
+    let output = in_dir("gamma", &["restore", &handle]);
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    assert_eq!(env.read_file("beta/main.rs"), UNSORTED);
 }
 
 #[test]
@@ -705,7 +833,7 @@ fn test_cli_layout_is_off_until_opted_in() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert_eq!(output.status.code(), Some(0));
     assert!(
-        stderr.contains("1 file(s) left alone: layout is off. Run `mto init`"),
+        stderr.contains("1 file(s) left alone: layout and format are off. Run `mto init`"),
         "{}",
         stderr
     );

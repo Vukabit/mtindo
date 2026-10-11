@@ -1,4 +1,4 @@
-//! Every kind of token (and, from M3 on, every kind of node) in the syntax tree.
+//! Every kind of token and every kind of node in the syntax tree.
 
 macro_rules! syntax_kinds {
     ($($variant:ident => $name:literal,)*) => {

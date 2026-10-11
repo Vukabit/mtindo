@@ -27,8 +27,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::history::sha256;
-use mtindo::syntax::{Edition, SyntaxKind, parse};
+use mtindo::options::format::{FormatConfig, NewlineStyle};
+use mtindo::syntax::{Edition, SyntaxElement, SyntaxKind, parse};
 
 use crate::common::edition_for;
 use crate::unformat::unformat;
@@ -81,6 +83,8 @@ struct Case {
     dir: PathBuf,
     /// The answer, when it is given rather than computed (test pairs).
     expected: Option<String>,
+    /// The formatting settings mto uses for the case: its folder's, as mto resolves them.
+    format: FormatConfig,
 }
 
 struct Options {
@@ -93,6 +97,8 @@ struct Options {
     repos: Vec<(String, PathBuf)>,
     /// Where the files the meaning check flags are listed.
     meaning_log: Option<PathBuf>,
+    /// Where the files mto breaks are listed in full.
+    broke_log: Option<PathBuf>,
     /// The files whose flags are known: the formatter's bugs, each with its reason.
     exceptions: Option<PathBuf>,
 }
@@ -109,6 +115,11 @@ struct Score {
     first: Option<(usize, String)>,
     /// The meaning check (S3-3) run on the answer itself: what it reports, if anything.
     meaning: Option<String>,
+    /// What is wrong with mto's own output: the meaning check fails on it, or a second run
+    /// changes it (S3-3, S3-4).
+    own: Option<String>,
+    /// The answer is the input as written, and mto changed it: a file mto breaks.
+    broke: bool,
 }
 
 /// The numbers for one set: files matched of scored, lines matched of the answers' lines.
@@ -225,6 +236,61 @@ pub fn run(args: &[String]) -> ExitCode {
     for entry in &stale {
         println!("  listed but no longer flagged (remove it): {}", entry);
     }
+    // Files the standard formatter leaves as written and mto changes: where a rule is wrong,
+    // not missing. Each with the first line that differs and the syntax there.
+    let broke: Vec<String> = cases
+        .iter()
+        .zip(&scores)
+        .filter(|(_, score)| score.broke)
+        .map(|(case, score)| {
+            let (line, kind) = score.first.clone().unwrap_or_default();
+            format!("{}:{} [{}] {}", case.name, line, case.set.key(), kind)
+        })
+        .collect();
+    println!(
+        "files the standard formatter leaves as written and mto changes: {}",
+        broke.len()
+    );
+    for line in broke.iter().take(20) {
+        println!("  {}", line);
+    }
+    if let Some(log) = &options.broke_log {
+        let _ = fs::write(log, broke.join("\n") + "\n");
+    }
+    let own: Vec<String> = cases
+        .iter()
+        .zip(&scores)
+        .filter_map(|(case, score)| {
+            score
+                .own
+                .as_ref()
+                .map(|m| format!("{} [{}]: {}", case.name, case.set.key(), m))
+        })
+        .collect();
+    println!(
+        "mto's own output: {} file(s) fail the meaning check or change on a second run",
+        own.len()
+    );
+    // The inputs, saved beside the log for reproducing each failure (not as `.rs`, so walks
+    // pass over them); cleared on every run.
+    if let Some(dir) = options.broke_log.as_ref().and_then(|log| log.parent()) {
+        let dir = dir.join("diff-own");
+        let _ = fs::remove_dir_all(&dir);
+        if !own.is_empty() {
+            let _ = fs::create_dir_all(&dir);
+            for (case, _) in cases.iter().zip(&scores).filter(|(_, s)| s.own.is_some()) {
+                let name = format!("{}-{}.input", case.set.key(), case.name.replace('/', "__"));
+                let _ = fs::write(dir.join(name), &case.input);
+            }
+        }
+    }
+    if !own.is_empty() {
+        for line in own.iter().take(20) {
+            println!("  {}", line.chars().take(200).collect::<String>());
+        }
+        let _ = ratchet(&options, &tallies);
+        return ExitCode::from(1);
+    }
     if !unexpected.is_empty() {
         println!(
             "the meaning check flags the standard formatter's output in {} file(s) that \
@@ -286,6 +352,15 @@ pub fn standard_output(
 /// Every input, in a fixed order: the test pairs, then the corpus as fetched, then unformatted.
 fn collect_cases(options: &Options) -> Vec<Case> {
     let mut cases = Vec::new();
+    // Settings as mto resolves them for each folder, with no user configuration.
+    let mut resolver = Resolver::new(&Overrides::default(), Environment::default()).ok();
+    let mut format_for = |dir: &Path| -> FormatConfig {
+        resolver
+            .as_mut()
+            .and_then(|r| r.config_for(dir).ok())
+            .map(|c| c.format())
+            .unwrap_or_default()
+    };
     if let Some(tests) = &options.tests {
         let target_dir = tests.join("target");
         let source_dir = tests.join("source");
@@ -303,10 +378,22 @@ fn collect_cases(options: &Options) -> Vec<Case> {
             } else {
                 Set::Tests
             };
+            let format = header_settings(&input);
+            // The pairs are stored with `\n` endings whatever the header asks for; the
+            // standard formatter's own test runner ignores endings.
+            let edition = edition_for(&target, &input);
+            let expected = if format.newline_style == NewlineStyle::Windows
+                && !strings_span_lines(&expected, edition)
+            {
+                expected.replace("\r\n", "\n").replace('\n', "\r\n")
+            } else {
+                expected
+            };
             cases.push(Case {
                 set,
                 name: format!("tests/{}", relative.display()),
-                edition: edition_for(&target, &input),
+                edition,
+                format,
                 input,
                 dir: tests.to_path_buf(),
                 expected: Some(expected),
@@ -338,6 +425,7 @@ fn collect_cases(options: &Options) -> Vec<Case> {
             input: text.clone(),
             dir: file.parent().unwrap_or(Path::new(".")).to_path_buf(),
             expected: None,
+            format: format_for(file.parent().unwrap_or(Path::new("."))),
         });
     }
     for (file, shown, text) in &corpus {
@@ -352,6 +440,7 @@ fn collect_cases(options: &Options) -> Vec<Case> {
             input: messy,
             dir: file.parent().unwrap_or(Path::new(".")).to_path_buf(),
             expected: None,
+            format: format_for(file.parent().unwrap_or(Path::new("."))),
         });
     }
     cases
@@ -416,6 +505,43 @@ fn exceptions(path: &Path) -> Vec<String> {
         .collect()
 }
 
+/// The formatting settings a test pair's `// rustfmt-NAME: VALUE` header lines set, of
+/// those mto reads; the rest stay at their defaults.
+fn header_settings(input: &str) -> FormatConfig {
+    let mut config = FormatConfig::default();
+    for line in input.lines() {
+        let Some((name, value)) = line
+            .strip_prefix("// rustfmt-")
+            .and_then(|rest| rest.split_once(':'))
+        else {
+            continue;
+        };
+        let value = value.trim();
+        let number = value.parse::<usize>().ok();
+        match name.trim() {
+            "max_width" => config.max_width = number.unwrap_or(config.max_width),
+            "tab_spaces" => config.tab_spaces = number.unwrap_or(config.tab_spaces),
+            "blank_lines_upper_bound" => {
+                config.blank_lines_upper_bound = number.unwrap_or(config.blank_lines_upper_bound)
+            }
+            "blank_lines_lower_bound" => {
+                config.blank_lines_lower_bound = number.unwrap_or(config.blank_lines_lower_bound)
+            }
+            "hard_tabs" => config.hard_tabs = value == "true",
+            "newline_style" => {
+                config.newline_style = match value {
+                    "Native" => NewlineStyle::Native,
+                    "Unix" => NewlineStyle::Unix,
+                    "Windows" => NewlineStyle::Windows,
+                    _ => NewlineStyle::Auto,
+                }
+            }
+            _ => {}
+        }
+    }
+    config
+}
+
 /// The kind of the outermost syntax node that starts where line `line` (0-based) of `text`
 /// starts its text, an expression statement standing for its expression; `end of file` past
 /// the end. A line starting inside a node (a continuation) gives the innermost node holding
@@ -454,11 +580,9 @@ fn kind_at_line(text: &str, line: usize, edition: Edition) -> String {
     }
 }
 
-/// mto's formatting of `text`. The formatter does not exist yet (stage 3, F4), so today the
-/// text comes back as it is: the record starts from what the standard formatter would
-/// leave alone.
-fn mto_output(text: &str, _edition: Edition) -> String {
-    text.to_string()
+/// mto's formatting of `text`, as `format = true` runs it.
+fn mto_output(text: &str, edition: Edition, config: &FormatConfig) -> String {
+    mtindo::format::file::format_file(text, edition, config)
 }
 
 /// The text of the configuration file the standard formatter finds from `dir`, for the
@@ -486,6 +610,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
         markdown: false,
         repos: Vec::new(),
         meaning_log: None,
+        broke_log: None,
         exceptions: None,
     };
     let mut i = 0;
@@ -497,6 +622,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             "--cache" => options.cache = PathBuf::from(value(i)?),
             "--record" => options.record = PathBuf::from(value(i)?),
             "--meaning-log" => options.meaning_log = Some(PathBuf::from(value(i)?)),
+            "--broke-log" => options.broke_log = Some(PathBuf::from(value(i)?)),
             "--exceptions" => options.exceptions = Some(PathBuf::from(value(i)?)),
             "--update" => {
                 options.update = true;
@@ -784,10 +910,27 @@ fn score(case: &Case, options: &Options, home: &Path) -> Score {
                 .join("; ")
         })
     };
-    let output = mto_output(&case.input, case.edition);
+    let output = mto_output(&case.input, case.edition, &case.format);
+    let own = {
+        let found = mtindo::verify::format::verify_format(&case.input, &output, case.edition);
+        if !found.is_empty() {
+            Some(
+                found
+                    .iter()
+                    .map(|v| format!("{}: {}", v.rule.name(), v.detail))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        } else if mto_output(&output, case.edition, &case.format) != output {
+            Some("a second run changes it".to_string())
+        } else {
+            None
+        }
+    };
     let expected: Vec<&str> = answer.split('\n').collect();
     let got: Vec<&str> = output.split('\n').collect();
     let matches = output == answer;
+    let broke = !matches && case.input == answer;
     let matched_lines = if matches {
         expected.len()
     } else {
@@ -808,6 +951,8 @@ fn score(case: &Case, options: &Options, home: &Path) -> Score {
         matched_lines,
         first,
         meaning,
+        own,
+        broke,
     }
 }
 
@@ -847,6 +992,18 @@ fn score_all(cases: &[Case], options: &Options, home: &Path) -> Vec<Score> {
     scores.into_iter().map(Option::unwrap_or_default).collect()
 }
 
+/// Whether a string literal holds a line break: line endings inside it are its contents.
+fn strings_span_lines(text: &str, edition: Edition) -> bool {
+    parse(text, edition)
+        .syntax_node()
+        .descendants_with_tokens()
+        .iter()
+        .any(|e| match e {
+            SyntaxElement::Token(t) => t.kind().is_literal() && t.text().contains('\n'),
+            SyntaxElement::Node(_) => false,
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -857,6 +1014,13 @@ mod tests {
         assert_eq!(common_lines(&["a", "x", "c"], &["a", "b", "c"]), 2);
         assert_eq!(common_lines(&[], &["a"]), 0);
         assert_eq!(common_lines(&["b", "a"], &["a", "b"]), 1);
+    }
+
+    #[test]
+    fn test_header_settings_are_read() {
+        let config = header_settings("// rustfmt-tab_spaces: 2\n// rustfmt-hard_tabs: true\n");
+        assert_eq!((config.tab_spaces, config.hard_tabs), (2, true));
+        assert_eq!(header_settings("fn f() {}\n").tab_spaces, 4);
     }
 
     #[test]

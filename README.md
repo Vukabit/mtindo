@@ -77,6 +77,20 @@ mto init
 It writes an `mto.toml` with `layout = true` and every other setting at its
 default.
 
+## Formatting (preview)
+
+`format = true` in an `mto.toml` turns on formatting in the Rust style, with
+or without layout. It is a preview: today it indents, keeps blank lines
+within `blank_lines_upper_bound`, trims trailing whitespace after code and
+line comments and writes line endings in the `newline_style`. It does not
+break or join lines yet. Like the standard formatter, it leaves alone macro
+bodies, anything marked `#[rustfmt::skip]`, `// mto: off` regions and a
+statement with a line longer than `max_width`.
+
+Formatting changes only whitespace, and a meaning check runs on every
+formatted file before anything is written: the tokens must match the input's,
+apart from the rewrites the Rust style makes. A second run changes nothing.
+
 ## Command Line Interface
 
 You can pass a single file or a whole directory. Directories are traversed
@@ -246,7 +260,7 @@ defaults).
 Unknown keys are warnings. A value of the wrong type or outside the legal
 values stops the run with exit code `2`, naming the file, line and column.
 `mto --man` documents every setting, the formatting settings and mto's, with
-its legal values and defaults. Until `mto` formats code, the formatting
+its legal values and defaults. Without `format = true`, the formatting
 settings change nothing except the style edition.
 
 `mto init` writes an `mto.toml` with layout on and mto's other settings at
@@ -254,6 +268,7 @@ their defaults, each with a comment; without the comments:
 
 ```toml
 layout = true
+format = false
 blank_lines_between_blocks = 1
 group_impls = true
 ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv"]
@@ -294,13 +309,21 @@ Every run that writes files is recorded under an id, shown by a short handle
 (the end of the id). Contents are stored once however many runs share them.
 
 ```bash
-mto history                  # the runs, newest first
+mto history                  # this project's runs, newest first
+mto history --all            # every project's
 mto history show last        # one run's files, and where each stands now
-mto restore last             # undo the last run
+mto restore last             # undo this project's last run
 mto restore last~1           # the one before it
 mto restore 3f9a src/lib.rs  # one file of run 3f9a
 mto history prune --keep 10  # also --older-than 30 (days; or 2w, 12h)
 ```
+
+History is shared by every project. A run belongs to the project it wrote
+files in: the nearest folder above holding `.git`, else `Cargo.toml`. Bare
+`mto history` lists the current project's runs, with a `PROJECT` column, or
+every run with a note when the project has none. `last` and `last~N` count
+the current project's runs too, so a restore never reaches into another
+project; a handle names its run from anywhere.
 
 A restore puts back only the files that still hold what the run wrote; one
 edited or deleted since is skipped (exit code `1`) unless `--force`. A restore

@@ -16,8 +16,8 @@
 //! - the output parses at least as well as the input;
 //! - the byte-order mark and the line-ending style are kept.
 //!
-//! The verifier does not know which engine produced the output, so it checks today's
-//! text-scanning engine and the syntax-tree engine of stage 2 alike. [`report`] turns
+//! The verifier does not know which engine produced the output, so it checks any
+//! engine's output alike. [`report`] turns
 //! violations into a bug report with the smallest input that still shows them.
 
 pub mod format;

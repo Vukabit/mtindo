@@ -59,24 +59,31 @@ const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "history",
-        args: "[show <RUN> | prune]",
+        args: "[--all | show <RUN> | prune]",
         summary: "List, show or prune the runs that wrote files",
-        about: "Every run that writes files is recorded. With no argument, lists the runs, \
-                newest first. `show` lists one run's files and where each stands now. `prune` \
+        about: "Every run that writes files is recorded. With no argument, lists the runs that \
+                wrote files in this folder's project (the nearest folder above holding .git, \
+                else Cargo.toml), newest first, or every run when there are none; --all lists \
+                every project's. `show` lists one run's files and where each stands now. `prune` \
                 removes old runs, by the user config's limits unless told otherwise. RUN is \
-                `last`, `last~N`, or a handle from the list.",
+                `last` or `last~N`, counted among this project's runs, or a handle from the \
+                list, which names its run anywhere.",
         usage: &[
-            "mto history",
+            "mto history [--all]",
             "mto history show <RUN>",
             "mto history prune [--older-than DAYS] [--keep N]",
         ],
-        options: &[(
-            "options",
-            "mto history prune",
-            &[Flag::Keep, Flag::OlderThan],
-        )],
+        options: &[
+            ("options", "mto history", &[Flag::All]),
+            (
+                "options",
+                "mto history prune",
+                &[Flag::Keep, Flag::OlderThan],
+            ),
+        ],
         examples: &[
             "mto history",
+            "mto history --all",
             "mto history show last~1",
             "mto history prune --keep 10",
         ],
@@ -88,7 +95,8 @@ const COMMANDS: &[CommandSpec] = &[
         about: "Puts back what RUN replaced, in every file it wrote or only the FILEs named. A \
                 file changed or deleted since is skipped (exit code 1) unless --force. The \
                 restore is recorded as a run of its own, so it can be undone too. RUN is \
-                `last`, `last~N`, or a handle from `mto history`.",
+                `last` or `last~N`, counted among this project's runs, or a handle from \
+                `mto history`, which names its run anywhere.",
         usage: &["mto restore <RUN> [FILE...] [--force]"],
         options: &[("options", "mto restore <RUN> [FILE...]", &[Flag::Force])],
         examples: &["mto restore last", "mto restore 3f9a src/lib.rs"],
@@ -363,6 +371,14 @@ const FLAGS: &[FlagSpec] = &[
         help: "Also restore files changed since the run, and missing ones",
     },
     FlagSpec {
+        flag: Flag::All,
+        group: Group::Command,
+        short: None,
+        long: "--all",
+        value: "",
+        help: "List every project's runs",
+    },
+    FlagSpec {
         flag: Flag::Keep,
         group: Group::Command,
         short: None,
@@ -441,9 +457,9 @@ content once however many runs share it.
 rename replaces the original file.
 Each run that writes files is recorded under an id, shown by a short handle:
 ```bash
-mto history            # the runs, newest first
+mto history            # this project's runs, newest first
 mto history show last  # one run's files, and where each stands now
-mto restore last       # undo the last run
+mto restore last       # undo this project's last run
 mto restore 3f9a src/lib.rs
 ```
 A restore puts back only files that still hold what the run wrote; `--force`
@@ -552,6 +568,7 @@ enum Flag {
     Force,
     OlderThan,
     Keep,
+    All,
     StyleEdition,
     User,
     Version,
@@ -610,7 +627,8 @@ impl Group {
 }
 
 enum HistoryView {
-    List,
+    /// Every project's runs when true, else the current folder's project's.
+    List(bool),
     Show(String),
     Prune(PruneArgs),
 }
@@ -704,8 +722,8 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     }
     if off > 0 && !opts.quiet {
         eprintln!(
-            "{}{} file(s) left alone: layout is off. Run `mto init` to write an mto.toml \
-             with `layout = true`.{}",
+            "{}{} file(s) left alone: layout and format are off. Run `mto init` to write an \
+             mto.toml with `layout = true`, or set `format = true` (preview).{}",
             c_yellow(true),
             off,
             c_reset(true)
@@ -1056,6 +1074,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
                         spec.long
                     ));
                 }
+                Flag::All => {
+                    return usage_error("--all only goes with `mto history`");
+                }
             }
         } else if arg == "-" && !read_stdin {
             read_stdin = true;
@@ -1204,10 +1225,14 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
 }
 
 fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
-    let usage =
-        || usage_error("usage: mto history [show <RUN> | prune [--older-than DAYS] [--keep N]]");
+    let usage = || {
+        usage_error(
+            "usage: mto history [--all | show <RUN> | prune [--older-than DAYS] [--keep N]]",
+        )
+    };
     let view = match args.first().map(String::as_str) {
-        None => HistoryView::List,
+        None => HistoryView::List(false),
+        Some("--all") if args.len() == 1 => HistoryView::List(true),
         Some("show") => match &args[1..] {
             [run] => HistoryView::Show(run.clone()),
             _ => return usage(),
@@ -1250,7 +1275,8 @@ fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
             }
             HistoryView::Prune(prune)
         }
-        Some("list") if args.len() == 1 => HistoryView::List,
+        Some("list") if args.len() == 1 => HistoryView::List(false),
+        Some("list") if args.len() == 2 && args[1] == "--all" => HistoryView::List(true),
         _ => return usage(),
     };
     Ok(CliAction::History { view })
@@ -1773,7 +1799,10 @@ fn run_history(view: HistoryView) -> i32 {
         Err(code) => return code,
     };
     let result = match view {
-        HistoryView::List => history::list(&store),
+        HistoryView::List(all) => {
+            let here = std::env::current_dir().ok().filter(|_| !all);
+            history::list(&store, here.as_deref())
+        }
         HistoryView::Show(run) => history::show(&store, &run),
         HistoryView::Prune(args) => history::prune(&store, settings.limits, args),
     };

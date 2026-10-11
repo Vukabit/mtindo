@@ -156,6 +156,30 @@ pub(super) static SETTINGS: &[Setting] = &[
         replaced_by: None,
     },
     Setting {
+        name: "format",
+        file: File::Mto,
+        kind: Kind::Bool,
+        default: "false",
+        default_2024: None,
+        summary: "Format code in the Rust style (preview)",
+        doc: "Turns formatting on for the files this mto.toml applies to, beside or without \
+              `layout`. A preview: lines are not broken or joined yet. The lines that start \
+              items, statements, fields, variants, match arms and list elements are indented \
+              one level past the line their block or list belongs to, and closing delimiters \
+              at that line's indentation; the lines that continue them move along with them. \
+              Trailing whitespace is trimmed after code and line comments, blank lines are \
+              kept within `blank_lines_upper_bound` and dropped at the start and end of a \
+              container (a module body keeps its first), lines end as `newline_style` says and the file ends \
+              with one line break, honoring `tab_spaces` and `hard_tabs`. As the standard \
+              formatter does, mto leaves as written macro bodies, anything marked \
+              `#[rustfmt::skip]`, `// mto: off` regions and a statement with a line longer \
+              than `max_width`. Every change is checked to keep the program's tokens and \
+              comments.",
+        channels: None,
+        hidden: false,
+        replaced_by: None,
+    },
+    Setting {
         name: "name_sort",
         file: File::Mto,
         kind: Kind::Choice(&[

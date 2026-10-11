@@ -36,6 +36,7 @@ use std::rc::Rc;
 pub use files::Environment;
 pub use value::Value;
 
+use crate::options::format::{FormatConfig, NewlineStyle};
 use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
 use crate::options::{self, File, Setting};
 
@@ -189,6 +190,38 @@ impl Config {
     /// Whether layout is on (`layout = true`).
     pub fn layout_on(&self) -> bool {
         self.get("layout").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    /// Whether `format = true` applies.
+    pub fn format_on(&self) -> bool {
+        self.get("format").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    /// The formatting settings.
+    pub fn format(&self) -> FormatConfig {
+        let mut config = FormatConfig::default();
+        let number = |name: &str, fallback: usize| {
+            self.get(name)
+                .and_then(Value::as_integer)
+                .map_or(fallback, |n| n as usize)
+        };
+        config.max_width = number("max_width", config.max_width);
+        config.tab_spaces = number("tab_spaces", config.tab_spaces);
+        config.blank_lines_upper_bound =
+            number("blank_lines_upper_bound", config.blank_lines_upper_bound);
+        config.blank_lines_lower_bound =
+            number("blank_lines_lower_bound", config.blank_lines_lower_bound);
+        config.hard_tabs = self
+            .get("hard_tabs")
+            .and_then(Value::as_bool)
+            .unwrap_or(config.hard_tabs);
+        config.newline_style = match self.get("newline_style").and_then(Value::as_text) {
+            Some("Native") => NewlineStyle::Native,
+            Some("Unix") => NewlineStyle::Unix,
+            Some("Windows") => NewlineStyle::Windows,
+            _ => NewlineStyle::Auto,
+        };
+        config
     }
 
     pub fn source(&self, name: &str) -> Option<&Source> {
@@ -547,7 +580,9 @@ impl Resolver {
         if !layout_on {
             for (name, (_, source)) in &values {
                 let setting = options::find(name);
-                let layout_key = setting.is_some_and(|s| s.file == File::Mto) && *name != "layout";
+                // `format` and `ignore_dirs` matter without layout too.
+                let layout_key = setting.is_some_and(|s| s.file == File::Mto)
+                    && !matches!(*name, "layout" | "format" | "ignore_dirs");
                 if layout_key && !matches!(source, Source::Default) {
                     self.warn(format!(
                         "{}: `{}` has no effect while layout is off; add `layout = true`",

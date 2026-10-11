@@ -1,4 +1,4 @@
-//! The meaning check for formatted output (S3-3): the output's tokens equal the input's,
+//! The meaning check for formatted output: the output's tokens equal the input's,
 //! apart from whitespace, comments and the allowed rewrites ([`super::rewrites`]), and every
 //! comment survives.
 //!

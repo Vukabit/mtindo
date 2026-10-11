@@ -4,8 +4,7 @@
 //! - a file checked against itself is clean;
 //! - for a file that parses, moving its items around (header first, `macro_rules!` in their
 //!   order, everything joined by blank lines in the file's own line endings) is clean;
-//! - checking what today's engine writes never panics (its known bugs are reported, not
-//!   asserted on, until stage 2 replaces it).
+//! - checking what layout writes never panics; its findings are not asserted on here.
 
 use libfuzzer_sys::fuzz_target;
 use mtindo::syntax::ast::{Attr, Item, ItemKind};

@@ -46,7 +46,7 @@ const COMMANDS: &[Command] = &[
     (
         "diff",
         "[--update] [--markdown]",
-        "How much of the Rust style mto reproduces, against compat/compatibility.txt (stage 3)",
+        "How much of the Rust style mto reproduces, against compat/compatibility.txt",
         diff::run,
     ),
     (

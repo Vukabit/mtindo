@@ -59,6 +59,8 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         root.join("compat/compatibility.txt").display().to_string(),
         "--meaning-log".into(),
         root.join("logs/diff-meaning.txt").display().to_string(),
+        "--broke-log".into(),
+        root.join("logs/diff-broke.txt").display().to_string(),
         "--exceptions".into(),
         root.join("compat/meaning-exceptions.txt")
             .display()

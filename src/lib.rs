@@ -24,9 +24,9 @@ pub use text::color::{HelpPalette, color_enabled};
 
 static UNIQUE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// A file found by the walk, with the settings of its folder; `None` when layout is off
-/// there.
-pub type Job = (PathBuf, Option<Arc<LayoutConfig>>);
+/// A file found by the walk, with the settings of its folder; `None` when neither layout nor
+/// formatting is on there.
+pub type Job = (PathBuf, Option<Arc<Settings>>);
 
 enum DiffOp {
     Equal,
@@ -182,6 +182,24 @@ pub struct RunOptions {
     pub allow_dirty: bool,
 }
 
+/// What mto does to a file: layout when `layout = true`, formatting when `format = true`.
+#[derive(Clone, Debug, Default)]
+pub struct Settings {
+    pub layout: Option<LayoutConfig>,
+    pub format: Option<options::format::FormatConfig>,
+}
+
+impl Settings {
+    /// The settings of a folder, or `None` when neither is on there.
+    pub fn of(resolved: &config::Config) -> Option<Settings> {
+        let settings = Settings {
+            layout: resolved.layout_on().then(|| resolved.layout()),
+            format: resolved.format_on().then(|| resolved.format()),
+        };
+        (settings.layout.is_some() || settings.format.is_some()).then_some(settings)
+    }
+}
+
 /// The state of a directory walk.
 struct Walk<'a> {
     visited: &'a mut HashSet<PathBuf>,
@@ -320,8 +338,7 @@ pub fn collect_jobs(
             let dir = real.parent().unwrap_or(Path::new(".")).to_path_buf();
             let resolved = resolver.config_for_absolute(dir)?;
             print_warnings(resolver);
-            let config = resolved.layout_on().then(|| Arc::new(resolved.layout()));
-            jobs.push((file, config));
+            jobs.push((file, Settings::of(&resolved).map(Arc::new)));
         }
     }
     Ok(Collected {
@@ -338,8 +355,11 @@ pub fn init_template() -> String {
         "# mto configuration file; `mto --man` explains every setting.\n\n\
          # Rearrange the items of each file.\nlayout = true\n",
     );
-    let others = options::all().filter(|s| s.file == options::File::Mto && s.name != "layout");
-    for setting in others {
+    // `format` beside `layout`, the other switch; then the rest in table order.
+    let switch = options::all().filter(|s| s.name == "format");
+    let others = options::all()
+        .filter(|s| s.file == options::File::Mto && !matches!(s.name, "layout" | "format"));
+    for setting in switch.chain(others) {
         out.push_str(&format!(
             "\n# {}\n{} = {}\n",
             setting.summary, setting.name, setting.default
@@ -405,7 +425,7 @@ pub fn process_stdin(
     let shown = name.map_or("<stdin>".to_string(), |n| n.display().to_string());
     let resolved = resolver.config_for(&dir)?;
     print_warnings(resolver);
-    let config = resolved.layout();
+    let settings = Settings::of(&resolved);
     let mut source = String::new();
     io::stdin()
         .read_to_string(&mut source)
@@ -417,10 +437,10 @@ pub fn process_stdin(
         }
         report.with(outcome)
     };
-    if !resolved.layout_on() {
+    let Some(settings) = settings else {
         return Ok(unchanged(report, Outcome::LayoutOff));
-    }
-    let (reorganized, edition, _) = match arrange(&source, &config, None) {
+    };
+    let (laid_out, reorganized, edition, _) = match transform(&source, &settings, None) {
         Ok(arranged) => arranged,
         Err(reason) => {
             let syntax = reason == layout::SYNTAX_ERRORS;
@@ -443,7 +463,9 @@ pub fn process_stdin(
     if reorganized == source {
         return Ok(unchanged(report, Outcome::Unchanged));
     }
-    if let Err(bug_report) = verified(&source, &reorganized, edition, &config, &shown) {
+    if let Err(bug_report) =
+        verified_all(&source, &laid_out, &reorganized, edition, &settings, &shown)
+    {
         report.stderr = bug_report;
         return Ok(unchanged(report, Outcome::VerifierFailed));
     }
@@ -475,7 +497,7 @@ pub fn reorganize_file(source: String, config: &LayoutConfig, dbg: bool) -> Stri
 /// output, so files can be processed in parallel and still print in order.
 pub fn run_file(
     file_path: &Path,
-    config: &LayoutConfig,
+    settings: &Settings,
     opts: &RunOptions,
     ctx: WriteContext,
 ) -> FileReport {
@@ -502,8 +524,8 @@ pub fn run_file(
         ));
     }
     let debug = opts.debug.then_some(&mut report.stdout);
-    let (reorganized, edition) = match arrange(&source, config, debug) {
-        Ok((text, edition, skipped)) => {
+    let (laid_out, reorganized, edition) = match transform(&source, settings, debug) {
+        Ok((laid_out, text, edition, skipped)) => {
             // Named as the standard formatter names them: not the files that tell it to skip
             // them.
             if opts.verbose && !skipped {
@@ -511,7 +533,7 @@ pub fn run_file(
                     .stdout
                     .insert_str(0, &format!("Formatting {}\n", shown));
             }
-            (text, edition)
+            (laid_out, text, edition)
         }
         Err(reason) => {
             if opts.verbose {
@@ -545,7 +567,9 @@ pub fn run_file(
         }
         return report.with(Outcome::Unchanged);
     }
-    if let Err(bug_report) = verified(&source, &reorganized, edition, config, &shown) {
+    if let Err(bug_report) =
+        verified_all(&source, &laid_out, &reorganized, edition, settings, &shown)
+    {
         report.stderr = bug_report;
         return report.with(Outcome::VerifierFailed);
     }
@@ -676,7 +700,7 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions, writes: &mut Writes) -> Vec<Don
                         break;
                     };
                     let report = match config {
-                        Some(config) => run_file(path, config, opts, ctx),
+                        Some(settings) => run_file(path, settings, opts, ctx),
                         None => FileReport::default().with(Outcome::LayoutOff),
                     };
                     if sender.send((idx, report)).is_err() {
@@ -1151,6 +1175,33 @@ fn sync_dir(dir: &Path) {
 #[cfg(not(unix))]
 fn sync_dir(_dir: &Path) {}
 
+/// Layout, then formatting, as the settings ask: the laid-out text, the final text, the
+/// edition the file was parsed with, and whether the file skips itself.
+fn transform(
+    source: &str,
+    settings: &Settings,
+    debug: Option<&mut String>,
+) -> Result<(String, String, syntax::Edition, bool), String> {
+    let (laid_out, edition, skipped) = match &settings.layout {
+        Some(config) => arrange(source, config, debug)?,
+        None if source.trim_start_matches('\u{feff}').trim().is_empty() => {
+            (source.to_string(), syntax::Edition::E2021, false)
+        }
+        None => {
+            let (edition, parsed) = layout::parse_any_edition(source);
+            if !parsed.errors().is_empty() {
+                return Err(layout::SYNTAX_ERRORS.to_string());
+            }
+            (source.to_string(), edition, false)
+        }
+    };
+    let formatted = match &settings.format {
+        Some(config) => format::file::format_file(&laid_out, edition, config),
+        None => laid_out.clone(),
+    };
+    Ok((laid_out, formatted, edition, skipped))
+}
+
 /// Checks the new text with the verifier before anything is written or shown. On a
 /// violation, the error is the bug report, with the smallest part of the input that still
 /// fails.
@@ -1178,6 +1229,35 @@ fn verified(
     ))
 }
 
+/// Both checks before anything is written or shown: layout's output against the source,
+/// then formatting's output against layout's.
+fn verified_all(
+    source: &str,
+    laid_out: &str,
+    formatted: &str,
+    edition: syntax::Edition,
+    settings: &Settings,
+    path: &str,
+) -> Result<(), String> {
+    if let Some(config) = &settings.layout
+        && laid_out != source
+    {
+        verified(source, laid_out, edition, config, path)?;
+    }
+    if settings.format.is_some() && formatted != laid_out {
+        let violations = verify::format::verify_format(laid_out, formatted, edition);
+        if !violations.is_empty() {
+            return Err(format!(
+                "{}{}{}",
+                c_red(),
+                verify::report::bug_report(path, &violations, None),
+                c_reset(true)
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Collects the jobs under `dir`, shown as given; `real` is the same folder, absolute with
 /// symlinks resolved, for looking up its settings.
 fn walk_inner(
@@ -1193,8 +1273,8 @@ fn walk_inner(
     }
     let resolved = resolver.config_for_absolute(real.clone())?;
     print_warnings(resolver);
-    let config = Arc::new(resolved.layout());
-    let layout_on = resolved.layout_on();
+    let config = resolved.layout();
+    let settings = Settings::of(&resolved).map(Arc::new);
     let dir_name = dir
         .file_name()
         .unwrap_or_default()
@@ -1254,8 +1334,7 @@ fn walk_inner(
             {
                 continue;
             }
-            walk.jobs
-                .push((path, layout_on.then(|| Arc::clone(&config))));
+            walk.jobs.push((path, settings.clone()));
         }
     }
     Ok(())

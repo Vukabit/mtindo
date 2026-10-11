@@ -164,11 +164,13 @@ pub(super) static SETTINGS: &[Setting] = &[
     summary: "Format code in the Rust style (preview)",
     doc: "Turns formatting on for the files this mto.toml applies to, beside or without \
               `layout`. A preview. A `let` with an initializer, or an expression statement, \
-              whose expression is a call, method chain, struct literal, array or tuple is laid \
-              out anew, a `let`'s pattern with it, its lines broken and joined as the Rust \
+              whose expression is a call, method chain (`?` and `.await` too), struct literal, \
+              array, tuple or `return` is laid out anew, a `let`'s pattern with it, its lines broken and joined as the Rust \
               style does within `max_width` and the widths `use_small_heuristics` sets (unless \
-              it holds a comment, block, closure or macro, or a type or generic arguments that \
-              would have to break); so is a `use` declaration, its lists laid out as `imports_layout` says, unless \
+              it holds a comment, block or macro, a closure that would break, or a type or \
+              generic arguments that would have to break); any other statement is put on one \
+              line when it fits there with everything in it within its width; so is a `use` \
+              declaration, its lists laid out as `imports_layout` says, unless \
               it holds a comment, an attribute or a list of one item, which the Rust style \
               would rewrite; and so is an attribute of a file, body, item, statement, field or \
               variant whose arguments are names and values, within `attr_fn_like_width` \
@@ -176,7 +178,7 @@ pub(super) static SETTINGS: &[Setting] = &[
               of their own, as do the tail and closing brace of a block holding a statement \
               and of a function's body. An item's header (`pub fn name<T>(a: T) -> R {`, \
               `impl<T> Trait for Type {`, `pub struct Name {`) is joined onto one line when it \
-              fits, else a function's parameters are put one per line, unless it holds a \
+              fits (and so is a type alias, const or static), else a function's parameters are put one per line, unless it holds a \
               comment, a `where` clause, trait bounds or generics that would break. A struct's \
               fields and an enum's variants are one per line, each on one line with its comma \
               (a struct-like variant within `struct_variant_width`, else one field per line). \

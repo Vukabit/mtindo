@@ -1,6 +1,7 @@
 //! Item headers laid out as the Rust style lays them out: everything before an item's body
 //! (`pub fn name<T>(a: T) -> R`, `impl<T> Trait for Type`, `extern "C"`, `pub struct Name`)
-//! on one line with the body's `{`, or a whole item ending in `;` on one line, when it fits;
+//! on one line with the body's `{`, or a whole item ending in `;` (a type alias, const or
+//! static too) on one line, when it fits;
 //! else a declaration's return type on the next line when it is just one column over, else a
 //! function's parameters one per line, each with a comma, the body's `{` on a line of its own
 //! when it does not fit after them. The body itself is left to the whole-file rules. The
@@ -53,7 +54,17 @@ pub fn is_field(node: &SyntaxNode) -> bool {
 pub fn is_item(kind: SyntaxKind) -> bool {
   matches!(
     kind,
-    K::Fn | K::Struct | K::Enum | K::Union | K::Trait | K::Impl | K::ExternBlock | K::Module
+    K::Fn
+      | K::Struct
+      | K::Enum
+      | K::Union
+      | K::Trait
+      | K::Impl
+      | K::ExternBlock
+      | K::Module
+      | K::TypeAlias
+      | K::Const
+      | K::Static
   )
 }
 
@@ -285,6 +296,12 @@ pub fn rewrite_header(
     return None;
   }
   let width = indent + str_width(&one_line) + brace;
+  // A type alias, const or static: on one line, its calls and lists each within their
+  // widths, or left as written.
+  if matches!(node.kind(), K::TypeAlias | K::Const | K::Static) {
+    return (width <= config.max_width && super::stmt::nested_fit(node, indent, config))
+      .then(|| (format!("{}{}", one_line, suffix), end));
+  }
   if width <= config.max_width {
     return Some((format!("{}{}", one_line, suffix), end));
   }

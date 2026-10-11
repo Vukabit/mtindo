@@ -131,6 +131,16 @@ fn test_no_blank_line_between_attributes() {
 }
 
 #[test]
+fn test_type_aliases_consts_and_statics_on_one_line() {
+  assert_eq!(
+    formatted(
+      "pub\ntype\nX<T> =\n  Vec<T>;\npub const\nN: usize = 1 +\n  2;\nstatic S: &str =\n\"s\";\n"
+    ),
+    "pub type X<T> = Vec<T>;\npub const N: usize = 1 + 2;\nstatic S: &str = \"s\";\n"
+  );
+}
+
+#[test]
 fn test_what_a_long_header_keeps() {
   // A C variadic takes no comma; a trait with bounds keeps its header as written.
   let long = format!(

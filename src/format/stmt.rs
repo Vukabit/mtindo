@@ -8,7 +8,7 @@
 
 use SyntaxKind as K;
 
-use super::expr::{flat, rewrite};
+use super::expr::{flat, is_chain, rewrite};
 use super::shape::{Limits, Shape, Spacing};
 use crate::options::format::FormatConfig;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
@@ -21,8 +21,11 @@ pub fn rewrite_statement(
   indent: usize,
   config: &FormatConfig,
 ) -> Option<String> {
-  if !takes(node, config) {
+  if !clean(node, config) {
     return None;
+  }
+  if !takes(node) {
+    return on_one_line(node, indent, config);
   }
   // Types are printed flat for now: a statement whose generic arguments would have to
   // break is left as written.
@@ -35,6 +38,34 @@ pub fn rewrite_statement(
   }
   let text = laid_out(node, indent, config)?;
   same_tokens(node, &text).then_some(text)
+}
+
+/// Whether every call, chain, struct literal, array, tuple and pattern in `node` stays on
+/// one line by its own width, laid out from column `indent`.
+pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> bool {
+  let Some(shape) = statement_shape(indent, config) else {
+    return false;
+  };
+  // The outermost laid-out expressions inside, each checked on its own.
+  let laid = |n: &SyntaxNode| {
+    is_chain(n)
+      || matches!(
+        n.kind(),
+        K::CallExpr
+          | K::RecordExpr
+          | K::ArrayExpr
+          | K::TupleExpr
+          | K::RecordPat
+          | K::TupleStructPat
+          | K::TuplePat
+          | K::SlicePat
+      )
+  };
+  node
+    .descendants()
+    .iter()
+    .filter(|n| laid(n) && !n.ancestors().iter().skip(1).any(laid))
+    .all(|n| rewrite(n, shape).is_some_and(|t| !t.contains('\n')))
 }
 
 /// Whether `text` holds the statement's tokens, commas aside (a list laid out vertically
@@ -67,6 +98,46 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
   let mut ours: Vec<String> = ours.collect();
   ours.pop();
   theirs.eq(ours)
+}
+
+/// Whether the statement holds nothing laying it out would lose or misplace: a comment, a
+/// block, a macro, an attribute, a string spanning lines.
+fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
+  // Indentation written with tabs is not laid out yet.
+  if config.hard_tabs || config.tab_spaces == 0 {
+    return false;
+  }
+  // `x.0 .0`: the standard formatter keeps the space a chain layout would drop.
+  let tokens: Vec<SyntaxElement> = node
+    .descendants_with_tokens()
+    .into_iter()
+    .filter(|e| matches!(e, SyntaxElement::Token(_)))
+    .collect();
+  let spaced_tuple_field = tokens.windows(4).any(|w| {
+    w[0].kind() == K::IntNumber
+      && w[1].kind() == K::Whitespace
+      && w[2].kind() == K::Dot
+      && w[3].kind() == K::IntNumber
+  });
+  matches!(node.kind(), K::ExprStmt | K::LetStmt)
+    && !spaced_tuple_field
+    && node.descendants_with_tokens().iter().all(|e| match e {
+      SyntaxElement::Token(t) => {
+        !matches!(
+          t.kind(),
+          K::LineComment
+            | K::BlockComment
+            | K::OuterLineDoc
+            | K::InnerLineDoc
+            | K::OuterBlockDoc
+            | K::InnerBlockDoc
+        ) && !(t.kind().is_literal() && t.text().contains('\n'))
+      }
+      SyntaxElement::Node(n) => !matches!(
+        n.kind(),
+        K::BlockExpr | K::MatchArmList | K::MacroExpr | K::MacroCall | K::Attr | K::LetElse
+      ),
+    })
 }
 
 /// The statement's expression: an expression statement's, or a `let`'s initializer.
@@ -177,6 +248,20 @@ fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<
   (last_line_used(&head, shape.indent) <= shape.width).then_some(head)
 }
 
+/// A statement the layout code does not take whole, on one line when it fits there and
+/// every call, chain, struct literal, array and tuple in it stays on one line by its own
+/// width; else `None`.
+fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
+  if !matches!(node.kind(), K::ExprStmt | K::LetStmt) {
+    return None;
+  }
+  let text = flat(node, Spacing::of(config));
+  if indent + str_width(&text) > config.max_width {
+    return None;
+  }
+  (nested_fit(node, indent, config) && same_tokens(node, &text)).then_some(text)
+}
+
 /// The standard formatter moves a right-hand side to the next line when it fits on one line
 /// there but not on the first, when that saves more than one line, or when its first line
 /// would otherwise end by opening a delimiter that the next line's does not.
@@ -191,45 +276,40 @@ fn prefer_next_line(same: &str, next: &str) -> bool {
         .any(|&c| opens(same, c) && !opens(next, c)))
 }
 
-/// Whether the statement is one this module lays out.
-fn takes(node: &SyntaxNode, config: &FormatConfig) -> bool {
-  // Indentation written with tabs is not laid out yet.
-  if config.hard_tabs || config.tab_spaces == 0 {
-    return false;
-  }
-  if !matches!(node.kind(), K::ExprStmt | K::LetStmt) {
-    return false;
-  }
-  let Some(expression) = expression_of(node) else {
-    return false;
+/// The shape a statement starting at column `indent` is laid out into.
+fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
+  let limits = Limits {
+    max_width: config.max_width,
+    tab: config.tab_spaces,
+    fn_call: config.fn_call_width,
+    chain: config.chain_width,
+    struct_lit: config.struct_lit_width,
+    array: config.array_width,
+    short_item: config.short_array_element_width_threshold,
+    spacing: Spacing::of(config),
+    attribute: false,
   };
-  let laid_out = matches!(
-    expression.kind(),
-    K::CallExpr | K::MethodCallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr
-  );
-  laid_out
-    && node.descendants_with_tokens().iter().all(|e| match e {
-      SyntaxElement::Token(t) => {
-        !matches!(
-          t.kind(),
-          K::LineComment
-            | K::BlockComment
-            | K::OuterLineDoc
-            | K::InnerLineDoc
-            | K::OuterBlockDoc
-            | K::InnerBlockDoc
-        ) && !(t.kind().is_literal() && t.text().contains('\n'))
-      }
-      SyntaxElement::Node(n) => !matches!(
-        n.kind(),
-        K::BlockExpr
-          | K::MatchArmList
-          | K::MacroExpr
-          | K::MacroCall
-          | K::Attr
-          | K::LetElse
-          | K::ClosureExpr
-      ),
+  Some(Shape {
+    indent,
+    offset: 0,
+    width: config.max_width.checked_sub(indent)?,
+    limits,
+  })
+}
+
+/// Whether the layout code takes the statement whole: a `let` with an initializer, or an
+/// expression statement, whose expression is a call, chain (`?` and `.await` too), struct
+/// literal, array or tuple.
+fn takes(node: &SyntaxNode) -> bool {
+  matches!(node.kind(), K::ExprStmt | K::LetStmt)
+    && expression_of(node).is_some_and(|expression| {
+      is_chain(&expression)
+        || matches!(
+          expression.kind(),
+          K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr
+        )
+        // `return` with a value.
+        || expression.kind() == K::ReturnExpr && !expression.children().is_empty()
     })
 }
 

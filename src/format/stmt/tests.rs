@@ -81,6 +81,32 @@ fn test_let_patterns_and_types() {
 }
 
 #[test]
+fn test_other_statements_on_one_line_when_they_fit() {
+  assert_eq!(
+    formatted("fn f() {\n    let name =\n    \"my-app\";\n    x\n        += 1;\n    let y;\n}\n"),
+    "fn f() {\n    let name = \"my-app\";\n    x += 1;\n    let y;\n}\n"
+  );
+  // A call inside held to its width keeps the statement as written when it would break.
+  let kept = "fn f() {\n    let x = a + call(first_argument_name, second_argument_name, third_argument);\n}\n";
+  assert_eq!(formatted(kept), kept);
+}
+
+#[test]
+fn test_returns_tries_and_closures() {
+  // `return` gets a column less; `f(..)?` lays out the call; a closure stays on one line.
+  assert_eq!(
+    formatted("fn f() {\n    return Err(\n        g(a),\n    );\n}\n"),
+    "fn f() {\n    return Err(g(a));\n}\n"
+  );
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let v = g(\n        a,\n    )?;\n    let w = v.iter().map(|x| x + 1).collect();\n}\n"
+    ),
+    "fn f() {\n    let v = g(a)?;\n    let w = v.iter().map(|x| x + 1).collect();\n}\n"
+  );
+}
+
+#[test]
 fn test_statements_left_to_the_whole_file_rules() {
   // A comment, a block, a macro: kept as written.
   for kept in [

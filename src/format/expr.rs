@@ -260,12 +260,36 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
       let inner = rewrite(&node.children()[0], shape.offset_left(1)?.sub_width(1)?)?;
       Some(format!("({})", inner))
     }
-    SyntaxKind::RefExpr | SyntaxKind::PrefixExpr => {
+    // `f(x)?` with no chain: the call laid out, then the `?`.
+    SyntaxKind::TryExpr => {
+      let inner = rewrite(&node.children()[0], shape.sub_width(1)?)?;
+      Some(format!("{}?", inner))
+    }
+    // A closure on one line only: how the standard formatter breaks a closure's body is not
+    // followed yet, so one that would break makes the layout around it break instead.
+    SyntaxKind::ClosureExpr => {
+      let body = node.children().into_iter().last()?;
+      let whole = flat(node, shape.limits.spacing);
+      let prefix = whole
+        .strip_suffix(&flat(&body, shape.limits.spacing))?
+        .to_string();
+      let inner = rewrite(&body, shape.offset_left(prefix.width())?)?;
+      (!inner.contains('\n')).then(|| format!("{}{}", prefix, inner))
+    }
+    // A prefix (`&`, `!`, `return `), then what it applies to laid out; what follows
+    // `return` gets a column less (found by measuring the standard formatter).
+    SyntaxKind::RefExpr | SyntaxKind::PrefixExpr | SyntaxKind::ReturnExpr => {
       let inner_node = node.children().into_iter().last()?;
       let whole = flat(node, shape.limits.spacing);
       let inner_flat = flat(&inner_node, shape.limits.spacing);
       let prefix = whole.strip_suffix(&inner_flat)?.to_string();
-      let inner = rewrite(&inner_node, shape.offset_left(prefix.width())?)?;
+      let inner_shape = shape.offset_left(prefix.width())?;
+      let inner_shape = if node.kind() == SyntaxKind::ReturnExpr {
+        inner_shape.sub_width(1)?
+      } else {
+        inner_shape
+      };
+      let inner = rewrite(&inner_node, inner_shape)?;
       Some(format!("{}{}", prefix, inner))
     }
     // A literal is kept as written however long; the line runs over, as it does for the
@@ -456,12 +480,14 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
   .saturating_sub(almost_total);
   let all_in_one_line = rewrites.iter().all(|r| !r.contains('\n')) && one_line_budget > 0;
   let mut fits_single_line = false;
+  // The last link's `?`s are taken off its shape here and again when it is printed, as the
+  // standard formatter's `format_last_child` does.
   let last_shape = if all_in_one_line {
-    shape
+    shape.sub_width(last.tries)?
   } else if extendable {
-    child_shape
+    child_shape.sub_width(last.tries)?
   } else {
-    child_shape.sub_width(shape.rhs_overhead())?
+    child_shape.sub_width(shape.rhs_overhead() + last.tries)?
   };
   let mut last_text = None;
   if (all_in_one_line || extendable)
@@ -474,7 +500,7 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
       last_text = Some(rw);
       fits_single_line = all_in_one_line;
     } else {
-      let own_line = child_shape.sub_width(shape.rhs_overhead())?;
+      let own_line = child_shape.sub_width(shape.rhs_overhead() + last.tries)?;
       match rewrite_link(last, own_line) {
         Some(new) if !could_fit => last_text = Some(new),
         Some(new) if new.lines().count() >= lines => {
@@ -513,13 +539,9 @@ fn rewrite_link(link: &Link, shape: Shape) -> Option<String> {
   let shape = shape.sub_width(link.tries)?;
   let text = match &link.args {
     Some(args) => rewrite_list(&link.head, args, shape, shape.limits.fn_call, "(", ")")?,
-    None => {
-      let t = link.head.clone();
-      if t.width() > shape.width {
-        return None;
-      }
-      t
-    }
+    // A field or `.await` is printed without a width check, as the standard formatter
+    // prints it; whether the chain fits is decided around it.
+    None => link.head.clone(),
   };
   Some(format!("{}{}", text, tries))
 }

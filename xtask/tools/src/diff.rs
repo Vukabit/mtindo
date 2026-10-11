@@ -529,6 +529,13 @@ fn header_settings(input: &str) -> FormatConfig {
             }
             "hard_tabs" => config.hard_tabs = value == "true",
             "spaces_around_ranges" => config.spaces_around_ranges = value == "true",
+            "format_generated_files" => config.format_generated_files = value == "true",
+            "disable_all_formatting" => config.disable_all_formatting = value == "true",
+            "match_arm_indent" => config.match_arm_indent = value == "true",
+            "generated_marker_line_search_limit" => {
+                config.generated_marker_line_search_limit =
+                    number.unwrap_or(config.generated_marker_line_search_limit)
+            }
             "space_before_colon" => config.space_before_colon = value == "true",
             "space_after_colon" => config.space_after_colon = value == "true",
             "type_punctuation_density" => {

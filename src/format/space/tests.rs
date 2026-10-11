@@ -37,6 +37,8 @@ fn test_cases_the_standard_formatter_writes_its_own_way() {
         "fn f() {\n    x.0 .0;\n    y.1.0;\n    1.into();\n}\n",
         "fn f() {\n    if a > (b) {}\n}\n",
         "macro_rules! m (\n    () => {}\n);\n",
+        "fn f() {\n    let s = quote! (span => #s);\n}\n",
+        "fn f() {\n    if a == b\n        // why\n        ||!c\n    {}\n}\n",
         "#[attr(is = | _ | false , path = :: a :: B)]\nfn f() {}\n",
     ] {
         assert_eq!(formatted(kept), kept);

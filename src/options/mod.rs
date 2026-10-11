@@ -10,6 +10,7 @@ pub mod format;
 pub mod layout;
 mod mto;
 mod rustfmt;
+pub mod support;
 pub mod user;
 
 pub use rustfmt::RUSTFMT_VERSION;

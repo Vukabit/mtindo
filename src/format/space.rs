@@ -154,6 +154,22 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
     if ka == K::Lt && kb == K::Lt && pa != K::BinExpr {
         return None;
     }
+    // A macro's name, `!` and arguments are tight, unless the arguments hold what no
+    // expression list can (`quote! (span => #x)`): the standard formatter leaves such a call
+    // whole as written.
+    let bang = if kb == K::Bang { b } else { a };
+    if bang.kind() == K::Bang
+        && matches!(
+            bang.parent().kind(),
+            K::MacroCall | K::MacroExpr | K::MacroPat | K::MacroType
+        )
+    {
+        if ka == K::Bang && kb == K::LBrace {
+            // `name! { ... }` is written with a space.
+            return None;
+        }
+        return (!unreadable_arguments(bang)).then_some(false);
+    }
     // After an attribute: `#[a] x`.
     if ka == K::RBrack && pa == K::Attr {
         return Some(true);
@@ -263,9 +279,6 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
         } else {
             None
         };
-    }
-    if kb == K::Bang && matches!(pb, K::MacroCall | K::MacroExpr | K::MacroPat | K::MacroType) {
-        return Some(false);
     }
     if ka == K::Pound || (ka == K::Bang && pa == K::Attr) {
         return Some(false);
@@ -386,6 +399,23 @@ fn separate_when_joined(a: &SyntaxToken, b: &SyntaxToken, edition: Edition) -> b
     let mut apart = kinds(a.text());
     apart.extend(kinds(b.text()));
     kinds(&format!("{}{}", a.text(), b.text())) == apart
+}
+
+/// Whether the arguments after a macro's `!` hold tokens no expression list can: `=>`,
+/// `#` or `$`.
+fn unreadable_arguments(bang: &SyntaxToken) -> bool {
+    let mut next = bang.next_sibling_or_token();
+    while let Some(SyntaxElement::Token(t)) = &next
+        && t.kind().is_trivia()
+    {
+        next = t.next_sibling_or_token();
+    }
+    let Some(SyntaxElement::Node(tree)) = next else {
+        return false;
+    };
+    tree.descendants_with_tokens()
+        .iter()
+        .any(|e| matches!(e.kind(), K::FatArrow | K::Pound | K::Dollar))
 }
 
 fn word_like(token: &SyntaxToken) -> bool {

@@ -3,6 +3,7 @@
 pub mod history;
 pub mod manual;
 pub mod modules;
+pub mod options;
 
 /// `cargo mto`'s options: (group, flags, value, help). Its parser, its help and the manual
 /// read this table. Help lists the groups in the order they first appear here, and each

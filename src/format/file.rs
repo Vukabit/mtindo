@@ -18,16 +18,19 @@
 //! - **Within a line**, the space between two tokens follows [`super::space`].
 //! - Trailing whitespace is trimmed after code and line comments (doc comments keep
 //!   theirs), blank lines are kept within `blank_lines_upper_bound` and dropped at the start
-//!   and end of a container (a module body keeps its first), and the file ends with one line
-//!   break, in the `newline_style`.
+//!   and end of a container (a module body keeps its first, an extern block both), and the
+//!   file ends with one line break, in the `newline_style`.
 //!
 //! Left as written, as the standard formatter leaves them: macro bodies, `macro_rules!`
 //! definitions, attributes it cannot read as names and values, anything marked
 //! `#[rustfmt::skip]`, `// mto: off` regions, files that skip themselves, files with syntax
-//! errors, and a statement or item with a line of code longer than `max_width`, which the
-//! standard formatter gives up on. Lines after a statement's first are measured as written;
-//! its first line is measured as the pass reaches it, at its new indentation, so that a
-//! second run decides the same.
+//! errors, files `disable_all_formatting` or `format_generated_files` turn away, a
+//! statement with a comment between a binary operator's operands, and a statement or item
+//! with a line of code longer than `max_width`, which the standard formatter gives up on.
+//! The lines of a closure, an argument or a match arm count toward the statement around it,
+//! since the standard formatter formats them as part of its expression. Lines after a
+//! statement's first are measured as written; its first line is measured as the pass reaches
+//! it, at its new indentation, so that a second run decides the same.
 
 use std::collections::{HashMap, HashSet};
 
@@ -48,8 +51,15 @@ struct Roles {
     openers: HashMap<usize, usize>,
     /// Comments just before a container's closing delimiter, with its opening offset.
     trailing: HashMap<usize, usize>,
-    /// Containers whose blank lines after the opening delimiter stay (module bodies).
+    /// Containers whose blank lines after the opening delimiter stay (module and extern
+    /// bodies).
     keeps_leading_blank: HashSet<usize>,
+    /// Containers whose contents are not indented past them (match arms, with
+    /// `match_arm_indent = false`), by their opening offset.
+    unindented: HashSet<usize>,
+    /// Containers whose blank lines before the closing delimiter stay (extern bodies), by
+    /// their opening offset.
+    keeps_trailing_blank: HashSet<usize>,
     /// Ranges left exactly as written.
     verbatim: Vec<(usize, usize)>,
     /// Statements and items, by where they start: where they end.
@@ -82,6 +92,11 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
         NewlineStyle::Native if cfg!(windows) => "\r\n",
         NewlineStyle::Native => "\n",
     };
+    if config.disable_all_formatting
+        || (!config.format_generated_files && is_generated(rest, config))
+    {
+        return source.to_string();
+    }
     let text = rest.replace("\r\n", "\n");
     if text.contains('\r') {
         // A carriage return of its own (in a string, most likely): left as written.
@@ -131,7 +146,7 @@ fn construct_start(element: &SyntaxElement) -> Option<usize> {
     }
 }
 
-fn container(node: &SyntaxNode, roles: &mut Roles) {
+fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
     let children = node.children_with_tokens();
     let is_open = |k: SyntaxKind| {
         matches!(
@@ -153,11 +168,13 @@ fn container(node: &SyntaxNode, roles: &mut Roles) {
         return;
     };
     // The line the contents' indentation follows: the owner's first line, or for a method
-    // call's arguments the line of its `.`. Arrays, tuples and anything standing in another
-    // container (a block that is a statement) are their own owners.
+    // call's arguments the line of its `.`. Arrays, tuples, anything standing in another
+    // container (a block that is a statement) and a binary operator's operand (`&& {`) are
+    // their own owners.
     let owner = match node.parent() {
         Some(parent)
             if !is_container(parent.kind())
+                && parent.kind() != SyntaxKind::BinExpr
                 && !matches!(node.kind(), SyntaxKind::ArrayExpr | SyntaxKind::TupleExpr) =>
         {
             parent
@@ -181,8 +198,17 @@ fn container(node: &SyntaxNode, roles: &mut Roles) {
         _ => open,
     };
     roles.openers.insert(open, base);
-    if node.kind() == SyntaxKind::ItemList {
+    if matches!(
+        node.kind(),
+        SyntaxKind::ItemList | SyntaxKind::ExternItemList
+    ) {
         roles.keeps_leading_blank.insert(open);
+    }
+    if node.kind() == SyntaxKind::ExternItemList {
+        roles.keeps_trailing_blank.insert(open);
+    }
+    if node.kind() == SyntaxKind::MatchArmList && !config.match_arm_indent {
+        roles.unindented.insert(open);
     }
     let comment =
         |e: &SyntaxElement| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment);
@@ -246,6 +272,17 @@ fn is_container(kind: SyntaxKind) -> bool {
             | SyntaxKind::RecordExprFieldList
             | SyntaxKind::UseTreeList
     )
+}
+
+/// Whether a comment among the file's first `generated_marker_line_search_limit` lines
+/// holds `@generated`.
+fn is_generated(text: &str, config: &FormatConfig) -> bool {
+    text.lines()
+        .take(config.generated_marker_line_search_limit)
+        .any(|line| {
+            let line = line.trim_start();
+            (line.starts_with("//") || line.starts_with("/*")) && line.contains("@generated")
+        })
 }
 
 /// Whether an attribute's arguments are what the standard formatter can format: names and
@@ -410,7 +447,13 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                     newlines.min(max_newlines)
                 }
                 Some(_) => 1,
-                None if roles.closers.contains_key(&next.start) => 1,
+                None if roles
+                    .closers
+                    .get(&next.start)
+                    .is_some_and(|open| !roles.keeps_trailing_blank.contains(open)) =>
+                {
+                    1
+                }
                 None => newlines.min(max_newlines),
             };
             let aligned = comment_column.filter(|&(column, _)| {
@@ -427,7 +470,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 (written as isize + new as isize - was as isize).max(0) as usize
             } else if let Some(open) = roles.starts.get(&next.start) {
                 let new = match open {
-                    Some(open) => open_indent.get(open).map_or(0, |&(_, new)| new) + tab,
+                    Some(open) => {
+                        let step = if roles.unindented.contains(open) {
+                            0
+                        } else {
+                            tab
+                        };
+                        open_indent.get(open).map_or(0, |&(_, new)| new) + step
+                    }
                     None => 0,
                 };
                 delta = new as isize - written as isize;
@@ -535,6 +585,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     let mut region: Option<usize> = None;
     let mut statements = Vec::new();
     let mut attrs = Vec::new();
+    let mut stranded = Vec::new();
     let mut line_comments = Vec::new();
     for element in root.descendants_with_tokens() {
         match &element {
@@ -559,7 +610,20 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 if node.kind() == SyntaxKind::Attr {
                     attrs.push((range.start as usize, range.end as usize));
                 }
-                if in_list && node.kind() != SyntaxKind::Attr {
+                // A closure's, an argument's or a match arm's block is formatted as part of
+                // the expression it sits in: its lines count toward the statement around it,
+                // which the standard formatter gives up on whole when one of them does not fit.
+                let in_expression = || {
+                    node.ancestors().iter().skip(1).any(|a| {
+                        matches!(
+                            a.kind(),
+                            SyntaxKind::ClosureExpr
+                                | SyntaxKind::ArgList
+                                | SyntaxKind::MatchArmList
+                        )
+                    })
+                };
+                if in_list && node.kind() != SyntaxKind::Attr && !in_expression() {
                     statements.push((range.start as usize, range.end as usize));
                 }
                 let unparsed_attr = node.kind() == SyntaxKind::Attr && !meta_like(node);
@@ -573,7 +637,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                         .push((range.start as usize, range.end as usize));
                 }
                 if is_container(node.kind()) {
-                    container(node, &mut roles);
+                    container(node, &mut roles, config);
                 }
             }
             SyntaxElement::Token(token) => {
@@ -584,6 +648,15 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                     SyntaxKind::LineComment | SyntaxKind::OuterLineDoc | SyntaxKind::InnerLineDoc
                 ) {
                     line_comments.push(start);
+                }
+                // A comment between a binary operator's operands is one the standard
+                // formatter cannot place: it leaves the statement around it as written.
+                if matches!(
+                    token.kind(),
+                    SyntaxKind::LineComment | SyntaxKind::BlockComment
+                ) && token.parent().kind() == SyntaxKind::BinExpr
+                {
+                    stranded.push(start);
                 }
                 if token.kind() == SyntaxKind::LineComment {
                     if marker == "// mto: off" && region.is_none() {
@@ -607,6 +680,16 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         text,
         config,
     ));
+    // The innermost statement around each stranded comment.
+    for comment in stranded {
+        if let Some(&around) = statements
+            .iter()
+            .filter(|&&(start, end)| start < comment && comment < end)
+            .min_by_key(|&&(start, end)| end - start)
+        {
+            roles.verbatim.push(around);
+        }
+    }
     roles.statements = statements.iter().copied().collect();
     roles.line_comments = line_comments;
     // Sorted and merged, for looking up by binary search.

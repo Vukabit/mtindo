@@ -20,7 +20,7 @@ option  combine_control_expr                             missing
 option  comment_width                                    missing
 option  condense_wildcard_suffixes                       missing
 option  control_brace_style                              missing
-option  disable_all_formatting                           missing
+option  disable_all_formatting                           supported    # formatting leaves the file as written; layout follows mto.toml (src/format/file/tests.rs)
 option  doc_comment_code_block_small_heuristics          missing
 option  doc_comment_code_block_width                     missing
 option  edition                                          partial      # read from --edition, Cargo.toml and config files (src/config/tests.rs); parsing still detects the edition itself
@@ -38,11 +38,11 @@ option  fn_single_line                                   missing
 option  force_explicit_abi                               missing
 option  force_multiline_blocks                           missing
 option  format_code_in_doc_comments                      missing
-option  format_generated_files                           missing
+option  format_generated_files                           supported    # with format = true; also on stdin, which the standard formatter does not check (src/format/file/tests.rs)
 option  format_macro_bodies                              missing
 option  format_macro_matchers                            missing
 option  format_strings                                   missing
-option  generated_marker_line_search_limit               missing
+option  generated_marker_line_search_limit               supported    # with format = true (src/format/file/tests.rs)
 option  group_imports                                    partial      # mto.toml's import_grouping groups use items (tests/domain_2_golden.rs); not rustfmt's StdExternalCrate
 option  hard_tabs                                        partial      # with format = true, indentation uses tabs (src/format/file/tests.rs)
 option  hex_literal_case                                 missing
@@ -55,7 +55,7 @@ option  indent_style                                     missing
 option  inline_attribute_width                           missing
 option  make_backup                                      missing
 option  match_arm_blocks                                 missing
-option  match_arm_indent                                 missing
+option  match_arm_indent                                 supported    # with format = true (src/format/file/tests.rs)
 option  match_arm_leading_pipes                          missing
 option  match_block_trailing_comma                       missing
 option  max_width                                        partial      # with format = true, a statement with a longer line is left as written (src/format/file/tests.rs)
@@ -245,6 +245,7 @@ mto     flag:--recursive                                 supported    # tests/do
 mto     flag:--skip-children                             supported    # tests/domain_8_cli.rs
 mto     flag:--stdin-filepath                            supported    # tests/domain_8_cli.rs
 mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs
+mto     flag:--toml                                      supported    # src/cli/options/tests.rs, tests/domain_8_cli.rs
 mto     flag:--unstable-features                         supported    # tests/domain_8_cli.rs
 mto     flag:--user                                      supported    # tests/domain_8_cli.rs
 mto     flag:--verbose                                   supported    # tests/domain_8_cli.rs

@@ -29,6 +29,14 @@ pub struct FormatConfig {
     pub space_after_colon: bool,
     /// `A+B` and `T=U` in types and bounds rather than `A + B` and `T = U`.
     pub compressed_type_punctuation: bool,
+    /// The standard formatter's `disable_all_formatting`: files are left as written.
+    pub disable_all_formatting: bool,
+    /// Whether match arms are indented one level past their `match`.
+    pub match_arm_indent: bool,
+    /// Whether files marked `@generated` are formatted.
+    pub format_generated_files: bool,
+    /// How many lines from the top are searched for the `@generated` mark.
+    pub generated_marker_line_search_limit: usize,
 }
 
 impl Default for FormatConfig {
@@ -44,6 +52,10 @@ impl Default for FormatConfig {
             space_before_colon: false,
             space_after_colon: true,
             compressed_type_punctuation: false,
+            disable_all_formatting: false,
+            match_arm_indent: true,
+            format_generated_files: true,
+            generated_marker_line_search_limit: 5,
         }
     }
 }

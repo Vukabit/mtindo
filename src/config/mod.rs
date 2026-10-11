@@ -192,9 +192,14 @@ impl Config {
         self.get("layout").and_then(Value::as_bool).unwrap_or(false)
     }
 
-    /// Whether `format = true` applies.
+    /// Whether `format = true` applies: not where the standard formatter's
+    /// `disable_all_formatting` is set.
     pub fn format_on(&self) -> bool {
-        self.get("format").and_then(Value::as_bool).unwrap_or(false)
+        let disabled = self
+            .get("disable_all_formatting")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        !disabled && self.get("format").and_then(Value::as_bool).unwrap_or(false)
     }
 
     /// The formatting settings.
@@ -221,6 +226,13 @@ impl Config {
         config.spaces_around_ranges = flag("spaces_around_ranges", config.spaces_around_ranges);
         config.space_before_colon = flag("space_before_colon", config.space_before_colon);
         config.space_after_colon = flag("space_after_colon", config.space_after_colon);
+        config.disable_all_formatting = flag("disable_all_formatting", false);
+        config.match_arm_indent = flag("match_arm_indent", true);
+        config.format_generated_files = flag("format_generated_files", true);
+        config.generated_marker_line_search_limit = number(
+            "generated_marker_line_search_limit",
+            config.generated_marker_line_search_limit,
+        );
         config.compressed_type_punctuation = self
             .get("type_punctuation_density")
             .and_then(Value::as_text)

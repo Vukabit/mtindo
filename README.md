@@ -257,7 +257,9 @@ formats, the settings come from, lowest precedence first:
 `--config-path FILE` replaces steps 2 and 3 with that one file.
 `mto config path` lists the files in effect and `mto config print` shows every
 value with where it came from (`--minimal` shows only what differs from the
-defaults).
+defaults). `mto config options` lists every setting a file may hold, by file,
+with its values and default, and for the standard formatter's settings
+whether mto honors it yet; `--toml` prints them as a commented file.
 
 Unknown keys are warnings. A value of the wrong type or outside the legal
 values stops the run with exit code `2`, naming the file, line and column.

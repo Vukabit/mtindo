@@ -28,13 +28,20 @@ const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "config",
-        args: "path|print [DIR]",
-        summary: "Show the configuration that applies in a folder",
+        args: "path|print|options [DIR]",
+        summary: "Show the configuration that applies in a folder, or every setting",
         about: "`path` lists the configuration files that apply in DIR (default: the current \
                 directory), and the history folder. `print` shows every setting in effect with \
-                where it came from, in sections: layout, then formatting.",
-        usage: &["mto config path [DIR]", "mto config print [OPTIONS] [DIR]"],
+                where it came from, in sections: layout, then formatting. `options` lists \
+                every setting a configuration file may hold, by file, with its values and \
+                default, and for the standard formatter's settings whether mto honors it yet.",
+        usage: &[
+            "mto config path [DIR]",
+            "mto config print [OPTIONS] [DIR]",
+            "mto config options [--toml]",
+        ],
         options: &[
+            ("views", "mto config options", &[Flag::Toml]),
             (
                 "views",
                 "mto config print",
@@ -55,6 +62,8 @@ const COMMANDS: &[CommandSpec] = &[
             "mto config path",
             "mto config print --minimal",
             "mto config print --user",
+            "mto config options",
+            "mto config options --toml",
         ],
     },
     CommandSpec {
@@ -371,6 +380,14 @@ const FLAGS: &[FlagSpec] = &[
         help: "Also restore files changed since the run, and missing ones",
     },
     FlagSpec {
+        flag: Flag::Toml,
+        group: Group::Command,
+        short: None,
+        long: "--toml",
+        value: "",
+        help: "As a commented file, every setting at its default",
+    },
+    FlagSpec {
         flag: Flag::All,
         group: Group::Command,
         short: None,
@@ -525,6 +542,8 @@ enum CliAction {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ConfigView {
     Path,
+    /// Every setting a file may hold; as a commented file when true.
+    Options(bool),
     Default,
     Current,
     Minimal,
@@ -569,6 +588,7 @@ enum Flag {
     OlderThan,
     Keep,
     All,
+    Toml,
     StyleEdition,
     User,
     Version,
@@ -1077,6 +1097,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
                 Flag::All => {
                     return usage_error("--all only goes with `mto history`");
                 }
+                Flag::Toml => {
+                    return usage_error("--toml only goes with `mto config options`");
+                }
             }
         } else if arg == "-" && !read_stdin {
             read_stdin = true;
@@ -1126,8 +1149,23 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
 }
 
 fn parse_config_args(args: &[String]) -> Result<CliAction, ()> {
-    let usage = || usage_error("usage: mto config path|print [OPTIONS] [DIR]");
+    let usage = || usage_error("usage: mto config path|print|options [OPTIONS] [DIR]");
     let mut view = match args.first().map(String::as_str) {
+        Some("options") => {
+            return match &args[1..] {
+                [] => Ok(CliAction::Config {
+                    view: ConfigView::Options(false),
+                    dir: PathBuf::from("."),
+                    overrides: Overrides::default(),
+                }),
+                [flag] if flag == "--toml" => Ok(CliAction::Config {
+                    view: ConfigView::Options(true),
+                    dir: PathBuf::from("."),
+                    overrides: Overrides::default(),
+                }),
+                _ => usage_error("usage: mto config options [--toml]"),
+            };
+        }
         Some("path") => ConfigView::Path,
         Some("print") => ConfigView::Current,
         _ => return usage(),
@@ -1661,6 +1699,10 @@ fn resolver(overrides: &Overrides) -> Result<Resolver, MtoError> {
 }
 
 fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) -> i32 {
+    if let ConfigView::Options(toml) = view {
+        print!("{}", mtindo::cli::options::render(toml));
+        return 0;
+    }
     if !dir.is_dir() {
         return report_error(&MtoError::Usage(format!(
             "{} is not a directory",

@@ -3,6 +3,8 @@
 # Rearrange the items of each file.
 layout = true
 
+tab_spaces = 4
+
 # Format code in the Rust style (preview)
 format = true
 

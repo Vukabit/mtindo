@@ -255,6 +255,20 @@ fn test_cli_check_reports_every_drifted_file() {
 }
 
 #[test]
+fn test_cli_config_options_lists_every_setting() {
+    let env = TestEnvironment::new();
+    let (code, stdout, _) = mto(&env, &["config", "options"]);
+    assert_eq!(code, 0);
+    assert!(stdout.starts_with("mto.toml ("), "{}", stdout);
+    assert!(stdout.contains("\nrustfmt.toml ("), "{}", stdout);
+    let (code, stdout, _) = mto(&env, &["config", "options", "--toml"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("# format = false\n"), "{}", stdout);
+    assert_eq!(mto(&env, &["config", "options", "extra"]).0, 2);
+    assert_eq!(mto(&env, &["--toml", "."]).0, 2);
+}
+
+#[test]
 fn test_cli_config_path_and_print() {
     let env = TestEnvironment::new();
     env.write_file("rustfmt.toml", "max_width = 80\n");

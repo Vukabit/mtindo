@@ -77,6 +77,9 @@ fn test_let_patterns_and_types() {
     "fn f() {\n    let T(a, b) = f(x);\n}\n",
     "fn f() {\n    let (a,) = f(x);\n}\n",
     "fn f() {\n    let S { x, .. }: S = e(1);\n}\n",
+    // A tuple pattern, with a path or without, is held to the line width only.
+    "fn f() {\n    let (mut p0, mut p1, mut p2, mut p3, mut p4, mut p5, mut p6, mut p7) =\n        (0., 0., 0., 0., 0., 0., 0., 0.);\n}\n",
+    "fn f() {\n    let Point(first_coordinate, second_coordinate, third_coordinate, fourth) = p;\n}\n",
   ] {
     assert_eq!(formatted(kept), kept);
   }
@@ -199,6 +202,41 @@ fn test_statements_left_to_the_whole_file_rules() {
     "fn f() {\n    let x = foo(\n        a, // why\n        b,\n    );\n}\n",
     "fn f() {\n    let x = foo(\n        a,\n        || {\n            b\n        },\n    );\n}\n",
     "fn f() {\n    let x = foo(\n        a,\n        m! { b },\n    );\n}\n",
+  ] {
+    assert_eq!(formatted(kept), kept);
+  }
+}
+
+/// A statement holding one block laid out to the block's `{`, the block's insides on their
+/// lines and its tail (`})?;`) after the `}`, a trailing comma dropped.
+#[test]
+fn test_statements_up_to_their_block() {
+  for (source, expected) in [
+    (
+      "fn f() {\n    let v = items\n        .iter()\n        .map(|x| {\n            a(x);\n            b(x)\n        });\n}\n",
+      "fn f() {\n    let v = items.iter().map(|x| {\n        a(x);\n        b(x)\n    });\n}\n",
+    ),
+    (
+      "fn f() {\n    let r = run(\n        &cx,\n        |cx| {\n            a(cx);\n            b(cx)\n        },\n    )?;\n}\n",
+      "fn f() {\n    let r = run(&cx, |cx| {\n        a(cx);\n        b(cx)\n    })?;\n}\n",
+    ),
+    (
+      "fn f() {\n    CURRENT.with(\n        |Data {\n             ctx,\n             wake,\n         }| {\n            a(ctx);\n            b(wake);\n        },\n    );\n}\n",
+      "fn f() {\n    CURRENT.with(|Data { ctx, wake }| {\n        a(ctx);\n        b(wake);\n    });\n}\n",
+    ),
+    (
+      "fn f() {\n    g(\n        |x| { a(x); b(x) },\n    );\n}\n",
+      "fn f() {\n    g(|x| {\n        a(x);\n        b(x)\n    });\n}\n",
+    ),
+  ] {
+    assert_eq!(formatted(source), expected);
+  }
+  // Kept as the standard formatter writes them: a chain past `chain_width`, a closure after
+  // another among the arguments, a block followed by `.await`.
+  for kept in [
+    "fn f() {\n    let symbols = sema\n        .find_namelike_at_offset_with_descend(syntax, offset)\n        .map(|name_like| {\n            a(name_like);\n            b(name_like)\n        });\n}\n",
+    "fn f() {\n    delimited(\n        p,\n        || \"expected\".into(),\n        |p| {\n            a(p);\n            b(p)\n        },\n    );\n}\n",
+    "async fn f() {\n    LocalSet::new()\n        .run_until(async {\n            a().await;\n        })\n        .await;\n}\n",
   ] {
     assert_eq!(formatted(kept), kept);
   }

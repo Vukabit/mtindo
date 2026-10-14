@@ -6,9 +6,9 @@
 //!    when `import_grouping` is on, then as the standard formatter sorts them
 //!    ([`super::imports`]); when it is off, in the order they were written;
 //! 3. `type_order`, with an impl ranked as the type it is for when `group_impls` is on;
-//! 4. with `group_impls`, a type's impls next to it, types ordered by name; impls of one
-//!    type: its own first (as written), then trait impls by `trait_impl_order` and
-//!    `trait_impl_sort`;
+//! 4. with `group_impls`, a type's impls next to it (of types sharing a name, the one placed
+//!    first), types ordered by name; impls of one type: its own first (as written), then
+//!    trait impls by `trait_impl_order` and `trait_impl_sort`;
 //! 5. `type_order` of the unit itself;
 //! 6. `macro_rules!` and `#[macro_use]` modules in their original order;
 //! 7. modules by name, ignoring visibility, as the standard formatter orders them (by bytes
@@ -93,13 +93,7 @@ pub(super) fn compare(
     }
     unit.kind.clone()
   };
-  // Kinds left out of the list go after the listed ones, in their default order: no two
-  // kinds share a rank, as the rules within a kind (imports or macros as written) would
-  // not be one order with a rule across kinds.
-  let rank = |kind: &ItemKind| match config.type_order.iter().position(|k| k == kind) {
-    Some(at) => at,
-    None => config.type_order.len() + kind.clone() as usize,
-  };
+  let rank = |kind: &ItemKind| kind_rank(kind, config);
   let (rank_a, rank_b) = (
     rank(&family_kind(a, &family_a)),
     rank(&family_kind(b, &family_b)),
@@ -210,6 +204,16 @@ fn impls(a: &Unit, b: &Unit, config: &LayoutConfig) -> Ordering {
     .then_with(|| a.index.cmp(&b.index))
 }
 
+/// A kind's place in `type_order`. Kinds left out of the list go after the listed ones, in
+/// their default order: no two kinds share a rank, as the rules within a kind (imports or
+/// macros as written) would not be one order with a rule across kinds.
+fn kind_rank(kind: &ItemKind, config: &LayoutConfig) -> usize {
+  match config.type_order.iter().position(|k| k == kind) {
+    Some(at) => at,
+    None => config.type_order.len() + kind.clone() as usize,
+  }
+}
+
 /// True if some unit that came after a `macro_rules!` now comes before it.
 fn macro_moved_past_user(units: &[Unit]) -> bool {
   let mut latest: Option<usize> = None;
@@ -234,7 +238,7 @@ fn names(a: &str, b: &str, config: &LayoutConfig) -> Ordering {
 }
 
 fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit> {
-  let families: Vec<(String, ItemKind)> = units
+  let mut families: Vec<(String, ItemKind)> = units
     .iter()
     .filter(|u| {
       matches!(
@@ -244,6 +248,9 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
     })
     .map(|u| (u.identifier.clone(), u.kind.clone()))
     .collect();
+  // Of types sharing a name (in different modules, or under `cfg`), an impl goes with the
+  // one placed first, whatever the order they were written in.
+  families.sort_by_key(|(_, kind)| kind_rank(kind, config));
   let mut free: Vec<Unit> = units.iter().filter(|u| !u.pinned).cloned().collect();
   free.sort_by(|a, b| compare(a, b, config, &families, macros_first));
   let pinned: HashSet<usize> = units.iter().filter(|u| u.pinned).map(|u| u.index).collect();

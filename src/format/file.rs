@@ -39,7 +39,7 @@ use crate::format::attrs::rewrite_attr;
 use crate::format::imports::rewrite_use;
 use crate::format::items::{is_item, rewrite_header};
 use crate::format::space::{spacing, wants_space};
-use crate::format::stmt::rewrite_statement;
+use crate::format::stmt::{rewrite_head, rewrite_statement};
 use crate::options::format::{FormatConfig, NewlineStyle};
 use crate::syntax::ast::Attr;
 use crate::syntax::{
@@ -607,6 +607,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   // Statements given up on as the pass reaches them (see below), beside the ranges known
   // before it.
   let gave_up: std::cell::RefCell<Vec<(usize, usize)>> = Default::default();
+  // The tail of a statement laid out around its block (`});`): each token follows the one
+  // before it on its line, as the head was laid out to have it; a trailing comma among
+  // them goes, as the arguments are on one line.
+  let glued: std::cell::RefCell<HashSet<usize>> = Default::default();
+  let dropped: std::cell::RefCell<HashSet<usize>> = Default::default();
   let in_verbatim = |at: usize| {
     let idx = roles.verbatim.partition_point(|&(start, _)| start < at);
     (idx > 0 && at < roles.verbatim[idx - 1].1)
@@ -663,7 +668,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   let mut laid_out_to = 0usize;
   for (i, tok) in tokens.iter().enumerate() {
     let next = tokens.get(i + 1);
-    if tok.start < laid_out_to {
+    if tok.start < laid_out_to
+      || dropped.borrow().contains(&tok.start)
+      || tok.kind == SyntaxKind::Whitespace
+        && next.is_some_and(|n| glued.borrow().contains(&n.start))
+    {
       continue;
     }
     if out.is_empty() && tok.kind == SyntaxKind::Whitespace {
@@ -794,6 +803,19 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     }
     // A statement, `use` declaration, attribute or item header laid out anew, starting its
     // line: written whole, up to where its layout ends.
+    // A region left as written that covers all of `node` (a verbatim attribute inside one is
+    // not that).
+    let covered = |node: &SyntaxNode| {
+      let (start, end) = (
+        node.text_range().start as usize,
+        node.text_range().end as usize,
+      );
+      roles
+        .verbatim
+        .iter()
+        .chain(gave_up.borrow().iter())
+        .any(|&(s, e)| s <= start && end <= e)
+    };
     if let Some(node) = roles.layable.get(&tok.start)
       && !in_verbatim(tok.start)
       && out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
@@ -807,25 +829,30 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           SyntaxKind::RecordField | SyntaxKind::Variant => {
             crate::format::items::rewrite_field(node, indent, config)
           }
-          // Not an item given up on whole: a region left as written that covers all of it
-          // (a verbatim attribute inside one is not that).
+          // Not an item given up on whole.
           kind if is_item(kind) => {
-            let (start, end) = (
-              node.text_range().start as usize,
-              node.text_range().end as usize,
-            );
-            let covered = roles
-              .verbatim
-              .iter()
-              .chain(gave_up.borrow().iter())
-              .any(|&(s, e)| s <= start && end <= e);
-            if covered {
+            if covered(node) {
               None
             } else {
               rewrite_header(node, indent, config)
             }
           }
-          _ => whole(rewrite_statement(node, indent, config)),
+          _ => whole(rewrite_statement(node, indent, config)).or_else(|| {
+            // A statement holding one block: its head, the block's insides left to this pass,
+            // and its tail kept on the block's closing line. Not one given up on whole: its
+            // head laid out would hide the long line on a second run.
+            if covered(node) {
+              return None;
+            }
+            let head = rewrite_head(node, indent, config)?;
+            for (at, kind) in head.tail {
+              glued.borrow_mut().insert(at);
+              if kind == SyntaxKind::Comma {
+                dropped.borrow_mut().insert(at);
+              }
+            }
+            Some((head.text, head.open))
+          }),
         }
       }
     {

@@ -281,10 +281,18 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     SyntaxKind::ArrayExpr | SyntaxKind::SlicePat => {
       rewrite_list("", &list_items(node), shape, shape.limits.array, "[", "]")
     }
+    // Tuple patterns, with a path or without, are held to the line width only.
     SyntaxKind::TupleStructPat => {
       let children = node.children();
       let path = rewrite(children.first()?, shape)?;
-      rewrite_list(&path, &children[1..], shape, shape.limits.fn_call, "(", ")")
+      rewrite_list(
+        &path,
+        &children[1..],
+        shape,
+        shape.limits.max_width,
+        "(",
+        ")",
+      )
     }
     SyntaxKind::TupleExpr | SyntaxKind::TuplePat => {
       let items = list_items(node);
@@ -293,7 +301,12 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
         let inner = rewrite(&items[0], shape.offset_left(1)?.sub_width(2)?)?;
         return Some(format!("({},)", inner));
       }
-      rewrite_list("", &items, shape, shape.limits.fn_call, "(", ")")
+      let limit = if node.kind() == SyntaxKind::TuplePat {
+        shape.limits.max_width
+      } else {
+        shape.limits.fn_call
+      };
+      rewrite_list("", &items, shape, limit, "(", ")")
     }
     SyntaxKind::ParenExpr => {
       let inner = rewrite(&node.children()[0], shape.offset_left(1)?.sub_width(1)?)?;

@@ -273,7 +273,8 @@ pub fn rewrite_header(
     .flat_map(|n| n.descendant_nodes_where(listed))
     .any(|d| {
       let limit = match d.kind() {
-        K::TupleType | K::TuplePat | K::TupleStructPat | K::TupleFieldList => config.fn_call_width,
+        K::TupleType | K::TupleFieldList => config.fn_call_width,
+        K::TuplePat | K::TupleStructPat => config.max_width,
         K::RecordPat => config.struct_lit_width,
         K::SlicePat | K::ArrayType => config.array_width,
         _ => return false,

@@ -51,6 +51,23 @@ fn test_a_final_carriage_return_is_kept_as_written() {
   assert_eq!(arranged(&out), out);
 }
 
+/// An impl for a name two types share goes with the one placed first, whichever was
+/// written first, so a second run leaves it there. Found by the generated-code fuzz target.
+#[test]
+fn test_an_impl_of_a_shared_name_settles() {
+  for source in [
+    "impl Display for Foo {}\n\nstruct Foo;\n\nenum Foo {\n    A,\n}\n",
+    "enum Foo {\n    A,\n}\n\nstruct Foo;\n\nimpl Display for Foo {}\n",
+  ] {
+    let once = arranged(source);
+    assert_eq!(
+      once,
+      "enum Foo {\n    A,\n}\n\nimpl Display for Foo {}\n\nstruct Foo;\n"
+    );
+    assert_eq!(arranged(&once), once);
+  }
+}
+
 #[test]
 fn test_cfg_variants_move_together() {
   let source = "#[cfg(unix)]\nfn z() {}\n#[cfg(windows)]\nfn z() {}\nfn a() {}\n";

@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Pruning never removes contents or temporary files younger than this: a run going on at
 /// the same time may have stored them without recording them yet.
-const GRACE: Duration = Duration::from_secs(10 * 60);
+pub const GRACE: Duration = Duration::from_secs(10 * 60);
 
 /// The first line of every record.
 const MAGIC: &str = "mto history 1";
@@ -194,6 +194,14 @@ impl History {
     Ok(pruned)
   }
 
+  /// Adds `line` to the end of a run's record, synced: how a later run notes that it put
+  /// back the files of a narrowing cut short.
+  pub fn append(&self, id: &str, line: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new().append(true).open(self.run_path(id))?;
+    file.write_all(format!("{}\n", escape(line)).as_bytes())?;
+    file.sync_all()
+  }
+
   /// A run's record.
   pub fn read(&self, id: &str) -> io::Result<Run> {
     let text = fs::read_to_string(self.run_path(id))?;
@@ -223,7 +231,7 @@ impl History {
       id,
       header,
       file: None,
-      count: 0,
+      paths: HashSet::new(),
     }
   }
 
@@ -271,7 +279,8 @@ impl History {
     }
   }
 
-  /// Stores `contents` (once), synced, and returns its SHA-256. Contents already stored
+  /// Stores `contents` (once), on disk before anything written after it (see
+  /// [`crate::durable`]), and returns its SHA-256. Contents already stored
   /// are touched, so a concurrent prune leaves them be.
   pub fn store(&self, contents: &[u8]) -> io::Result<String> {
     let hash = sha256::hex(contents);
@@ -293,8 +302,10 @@ impl History {
     let result = (|| {
       let mut file = File::create(&temp)?;
       file.write_all(contents)?;
-      file.sync_all()?;
-      fs::rename(&temp, &path)
+      crate::durable::ordered(&file, parent)?;
+      fs::rename(&temp, &path)?;
+      let _ = crate::durable::renamed(parent);
+      Ok(())
     })();
     if result.is_err() {
       let _ = fs::remove_file(&temp);
@@ -339,13 +350,14 @@ pub struct Recorder {
   id: String,
   header: String,
   file: Option<File>,
-  count: usize,
+  /// The files recorded so far.
+  paths: HashSet<PathBuf>,
 }
 
 impl Recorder {
-  /// The files recorded so far.
+  /// The files recorded so far, each once.
   pub fn count(&self) -> usize {
-    self.count
+    self.paths.len()
   }
 
   pub fn history(&self) -> &History {
@@ -356,8 +368,40 @@ impl Recorder {
     &self.id
   }
 
-  /// Adds a written file to the record, creating the record with the first one.
+  /// Adds a written file to the record, creating the record with the first one. A file
+  /// written again by the same run (the build guard trying what to hold back) is recorded
+  /// again; the last record of it says what the run left in it.
   pub fn record(&mut self, entry: &Entry) -> io::Result<()> {
+    let line = format!(
+      "file {} {} {}\n",
+      entry.before,
+      entry.after,
+      escape(&entry.path.to_string_lossy())
+    );
+    self.write(&line)?;
+    self.paths.insert(entry.path.clone());
+    Ok(())
+  }
+
+  /// Makes what is recorded so far reach the disk before anything written after it (see
+  /// [`crate::durable`]): a file is recorded, then ordered, then replaced, so a run cut
+  /// short anywhere has a record of every file it changed.
+  pub fn order(&self) -> io::Result<()> {
+    match &self.file {
+      Some(file) => crate::durable::ordered(file, &self.history.dir.join("runs")),
+      None => Ok(()),
+    }
+  }
+
+  /// Adds a line about the run that is not a file: `check ...` for a result of the build
+  /// guard, `doctor open` and `doctor closed` around a narrowing. The record is synced, so
+  /// the line holds even if the run is cut short right after.
+  pub fn note(&mut self, line: &str) -> io::Result<()> {
+    self.write(&format!("{}\n", escape(line)))?;
+    self.file.as_ref().expect("opened by write").sync_all()
+  }
+
+  fn write(&mut self, line: &str) -> io::Result<()> {
     if self.file.is_none() {
       let runs = self.history.dir.join("runs");
       fs::create_dir_all(&runs)?;
@@ -368,19 +412,11 @@ impl Recorder {
       file.write_all(self.header.as_bytes())?;
       self.file = Some(file);
     }
-    let line = format!(
-      "file {} {} {}\n",
-      entry.before,
-      entry.after,
-      escape(&entry.path.to_string_lossy())
-    );
     self
       .file
       .as_mut()
       .expect("opened above")
-      .write_all(line.as_bytes())?;
-    self.count += 1;
-    Ok(())
+      .write_all(line.as_bytes())
   }
 
   /// Syncs the record. `true` when anything was recorded.
@@ -400,7 +436,14 @@ pub struct Run {
   pub cwd: PathBuf,
   /// The run this one restored, for `mto restore`.
   pub restore_of: Option<String>,
+  /// Each file the run wrote once, with what it held before the run and what the run
+  /// left in it last.
   pub entries: Vec<Entry>,
+  /// The build guard's results, as recorded (`before pass`, `after fail 2 errors`).
+  pub checks: Vec<String>,
+  /// A narrowing of the build guard began and did not end: the files may hold one of its
+  /// candidates.
+  pub doctor_open: bool,
 }
 
 impl Run {
@@ -472,7 +515,11 @@ fn parse(text: &str) -> Option<Run> {
     cwd: PathBuf::new(),
     restore_of: None,
     entries: Vec::new(),
+    checks: Vec::new(),
+    doctor_open: false,
   };
+  // Where each file's entry is, for a file recorded again.
+  let mut at: HashMap<PathBuf, usize> = HashMap::new();
   for line in lines {
     let Some(line) = line.strip_suffix('\n') else {
       break;
@@ -489,15 +536,26 @@ fn parse(text: &str) -> Option<Run> {
         else {
           continue;
         };
-        run.entries.push(Entry {
-          path: PathBuf::from(unescape(path)),
-          before: before.to_string(),
-          after: after.to_string(),
-        });
+        let path = PathBuf::from(unescape(path));
+        match at.get(&path) {
+          Some(&i) => run.entries[i].after = after.to_string(),
+          None => {
+            at.insert(path.clone(), run.entries.len());
+            run.entries.push(Entry {
+              path,
+              before: before.to_string(),
+              after: after.to_string(),
+            });
+          }
+        }
       }
+      "check" => run.checks.push(unescape(rest)),
+      "doctor" => run.doctor_open = rest == "open",
       _ => {}
     }
   }
+  // Files are recorded as they are written, in no set order; they are shown by path.
+  run.entries.sort_by(|a, b| a.path.cmp(&b.path));
   (!run.id.is_empty()).then_some(run)
 }
 

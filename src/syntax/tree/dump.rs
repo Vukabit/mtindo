@@ -12,7 +12,7 @@ pub fn debug_dump(node: &SyntaxNode) -> String {
 fn write_node(node: &SyntaxNode, depth: usize, out: &mut String) {
   out.push_str(&"  ".repeat(depth));
   out.push_str(&format!("{:?}\n", node));
-  for child in node.children_with_tokens() {
+  for child in node.children_with_tokens_iter() {
     match child {
       SyntaxElement::Node(child) => write_node(&child, depth + 1, out),
       SyntaxElement::Token(token) => {

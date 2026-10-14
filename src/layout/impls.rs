@@ -15,7 +15,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use super::{Unit, split_container};
+use super::{Cx, Unit, around_held, split_container};
 use crate::options::layout::{ItemKind, LayoutConfig};
 use crate::syntax::ast::Item;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
@@ -26,10 +26,7 @@ pub(super) type Traits = HashMap<String, Option<Vec<String>>>;
 
 pub(super) fn collect_traits(tree: &SyntaxNode) -> Traits {
   let mut traits = Traits::new();
-  for node in tree.descendants() {
-    if node.kind() != SyntaxKind::Trait {
-      continue;
-    }
+  for node in tree.descendant_nodes_where(|kind| kind == SyntaxKind::Trait) {
     let Some(item) = Item::cast(node.clone()) else {
       continue;
     };
@@ -39,8 +36,7 @@ pub(super) fn collect_traits(tree: &SyntaxNode) -> Traits {
     let functions: Vec<String> = assoc_list(&node)
       .map(|list| {
         list
-          .children()
-          .into_iter()
+          .children_iter()
           .filter(|c| c.kind() == SyntaxKind::Fn)
           .filter_map(|f| Item::cast(f).and_then(|i| i.name()))
           .collect()
@@ -61,14 +57,14 @@ pub(super) fn impl_with_items_ordered(
   text: &str,
   apart: &str,
   config: &LayoutConfig,
-  traits: &Traits,
+  cx: &Cx,
 ) -> Option<String> {
   let node = item.syntax();
   let view = item.as_impl()?;
   let trait_order: Option<&Vec<String>> = if config.impl_method_order_trait {
     view
       .trait_name()
-      .and_then(|name| traits.get(&name))
+      .and_then(|name| cx.traits.get(&name))
       .and_then(Option::as_ref)
   } else {
     None
@@ -93,7 +89,7 @@ pub(super) fn impl_with_items_ordered(
   }
   let indent = &leading[leading.rfind('\n')? + 1..];
   let inner_apart = format!("{}{}", apart.trim_end_matches(|c| c != '\n'), indent);
-  let split = split_container(&body, text, open_end, &inner_apart, config, traits).ok()?;
+  let split = split_container(&body, text, open_end, &inner_apart, config, cx).ok()?;
   let mut units = split.units;
   if units.len() < 2 {
     return None;
@@ -116,35 +112,38 @@ pub(super) fn impl_with_items_ordered(
       .cmp(&rank(&b.identifier))
       .then(a.index.cmp(&b.index))
   };
-  let arranged = if config.reorder_impl_items {
-    let key = |u: &Unit| impl_item_rank(u, text);
-    place(&units, |a, b| {
-      let (ka, kb) = (key(a), key(b));
-      ka.cmp(&kb).then_with(|| match ka {
-        // Types and consts by name, as the standard formatter sorts them; functions
-        // by the trait.
-        0..=2 => a.identifier.cmp(&b.identifier),
-        5 => fn_order(a, b),
-        _ => Ordering::Equal,
+  let arrange = |units: &[Unit]| -> Result<Vec<Unit>, String> {
+    Ok(if config.reorder_impl_items {
+      let key = |u: &Unit| impl_item_rank(u, text);
+      place(units, |a, b| {
+        let (ka, kb) = (key(a), key(b));
+        ka.cmp(&kb).then_with(|| match ka {
+          // Types and consts by name, as the standard formatter sorts them; functions
+          // by the trait.
+          0..=2 => a.identifier.cmp(&b.identifier),
+          5 => fn_order(a, b),
+          _ => Ordering::Equal,
+        })
       })
+    } else {
+      // Functions trade places among the functions' slots only.
+      let is_fn = |u: &Unit| u.kind == ItemKind::FnDecl && !u.pinned;
+      let mut functions: Vec<Unit> = units.iter().filter(|u| is_fn(u)).cloned().collect();
+      functions.sort_by(fn_order);
+      let mut functions = functions.into_iter();
+      units
+        .iter()
+        .map(|u| {
+          if is_fn(u) {
+            functions.next().unwrap_or_else(|| u.clone())
+          } else {
+            u.clone()
+          }
+        })
+        .collect()
     })
-  } else {
-    // Functions trade places among the functions' slots only.
-    let is_fn = |u: &Unit| u.kind == ItemKind::FnDecl && !u.pinned;
-    let mut functions: Vec<Unit> = units.iter().filter(|u| is_fn(u)).cloned().collect();
-    functions.sort_by(fn_order);
-    let mut functions = functions.into_iter();
-    units
-      .iter()
-      .map(|u| {
-        if is_fn(u) {
-          functions.next().unwrap_or_else(|| u.clone())
-        } else {
-          u.clone()
-        }
-      })
-      .collect()
   };
+  let arranged = around_held(&units, |u| cx.holds(u.span.0), arrange).ok()?;
   if arranged
     .iter()
     .zip(units.iter())
@@ -152,6 +151,7 @@ pub(super) fn impl_with_items_ordered(
   {
     return None;
   }
+  cx.note(&arranged);
   let mut out = String::new();
   let node_range = node.text_range();
   out.push_str(&text[node_range.start as usize..units[0].span.0]);
@@ -181,8 +181,7 @@ pub(super) fn impl_with_items_ordered(
 
 fn assoc_list(node: &SyntaxNode) -> Option<SyntaxNode> {
   node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::AssocItemList)
 }
 

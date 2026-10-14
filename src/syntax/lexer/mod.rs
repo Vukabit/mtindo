@@ -124,7 +124,8 @@ pub fn split_tuple_field_floats(text: &str, tokens: Vec<Token>) -> Vec<Token> {
 
 /// Splits `text` into tokens for the given edition.
 pub fn tokenize(text: &str, edition: Edition) -> Vec<Token> {
-  let mut tokens = Vec::new();
+  // Sized for the whole text at once: code runs about four or five bytes a token.
+  let mut tokens = Vec::with_capacity(text.len() / 4);
   let mut offset = 0;
   if text.starts_with('\u{feff}') {
     let len = '\u{feff}'.len_utf8();

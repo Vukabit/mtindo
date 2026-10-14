@@ -40,6 +40,140 @@ fn mto(env: &TestEnvironment, args: &[&str]) -> (i32, String, String) {
   )
 }
 
+/// A check lays files out while the walk is still finding them; a folder's broken
+/// configuration found late in the walk still stops it before any file's report.
+#[test]
+fn test_a_broken_configuration_found_late_stops_a_check_before_any_report() {
+  let env = TestEnvironment::new();
+  env.write_file("a.rs", UNSORTED);
+  env.write_file("z/sub/mto.toml", "layout = [\n");
+  env.write_file("z/sub/b.rs", UNSORTED);
+  let output = env.mto_cmd().args(["--check", "."]).output().unwrap();
+  assert_eq!(output.status.code(), Some(2));
+  assert!(
+    output.stdout.is_empty(),
+    "{}",
+    String::from_utf8_lossy(&output.stdout)
+  );
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(stderr.contains("mto.toml:2:1"), "{}", stderr);
+  assert!(!stderr.contains("a.rs"), "{}", stderr);
+}
+
+#[test]
+fn test_a_bug_failing_on_one_file_leaves_it_and_the_run_goes_on() {
+  let env = TestEnvironment::new();
+  let broken = "fn inject_panic() {}\n\nfn a() {}\n";
+  env.write_file("a.rs", UNSORTED);
+  env.write_file("b.rs", broken);
+  env.write_file("c.rs", UNSORTED);
+  let output = env
+    .mto_cmd()
+    .args(["-l", "."])
+    .env("MTINDO_INJECT_FAULT", "panic")
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(4));
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  // Kept as a report, named in one line, with no standard panic message besides.
+  assert!(
+    stderr.contains("mto hit a bug on ./b.rs; saved as report "),
+    "{}",
+    stderr
+  );
+  assert!(!stderr.contains("panicked at"), "{}", stderr);
+  let id = stderr
+    .split("saved as report ")
+    .nth(1)
+    .and_then(|rest| rest.split(':').next())
+    .unwrap()
+    .to_string();
+  let (code, listed, _) = mto(&env, &["report"]);
+  assert_eq!(code, 0);
+  assert!(
+    listed.contains(&id) && listed.contains("(./b.rs)"),
+    "{}",
+    listed
+  );
+  // The report: what failed, the smallest part that still fails, and the build.
+  let (code, shown, _) = mto(&env, &["report", "show", &id]);
+  assert_eq!(code, 0);
+  assert!(
+    shown.contains("## panic: injected by MTINDO_INJECT_FAULT"),
+    "{}",
+    shown
+  );
+  assert!(
+    shown.contains("still fails:\n\n```rust\nfn inject_panic() {}\n```"),
+    "{}",
+    shown
+  );
+  assert!(shown.contains("seen 1 time(s)"), "{}", shown);
+  let (code, saved, _) = mto(&env, &["report", "save", &id, "bug.md", "--with-file"]);
+  assert_eq!(code, 0, "{}", saved);
+  assert!(
+    env
+      .read_file("bug.md")
+      .contains("The whole file, `./b.rs`:"),
+    "{}",
+    env.read_file("bug.md")
+  );
+  assert_eq!(env.read_file("b.rs"), broken);
+  assert_eq!(env.read_file("a.rs"), SORTED);
+  assert_eq!(env.read_file("c.rs"), SORTED);
+  let listed = String::from_utf8_lossy(&output.stdout);
+  assert!(
+    listed.contains("a.rs") && listed.contains("c.rs"),
+    "{}",
+    listed
+  );
+  let output = env
+    .mto_cmd()
+    .arg("-")
+    .env("MTINDO_INJECT_FAULT", "panic")
+    .write_stdin(broken)
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(4));
+  assert_eq!(String::from_utf8(output.stdout).unwrap(), broken);
+  // The same bug again, from stdin: counted in the same report.
+  let (_, shown, _) = mto(&env, &["report", "show", &id]);
+  assert!(shown.contains("seen 2 time(s)"), "{}", shown);
+  let (code, pruned, _) = mto(&env, &["report", "prune"]);
+  assert_eq!(code, 0);
+  assert_eq!(pruned, "removed 1 report(s)\n");
+}
+
+#[test]
+fn test_a_file_nested_too_deeply_is_left_as_written() {
+  let env = TestEnvironment::new();
+  // Deeper than mto follows (`mtindo::syntax::MAX_DEPTH`): it said so, rather than running
+  // out of stack.
+  let deep = format!(
+    "fn f() {{\n{}{}}}\n",
+    "{\n".repeat(5_000),
+    "}\n".repeat(5_000)
+  );
+  let path = env.write_file("deep.rs", &deep);
+  env
+    .mto_cmd()
+    .arg("deep.rs")
+    .assert()
+    .success()
+    .stderr(predicates::str::contains(
+      "nests more than 1024 levels deep",
+    ));
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), deep);
+  let output = env
+    .mto_cmd()
+    .arg("-")
+    .write_stdin(deep.clone())
+    .output()
+    .unwrap();
+  assert!(output.status.success());
+  assert_eq!(String::from_utf8(output.stdout).unwrap(), deep);
+}
+
 #[test]
 fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
   let env = TestEnvironment::new();
@@ -389,7 +523,12 @@ fn test_cli_config_path_and_print() {
     .unwrap();
   let stdout = String::from_utf8(output.stdout).unwrap();
   assert!(
-    stdout.starts_with("[history]\nenabled = true  # default\n"),
+    stdout.starts_with("[doctor]\ncommand = [\"cargo\", \"check\""),
+    "{}",
+    stdout
+  );
+  assert!(
+    stdout.contains("\ntimeout = 600  # default\n\n[history]\nenabled = true  # default\n"),
     "{}",
     stdout
   );
@@ -532,6 +671,118 @@ fn test_cli_debug_tree_and_tokens() {
     .assert()
     .failure()
     .code(3);
+}
+
+/// The build guard: off, mto runs nothing; on, it checks before and after a run, holds
+/// back the one move that breaks a pretend build (a script that reads the order of
+/// `src/lib.rs`), writes the rest and remembers the hold; `--unguarded` skips the checks.
+#[cfg(unix)]
+#[test]
+fn test_cli_doctor_holds_back_what_breaks_the_build() {
+  const LIB: &str = "struct A;\nfn b() {}\nmod generated {}\n";
+  const CHECK: &str = "m=$(grep -n 'mod generated' src/lib.rs | cut -d: -f1)\n\
+                       a=$(grep -n 'struct A' src/lib.rs | cut -d: -f1)\n\
+                       if [ \"$m\" -lt \"$a\" ]; then\n\
+                       echo 'error[E0433]: failed to resolve: generated' >&2; exit 1; fi\n";
+  let env = TestEnvironment::new();
+  env.write_file(
+    ".home/.config/mtindo/config.toml",
+    "[history]\nkeep_runs = 50\n",
+  );
+  env.write_file("src/lib.rs", LIB);
+  env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
+  env.write_file("check.sh", CHECK);
+  let (code, stdout, _) = mto(&env, &["doctor"]);
+  assert_eq!(code, 0);
+  assert!(stdout.starts_with("build guard: off\n"), "{}", stdout);
+  let (code, _, stderr) = mto(&env, &["doctor", "last"]);
+  assert_eq!(code, 2);
+  assert!(stderr.contains("give it after `--`"), "{}", stderr);
+  let (code, stdout, stderr) = mto(&env, &["doctor", "on", "--", "sh", "check.sh"]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(stdout.contains("\n    sh check.sh\n"), "{}", stdout);
+  assert!(
+    env
+      .read_file(".home/.config/mtindo/config.toml")
+      .ends_with("[doctor]\nenabled = true\ncommand = [\"sh\", \"check.sh\"]\n")
+  );
+  let (code, _, stderr) = mto(&env, &["."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(
+    stderr.contains("doctor: before ✓  after ✗ error[E0433]"),
+    "{}",
+    stderr
+  );
+  assert!(
+    stderr.contains("doctor: held back 1 edit:\n  ./src/lib.rs: moved: mod generated (line 3, now before struct A)\n"),
+    "{}",
+    stderr
+  );
+  assert!(stderr.contains("report: "), "{}", stderr);
+  assert_eq!(
+    env.read_file("src/lib.rs"),
+    "struct A;\n\nfn b() {}\n\nmod generated {}\n"
+  );
+  assert_eq!(env.read_file("src/other.rs"), "struct Y;\n\nfn z() {}\n");
+  let (_, stdout, _) = mto(&env, &["doctor", "holds"]);
+  assert!(
+    stdout.contains(" 1. ") && stdout.contains("moved: mod generated"),
+    "{}",
+    stdout
+  );
+  // The hold is remembered: the next run holds the move back before checking.
+  env.write_file("src/lib.rs", LIB);
+  let (code, _, stderr) = mto(&env, &["."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(stderr.contains("doctor: before ✓  after ✓"), "{}", stderr);
+  // Unguarded, no check runs; the hold still applies.
+  env.write_file("src/lib.rs", LIB);
+  let (code, _, stderr) = mto(&env, &[".", "--unguarded"]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(!stderr.contains("doctor:"), "{}", stderr);
+  assert!(env.read_file("src/lib.rs").starts_with("struct A;"));
+  // Released, the move is made again, and narrowing down that run holds it back again.
+  let (code, stdout, _) = mto(&env, &["doctor", "release", "all"]);
+  assert_eq!(code, 0);
+  assert!(stdout.contains("Released 1 hold"), "{}", stdout);
+  env.write_file("src/lib.rs", LIB);
+  assert_eq!(mto(&env, &[".", "--unguarded"]).0, 0);
+  assert!(env.read_file("src/lib.rs").starts_with("mod generated"));
+  let (code, _, stderr) = mto(&env, &["doctor", "last"]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(stderr.contains("moved: mod generated"), "{}", stderr);
+  assert!(env.read_file("src/lib.rs").starts_with("struct A;"));
+  let (code, stdout, _) = mto(&env, &["doctor", "off"]);
+  assert_eq!(code, 0);
+  assert!(stdout.contains("mto runs no command"), "{}", stdout);
+}
+
+/// A build guard whose command already fails before the run has no baseline: it cannot tell
+/// what the run would break, so nothing is written and mto says why (exit code 5);
+/// `--unguarded` writes as usual.
+#[cfg(unix)]
+#[test]
+fn test_cli_doctor_writes_nothing_without_a_baseline() {
+  let env = TestEnvironment::new();
+  env.write_file("src/lib.rs", UNSORTED);
+  env.write_file(
+    "check.sh",
+    "echo 'error[E0425]: cannot find value `x` in this scope' >&2; exit 1\n",
+  );
+  let (code, _, stderr) = mto(&env, &["doctor", "on", "--", "sh", "check.sh"]);
+  assert_eq!(code, 0, "{}", stderr);
+  let (code, _, stderr) = mto(&env, &["."]);
+  assert_eq!(code, 5, "{}", stderr);
+  assert!(
+    stderr.contains("already fails before mto changes anything (error[E0425]"),
+    "{}",
+    stderr
+  );
+  assert!(stderr.contains("nothing was written"), "{}", stderr);
+  assert_eq!(env.read_file("src/lib.rs"), UNSORTED);
+  let (code, _, stderr) = mto(&env, &["--unguarded", "."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert_eq!(env.read_file("src/lib.rs"), SORTED);
 }
 
 #[test]
@@ -798,9 +1049,30 @@ fn test_cli_history_prune_and_removed_flags() {
     env.write_file("main.rs", &format!("fn b{}() {{}}\n\nfn a() {{}}\n", i));
     assert_eq!(mto(&env, &["main.rs"]).0, 0);
   }
+  // A build guard report for each run, written before pruning's grace period: those of
+  // the runs pruned go with them.
+  let state = env.dir.path().join(".home/.local/state/mtindo");
+  let reports = state.join("doctor/reports");
+  std::fs::create_dir_all(&reports).unwrap();
+  let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+  for run in std::fs::read_dir(state.join("history/runs")).unwrap() {
+    let name = run
+      .unwrap()
+      .file_name()
+      .to_string_lossy()
+      .replace(".run", ".md");
+    std::fs::write(reports.join(&name), "# mto doctor\n").unwrap();
+    let file = std::fs::OpenOptions::new()
+      .write(true)
+      .open(reports.join(&name))
+      .unwrap();
+    file.set_modified(old).unwrap();
+  }
   let (code, stdout, _) = mto(&env, &["history", "prune", "--keep", "1"]);
   assert_eq!(code, 0);
   assert!(stdout.contains("Removed 2 run(s)"), "{}", stdout);
+  assert!(stdout.contains("and 2 build guard report(s)"), "{}", stdout);
+  assert_eq!(std::fs::read_dir(&reports).unwrap().count(), 1);
   let (_, stdout, _) = mto(&env, &["history"]);
   assert_eq!(stdout.lines().count(), 2, "{}", stdout);
   assert_eq!(
@@ -1127,6 +1399,11 @@ fn test_cli_verifier_on_stdin_passes_the_input_through() {
 #[test]
 fn test_cli_verifier_stops_an_unsafe_write() {
   let env = TestEnvironment::new();
+  // Reports not kept: the whole report is printed.
+  env.write_file(
+    ".home/.config/mtindo/config.toml",
+    "[report]\nsave = false\n",
+  );
   env.write_file("main.rs", SOURCE);
   let output = env
     .mto_cmd()
@@ -1156,6 +1433,8 @@ fn test_cli_version() {
   for flag in ["-V", "--version"] {
     let (code, out) = help_output(&env, &[flag], &[]);
     assert_eq!(code, Some(0));
-    assert_eq!(out, format!("mto {}\n", env!("CARGO_PKG_VERSION")));
+    // The version, and the build it is (the commit, or a hash of the source).
+    let version = format!("mto {} (", env!("CARGO_PKG_VERSION"));
+    assert!(out.starts_with(&version) && out.ends_with(")\n"), "{}", out);
   }
 }

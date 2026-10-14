@@ -199,8 +199,10 @@ flag    rustfmt:--version                                supported    # tests/do
 
 mto     command:config                                   supported    # tests/domain_8_cli.rs
 mto     command:debug                                    supported    # tests/domain_8_cli.rs
+mto     command:doctor                                   supported    # tests/domain_8_cli.rs
 mto     command:history                                  supported    # tests/domain_8_cli.rs
 mto     command:init                                     supported    # tests/domain_8_cli.rs
+mto     command:report                                   supported    # tests/domain_8_cli.rs
 mto     command:restore                                  supported    # tests/domain_8_cli.rs
 mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
 mto     config:format                                    partial      # indentation, spacing within lines, blank lines, trailing whitespace and line endings; no line breaking yet (src/format/file/tests.rs, src/format/space/tests.rs, tests/domain_8_cli.rs)
@@ -246,7 +248,9 @@ mto     flag:--skip-children                             supported    # tests/do
 mto     flag:--stdin-filepath                            supported    # tests/domain_8_cli.rs
 mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs
 mto     flag:--toml                                      supported    # src/cli/options/tests.rs, tests/domain_8_cli.rs
+mto     flag:--unguarded                                 supported    # tests/domain_8_cli.rs
 mto     flag:--unstable-features                         supported    # tests/domain_8_cli.rs
 mto     flag:--user                                      supported    # tests/domain_8_cli.rs
 mto     flag:--verbose                                   supported    # tests/domain_8_cli.rs
 mto     flag:--version                                   supported    # tests/domain_8_cli.rs
+mto     flag:--with-file                                 supported    # tests/domain_8_cli.rs

@@ -15,7 +15,7 @@
 //! - `report` summarises the manifest, and runs rustfmt's own test cases through mto when
 //!   the stable checkout is cached (with `xtask-tools cases`, which links mtindo).
 //!
-//! Every subcommand logs to `logs/capabilities.log`.
+//! Every subcommand logs to `.dev/logs/capabilities.log`.
 
 mod binary;
 pub(crate) mod fetch;
@@ -80,13 +80,12 @@ pub fn check(root: &Path) -> Vec<String> {
   problems
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "capabilities");
-  log.info(&format!("cargo xtask capabilities {}", args.join(" ")));
-  let words: Vec<&str> = args.iter().map(String::as_str).collect();
-  let code = match words.as_slice() {
-    ["refresh"] => refresh(root, &log),
-    ["check"] => {
+  log.info(&format!("cargo xtask {}", crate::cli::line()));
+  let code = match m.subcommand() {
+    Some(("refresh", _)) => refresh(root, &log),
+    Some(("check", _)) => {
       let problems = check(root);
       for problem in problems.iter() {
         println!("{}", problem);
@@ -100,13 +99,9 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         1
       }
     }
-    ["sync"] => sync(root, &log),
-    ["report"] => report(root, false, &log),
-    ["report", "--markdown"] => report(root, true, &log),
-    _ => {
-      eprintln!("Usage: cargo xtask capabilities refresh|check|sync|report [--markdown]");
-      2
-    }
+    Some(("sync", _)) => sync(root, &log),
+    Some(("report", sub)) => report(root, crate::cli::on(sub, "markdown"), &log),
+    _ => unreachable!("clap requires a subcommand"),
   };
   log.info(&format!("exit code {}", code));
   ExitCode::from(code)
@@ -456,7 +451,7 @@ fn run_cases(root: &Path, surface: &Surface, log: &Logger) -> Cases {
     Ok(None) => return unavailable("not cached; run `capabilities refresh` online"),
     Err(e) => {
       log.error(&format!("cached checkout of {} unusable: {}", commit, e));
-      return unavailable("cached checkout unusable; see logs/capabilities.log");
+      return unavailable("cached checkout unusable; see .dev/logs/capabilities.log");
     }
   };
   let args = [
@@ -477,7 +472,7 @@ fn run_cases(root: &Path, surface: &Surface, log: &Logger) -> Cases {
     .unwrap_or_default();
   let [total, configured, passed, unreadable] = counts[..] else {
     log.error(&format!("xtask-tools cases failed ({}):\n{}", code, output));
-    return unavailable("the case runner failed; see logs/capabilities.log");
+    return unavailable("the case runner failed; see .dev/logs/capabilities.log");
   };
   Cases::Ran {
     configured,

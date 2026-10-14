@@ -1,0 +1,26 @@
+# The performance ratchet (`cargo xtask metrics ratchet --update` writes it): each
+# figure may not get worse than its value by more than the tolerance (a fraction).
+# Speed depends on the machine, so the limits apply only on the one named here.
+machine macos aarch64, 10 cores
+limit speed.speedup.stable 31.39 0.15 higher
+limit speed.speedup.nightly 32.08 0.15 higher
+limit speed.mto.laid_out.mb_per_s 292.5 0.15 higher
+limit speed.mto.as_fetched.mb_per_s 150.8 0.15 higher
+limit speed.layout.one_thread.mb_per_s 75.48 0.15 higher
+limit memst.serde.allocs 1857406 0.01 lower
+limit memst.serde.bytes 420472888 0.01 lower
+limit memst.serde.peak_live 36052563 0.25 lower
+limit doctor.held.cost.x 1.248 0.25 lower
+limit doctor.narrow.n10.k1.checks 9.700 0.1 lower
+limit doctor.narrow.n100.k1.checks 15.50 0.1 lower
+limit doctor.narrow.n100.k3.checks 49.60 0.1 lower
+limit doctor.narrow.found_rate 1 0 higher
+limit io.write.batch.history.ms_per_file 0.7370 0.5 lower
+limit io.write.batch.plain.ms_per_file 0.2770 0.5 lower
+limit perf.scaling.one_thread.mb_per_s 9.702 0.15 higher
+limit perf.latency.check.median_ms 2.105 0.5 lower
+limit perf.growth.items.exponent 1.049 0.2 lower
+limit perf.growth.nesting.exponent 1.180 0.2 lower
+limit perf.growth.line.exponent 0.9880 0.2 lower
+limit perf.growth.chain.exponent 0.9760 0.2 lower
+limit perf.growth.match.exponent 1.016 0.2 lower

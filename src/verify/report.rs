@@ -65,12 +65,32 @@ pub fn minimize(input: &str, edition: Edition, fails: &dyn Fn(&str) -> bool) -> 
   }
 }
 
+/// The report for a file mto failed on (it panicked) while laying it out: `said` is what it
+/// said and where, `minimal` the smallest input found that still fails.
+pub fn panic_report(path: &str, said: &str, minimal: Option<&str>) -> String {
+  let mut out = format!(
+    "mto: internal error: mto failed while laying out {}; the file is unchanged.\nThis is a bug in mto. What failed:\n  {}\n",
+    path, said
+  );
+  if let Some(minimal) = minimal {
+    out.push_str("The smallest part of the file that still fails:\n  ----\n");
+    for line in minimal.lines() {
+      out.push_str("  ");
+      out.push_str(line);
+      out.push('\n');
+    }
+    out.push_str("  ----\n");
+  }
+  out.push_str("Please report this, with the text above.\n");
+  out
+}
+
 /// The file's top-level elements as text, each with the whitespace that follows it, so
 /// that concatenating them gives the file back.
 fn top_level_pieces(text: &str, edition: Edition) -> Vec<String> {
   let tree = parse(text, edition).syntax_node();
   let mut pieces: Vec<String> = Vec::new();
-  for element in tree.children_with_tokens() {
+  for element in tree.children_with_tokens_iter() {
     let (piece, whitespace) = match &element {
       SyntaxElement::Node(node) => (node.text(), false),
       SyntaxElement::Token(token) => (

@@ -27,16 +27,19 @@ pub fn reorder(
   if !config.reorder_imports && !config.reorder_modules {
     return None;
   }
-  let off = off_regions(root);
+  // Found only once a run could move.
+  let mut off: Option<Vec<(usize, usize)>> = None;
   let mut moves: Vec<(usize, usize, String)> = Vec::new();
-  for node in root.descendants() {
-    if !matches!(node.kind(), K::SourceFile | K::ItemList | K::BlockExpr) {
-      continue;
-    }
+  let containers = |kind| matches!(kind, K::SourceFile | K::ItemList | K::BlockExpr);
+  for node in root.descendant_nodes_where(containers) {
     for run in runs(&node, config.blank_lines_upper_bound > 0) {
       let start = run[0].text_range().start as usize;
       let end = run[run.len() - 1].text_range().end as usize;
-      if run.len() < 2 || has_comment(&run) || off.iter().any(|&(s, e)| s < end && start < e) {
+      if run.len() < 2 || has_comment(&run) {
+        continue;
+      }
+      let off = off.get_or_insert_with(|| off_regions(root));
+      if off.iter().any(|&(s, e)| s < end && start < e) {
         continue;
       }
       let mut order: Vec<usize> = (0..run.len()).collect();
@@ -48,8 +51,7 @@ pub fn reorder(
             .iter()
             .map(|item| {
               item
-                .children()
-                .into_iter()
+                .children_iter()
                 .find(|c| c.kind() == K::UseTree)
                 .map(|t| UseTree::from_syntax(&t, global_paths, version))
             })
@@ -107,7 +109,7 @@ fn has_comment(run: &[SyntaxNode]) -> bool {
   let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment));
   run
     .iter()
-    .any(|item| item.descendants_with_tokens().iter().any(comment))
+    .any(|item| item.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment)))
     || run.windows(2).any(|pair| {
       let mut next = pair[0].next_sibling_or_token();
       while let Some(element) = next {
@@ -129,7 +131,7 @@ fn has_comment(run: &[SyntaxNode]) -> bool {
 }
 
 fn module_name(node: &SyntaxNode) -> Option<String> {
-  let name = node.children().into_iter().find(|c| c.kind() == K::Name)?;
+  let name = node.children_iter().find(|c| c.kind() == K::Name)?;
   Some(name.text().to_string())
 }
 
@@ -137,15 +139,15 @@ fn module_name(node: &SyntaxNode) -> Option<String> {
 fn off_regions(root: &SyntaxNode) -> Vec<(usize, usize)> {
   let mut regions = Vec::new();
   let mut start: Option<usize> = None;
-  for element in root.descendants_with_tokens() {
-    let SyntaxElement::Token(t) = element else {
-      continue;
-    };
-    match t.text().trim() {
-      "// mto: off" if start.is_none() => start = Some(t.text_range().start as usize),
+  for (_, text, range) in root
+    .token_texts()
+    .filter(|&(kind, _, _)| kind == K::LineComment)
+  {
+    match text.trim() {
+      "// mto: off" if start.is_none() => start = Some(range.start as usize),
       "// mto: on" => {
         if let Some(s) = start.take() {
-          regions.push((s, t.text_range().end as usize));
+          regions.push((s, range.end as usize));
         }
       }
       _ => {}
@@ -163,7 +165,7 @@ fn off_regions(root: &SyntaxNode) -> Vec<(usize, usize)> {
 fn runs(container: &SyntaxNode, blank_ends_run: bool) -> Vec<Vec<SyntaxNode>> {
   let mut runs: Vec<Vec<SyntaxNode>> = Vec::new();
   let mut current: Vec<SyntaxNode> = Vec::new();
-  for element in container.children_with_tokens() {
+  for element in container.children_with_tokens_iter() {
     match &element {
       SyntaxElement::Token(t) if t.kind() == K::Whitespace => {
         if blank_ends_run && t.text().matches('\n').count() > 1 {
@@ -191,15 +193,13 @@ fn sortable(node: &SyntaxNode) -> bool {
   let declaration = match node.kind() {
     K::Use => true,
     K::Module => node
-      .children_with_tokens()
-      .iter()
+      .children_with_tokens_iter()
       .any(|e| e.kind() == K::Semi),
     _ => false,
   };
   declaration
     && !node
-      .children()
-      .into_iter()
+      .children_iter()
       .filter_map(Attr::cast)
       .any(|a| a.is_rustfmt_skip() || a.path() == "macro_use")
 }

@@ -17,6 +17,21 @@ fn formatted(source: &str) -> String {
   once
 }
 
+/// A derive's names are joined token to token only when they are paths: an identifier
+/// joined to a string would read as a reserved prefix (`Par"x"`). Found by the format fuzz
+/// target.
+#[test]
+fn test_a_derive_of_anything_but_paths_keeps_its_spaces() {
+  let out = formatted("#[derive(Debug, Clone, Par \"x\",\n    y = \"z\"\n)]\nstruct S;\n");
+  assert!(out.contains("Par \"x\""), "{}", out);
+  let out = formatted("#[derive(Debug, A B)]\nstruct S;\n");
+  assert!(out.contains("A B"), "{}", out);
+  assert_eq!(
+    formatted("#[derive( serde :: Serialize ,crate::Thing,r#Raw)]\nstruct S;\n"),
+    "#[derive(serde::Serialize, crate::Thing, r#Raw)]\nstruct S;\n"
+  );
+}
+
 #[test]
 fn test_attributes_join_onto_one_line() {
   assert_eq!(

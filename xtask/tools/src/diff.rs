@@ -181,6 +181,53 @@ pub fn collect_rs(dir: &Path, files: &mut Vec<PathBuf>) {
   }
 }
 
+pub fn edition_year(edition: Edition) -> &'static str {
+  match edition {
+    Edition::E2015 => "2015",
+    Edition::E2018 => "2018",
+    Edition::E2021 => "2021",
+    _ => "2024",
+  }
+}
+
+/// The kind of the outermost syntax node that starts where line `line` (0-based) of `text`
+/// starts its text, an expression statement standing for its expression; `end of file` past
+/// the end. A line starting inside a node (a continuation) gives the innermost node holding
+/// it.
+pub fn kind_at_line(text: &str, line: usize, edition: Edition) -> String {
+  let mut offset = 0;
+  for (i, l) in text.split('\n').enumerate() {
+    if i == line {
+      offset += l.len() - l.trim_start().len();
+      break;
+    }
+    offset += l.len() + 1;
+  }
+  if offset >= text.len() {
+    return "end of file".to_string();
+  }
+  let mut node = parse(text, edition).syntax_node();
+  loop {
+    let child = node.children().into_iter().find(|c| {
+      let range = c.text_range();
+      (range.start as usize) <= offset && offset < range.end as usize
+    });
+    let Some(child) = child else {
+      return format!("{:?}", node.kind());
+    };
+    if child.text_range().start as usize == offset {
+      // The outermost node starting here; a statement is named by its expression.
+      if child.kind() == SyntaxKind::ExprStmt
+        && let Some(expr) = child.children().into_iter().next()
+      {
+        return format!("{:?}", expr.kind());
+      }
+      return format!("{:?}", child.kind());
+    }
+    node = child;
+  }
+}
+
 pub fn run(args: &[String]) -> ExitCode {
   let options = match parse_args(args) {
     Ok(options) => options,
@@ -243,6 +290,22 @@ pub fn run(args: &[String]) -> ExitCode {
     "{}",
     report(&tallies, &kinds, &options.reference, options.markdown)
   );
+  // This run's numbers, for `cargo xtask diff` to keep as series.
+  if let Some(dir) = options.broke_log.as_ref().and_then(|log| log.parent()) {
+    let mut out = String::new();
+    for (set, t) in &tallies {
+      out.push_str(&format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\n",
+        set.key(),
+        t.matched_files,
+        t.files,
+        t.matched_lines,
+        t.lines,
+        t.skipped
+      ));
+    }
+    let _ = fs::write(dir.join("diff-tallies.tsv"), out);
+  }
   let not_scored: Vec<String> = cases
     .iter()
     .zip(&scores)
@@ -354,6 +417,9 @@ pub fn run(args: &[String]) -> ExitCode {
       }
     }
   }
+  if let Some(dir) = options.broke_log.as_ref().and_then(|log| log.parent()) {
+    write_findings(dir, &cases, &scores);
+  }
   if !not_scored.is_empty() {
     println!(
       "{} input(s) could not be scored, so these numbers are not a measurement:",
@@ -390,6 +456,26 @@ pub fn run(args: &[String]) -> ExitCode {
     return ExitCode::from(1);
   }
   ratchet(&options, &tallies)
+}
+
+/// The standard formatter on `text` from `dir`, with an empty home folder.
+pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answer {
+  let done = process::output_with_input(
+    Command::new("rustfmt")
+      .args(["--edition", edition, "--emit", "stdout"])
+      .current_dir(dir)
+      .env("HOME", home)
+      .env_remove("XDG_CONFIG_HOME")
+      .env("RUSTUP_AUTO_INSTALL", "0")
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    Some(text.as_bytes()),
+    STANDARD_LIMIT,
+  );
+  match done {
+    Ok(done) => classify(done),
+    Err(e) => Answer::NotRun(format!("cannot run rustfmt: {}", e)),
+  }
 }
 
 /// The standard formatter's answer for `input` formatted from `dir`, from the cache or a
@@ -689,15 +775,6 @@ fn drops(
   drops
 }
 
-fn edition_year(edition: Edition) -> &'static str {
-  match edition {
-    Edition::E2015 => "2015",
-    Edition::E2018 => "2018",
-    Edition::E2021 => "2021",
-    _ => "2024",
-  }
-}
-
 /// The `PATH [SET]` keys listed in the exceptions file.
 fn exceptions(path: &Path) -> Vec<String> {
   let Ok(text) = fs::read_to_string(path) else {
@@ -751,44 +828,6 @@ fn header_settings(input: &str, config_dir: &Path) -> FormatConfig {
     .and_then(|mut r| r.config_for(&dir).ok())
     .map(|c| c.format())
     .unwrap_or_default()
-}
-
-/// The kind of the outermost syntax node that starts where line `line` (0-based) of `text`
-/// starts its text, an expression statement standing for its expression; `end of file` past
-/// the end. A line starting inside a node (a continuation) gives the innermost node holding
-/// it.
-fn kind_at_line(text: &str, line: usize, edition: Edition) -> String {
-  let mut offset = 0;
-  for (i, l) in text.split('\n').enumerate() {
-    if i == line {
-      offset += l.len() - l.trim_start().len();
-      break;
-    }
-    offset += l.len() + 1;
-  }
-  if offset >= text.len() {
-    return "end of file".to_string();
-  }
-  let mut node = parse(text, edition).syntax_node();
-  loop {
-    let child = node.children().into_iter().find(|c| {
-      let range = c.text_range();
-      (range.start as usize) <= offset && offset < range.end as usize
-    });
-    let Some(child) = child else {
-      return format!("{:?}", node.kind());
-    };
-    if child.text_range().start as usize == offset {
-      // The outermost node starting here; a statement is named by its expression.
-      if child.kind() == SyntaxKind::ExprStmt
-        && let Some(expr) = child.children().into_iter().next()
-      {
-        return format!("{:?}", expr.kind());
-      }
-      return format!("{:?}", child.kind());
-    }
-    node = child;
-  }
 }
 
 /// mto's formatting of `text`, as `format = true` runs it.
@@ -1068,26 +1107,6 @@ fn report(
   out
 }
 
-/// The standard formatter on `text` from `dir`, with an empty home folder.
-fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answer {
-  let done = process::output_with_input(
-    Command::new("rustfmt")
-      .args(["--edition", edition, "--emit", "stdout"])
-      .current_dir(dir)
-      .env("HOME", home)
-      .env_remove("XDG_CONFIG_HOME")
-      .env("RUSTUP_AUTO_INSTALL", "0")
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped()),
-    Some(text.as_bytes()),
-    STANDARD_LIMIT,
-  );
-  match done {
-    Ok(done) => classify(done),
-    Err(e) => Answer::NotRun(format!("cannot run rustfmt: {}", e)),
-  }
-}
-
 fn score(case: &Case, options: &Options, home: &Path) -> Score {
   let answer = match &case.expected {
     Some(expected) => expected.clone(),
@@ -1226,6 +1245,53 @@ fn strings_span_lines(text: &str, edition: Edition) -> bool {
       SyntaxElement::Token(t) => t.kind().is_literal() && t.text().contains('\n'),
       SyntaxElement::Node(_) => false,
     })
+}
+
+/// What `cargo xtask diff` files as incidents, beside the logs: `diff-findings.tsv`, one
+/// line per finding (kind, set, file, message), and each finding's input under
+/// `diff-inputs/` (cleared on every run). The first line says whether every input was
+/// scored: only a complete run can say a finding is gone.
+fn write_findings(dir: &Path, cases: &[Case], scores: &[Score]) {
+  let inputs = dir.join("diff-inputs");
+  let _ = fs::remove_dir_all(&inputs);
+  let _ = fs::create_dir_all(&inputs);
+  let complete = scores.iter().all(|s| s.unanswered.is_none());
+  let mut out = format!("complete\t{}\n", complete);
+  let clean = |text: &str| text.replace(['\t', '\n', '\r'], " ");
+  for (case, score) in cases.iter().zip(scores) {
+    let found = if let Some(message) = &score.panicked {
+      Some(("panic", message.clone()))
+    } else if let Some(message) = &score.own {
+      let kind = if message == "a second run changes it" {
+        "unstable"
+      } else {
+        "meaning"
+      };
+      Some((kind, message.clone()))
+    } else if score.broke {
+      let (line, kind) = score.first.clone().unwrap_or_default();
+      Some((
+        "compat-break",
+        format!("mto changes line {} ({})", line, kind),
+      ))
+    } else {
+      None
+    };
+    let Some((kind, message)) = found else {
+      continue;
+    };
+    let file = format!("{}-{}.input", case.set.key(), case.name.replace('/', "__"));
+    let _ = fs::write(inputs.join(&file), &case.input);
+    out.push_str(&format!(
+      "{}\t{}\t{}\t{}\t{}\n",
+      kind,
+      case.set.key(),
+      clean(&case.name),
+      file,
+      clean(&message)
+    ));
+  }
+  let _ = fs::write(dir.join("diff-findings.tsv"), out);
 }
 
 #[cfg(test)]

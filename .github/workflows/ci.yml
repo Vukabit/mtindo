@@ -1,0 +1,58 @@
+# Every first-class target builds mto, runs its tests and measures what writing files
+# costs there (`cargo xtask io bench`): each platform syncs its own way (src/durable).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux x86_64
+          - os: ubuntu-24.04-arm
+            target: linux aarch64
+          - os: macos-15
+            target: macos aarch64
+          - os: windows-2025
+            target: windows x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Clippy
+        run: cargo clippy --package mtindo --all-targets -- -D warnings
+      - name: Build
+        run: cargo build --release --bin mto --bin cargo-mto
+      - name: Tests
+        run: cargo test --package mtindo
+      - name: What writing costs here
+        run: cargo xtask io bench | tee -a "$GITHUB_STEP_SUMMARY"
+
+  gates:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Gates
+        run: cargo xtask gates

@@ -5,15 +5,14 @@ use super::Unit;
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
 use crate::order::UseTree;
 use crate::syntax::ast::{self, Attr, Item};
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, SyntaxKind, SyntaxNode, parse};
 
 /// The import group of the first `use` in `text` (`Std`, `External` or `Local`), for a
 /// snippet such as `pub use std::fmt;`. Text without a `use` counts as `External`.
 pub fn import_group_of_text(text: &str) -> ImportGroup {
   let tree = parse(text, Edition::E2021).syntax_node();
   tree
-    .children()
-    .into_iter()
+    .children_iter()
     .filter_map(Item::cast)
     .find_map(|item| item.as_use())
     .map(|view| group_of_root(view.root().as_deref()))
@@ -140,13 +139,10 @@ fn attr_body(attr: &Attr) -> String {
 
 fn ends_with_semicolon(node: &SyntaxNode) -> bool {
   node
-    .descendants_with_tokens()
-    .into_iter()
-    .rev()
-    .find_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t.kind()),
-      _ => None,
-    })
+    .token_texts()
+    .filter(|(kind, _, _)| !kind.is_trivia())
+    .last()
+    .map(|(kind, _, _)| kind)
     == Some(SyntaxKind::Semi)
 }
 
@@ -161,11 +157,8 @@ fn group_of_root(root: Option<&str>) -> ImportGroup {
 /// A node's text without whitespace and comments: `std::{fs,io}`.
 fn significant_text(node: &SyntaxNode) -> String {
   node
-    .descendants_with_tokens()
-    .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t.text().to_string()),
-      _ => None,
-    })
+    .token_texts()
+    .filter(|(kind, _, _)| !kind.is_trivia())
+    .map(|(_, text, _)| text)
     .collect()
 }

@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 
 use crate::common::log::Logger;
 use crate::common::process;
+use crate::metrics;
 use crate::sha256;
 
 /// S2-1: mto's wall-clock throughput over rustfmt's.
@@ -81,7 +82,25 @@ pub fn run(root: &Path, repos: &[(String, PathBuf)], markdown: bool, log: &Logge
       return 1;
     }
   };
+  crate::common::conditions::settle(root, "the corpus bench");
   let mto = root.join("target").join("release").join("mto");
+  // mto first: rustfmt keeps every core busy for half a minute, and a processor that hot
+  // runs slower for a while after, which would count against whatever came next.
+  let config = copies.base.join("mto-bench.toml");
+  let mut mto_rows = Vec::new();
+  for (name, dir) in [
+    ("mto, laid-out corpus", &copies.laid),
+    ("mto, as fetched", &copies.raw),
+  ] {
+    match mto_row(&mto, dir, &config, name) {
+      Ok(row) => mto_rows.push(row),
+      Err(e) => {
+        println!("{}: {}", name, e);
+        log.error(&format!("{}: {}", name, e));
+        return 1;
+      }
+    }
+  }
   let mut rows = Vec::new();
   for toolchain in ["stable", "nightly"] {
     match rustfmt_row(&copies.raw, toolchain, log) {
@@ -92,20 +111,7 @@ pub fn run(root: &Path, repos: &[(String, PathBuf)], markdown: bool, log: &Logge
       }
     }
   }
-  let config = copies.base.join("mto-bench.toml");
-  for (name, dir) in [
-    ("mto, laid-out corpus", &copies.laid),
-    ("mto, as fetched", &copies.raw),
-  ] {
-    match mto_row(&mto, dir, &config, name) {
-      Ok(row) => rows.push(row),
-      Err(e) => {
-        println!("{}: {}", name, e);
-        log.error(&format!("{}: {}", name, e));
-        return 1;
-      }
-    }
-  }
+  rows.extend(mto_rows);
   print!("{}", table(&rows, markdown));
   for row in rows.iter() {
     log.info(&format!(
@@ -130,7 +136,46 @@ pub fn run(root: &Path, repos: &[(String, PathBuf)], markdown: bool, log: &Logge
     log.error("speed target not checked: no rustfmt reference row");
     return 1;
   }
+  // The series, and the ratchet's check of each.
+  let mut breaches = Vec::new();
+  for row in rows.iter() {
+    let name = if row.tool.starts_with("mto, laid-out") {
+      "speed.mto.laid_out"
+    } else if row.tool.starts_with("mto, as fetched") {
+      "speed.mto.as_fetched"
+    } else if row.tool.contains("stable") {
+      "speed.rustfmt.stable"
+    } else {
+      "speed.rustfmt.nightly"
+    };
+    breaches.extend(metrics::record_checked(
+      root,
+      &format!("{}.mb_per_s", name),
+      row.throughput(),
+      "MB/s",
+    ));
+    metrics::record(root, &format!("{}.wall", name), row.wall, "s");
+    if let Some(cpu) = row.cpu {
+      metrics::record(root, &format!("{}.cpu", name), cpu, "s");
+    }
+  }
   let mut failed = false;
+  for row in references.iter() {
+    let channel = if row.tool.contains("stable") {
+      "stable"
+    } else {
+      "nightly"
+    };
+    breaches.extend(metrics::record_checked(
+      root,
+      &format!("speed.speedup.{}", channel),
+      laid / row.throughput(),
+      "x",
+    ));
+  }
+  for breach in &breaches {
+    println!("ratchet: {} (filed as an incident)", breach);
+  }
   for row in references {
     let speedup = laid / row.throughput();
     let verdict = if speedup >= MIN_SPEEDUP {
@@ -294,8 +339,11 @@ fn prepare(root: &Path, repos: &[(String, PathBuf)], log: &Logger) -> Result<Cop
       }
     }
   }
+  // A copy is whole when it was finished and still holds every file: the system may clear
+  // files in its temporary folder that go unread (macOS, after three days).
+  let expected: usize = repos.iter().map(|(_, dir)| rust_files(dir).0).sum();
   for copy in [&copies.raw, &copies.laid] {
-    if copy.join(".complete").exists() {
+    if copy.join(".complete").exists() && rust_files(copy).0 == expected {
       continue;
     }
     println!("copying the corpus to {}...", copy.display());

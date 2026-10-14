@@ -395,6 +395,7 @@ pub struct Resolver {
   /// What each folder holds, and each folder's package edition, found once.
   folders: HashMap<PathBuf, files::Folder>,
   editions: HashMap<PathBuf, Result<Option<cargo::Edition>, String>>,
+  manifests: cargo::Manifests,
   warnings: Vec<String>,
   warned: HashSet<String>,
 }
@@ -411,6 +412,7 @@ impl Resolver {
       configs: HashMap::new(),
       folders: HashMap::new(),
       editions: HashMap::new(),
+      manifests: cargo::Manifests::default(),
       warnings: Vec::new(),
       warned: HashSet::new(),
     };
@@ -723,6 +725,16 @@ impl Resolver {
   }
 
   /// What `folder` holds, looked up once.
+  /// What `folder` holds, from its listing (`is_file` says whether it holds a file of that
+  /// name), so that resolving it asks the file system nothing more. A walk reads every
+  /// folder's listing anyway.
+  pub fn note_folder(&mut self, folder: &Path, is_file: impl Fn(&str) -> bool) {
+    if !self.folders.contains_key(folder) {
+      let found = files::Folder::with(folder, is_file);
+      self.folders.insert(folder.to_path_buf(), found);
+    }
+  }
+
   fn folder(&mut self, folder: &Path) -> files::Folder {
     if let Some(found) = self.folders.get(folder) {
       return found.clone();
@@ -738,7 +750,7 @@ impl Resolver {
       return found.clone();
     }
     let here = match self.folder(dir).cargo {
-      Some(manifest) => cargo::manifest_edition(&manifest, dir),
+      Some(manifest) => cargo::manifest_edition(&mut self.manifests, &manifest, dir),
       None => Ok(None),
     };
     let found = match here {

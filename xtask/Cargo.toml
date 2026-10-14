@@ -4,6 +4,11 @@ version = "0.0.0"
 publish = false
 edition = "2024"
 
-# No dependencies, not even mtindo: the test runner must build when the library does not.
-# Commands that need mtindo live in xtask/tools and are run as a separate binary.
+# Never mtindo: the test runner must build when the library does not. Commands that need
+# mtindo live in xtask/tools and are run as a separate binary. Other crates are allowed
+# (the deps gate checks), each for a reason.
 [dependencies]
+# Every command's arguments, defined once (src/cli.rs): parsing, help and the TUI's forms.
+clap = { version = "4.5", default-features = false, features = ["std", "usage", "error-context", "suggestions"] }
+# The run supervisor's Ctrl-C handler.
+libc = "0.2"

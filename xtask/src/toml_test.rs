@@ -12,12 +12,8 @@ use crate::corpus::{checkout_into, parse_pins};
 
 const PINS_PATH: &str = "compat/toml-test.txt";
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
+pub fn run(root: &Path, _: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "toml-test");
-  if !args.is_empty() {
-    eprintln!("Usage: cargo xtask toml-test");
-    return ExitCode::from(2);
-  }
   let pins = match fs::read_to_string(root.join(PINS_PATH))
     .map_err(|e| format!("cannot read {}: {}", PINS_PATH, e))
     .and_then(|text| parse_pins(&text))

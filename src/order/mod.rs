@@ -13,7 +13,7 @@
 
 use std::cmp::Ordering;
 
-use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
+use crate::syntax::{SyntaxKind, SyntaxNode};
 
 #[derive(Clone, Copy, Debug)]
 enum Chunk<'a> {
@@ -284,8 +284,7 @@ pub fn version_sort(a: &str, b: &str) -> Ordering {
 
 fn first_token_is_colons(node: &SyntaxNode) -> bool {
   node
-    .children_with_tokens()
-    .iter()
+    .children_with_tokens_iter()
     .find(|e| !e.kind().is_trivia())
     .is_some_and(|e| e.kind() == SyntaxKind::Colon2)
 }
@@ -293,7 +292,7 @@ fn first_token_is_colons(node: &SyntaxNode) -> bool {
 /// The segment names of a `PATH`, in order, and whether it starts with `::`.
 fn path_segments(path: &SyntaxNode) -> (Vec<String>, bool) {
   let mut names = Vec::new();
-  for child in path.children() {
+  for child in path.children_iter() {
     match child.kind() {
       SyntaxKind::PathSegment => names.push(significant_text(&child)),
       // A qualified prefix, if the parser nests one.
@@ -308,12 +307,9 @@ fn path_segments(path: &SyntaxNode) -> (Vec<String>, bool) {
 /// the last name with its alias.
 fn read_tree(tree: &SyntaxNode, global_paths: bool, top: bool) -> UseTree {
   let mut path = Vec::new();
-  let (segments, leading_colons) = match tree
-    .children()
-    .iter()
-    .find(|c| c.kind() == SyntaxKind::Path)
+  let (segments, leading_colons) = match tree.children_iter().find(|c| c.kind() == SyntaxKind::Path)
   {
-    Some(prefix) => path_segments(prefix),
+    Some(prefix) => path_segments(&prefix),
     None => (Vec::new(), first_token_is_colons(tree)),
   };
   let modsep = top && global_paths && leading_colons;
@@ -321,12 +317,10 @@ fn read_tree(tree: &SyntaxNode, global_paths: bool, top: bool) -> UseTree {
     path.push(segment(name, modsep && idx == 0, None));
   }
   let list = tree
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::UseTreeList);
   let glob = tree
-    .children_with_tokens()
-    .iter()
+    .children_with_tokens_iter()
     .any(|e| e.kind() == SyntaxKind::Star);
   // `::*` and `::{...}` at the root keep an empty first name, as in the standard formatter.
   if (glob || list.is_some()) && segments.is_empty() && modsep {
@@ -336,12 +330,10 @@ fn read_tree(tree: &SyntaxNode, global_paths: bool, top: bool) -> UseTree {
     path.push(Segment::Glob);
   } else if let Some(list) = list {
     let commented = list
-      .children_with_tokens()
-      .iter()
+      .children_with_tokens_iter()
       .any(|e| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment));
     let items = list
-      .children()
-      .into_iter()
+      .children_iter()
       .filter(|c| c.kind() == SyntaxKind::UseTree)
       .map(|t| UseTree {
         has_comment: commented,
@@ -351,8 +343,7 @@ fn read_tree(tree: &SyntaxNode, global_paths: bool, top: bool) -> UseTree {
     path.push(Segment::List(items));
   } else if let Some(last) = segments.last() {
     let alias = tree
-      .children()
-      .into_iter()
+      .children_iter()
       .find(|c| c.kind() == SyntaxKind::Rename)
       .and_then(|r| rename_of(&r))
       .filter(|alias| alias != last);
@@ -384,12 +375,9 @@ fn segment(name: &str, modsep: bool, alias: Option<String>) -> Segment {
 
 fn significant_text(node: &SyntaxNode) -> String {
   node
-    .descendants_with_tokens()
-    .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t.text().to_string()),
-      _ => None,
-    })
+    .token_texts()
+    .filter(|(kind, _, _)| !kind.is_trivia())
+    .map(|(_, text, _)| text)
     .collect()
 }
 
@@ -401,10 +389,9 @@ mod tests {
   fn sorted(items: &[&str], version: bool) -> Vec<String> {
     let tree = |text: &str| {
       let parsed = parse(&format!("use {};", text), Edition::E2021).syntax_node();
-      let item = parsed.children().into_iter().next().unwrap();
+      let item = parsed.children_iter().next().unwrap();
       let node = item
-        .children()
-        .into_iter()
+        .children_iter()
         .find(|c| c.kind() == SyntaxKind::UseTree)
         .unwrap();
       UseTree::from_syntax(&node, true, version)
@@ -493,10 +480,9 @@ mod tests {
 
   fn tree(text: &str) -> UseTree {
     let parsed = parse(&format!("use {};", text), Edition::E2021).syntax_node();
-    let item = parsed.children().into_iter().next().unwrap();
+    let item = parsed.children_iter().next().unwrap();
     let node = item
-      .children()
-      .into_iter()
+      .children_iter()
       .find(|c| c.kind() == SyntaxKind::UseTree)
       .unwrap();
     UseTree::from_syntax(&node, true, false)

@@ -15,7 +15,7 @@
 //! - **Speed:** bytes per second for lexing alone and for lexing plus parsing, single
 //!   threaded; `--baseline` records them in `compat/baseline.txt`.
 //!
-//! Details of every finding go to `logs/corpus.log`.
+//! Details of every finding go to `.dev/logs/corpus.log`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -81,6 +81,24 @@ struct Totals {
   laid_out: Vec<(String, Edition, String)>,
   /// The same with the impl options on, where they change the output.
   laid_out_impls: Vec<(String, Edition, String)>,
+}
+
+pub fn collect(dir: &Path, files: &mut Vec<PathBuf>) {
+  let Ok(entries) = fs::read_dir(dir) else {
+    return;
+  };
+  for entry in entries.flatten() {
+    let path = entry.path();
+    let name = entry.file_name();
+    if name == ".git" || name == "target" {
+      continue;
+    }
+    if path.is_dir() {
+      collect(&path, files);
+    } else if path.extension().is_some_and(|e| e == "rs") {
+      files.push(path);
+    }
+  }
 }
 
 pub fn run(root: &Path, args: &[String]) -> ExitCode {
@@ -266,7 +284,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     }
   }
   if failed {
-    println!("corpus check: failed; details in logs/corpus.log");
+    println!("corpus check: failed; details in .dev/logs/corpus.log");
     ExitCode::from(1)
   } else {
     println!("corpus check: ok");
@@ -443,24 +461,6 @@ fn check_file(path: &Path, shown: &str, totals: &mut Totals) {
   }
 }
 
-fn collect(dir: &Path, files: &mut Vec<PathBuf>) {
-  let Ok(entries) = fs::read_dir(dir) else {
-    return;
-  };
-  for entry in entries.flatten() {
-    let path = entry.path();
-    let name = entry.file_name();
-    if name == ".git" || name == "target" {
-      continue;
-    }
-    if path.is_dir() {
-      collect(&path, files);
-    } else if path.extension().is_some_and(|e| e == "rs") {
-      files.push(path);
-    }
-  }
-}
-
 /// Layout settings for a file of `edition`: the style edition follows it, as `cargo fmt`
 /// passes it to rustfmt.
 fn config_for(edition: Edition) -> LayoutConfig {
@@ -608,7 +608,10 @@ fn section(log: &Logger, name: &str, what: &str, failures: &[String]) -> bool {
     println!("  {}", failure);
   }
   if failures.len() > SHOWN {
-    println!("  ... {} more in logs/corpus.log", failures.len() - SHOWN);
+    println!(
+      "  ... {} more in .dev/logs/corpus.log",
+      failures.len() - SHOWN
+    );
   }
   log.error(&format!(
     "{} failures ({}):\n{}",

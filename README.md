@@ -1,25 +1,29 @@
 # mtindo
 
-`mtindo` is a dependency-free layout tool for Rust source files. Its command is
-`mto`.
+`mtindo` lays out Rust source files. It reorders a file's items (modules,
+imports, macros, constants, types with their impls, functions) into a
+predictable top-down order: the vertical organization of a file, which the
+standard Rust formatter (see [Credits](#credits)) leaves alone. No more
+scrolling past 800 lines of helper functions just to find the main `struct`
+definition.
 
-The standard Rust formatter (see [Credits](#credits)) handles spacing,
-indentation and line wrapping inside items, but it leaves the vertical
-organization of a file alone. `mto` handles that part: it
-reorders the top-level items of a file (modules, imports, macros, constants,
-types with their impls, functions) into a predictable top-down layout. It never
-changes the inside of an item.
+Its command is `mto`, and it has no dependencies. Layout moves items whole:
+it changes nothing within them but their blank lines, the order of impl
+items it was asked to sort, and the bodies of inline modules, which it lays
+out the same way. Every write is checked first, so the code still means
+what it meant.
 
-No more scrolling past 800 lines of helper functions just to find the main
-`struct` definition.
+`mto` also formats, as a preview: spacing, indentation and line breaks in
+the Rust style, as the standard formatter writes them. See [Formatting
+(preview)](#formatting-preview).
 
 ## Core Features
 
 * **Parsed, Not Guessed:** Every file is parsed into a syntax tree that keeps
   every byte. A file with syntax errors is left untouched and reported as
   skipped.
-* **Item Bodies Are Never Touched:** Each item is moved byte for byte. Only the
-  order of items and the blank lines between them change, at the top level and
+* **Items Move Whole:** Layout moves each item byte for byte. Only the order
+  of items and the blank lines between them change, at the top level and
   inside inline `mod name { ... }` blocks, at every level. Line endings (LF or
   CRLF) and a leading byte-order mark are preserved.
 * **Keeps to the Rust Style:** Imports and `mod` declarations are sorted
@@ -39,8 +43,8 @@ No more scrolling past 800 lines of helper functions just to find the main
 * **Order-Sensitive Items Stay Put:** See [What mto never
   moves](#what-mto-never-moves).
 * **Atomic Writes:** Files are replaced by an OS-level rename of a fully
-  written, synced sibling temp file. Permissions are kept, and a symlinked file
-  stays a symlink.
+  written sibling temp file, on disk before the rename. Permissions are kept,
+  and a symlinked file stays a symlink.
 * **History:** Every run that writes files is recorded, so
   `mto restore last` undoes it. See [History and
   restore](#history-and-restore).
@@ -80,22 +84,29 @@ default.
 ## Formatting (preview)
 
 `format = true` in an `mto.toml` turns on formatting in the Rust style, with
-or without layout. It is a preview: today it indents, spaces the tokens
+or without layout. It is a preview. Today it indents, spaces the tokens
 within a line (`a + b`, `f(x)`, `a::b`, `x: T`), keeps blank lines within
 `blank_lines_upper_bound`, trims trailing whitespace after code and line
 comments and writes line endings in the `newline_style`. It puts items,
-attributes and statements on lines of their own, and breaks and joins the
-lines of item headers, attributes, `use` declarations and simple statements
-whose expression is a call, method chain, struct literal, array or tuple, as the
-Rust style lays them out, and sorts runs of imports and module declarations;
-other lines stay where they are written for now.
-Like the standard formatter, it leaves alone macro bodies, `macro_rules!`
-definitions, anything marked `#[rustfmt::skip]`, `// mto: off` regions and a
-statement or item with a line longer than `max_width`.
+attributes and statements on lines of their own. It breaks and joins the
+lines of item headers, attributes, doc comments, `use` declarations, struct
+fields, enum variants and statements of every kind, as the Rust style lays
+them out, where their expressions are calls, method chains, struct
+literals, arrays, tuples, or macro calls whose arguments read as one of
+these. It sorts runs of imports and module declarations. An expression it
+cannot lay out yet, such as a closure or an operator expression that would
+have to break, stays as written; `mto config options` shows how far each
+setting is honored.
 
-Formatting changes only whitespace, and a meaning check runs on every
-formatted file before anything is written: the tokens must match the input's,
-apart from the rewrites the Rust style makes. A second run changes nothing.
+Like the standard formatter, it leaves alone `macro_rules!` definitions,
+macro calls whose arguments are not expressions, anything marked
+`#[rustfmt::skip]`, `// mto: off` regions and a statement or item with a
+line longer than `max_width`.
+
+Formatting changes whitespace and the few tokens the Rust style rewrites (a
+trailing comma, the order of imports), and a meaning check runs on every
+formatted file before anything is written: the tokens must match the
+input's, apart from those rewrites. A second run changes nothing.
 
 ## Command Line Interface
 
@@ -195,17 +206,40 @@ It also takes `--manifest-path`, `--message-format short|json|human`, `-q` and
 | 1 | `--check` found files that would change; `mto restore` skipped files |
 | 2 | Bad arguments or configuration |
 | 3 | A file could not be read, written or parsed, or the git guard kept it |
-| 4 | The verifier stopped a write: a bug in mto; the file is unchanged |
+| 4 | A bug in mto, kept as a report; the file is unchanged |
+| 5 | The build guard's command failed with every edit held back |
 
 ## Every write is checked
 
-Before `mto` writes a file, it parses the old and the new text and checks that
-only the order of items and the blank lines between them changed: every item
-keeps its exact text and its comments, every comment survives, the file header
-stays first, `macro_rules!` keep their order, and the byte-order mark and line
-endings are kept. If anything else would change, the file is left alone, `mto`
-prints a bug report with the smallest part of the file that shows the problem,
-and it exits with code `4`.
+Before `mto` writes a file, it parses the old and the new text and checks
+that the code means what it did. Layout may change only the order of items
+and the blank lines between them: every item keeps its exact text and its
+comments, every comment survives, the file header stays first,
+`macro_rules!` keep their order, and the byte-order mark and line endings
+are kept. Formatting may change only whitespace and the tokens the Rust
+style rewrites. If anything else would change, the file is left alone,
+`mto` keeps a bug report and names it in one line, and it exits with code
+`4`; laying out a file that fails (a panic) is reported the same way, and
+the rest of the run goes on.
+
+### Bug reports
+
+A report holds what failed, the smallest part of the file that still fails
+(never the whole file), the command, the settings that differ from the
+defaults, and the build. The same bug seen again is counted, not kept twice.
+Reports are kept beside history; one not seen for 90 days goes by itself.
+
+```bash
+mto report                     # every report, the latest first
+mto report show 7f3a2c         # one report, as it would be filed
+mto report save 7f3a2c bug.md  # --with-file adds the whole file
+mto report send 7f3a2c         # a new issue, filled in, in the browser
+mto report prune               # remove them all
+```
+
+`mto report send` opens the issue for you to read over and submit: `mto`
+itself sends nothing. `save = false` under `[report]` in the user config
+prints the whole report instead and keeps none.
 
 ## What mto never moves
 
@@ -239,6 +273,9 @@ Some items depend on their position in the file. `mto` keeps them in place:
   `// mto: on` runs to the end of the file.
 * **A file with syntax errors** is left unchanged, and the run exits with code
   `3`.
+* **A file nesting more than 1024 levels deep** (generated code; hand-written
+  code stays far below) is skipped and left unchanged, as mto does not follow
+  it that far.
 
 ## Configuration
 
@@ -302,14 +339,24 @@ formatter applies it. `tab_width` was renamed `tab_spaces`, the standard name.
 
 1. **Refusal:** If a file has syntax errors, or cannot be split into items with
    certainty, it is skipped and left byte-for-byte unchanged.
-2. **Verification:** The new text must hold exactly the original items, byte
-   for byte with their comments; anything else stops the write.
-3. **Record:** The file's contents before and after are stored, and synced, in
-   history.
-4. **Atomic Write:** The new content is written to a synced temp file next to
-   the target, then renamed over it in one step.
+2. **Verification:** The new text must mean what the old one did (see
+   [Every write is checked](#every-write-is-checked)); anything else stops
+   the write.
+3. **Record:** The file's contents before the run are stored in history, and
+   the file is added to the run's record, before the file changes.
+4. **Atomic Write:** The new content is written to a temp file next to the
+   target, then renamed over it in one step.
 
-Unchanged files are never rewritten.
+Each step reaches the disk before the next, so a run cut short anywhere, even
+by a crash or a power cut, leaves every file as it was or as written, and
+`mto restore` can undo whatever it changed. Unchanged files are never
+rewritten.
+
+By default (`sync = "batch"` under `[safety]` in the user config) the steps are
+kept in order as they are written, and everything a run wrote is flushed to
+disk once, when it ends, as git's `core.fsyncMethod = batch` does: on macOS,
+where a full flush costs milliseconds, a run writing hundreds of files takes a
+fraction of the time. `sync = "full"` flushes each file before the next.
 
 ### History and restore
 
@@ -346,6 +393,43 @@ file that git sees uncommitted changes in, and says so (exit code `3`).
 `--allow-dirty` lets it through. git is used only if it is installed;
 without it, the guard is skipped with a note.
 
+### The build guard
+
+The verifier proves each file holds what it held, not that the project
+still builds. `mto doctor on` turns on a guard that checks: each run that
+writes files runs a command before and after, `cargo check --workspace
+--all-targets --keep-going` unless you give another, and holds back the
+fewest edits that break the build.
+
+```bash
+mto doctor on                  # or: mto doctor on -- cargo test -q
+mto .                          # checked before and after
+mto doctor holds               # edits held back, and how to keep them
+mto doctor release all
+mto doctor last -- cargo build # narrow down a run already made
+mto doctor off
+```
+
+When a run breaks the build, mto narrows its edits down, running the
+command on each candidate: to the fewest files, then to the fewest moved
+items and changed lines in them. It writes every other edit, checks once
+more, and writes a report naming each held edit, the errors it caused and
+how to keep it (`// mto: pin`, `// mto: off`); reports are pruned with
+the runs they belong to. Held edits stay held on later runs, without the
+command, until mto's build or the text changes.
+
+A tree whose command already fails before the run cannot be guarded: a
+crate that does not build hides what an edit would break after it. mto
+writes nothing, says why, and exits with code `5`. Fix the build, give the
+guard a command that passes (`mto doctor on -- COMMAND`), or pass
+`--unguarded` for one run.
+
+mto runs the command only with the guard on, and only that command. The
+setting lives in the user config, never in a project's files, so no
+repository can make mto run anything. A run naming a single file (how
+editors call mto) or reading stdin is not guarded; neither is one given
+`--unguarded`.
+
 ### The user config
 
 How `mto` behaves for you, on every project, is set in
@@ -365,8 +449,18 @@ max_size = "256MB"  # bytes, or KB, MB, GB
 [output]
 color = "auto"      # always, never; --color, NO_COLOR, FORCE_COLOR win
 
+[report]
+save = true         # keep bug reports for `mto report`; false: print them
+
 [safety]
 allow_dirty = false # with history off, overwrite uncommitted changes
+sync = "batch"      # or "full": flush each file to disk as it is written
+
+[doctor]
+enabled = false     # mto doctor on/off; the build guard
+command = ["cargo", "check", "--workspace", "--all-targets", "--keep-going"]
+timeout = 600       # seconds a check may take; 0: no limit
+max_checks = 64     # checks one narrowing may run
 ```
 
 `mto config print --user` shows each value and where it came from.
@@ -381,75 +475,9 @@ is expected to leave the layout alone.
 
 ## Development
 
-`cargo xtask test` runs every gate and test suite and reports each as passed
-or failed; tasks outside the chosen groups are listed as skipped, with how to
-run them. A chosen task whose tool is missing fails instead of being skipped,
-and every task runs under a time limit, so a green run means every chosen task
-ran and passed. `cargo xtask test -h` lists every group, task, flag and
-environment variable. Each run is logged, with every task's full output, to
-`logs/test.log`, and each green run is added to `logs/last-green.tsv` with the
-exact tree it ran on (neither is tracked by git). While it runs, the machine is
-kept awake (`caffeinate` on macOS, `systemd-inhibit` on Linux), and a fuzz task
-fails if the machine slept anyway, since sleep would cut its fuzzing short.
-
-```bash
-# Gates and all tests (the default)
-cargo xtask test
-# Also the real-crate check (network), fuzzing (nightly) and benchmarks
-cargo xtask test --full
-# Show the plan without running it
-cargo xtask test --list
-# Regenerate tests/fixtures expected outputs; review the diff before committing
-cargo xtask test --bless
-```
-
-The other development commands are also in `xtask`, a development-only crate in
-this workspace written in Rust like the rest, with no dependencies:
-
-```bash
-# No runtime dependencies, layering, docs width, capability statuses
-cargo xtask gates
-# Regenerate src/text/unicode tables from the Unicode Character Database
-cargo xtask unicode
-# Compare mto's lexer with rustc's own on .rs files
-cargo xtask lexdiff [PATH...]
-# Parse .rs files with their crate's edition and report syntax errors
-cargo xtask parsecheck [PATH...]
-# Re-read rustfmt's options and flags (local binaries; latest stable and
-# nightly when online) into compat/rustfmt-surface.txt
-cargo xtask capabilities refresh
-# Add new items to compat/capabilities.txt as missing; drop stale ones
-cargo xtask capabilities sync
-# How much of rustfmt mto supports, and how rustfmt's own tests fare
-cargo xtask capabilities report [--markdown]
-# Check out the pinned real-world corpus (compat/corpus.txt), then check
-# that every file round-trips, parses and lexes like rustc; --baseline
-# records parsing speed in compat/baseline.txt
-cargo xtask corpus check
-# Time rustfmt stable and nightly (as cargo fmt runs them) and mto on the
-# corpus, by wall clock and CPU time, as a table; fails if mto is below
-# twice rustfmt's throughput
-cargo xtask corpus bench [--markdown]
-# How much of the Rust style mto reproduces: files and lines matching
-# rustfmt on its own tests, the corpus and the corpus with scrambled
-# whitespace; fails below compat/compatibility.txt, --update records
-cargo xtask diff [--update] [--markdown]
-# Move every corpus pin to its repository's current HEAD
-cargo xtask corpus update
-# Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's
-# own test inputs, and mto's layout settings one by one, drawn live;
-# --markdown for a shareable table
-cargo xtask race [--rounds N] [--filter TEXT]
-# Regenerate src/options/rustfmt.rs, rustfmt's settings table, from the
-# releases pinned in compat/rustfmt-surface.txt; --check only compares
-cargo xtask settings [--check]
-# Check the TOML parser against the pinned toml-test conformance suite
-# (compat/toml-test.txt): every valid file decodes to the expected
-# values and every invalid one is refused
-cargo xtask toml-test
-# Every command, gate and exit code
-cargo xtask help
-```
+`cargo xtask test` runs every gate and test suite. How to build, test, fuzz,
+benchmark and watch the project, and every development command, are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
@@ -468,7 +496,6 @@ be dual licensed as above, without any additional terms or conditions.
 
 ## Credits
 
-`mto` takes its formatting rules, its settings and its command line from
-[rustfmt](https://github.com/rust-lang/rustfmt), the Rust project's formatter,
-and checks itself against rustfmt's own tests. Thanks to its authors and
-maintainers.
+`mto` takes after [rustfmt](https://github.com/rust-lang/rustfmt) in its
+formatting rules, its settings and its command line, and checks itself
+against rustfmt's own tests. Thanks to its authors and maintainers.

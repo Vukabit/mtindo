@@ -27,6 +27,8 @@ pub struct Settings {
   pub note: Option<String>,
   /// `safety.allow_dirty`.
   pub allow_dirty: bool,
+  /// `safety.sync`.
+  pub sync: crate::durable::Mode,
 }
 
 impl Settings {
@@ -57,6 +59,14 @@ impl Settings {
       limits,
       note,
       allow_dirty: flag("safety.allow_dirty").unwrap_or(false),
+      sync: match resolver
+        .user_value("safety.sync")
+        .and_then(|v| v.as_text().map(str::to_string))
+        .as_deref()
+      {
+        Some("full") => crate::durable::Mode::Full,
+        _ => crate::durable::Mode::Batch,
+      },
     })
   }
 }
@@ -120,6 +130,14 @@ pub fn finish_record(recorder: &mut history::Recorder, limits: Limits, quiet: bo
   if let Err(e) = recorder.history().prune(limits, false) {
     eprintln!(
       "{}warning: cannot prune history: {}{}",
+      c_yellow(true),
+      e,
+      c_reset(true)
+    );
+  }
+  if let Err(e) = crate::cli::doctor::prune_reports(recorder.history()) {
+    eprintln!(
+      "{}warning: cannot prune the build guard's reports: {}{}",
       c_yellow(true),
       e,
       c_reset(true)
@@ -280,12 +298,62 @@ pub fn prune(history: &History, mut limits: Limits, args: PruneArgs) -> Result<S
   let pruned = history
     .prune(limits, true)
     .map_err(|e| format!("cannot prune history: {}", e))?;
-  Ok(format!(
-    "Removed {} run(s) and {} stored file(s), freeing {}.\n",
-    pruned.runs,
-    pruned.objects,
-    size(pruned.bytes)
-  ))
+  let (reports, report_bytes) = crate::cli::doctor::prune_reports(history)
+    .map_err(|e| format!("cannot prune the build guard's reports: {}", e))?;
+  let mut out = format!(
+    "Removed {} run(s) and {} stored file(s)",
+    pruned.runs, pruned.objects
+  );
+  if reports > 0 {
+    out.push_str(&format!(" and {} build guard report(s)", reports));
+  }
+  out.push_str(&format!(
+    ", freeing {}.\n",
+    size(pruned.bytes + report_bytes)
+  ));
+  Ok(out)
+}
+
+/// A run named on the command line: `last` and `last~N` count the runs of the current
+/// folder's project, as `mto history` lists them, so a restore never reaches into another
+/// project; a handle names its run wherever mto runs.
+pub fn resolve_here(history: &History, spec: &str) -> Result<String, String> {
+  let Some(back) = history::steps_back(spec)? else {
+    return history.resolve(spec);
+  };
+  let here =
+    std::env::current_dir().map_err(|e| format!("cannot read the current folder: {}", e))?;
+  let root = project_root(&here);
+  let ids = history
+    .ids()
+    .map_err(|e| format!("cannot read history: {}", e))?;
+  if ids.is_empty() {
+    // Says the history is empty.
+    return history.resolve(spec);
+  }
+  let mine: Vec<&String> = ids
+    .iter()
+    .rev()
+    .filter(|id| {
+      history
+        .read(id)
+        .is_ok_and(|run| run.entries.iter().any(|e| is_under(&e.path, &root)))
+    })
+    .collect();
+  if mine.is_empty() {
+    return Err(format!(
+      "no run wrote files in {}; name one by its handle from `mto history --all`",
+      root.display()
+    ));
+  }
+  mine.get(back).map(|id| (*id).clone()).ok_or_else(|| {
+    format!(
+      "{} run(s) wrote files in {}; `{}` goes back too far",
+      mine.len(),
+      root.display(),
+      spec
+    )
+  })
 }
 
 /// `mto restore`: puts back what a run replaced, in the files that still hold what it wrote
@@ -492,48 +560,6 @@ fn is_under(path: &Path, root: &Path) -> bool {
     .and_then(resolved)
     .map(|parent| parent.join(path.file_name().unwrap_or_default()));
   matches!((path, resolved(root)), (Some(path), Some(root)) if path.starts_with(&root))
-}
-
-/// A run named on the command line: `last` and `last~N` count the runs of the current
-/// folder's project, as `mto history` lists them, so a restore never reaches into another
-/// project; a handle names its run wherever mto runs.
-fn resolve_here(history: &History, spec: &str) -> Result<String, String> {
-  let Some(back) = history::steps_back(spec)? else {
-    return history.resolve(spec);
-  };
-  let here =
-    std::env::current_dir().map_err(|e| format!("cannot read the current folder: {}", e))?;
-  let root = project_root(&here);
-  let ids = history
-    .ids()
-    .map_err(|e| format!("cannot read history: {}", e))?;
-  if ids.is_empty() {
-    // Says the history is empty.
-    return history.resolve(spec);
-  }
-  let mine: Vec<&String> = ids
-    .iter()
-    .rev()
-    .filter(|id| {
-      history
-        .read(id)
-        .is_ok_and(|run| run.entries.iter().any(|e| is_under(&e.path, &root)))
-    })
-    .collect();
-  if mine.is_empty() {
-    return Err(format!(
-      "no run wrote files in {}; name one by its handle from `mto history --all`",
-      root.display()
-    ));
-  }
-  mine.get(back).map(|id| (*id).clone()).ok_or_else(|| {
-    format!(
-      "{} run(s) wrote files in {}; `{}` goes back too far",
-      mine.len(),
-      root.display(),
-      spec
-    )
-  })
 }
 
 /// `text` cut to `width` characters, with `...` when cut.

@@ -6,31 +6,5 @@
 //! to arrange are fine; panicking on any input is not.
 
 use libfuzzer_sys::fuzz_target;
-use mtindo::syntax::Edition;
-use mtindo::verify::verify_layout;
-use mtindo::{LayoutConfig, try_reorganize};
 
-fuzz_target!(|data: &[u8]| {
-  let Ok(text) = std::str::from_utf8(data) else {
-    return;
-  };
-  let config = LayoutConfig::default();
-  let Ok(once) = try_reorganize(text, &config, false) else {
-    return;
-  };
-  let found = verify_layout(text, &once, Edition::E2021);
-  assert!(
-    found.is_empty(),
-    "meaning changed:\n{}\n---\n{}\n{:?}",
-    text,
-    once,
-    found
-  );
-  let twice = try_reorganize(&once, &config, false);
-  assert_eq!(
-    twice.as_deref(),
-    Ok(once.as_str()),
-    "a second run changed it:\n{}",
-    text
-  );
-});
+fuzz_target!(|data: &[u8]| mtindo::fuzzing::layout::check(data));

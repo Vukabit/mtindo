@@ -53,8 +53,7 @@ impl Attr {
   pub fn is_inner(&self) -> bool {
     self
       .0
-      .children_with_tokens()
-      .iter()
+      .children_with_tokens_iter()
       .filter(|e| !e.kind().is_trivia())
       .nth(1)
       .is_some_and(|e| e.kind() == SyntaxKind::Bang)
@@ -148,7 +147,7 @@ impl Impl {
     let mut before = None;
     let mut after = None;
     let mut seen_for = false;
-    for element in self.0.children_with_tokens() {
+    for element in self.0.children_with_tokens_iter() {
       match element {
         SyntaxElement::Token(token) if token.kind() == SyntaxKind::ForKw => seen_for = true,
         SyntaxElement::Node(node) if is_type(node.kind()) => {
@@ -174,8 +173,7 @@ impl Item {
   pub fn attrs(&self) -> Vec<Attr> {
     self
       .0
-      .children()
-      .into_iter()
+      .children_iter()
       .filter_map(Attr::cast)
       .filter(|attr| !attr.is_inner())
       .collect()
@@ -212,10 +210,11 @@ impl Item {
       ItemKind::MacroRules | ItemKind::MacroDef => true,
       ItemKind::Module => self.attrs().iter().any(|a| a.path() == "macro_use"),
       ItemKind::MacroCall => {
-        let words: Vec<String> = tokens_deep(&self.0)
-          .iter()
-          .filter(|t| !t.kind().is_trivia())
-          .map(|t| t.text().to_string())
+        let words: Vec<&str> = self
+          .0
+          .token_texts()
+          .filter(|(kind, _, _)| !kind.is_trivia())
+          .map(|(_, text, _)| text)
           .collect();
         words.windows(2).any(|pair| {
           (pair[0] == "macro_rules" && pair[1] == "!")
@@ -260,8 +259,7 @@ impl Item {
       return Visibility::Private;
     };
     let words: Vec<SyntaxToken> = node
-      .descendants_with_tokens()
-      .into_iter()
+      .descendants_with_tokens_iter()
       .filter_map(|e| match e {
         SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
         _ => None,
@@ -295,8 +293,7 @@ impl SourceFile {
   pub fn attrs(&self) -> Vec<Attr> {
     self
       .0
-      .children()
-      .into_iter()
+      .children_iter()
       .filter_map(Attr::cast)
       .filter(Attr::is_inner)
       .collect()
@@ -305,12 +302,7 @@ impl SourceFile {
   /// The top-level items, in order. Nodes that are not items, such as an `ERROR` node
   /// around damaged text, are left out.
   pub fn items(&self) -> Vec<Item> {
-    self
-      .0
-      .children()
-      .into_iter()
-      .filter_map(Item::cast)
-      .collect()
+    self.0.children_iter().filter_map(Item::cast).collect()
   }
 
   pub fn syntax(&self) -> &SyntaxNode {
@@ -350,7 +342,7 @@ impl Use {
 }
 
 fn child(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
-  node.children().into_iter().find(|c| c.kind() == kind)
+  node.children_iter().find(|c| c.kind() == kind)
 }
 
 fn is_type(kind: SyntaxKind) -> bool {
@@ -398,29 +390,17 @@ fn item_kind(kind: SyntaxKind) -> Option<ItemKind> {
 
 /// A node's text without trivia: `crate :: a` reads `crate::a`.
 fn significant_text(node: &SyntaxNode) -> String {
-  tokens_deep(node)
-    .iter()
-    .filter(|t| !t.kind().is_trivia())
-    .map(|t| t.text())
+  node
+    .token_texts()
+    .filter(|(kind, _, _)| !kind.is_trivia())
+    .map(|(_, text, _)| text)
     .collect()
 }
 
 /// The direct child tokens of a node.
 fn tokens(node: &SyntaxNode) -> Vec<SyntaxToken> {
   node
-    .children_with_tokens()
-    .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) => Some(t),
-      SyntaxElement::Node(_) => None,
-    })
-    .collect()
-}
-
-fn tokens_deep(node: &SyntaxNode) -> Vec<SyntaxToken> {
-  node
-    .descendants_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .filter_map(|e| match e {
       SyntaxElement::Token(t) => Some(t),
       SyntaxElement::Node(_) => None,
@@ -437,21 +417,18 @@ fn type_name(ty: &SyntaxNode) -> Option<String> {
     SyntaxKind::PathType => {
       let path = child(ty, SyntaxKind::Path)?;
       let segment = path
-        .children()
-        .into_iter()
+        .children_iter()
         .rfind(|n| n.kind() == SyntaxKind::PathSegment)?;
       let name = child(&segment, SyntaxKind::NameRef)?;
       Some(significant_text(&name))
     }
     SyntaxKind::RefType | SyntaxKind::PtrType | SyntaxKind::ParenType => ty
-      .children()
-      .into_iter()
+      .children_iter()
       .find(|n| is_type(n.kind()))
       .and_then(|inner| type_name(&inner)),
     SyntaxKind::DynTraitType | SyntaxKind::ImplTraitType => ty
-      .descendants()
-      .into_iter()
-      .find(|n| n.kind() == SyntaxKind::PathType)
+      .descendant_nodes_where(|kind| kind == SyntaxKind::PathType)
+      .next()
       .and_then(|path| type_name(&path)),
     _ => None,
   }

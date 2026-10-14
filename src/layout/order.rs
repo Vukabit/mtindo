@@ -41,7 +41,7 @@ pub(super) fn arrange(units: &[Unit], config: &LayoutConfig) -> Result<Vec<Unit>
   Ok(arranged)
 }
 
-fn compare(
+pub(super) fn compare(
   a: &Unit,
   b: &Unit,
   config: &LayoutConfig,
@@ -93,12 +93,12 @@ fn compare(
     }
     unit.kind.clone()
   };
-  let rank = |kind: &ItemKind| {
-    config
-      .type_order
-      .iter()
-      .position(|k| k == kind)
-      .unwrap_or(99)
+  // Kinds left out of the list go after the listed ones, in their default order: no two
+  // kinds share a rank, as the rules within a kind (imports or macros as written) would
+  // not be one order with a rule across kinds.
+  let rank = |kind: &ItemKind| match config.type_order.iter().position(|k| k == kind) {
+    Some(at) => at,
+    None => config.type_order.len() + kind.clone() as usize,
   };
   let (rank_a, rank_b) = (
     rank(&family_kind(a, &family_a)),

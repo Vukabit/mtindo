@@ -1,15 +1,20 @@
+#![deny(unsafe_code)]
+
 use std::env;
 use std::path::{Path, PathBuf};
 
+use mtindo::cli::doctor as doctor_cli;
 use mtindo::cli::history::{self, PruneArgs};
 use mtindo::config::{self, Config, Environment, FileKind, Overrides, Resolver, Source};
+use mtindo::doctor::guard::{self, Ended, Planned};
 use mtindo::options::File;
 use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::tree::debug_dump;
 use mtindo::syntax::{Edition, parse};
 use mtindo::{
   Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, Writes, c_green, c_red, c_reset,
-  c_yellow, collect_jobs, print_warnings, process_init, process_stdin, run_jobs,
+  c_yellow, collect_jobs, collect_jobs_into, print_warnings, process_init, process_stdin, run_jobs,
+  run_jobs_walking,
 };
 
 /// mto's commands, in the order help lists them. Each has its own help page (`mto history
@@ -74,7 +79,8 @@ const COMMANDS: &[CommandSpec] = &[
                 wrote files in this folder's project (the nearest folder above holding .git, \
                 else Cargo.toml), newest first, or every run when there are none; --all lists \
                 every project's. `show` lists one run's files and where each stands now. `prune` \
-                removes old runs, by the user config's limits unless told otherwise. RUN is \
+                removes old runs, and the build guard's reports of them, by the user \
+                config's limits unless told otherwise. RUN is \
                 `last` or `last~N`, counted among this project's runs, or a handle from the \
                 list, which names its run anywhere.",
     usage: &[
@@ -109,6 +115,65 @@ const COMMANDS: &[CommandSpec] = &[
     usage: &["mto restore <RUN> [FILE...] [--force]"],
     options: &[("options", "mto restore <RUN> [FILE...]", &[Flag::Force])],
     examples: &["mto restore last", "mto restore 3f9a src/lib.rs"],
+  },
+  CommandSpec {
+    name: "doctor",
+    args: "[on|off|holds|release|<RUN>]",
+    summary: "Guard the build against mto's edits, or find the edit that broke it",
+    about: "`on` turns the build guard on: each run that writes files then checks that the \
+                project still builds, and holds back the fewest edits that break it. It runs \
+                the command given after `--` (default: `cargo check` over the whole \
+                workspace and all its targets) and no other; with the guard off, mto runs none. `off` turns \
+                it off. With no argument, says whether it is on, its command and the edits it \
+                holds. `holds` lists those edits; `release` drops one, or all. RUN narrows \
+                down a run already made the same way: RUN is `last` or `last~N`, counted \
+                among this project's runs, or a handle from `mto history`.",
+    usage: &[
+      "mto doctor",
+      "mto doctor on [-- <COMMAND>...]",
+      "mto doctor off",
+      "mto doctor holds",
+      "mto doctor release <N|all>",
+      "mto doctor <RUN> [-- <COMMAND>...]",
+    ],
+    options: &[],
+    examples: &[
+      "mto doctor on",
+      "mto doctor on -- cargo test -q",
+      "mto doctor holds",
+      "mto doctor release all",
+      "mto doctor last -- cargo build",
+    ],
+  },
+  CommandSpec {
+    name: "report",
+    args: "[show|save|send|prune]",
+    summary: "The bug reports mto keeps when it finds a bug in itself",
+    about: "When the verifier stops a write, or laying out a file fails, mto keeps a report \
+                beside history and names it in one line (`report.save = false` in the user \
+                config prints the whole report instead). A report holds what failed, the \
+                smallest part of the file that still fails (never the whole file), the \
+                command, the settings that differ from the defaults and the build; the same \
+                bug seen again is counted. With no argument, lists the reports. `show` prints \
+                one. `save` writes one to FILE; --with-file adds the whole file it was found \
+                in. `send` opens a new issue on mto's repository in the browser, filled in \
+                with the report, to read over and submit: mto itself sends nothing. `prune` \
+                removes them all; a report not seen for 90 days goes by itself. ID is a \
+                report's id from the list, or its start.",
+    usage: &[
+      "mto report",
+      "mto report show <ID>",
+      "mto report save <ID> <FILE> [--with-file]",
+      "mto report send <ID>",
+      "mto report prune",
+    ],
+    options: &[("options", "mto report save <ID> <FILE>", &[Flag::WithFile])],
+    examples: &[
+      "mto report",
+      "mto report show 7f3a2c",
+      "mto report save 7f3a2c bug.md --with-file",
+      "mto report send 7f3a2c",
+    ],
   },
   CommandSpec {
     name: "debug",
@@ -150,7 +215,13 @@ const EXIT_CODES: &[(&str, &str)] = &[
   ),
   (
     "4",
-    "the verifier stopped a write (a bug in mto); the file is unchanged",
+    "a bug in mto: the verifier stopped a write, or laying out a file failed; the file \
+         is unchanged",
+  ),
+  (
+    "5",
+    "the build guard's command failed with every edit held back, or already failed \
+         before the run; the files are as they were",
   ),
 ];
 
@@ -274,6 +345,14 @@ const FLAGS: &[FlagSpec] = &[
     long: "--allow-dirty",
     value: "",
     help: "With history off, rewrite files that have uncommitted changes",
+  },
+  FlagSpec {
+    flag: Flag::Unguarded,
+    group: Group::History,
+    short: None,
+    long: "--unguarded",
+    value: "",
+    help: "With the build guard on (`mto doctor on`), do not check this run",
   },
   FlagSpec {
     flag: Flag::NoHistory,
@@ -404,6 +483,14 @@ const FLAGS: &[FlagSpec] = &[
     help: "Keep only the newest N runs",
   },
   FlagSpec {
+    flag: Flag::WithFile,
+    group: Group::Command,
+    short: None,
+    long: "--with-file",
+    value: "",
+    help: "Add the whole file the bug was found in",
+  },
+  FlagSpec {
     flag: Flag::OlderThan,
     group: Group::Command,
     short: None,
@@ -416,22 +503,105 @@ const FLAGS: &[FlagSpec] = &[
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 30;
 
+/// The manual's chapter on the build guard and `mto doctor`.
+const MAN_DOCTOR: &str = r#"## The Build Guard: mto doctor
+mto proves that each file it writes holds what it held, but not that the
+project still builds: a reordered item can meet a macro or a build script
+that depends on where it was. The build guard checks.
+```bash
+mto doctor on                    # guard with cargo check
+mto doctor on -- cargo test -q   # or with any command
+mto doctor                       # whether it is on, and what it holds
+mto doctor off
+```
+It is off until you turn it on. Turned on, mto runs one command, the one
+given to `mto doctor on` (when none is, `cargo check` over the whole
+workspace and all its targets), and no other; turned off, mto runs none. The setting lives in the user
+config, under `[doctor]`, so no project can turn it on or change its
+command.
+A run that writes files is guarded unless it names a single file, which is
+how editors call mto, or reads stdin; `--unguarded` skips the guard for one
+run. A guarded run:
+1. Runs the command, in the project's folder (the nearest above holding
+`.git`, else `Cargo.toml`), while it lays out and formats the files in
+memory. Nothing is written until it ends.
+2. Writes the files, then runs the command again.
+3. Compares the two. When the command passed before and fails now, or fails
+now with an error it did not have before, the run broke the build. Errors
+are compared by their code and message (`error[E0425]: cannot find value
+in this scope`), not their lines, which formatting moves; the errors that
+were there before the run pass through. A command that prints no
+errors the compiler's way is judged by its exit code alone.
+A run that broke the build is taken apart. Its edits are the moves of items
+(each item layout put somewhere else) and the changes of whitespace
+formatting made (each run of changed lines). mto narrows them down, running
+the command on each candidate: first to the fewest files that still break
+the build, then to the fewest edits within them. The edits it finds are
+held back: the item stays where it was, the lines stay as they were
+written. Every other edit is written, and the command runs once more to
+show that the project builds. The run's record in history ends with what
+was written, so `mto restore` undoes the run as usual.
+```text
+$ mto .
+Formatted: ./src/lib.rs
+Formatted: ./src/main.rs
+doctor: before ✓  after ✗ error[E0433]: failed to resolve
+doctor: 14 files, 23 edits: 9 checks
+doctor: held back 1 edit:
+  ./src/lib.rs: moved: mod generated (line 40, now before struct A)
+doctor: the rest is written; check ✓
+report: ~/.local/state/mtindo/doctor/reports/0192f3a1.md
+```
+The report says what each held edit was, the errors it caused, and how to
+keep it for good without the guard: `// mto: pin` above a moved item,
+`// mto: off` and `// mto: on` around changed lines. It goes when its run is
+pruned from history, unless an edit it held is still held. A narrowing takes at
+most `doctor.max_checks` runs of the command; past that, mto holds back every edit
+of the files it has narrowed down to. When the build still fails with every
+edit held back, the failure was not mto's (the command is flaky, or reads
+something else that changed): the files are put back as they were, and mto
+says so (exit code 5). A command that already fails before the run cannot
+guard it, as a crate that does not build hides what an edit would break after
+it: mto writes nothing, says why, and exits with code 5; fix the build, give
+the guard a command that passes, or pass `--unguarded`.
+Held edits are remembered, in the doctor's folder next to history, so the
+next run holds them back again without running the command. A hold lapses
+when mto's build changes (the one `mto --version` names, which changes between
+releases too) or the text it is about does; the guard then checks again.
+```bash
+mto doctor holds        # every held edit, with how to keep it for good
+mto doctor release 2    # drop one; release all drops every one
+```
+While a narrowing runs, the files hold its candidates, each recorded in
+the run's history first. If it is cut short, the next run of mto puts the
+files back as they were before the run, before anything else.
+`mto doctor RUN` narrows down a run already made, guarded or not: RUN is
+`last`, `last~N` or a handle from `mto history`. Its files must still hold
+what it wrote. The command is the one after `--`, else the guard's; with the
+guard off and no command given, it stops and says how to give one.
+"#;
+
 /// The manual's opening: what mto is and how it works.
 const MAN_INTRO: &str = r#"# mtindo (mto)
-`mtindo` is a dependency-free layout tool for Rust source files. Its command
-is `mto`. While the standard formatter handles spacing and line wrapping inside
-items, `mto` reorders the top-level items of a file (modules, imports, macros, constants,
-types with their impls, functions) into a predictable top-down layout.
-It never changes the inside of an item.
-Layout is opt-in: until an `mto.toml` with `layout = true` applies, mto
-leaves every file alone and says so. `mto init` writes one.
+`mtindo` is a dependency-free formatter for Rust source files. Its command
+is `mto`. Layout (`layout = true`) does what the standard formatter leaves
+alone: it reorders a file's items (modules, imports, macros, constants, types
+with their impls, functions) into a predictable top-down layout, inside inline
+modules too, and the items of impl blocks when asked; it moves items whole.
+Formatting (`format = true`, a preview) does what the standard formatter does:
+spacing, indentation and line breaks, in the Rust style, changing whitespace
+and the few tokens the Rust style rewrites. Both are opt-in: until an `mto.toml` turns one on, mto leaves
+every file alone and says so. `mto init` writes one.
 ## How it works
 *   **Parsed, not guessed:** each file is parsed into a syntax tree that keeps
 every byte. A file with syntax errors is left untouched and reported as
-skipped.
+skipped, as is one nesting more than 1024 levels deep (no hand-written code
+comes near), which mto does not follow.
 *   **Verified before every write:** the new text must hold exactly the
 original items, byte for byte with their comments, in a new order and with
-new blank lines between them. Anything else stops the write (exit code 4).
+new blank lines between them. Anything else stops the write (exit code 4), and
+mto keeps a bug report, named in one line: `mto report` shows, saves and sends
+it (`report.save = false` prints it whole instead).
 *   **Every level:** the same rules apply inside inline `mod name { ... }`
 blocks, at every level; impl blocks are ordered only when asked
 (`reorder_impl_items`, `impl_method_order`).
@@ -449,10 +619,11 @@ item-position macro calls are never moved past each other; a macro never ends
 up below an item that originally followed it. `#[rustfmt::skip]` items and items
 under `// mto: pin` keep their place, and `#[cfg]` variants of one item move
 together.
-*   **Atomic Writes:** Files are replaced by an OS-level rename of a synced
-sibling temp file. Permissions are kept and symlinked files stay symlinks.
+*   **Atomic Writes:** Files are replaced by an OS-level rename of a sibling
+temp file, on disk before the rename. Permissions are kept and symlinked files
+stay symlinks.
 *   **History:** Every run that writes files is recorded, with each file's
-contents before and after; `mto restore last` undoes the last one.
+contents before; `mto restore last` undoes the last one.
 *   **CI/CD Check Mode:** Prints a diff for every file that would change and
 exits with status 1.
 *   **Stdin/Stdout Filtering:** `mto -` reads source from stdin and writes the
@@ -467,11 +638,16 @@ cargo install --path .
 /// The manual's closing: how writes are kept safe and how to keep text in place.
 const MAN_SAFETY: &str = r#"## Safety and History
 1. The new text is verified against the original before anything is written.
-2. With history on (the default), the file's contents before and after are
-stored, and synced, in the history folder (`mto config path` shows it), each
-content once however many runs share it.
-3. The new text is written to a synced sibling temp file, and an atomic
-rename replaces the original file.
+2. With history on (the default), the file's contents before are stored in
+the history folder (`mto config path` shows it), each content once however
+many runs share it, and the file is added to the run's record.
+3. The new text is written to a sibling temp file, and an atomic rename
+replaces the original file.
+Each step reaches the disk before the next, so a run cut short anywhere, even
+by a power cut, leaves each file as it was or as written, and `mto restore`
+can undo it. With `sync = "batch"` under `[safety]` (the default) everything a
+run wrote is flushed to disk once, when it ends; `sync = "full"` flushes each
+file before the next.
 Each run that writes files is recorded under an id, shown by a short handle:
 ```bash
 mto history            # this project's runs, newest first
@@ -482,7 +658,8 @@ mto restore 3f9a src/lib.rs
 A restore puts back only files that still hold what the run wrote; `--force`
 restores changed and missing files too. A restore is a run of its own, so it
 can be undone. Runs are pruned after each run by the user config's `[history]`
-settings, or with `mto history prune`.
+settings, or with `mto history prune`, and the build guard's reports of the
+runs pruned go with them.
 With history off (`--no-history`, or `enabled = false` under `[history]`),
 there is no undo, so mto leaves alone any file git sees uncommitted changes in,
 unless `--allow-dirty` (or `allow_dirty = true` under `[safety]`). git is used
@@ -520,6 +697,9 @@ enum CliAction {
     dir: PathBuf,
     overrides: Overrides,
   },
+  Report {
+    view: ReportView,
+  },
   History {
     view: HistoryView,
   },
@@ -527,6 +707,9 @@ enum CliAction {
     run: String,
     files: Vec<PathBuf>,
     force: bool,
+  },
+  Doctor {
+    view: DoctorView,
   },
   Init {
     target_path: Option<PathBuf>,
@@ -554,6 +737,21 @@ enum ConfigView {
 enum DebugView {
   Tokens,
   Tree,
+}
+
+/// What `mto doctor` was asked for.
+enum DoctorView {
+  Status,
+  /// Turn the guard on, with the command after `--` when given.
+  On(Option<Vec<String>>),
+  Off,
+  Holds,
+  Release(String),
+  /// Narrow down a run already made.
+  Run {
+    run: String,
+    command: Option<Vec<String>>,
+  },
 }
 
 /// Every flag mto accepts. The parser and the help text both read this table, so a flag
@@ -584,9 +782,11 @@ enum Flag {
   Recursive,
   NoHistory,
   AllowDirty,
+  Unguarded,
   Force,
   OlderThan,
   Keep,
+  WithFile,
   All,
   Toml,
   StyleEdition,
@@ -659,6 +859,19 @@ enum PrintKind {
   Default,
   Minimal,
   Current,
+}
+
+/// `mto report`'s views.
+enum ReportView {
+  List,
+  Show(String),
+  Save {
+    id: String,
+    file: String,
+    with_file: bool,
+  },
+  Send(String),
+  Prune,
 }
 
 /// One of mto's commands: its help page, and its line in `mto -h`.
@@ -767,7 +980,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   }
   if unsafe_writes > 0 {
     eprintln!(
-      "{}{} file(s) left unchanged by the verifier: a bug in mto, reported above.{}",
+      "{}{} file(s) left unchanged because of a bug in mto, reported above.{}",
       c_red(),
       unsafe_writes,
       c_reset(true)
@@ -849,6 +1062,7 @@ fn history_store() -> Result<(history::Settings, mtindo::history::History), i32>
   let resolver = resolver(&Overrides::default()).map_err(|e| report_error(&e))?;
   let settings =
     history::Settings::read(&resolver, false).map_err(|e| report_error(&MtoError::Usage(e)))?;
+  mtindo::durable::set_mode(settings.sync);
   let dir = config::user::history_dir(resolver.env()).ok_or_else(|| {
     report_error(&MtoError::Usage(
       "there is no history: no home folder to keep it in".into(),
@@ -875,7 +1089,8 @@ fn main() {
     Ok(None) => return,
     Err(()) => std::process::exit(2),
   };
-  let code = match action {
+  // All of it with the same stack on every platform: see `mtindo::STACK`.
+  let code = mtindo::with_stack(move || match action {
     CliAction::Man => {
       print_man_page();
       0
@@ -913,12 +1128,27 @@ fn main() {
       Err(e) => report_error(&e),
     },
     CliAction::History { view } => run_history(view),
+    CliAction::Report { view } => run_report(view),
     CliAction::Restore { run, files, force } => run_restore(&run, &files, force),
+    CliAction::Doctor { view } => run_doctor(view),
     CliAction::Format {
       paths,
       overrides,
       opts,
     } => run_format(&paths, &overrides, &opts),
+  });
+  // Whatever was written is made to last before mto says it is done.
+  let code = match mtindo::durable::settle() {
+    Ok(()) => code,
+    Err(e) => {
+      eprintln!(
+        "{}error: cannot sync what was written to disk: {}{}",
+        c_red(),
+        e,
+        c_reset(true)
+      );
+      if code == 0 { 3 } else { code }
+    }
   };
   std::process::exit(code);
 }
@@ -969,7 +1199,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     "debug" => return parse_debug_args(&args[1..]).map(Some),
     "config" => return parse_config_args(&args[1..]).map(Some),
     "history" => return parse_history_args(&args[1..]).map(Some),
+    "report" => return parse_report_args(&args[1..]).map(Some),
     "restore" => return parse_restore_args(&args[1..]).map(Some),
+    "doctor" => return parse_doctor_args(&args[1..]).map(Some),
     _ => {}
   }
   let mut paths: Vec<PathBuf> = Vec::new();
@@ -1016,7 +1248,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
           return Ok(None);
         }
         Flag::Version => {
-          println!("mto {}", env!("CARGO_PKG_VERSION"));
+          println!("mto {}", mtindo::version::short());
           return Ok(None);
         }
         Flag::Man => return Ok(Some(CliAction::Man)),
@@ -1085,6 +1317,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         }
         Flag::NoHistory => opts.no_history = true,
         Flag::AllowDirty => opts.allow_dirty = true,
+        Flag::Unguarded => opts.unguarded = true,
         Flag::Force | Flag::OlderThan | Flag::Keep => {
           return usage_error(&format!(
             "{} only goes with `mto restore` or `mto history prune`",
@@ -1093,6 +1326,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         }
         Flag::All => {
           return usage_error("--all only goes with `mto history`");
+        }
+        Flag::WithFile => {
+          return usage_error("--with-file only goes with `mto report save`");
         }
         Flag::Toml => {
           return usage_error("--toml only goes with `mto config options`");
@@ -1257,6 +1493,34 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
   }
 }
 
+fn parse_doctor_args(args: &[String]) -> Result<CliAction, ()> {
+  let (words, command) = match args.iter().position(|a| a == "--") {
+    Some(at) => (&args[..at], Some(args[at + 1..].to_vec())),
+    None => (args, None),
+  };
+  if command.as_ref().is_some_and(|c| c.is_empty()) {
+    return usage_error("`--` must be followed by the command, as its words");
+  }
+  let words: Vec<&str> = words.iter().map(String::as_str).collect();
+  let view = match (words.as_slice(), command) {
+    ([], None) => DoctorView::Status,
+    (["on"], command) => DoctorView::On(command),
+    (["off"], None) => DoctorView::Off,
+    (["holds"], None) => DoctorView::Holds,
+    (["release", which], None) => DoctorView::Release(which.to_string()),
+    ([run], command) if !run.starts_with('-') && !matches!(*run, "release") => DoctorView::Run {
+      run: run.to_string(),
+      command,
+    },
+    _ => {
+      return usage_error(
+        "usage: mto doctor [on [-- COMMAND...] | off | holds | release N|all | RUN [-- COMMAND...]]",
+      );
+    }
+  };
+  Ok(CliAction::Doctor { view })
+}
+
 fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
   let usage = || {
     usage_error("usage: mto history [--all | show <RUN> | prune [--older-than DAYS] [--keep N]]")
@@ -1308,6 +1572,33 @@ fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
     _ => return usage(),
   };
   Ok(CliAction::History { view })
+}
+
+fn parse_report_args(args: &[String]) -> Result<CliAction, ()> {
+  let usage = || {
+    usage_error(
+      "usage: mto report [show <ID> | save <ID> <FILE> [--with-file] | send <ID> | prune]",
+    )
+  };
+  let words: Vec<&str> = args.iter().map(String::as_str).collect();
+  let view = match words.as_slice() {
+    [] => ReportView::List,
+    ["show", id] => ReportView::Show(id.to_string()),
+    ["save", id, file] => ReportView::Save {
+      id: id.to_string(),
+      file: file.to_string(),
+      with_file: false,
+    },
+    ["save", id, file, "--with-file"] | ["save", "--with-file", id, file] => ReportView::Save {
+      id: id.to_string(),
+      file: file.to_string(),
+      with_file: true,
+    },
+    ["send", id] => ReportView::Send(id.to_string()),
+    ["prune"] => ReportView::Prune,
+    _ => return usage(),
+  };
+  Ok(CliAction::Report { view })
 }
 
 fn parse_restore_args(args: &[String]) -> Result<CliAction, ()> {
@@ -1664,6 +1955,7 @@ fn render_man() -> String {
   }
   out.push_str(&mtindo::cli::manual::configuration());
   out.push_str(MAN_SAFETY);
+  out.push_str(MAN_DOCTOR);
   spaced(&out)
 }
 
@@ -1756,6 +2048,169 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
   0
 }
 
+/// `mto doctor`: the build guard's settings and holds, or a run narrowed down.
+fn run_doctor(view: DoctorView) -> i32 {
+  let mut resolver = match resolver(&Overrides::default()) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let settings = doctor_cli::Settings::read(&resolver);
+  let config_path = config::user::path(resolver.env()).ok().flatten();
+  let result = match view {
+    DoctorView::Status => Ok(doctor_cli::status(&settings, config_path.as_deref())),
+    DoctorView::On(command) => {
+      let Some(path) = &config_path else {
+        return report_error(&MtoError::Usage(
+          "there is no user config to keep the setting in: no home folder".into(),
+        ));
+      };
+      doctor_cli::turn(path, true, command.as_deref()).map(|()| {
+        let words = command.unwrap_or_else(|| settings.command.clone());
+        format!(
+          "The build guard is on. Each run that writes files now runs, in the project's \
+           folder,\n\n    {}\n\nbefore and after it, and holds back the fewest edits that \
+           break the build. mto runs no other command. `mto doctor off` turns it off \
+           ({}).\n",
+          words.join(" "),
+          path.display()
+        )
+      })
+    }
+    DoctorView::Off => match &config_path {
+      Some(path) => doctor_cli::turn(path, false, None)
+        .map(|()| "The build guard is off: mto runs no command.\n".to_string()),
+      None => Ok("The build guard is off.\n".to_string()),
+    },
+    DoctorView::Holds => Ok(doctor_cli::list(&settings)),
+    DoctorView::Release(which) => doctor_cli::release(&settings, &which),
+    DoctorView::Run { run, command } => {
+      if command.is_none() && !settings.enabled {
+        return report_error(&MtoError::Usage(format!(
+          "the build guard is off, so there is no command to check with: give it after \
+           `--` (mto doctor {} -- cargo check), or turn the guard on with `mto doctor on`",
+          run
+        )));
+      }
+      return run_doctor_run(&mut resolver, &settings, &run, command);
+    }
+  };
+  match result {
+    Ok(text) => {
+      print!("{}", text);
+      0
+    }
+    Err(e) => report_error(&MtoError::Usage(e)),
+  }
+}
+
+/// `mto doctor RUN`: puts the run's files back as they were, checks, then writes them as
+/// the run did, less the fewest edits that break the build.
+fn run_doctor_run(
+  resolver: &mut Resolver,
+  settings: &doctor_cli::Settings,
+  spec: &str,
+  command: Option<Vec<String>>,
+) -> i32 {
+  let (history_settings, store) = match history_store() {
+    Ok(found) => found,
+    Err(code) => return code,
+  };
+  for line in guard::recover(&store) {
+    eprintln!("{}", line);
+  }
+  let id = match history::resolve_here(&store, spec) {
+    Ok(id) => id,
+    Err(e) => return report_error(&MtoError::Usage(e)),
+  };
+  let record = match store.read(&id) {
+    Ok(record) => record,
+    Err(e) => return report_error(&MtoError::Io(e.to_string())),
+  };
+  let changed: Vec<String> = record
+    .entries
+    .iter()
+    .filter(|e| mtindo::history::Run::state(e) != mtindo::history::State::AsWritten)
+    .map(|e| e.path.display().to_string())
+    .collect();
+  if !changed.is_empty() {
+    return report_error(&MtoError::Usage(format!(
+      "these files no longer hold what the run wrote, so it cannot be narrowed down: {}",
+      changed.join(", ")
+    )));
+  }
+  let holds = settings.holds();
+  let mut planned = Vec::new();
+  for entry in &record.entries {
+    let dir = entry.path.parent().unwrap_or(Path::new("."));
+    let file_settings = resolver
+      .config_for(dir)
+      .ok()
+      .and_then(|config| mtindo::Settings::of(&config));
+    let (Some(file_settings), Ok(source), Ok(text)) = (
+      file_settings,
+      store.load(&entry.before),
+      std::fs::read_to_string(&entry.path),
+    ) else {
+      eprintln!(
+        "{}note: {} is left as it is: it is no longer laid out or formatted, or its \
+         contents are gone{}",
+        c_yellow(true),
+        entry.path.display(),
+        c_reset(true)
+      );
+      continue;
+    };
+    // Shown as a formatting run shows it, from the current folder when under it.
+    let shown = match entry
+      .path
+      .strip_prefix(env::current_dir().unwrap_or_default())
+    {
+      Ok(relative) => Path::new(".").join(relative),
+      Err(_) => entry.path.clone(),
+    };
+    planned.push(Planned {
+      held: holds.held_for(&entry.path),
+      path: shown,
+      source: String::from_utf8_lossy(&source).into_owned(),
+      text,
+      settings: std::sync::Arc::new(file_settings),
+    });
+  }
+  let cwd = env::current_dir().unwrap_or_default();
+  let guard = settings.guard(&cwd, command, false);
+  let mut recorder = Some(store.recorder(&history::command_line(), &cwd, None));
+  // As before the run, for the check before.
+  for file in &planned {
+    if let Err(e) = guard::write(&file.path, &file.text, &file.source, &mut recorder) {
+      return report_error(&MtoError::Io(e));
+    }
+  }
+  let handle = mtindo::history::id::handle(&id, &store.ids().unwrap_or_default());
+  eprintln!(
+    "doctor: checking run {} with `{}`",
+    handle,
+    guard.check.line()
+  );
+  let before = guard.check.run();
+  let mut holds = holds;
+  let ended = guard::finish(
+    &guard,
+    before,
+    planned,
+    &mut recorder,
+    &mut holds,
+    &record.command,
+  );
+  if let Some(recorder) = recorder.as_mut() {
+    history::finish_record(recorder, history_settings.limits, false);
+  }
+  match ended {
+    Ended::Written => 0,
+    Ended::Failed => 3,
+    Ended::NotMto => 5,
+  }
+}
+
 fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i32 {
   let mut resolver = match resolver(overrides) {
     Ok(resolver) => resolver,
@@ -1767,24 +2222,62 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
       missing.display()
     )));
   }
+  let writing = opts.emit == Emit::Files && !opts.check && !opts.dry_run;
+  // A run that writes nothing lays files out while the walk is still finding them; one
+  // that writes walks first, so that a folder's bad configuration stops it before any file
+  // changes, and knows every file before the git guard and history see them.
+  if !writing && paths.iter().any(|p| p.is_dir()) {
+    let settings = match history::Settings::read(&resolver, opts.no_history) {
+      Ok(settings) => settings,
+      Err(e) => return report_error(&MtoError::Usage(e)),
+    };
+    mtindo::durable::set_mode(settings.sync);
+    let mut writes = Writes {
+      reports: mtindo::cli::report::store(&resolver),
+      ..Writes::default()
+    };
+    let (_, collected, done) = run_jobs_walking(
+      opts,
+      &mut writes,
+      |found| collect_jobs_into(paths, &mut resolver, opts, found),
+      |collected| match collected {
+        Ok(collected) => {
+          walk_notes(collected, opts);
+          true
+        }
+        Err(_) => false,
+      },
+    );
+    return match collected {
+      Ok(_) => finish(&done, opts),
+      Err(e) => report_error(&e),
+    };
+  }
   let collected = match collect_jobs(paths, &mut resolver, opts) {
     Ok(found) => found,
     Err(e) => return report_error(&e),
   };
+  walk_notes(&collected, opts);
   let jobs = collected.jobs;
-  for problem in collected.problems {
-    eprintln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
-  }
-  if !collected.nested.is_empty() && !opts.quiet {
-    eprintln!("{}", nested_note(&collected.nested, opts.verbose));
-  }
   let settings = match history::Settings::read(&resolver, opts.no_history) {
     Ok(settings) => settings,
     Err(e) => return report_error(&MtoError::Usage(e)),
   };
-  let mut writes = Writes::default();
-  let writing = opts.emit == Emit::Files && !opts.check && !opts.dry_run;
+  mtindo::durable::set_mode(settings.sync);
+  let mut writes = Writes {
+    reports: mtindo::cli::report::store(&resolver),
+    ..Writes::default()
+  };
   if writing {
+    let removed = mtindo::remove_stale(&collected.stale);
+    if removed > 0 && !opts.quiet {
+      eprintln!(
+        "{}note: removed {} temporary file(s) a run cut short left behind{}",
+        c_yellow(true),
+        removed,
+        c_reset(true)
+      );
+    }
     if let Some(note) = &settings.note
       && !opts.quiet
     {
@@ -1817,14 +2310,81 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
       None => {}
     }
   }
-  let done = run_jobs(&jobs, opts, &mut writes);
+  let doctor = doctor_cli::Settings::read(&resolver);
+  let cwd = env::current_dir().unwrap_or_default();
+  let mut guarded = None;
+  if writing {
+    if let Some(store) = &settings.history {
+      for line in guard::recover(store) {
+        eprintln!("{}", line);
+      }
+    }
+    writes.holds = Some(doctor.holds());
+    // Editors name a single file; those runs are not guarded.
+    let single = paths.len() == 1 && paths[0].is_file();
+    if doctor.enabled && !opts.unguarded && !single {
+      let guard = doctor.guard(&cwd, None, opts.quiet);
+      let check = guard.check.clone();
+      // The check before runs while the files are laid out in memory.
+      guarded = Some((guard, std::thread::spawn(move || check.run())));
+      writes.defer = true;
+    }
+  }
+  let mut done = run_jobs(&jobs, opts, &mut writes);
+  let mut code_after = 0;
+  if let Some(holds) = writes.holds.as_mut() {
+    let mut lapsed = false;
+    for ((path, _), finished) in jobs.iter().zip(&done) {
+      if let Some(found) = &finished.holds {
+        let path = std::path::absolute(path).unwrap_or_else(|_| path.clone());
+        lapsed |= holds.lapse(&path, found);
+      }
+    }
+    if lapsed {
+      let _ = holds.save();
+    }
+  }
+  if let Some((guard, before)) = guarded {
+    let planned: Vec<Planned> = jobs
+      .iter()
+      .zip(done.iter_mut())
+      .filter_map(|((path, settings), finished)| {
+        let (source, text) = finished.planned.take()?;
+        let absolute = std::path::absolute(path).unwrap_or_else(|_| path.clone());
+        Some(Planned {
+          held: writes
+            .holds
+            .as_ref()
+            .map(|h| h.held_for(&absolute))
+            .unwrap_or_default(),
+          path: path.clone(),
+          source,
+          text,
+          settings: settings.clone()?,
+        })
+      })
+      .collect();
+    let before = before.join().unwrap_or_default();
+    let mut holds = writes.holds.take().unwrap_or_default();
+    match guard::finish(
+      &guard,
+      before,
+      planned,
+      &mut writes.recorder,
+      &mut holds,
+      &history::command_line(),
+    ) {
+      Ended::Written => {}
+      Ended::Failed => code_after = 3,
+      Ended::NotMto => code_after = 5,
+    }
+  }
   if let Some(recorder) = writes.recorder.as_mut() {
     history::finish_record(recorder, settings.limits, opts.quiet);
   }
-  finish(&done, opts)
+  finish(&done, opts).max(code_after)
 }
 
-/// `mto history`: lists, shows or prunes the runs.
 fn run_history(view: HistoryView) -> i32 {
   let (settings, store) = match history_store() {
     Ok(found) => found,
@@ -1896,6 +2456,40 @@ fn run_print_config(kind: PrintKind, path: Option<&Path>, overrides: &Overrides)
   0
 }
 
+/// `mto history`: lists, shows or prunes the runs.
+/// `mto report`: lists, shows, saves, sends or prunes the bug reports.
+fn run_report(view: ReportView) -> i32 {
+  let resolver = match resolver(&Overrides::default()) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let Some(dir) = mtindo::cli::report::dir(&resolver) else {
+    return report_error(&MtoError::Usage(
+      "there are no reports: no home folder to keep them in".into(),
+    ));
+  };
+  let store = mtindo::report::Store::new(dir);
+  use mtindo::cli::report as reports;
+  let result = match view {
+    ReportView::List => Ok(reports::list(&store)),
+    ReportView::Show(id) => reports::show(&store, &id),
+    ReportView::Save {
+      id,
+      file,
+      with_file,
+    } => reports::save(&store, &id, &file, with_file),
+    ReportView::Send(id) => reports::send(&store, &id),
+    ReportView::Prune => reports::prune(&store),
+  };
+  match result {
+    Ok(text) => {
+      print!("{}", text);
+      0
+    }
+    Err(e) => report_error(&MtoError::Usage(e)),
+  }
+}
+
 /// `mto restore`.
 fn run_restore(run: &str, files: &[PathBuf], force: bool) -> i32 {
   let (settings, store) = match history_store() {
@@ -1921,6 +2515,7 @@ fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) 
   let done = [Done {
     outcome: report.outcome,
     json: report.json,
+    ..Done::default()
   }];
   finish(&done, opts)
 }
@@ -2003,6 +2598,17 @@ fn usage_error<T>(message: &str) -> Result<T, ()> {
   eprintln!("{}Error: {}{}", c_red(), message, c_reset(true));
   eprintln!("Run 'mto --help' for usage.");
   Err(())
+}
+
+/// What the walk noted, before any file's report: modules whose files are missing, and
+/// folders passed over.
+fn walk_notes(collected: &mtindo::Collected, opts: &RunOptions) {
+  for problem in &collected.problems {
+    eprintln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
+  }
+  if !collected.nested.is_empty() && !opts.quiet {
+    eprintln!("{}", nested_note(&collected.nested, opts.verbose));
+  }
 }
 
 #[cfg(test)]

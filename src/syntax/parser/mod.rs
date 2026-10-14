@@ -11,7 +11,7 @@ mod grammar;
 use event::Event;
 
 use crate::syntax::lexer::Token;
-use crate::syntax::{Edition, SyntaxKind};
+use crate::syntax::{Edition, MAX_DEPTH, SyntaxKind, TOO_DEEP};
 
 /// How many lookahead calls without progress count as a parser bug.
 const STEP_LIMIT: u32 = 10_000_000;
@@ -33,7 +33,7 @@ impl CompletedMarker {
     let parent = p.start();
     match &mut p.events[self.pos as usize] {
       Event::Start { forward_parent, .. } => {
-        *forward_parent = Some(parent.pos - self.pos);
+        *forward_parent = std::num::NonZeroU32::new(parent.pos - self.pos);
       }
       other => unreachable!("completed marker points at {:?}", other),
     }
@@ -50,9 +50,9 @@ pub(crate) struct Input<'t> {
 
 impl<'t> Input<'t> {
   fn new(text: &'t str, tokens: &[Token]) -> Self {
-    let mut kinds = Vec::new();
-    let mut texts = Vec::new();
-    let mut joint = Vec::new();
+    let mut kinds = Vec::with_capacity(tokens.len());
+    let mut texts = Vec::with_capacity(tokens.len());
+    let mut joint = Vec::with_capacity(tokens.len());
     let mut offset = 0;
     let mut previous_end: Option<usize> = None;
     for token in tokens.iter() {
@@ -84,6 +84,7 @@ pub(crate) struct Marker {
 
 impl Marker {
   pub(crate) fn abandon(self, p: &mut Parser) {
+    p.open -= 1;
     let idx = self.pos as usize;
     if idx == p.events.len() - 1 {
       p.events.pop();
@@ -93,6 +94,7 @@ impl Marker {
   }
 
   pub(crate) fn complete(self, p: &mut Parser, kind: SyntaxKind) -> CompletedMarker {
+    p.open -= 1;
     match &mut p.events[self.pos as usize] {
       Event::Start { kind: slot, .. } => *slot = kind,
       other => unreachable!("marker points at {:?}", other),
@@ -105,16 +107,30 @@ impl Marker {
   }
 }
 
+/// The parser's events for a whole file, and the error messages they name.
+pub struct Parsed {
+  pub events: Vec<Event>,
+  pub messages: Vec<String>,
+}
+
 pub(crate) struct Parser<'t> {
   input: Input<'t>,
   pos: usize,
   events: Vec<Event>,
+  /// The error messages, which [`Event::Error`] names by their place here.
+  messages: Vec<String>,
   edition: Edition,
   steps: std::cell::Cell<u32>,
+  /// Nodes started and not yet completed or abandoned: how deep the grammar has recursed.
+  open: usize,
+  /// The grammar recursed past [`MAX_DEPTH`]: every token from here on reads as the end of
+  /// the file, so it returns at once, and the rest of the file is kept as it is.
+  too_deep: bool,
 }
 
 impl<'t> Parser<'t> {
   /// True if the current tokens form `kind`, gluing punctuation such as `::` when adjacent.
+  #[inline]
   pub(crate) fn at(&self, kind: SyntaxKind) -> bool {
     self.nth_at(0, kind)
   }
@@ -125,6 +141,7 @@ impl<'t> Parser<'t> {
     self.current() == SyntaxKind::Ident && self.nth_text(0) == keyword
   }
 
+  #[inline]
   pub(crate) fn at_kw(&self, keyword: &str) -> bool {
     self.nth_at_kw(0, keyword)
   }
@@ -133,7 +150,7 @@ impl<'t> Parser<'t> {
   /// A mismatch is a parser bug: debug builds (tests, fuzzing) panic so it gets found;
   /// release builds report an error instead of crashing on the user's file.
   pub(crate) fn bump(&mut self, kind: SyntaxKind) {
-    if !self.eat(kind) {
+    if !self.eat(kind) && !self.too_deep {
       debug_assert!(false, "parser bug: expected {:?}", kind);
       self.error(format!("expected {}", describe(kind)));
     }
@@ -156,6 +173,7 @@ impl<'t> Parser<'t> {
     self.do_bump(kind, 1);
   }
 
+  #[inline]
   pub(crate) fn current(&self) -> SyntaxKind {
     self.nth(0)
   }
@@ -195,8 +213,9 @@ impl<'t> Parser<'t> {
   /// Reports an error at the current position.
   pub(crate) fn error(&mut self, message: impl Into<String>) {
     self.events.push(Event::Error {
-      message: message.into(),
+      message: self.messages.len() as u32,
     });
+    self.messages.push(message.into());
   }
 
   /// Consumes `kind`, or reports that it was expected.
@@ -212,10 +231,14 @@ impl<'t> Parser<'t> {
     self.current() == SyntaxKind::Eof
   }
 
+  #[inline]
   pub(crate) fn nth(&self, n: usize) -> SyntaxKind {
     let steps = self.steps.get();
     assert!(steps < STEP_LIMIT, "the parser made no progress");
     self.steps.set(steps + 1);
+    if self.too_deep {
+      return SyntaxKind::Eof;
+    }
     self
       .input
       .kinds
@@ -224,6 +247,7 @@ impl<'t> Parser<'t> {
       .unwrap_or(SyntaxKind::Eof)
   }
 
+  #[inline]
   pub(crate) fn nth_at(&self, n: usize, kind: SyntaxKind) -> bool {
     match composite_parts(kind) {
       None => self.nth(n) == kind,
@@ -233,12 +257,14 @@ impl<'t> Parser<'t> {
     }
   }
 
+  #[inline]
   pub(crate) fn nth_at_kw(&self, n: usize, keyword: &str) -> bool {
     self.nth(n) == SyntaxKind::Ident
       && self.nth_text(n) == keyword
       && is_keyword_in(keyword, self.edition)
   }
 
+  #[inline]
   pub(crate) fn nth_text(&self, n: usize) -> &'t str {
     self.input.texts.get(self.pos + n).copied().unwrap_or("")
   }
@@ -249,6 +275,11 @@ impl<'t> Parser<'t> {
   }
 
   pub(crate) fn start(&mut self) -> Marker {
+    self.open += 1;
+    if self.open > MAX_DEPTH && !self.too_deep {
+      self.too_deep = true;
+      self.error(TOO_DEEP);
+    }
     let pos = self.events.len() as u32;
     self.events.push(Event::Start {
       kind: SyntaxKind::Error,
@@ -270,19 +301,30 @@ impl<'t> Parser<'t> {
 }
 
 /// The parser events for a whole file.
-pub fn parse_events(text: &str, tokens: &[Token], edition: Edition) -> Vec<Event> {
+pub fn parse_events(text: &str, tokens: &[Token], edition: Edition) -> Parsed {
+  let input = Input::new(text, tokens);
+  // Sized for the whole file at once: a file takes close to three events per significant
+  // token (its own, and the starts and finishes of the nodes around it).
+  let events = Vec::with_capacity(input.kinds.len() * 3);
   let mut p = Parser {
-    input: Input::new(text, tokens),
+    input,
     pos: 0,
-    events: Vec::new(),
+    events,
+    messages: Vec::new(),
     edition,
     steps: std::cell::Cell::new(0),
+    open: 0,
+    too_deep: false,
   };
   grammar::source_file(&mut p);
-  p.events
+  Parsed {
+    events: p.events,
+    messages: p.messages,
+  }
 }
 
 /// The single-character tokens that make up a glued punctuation kind.
+#[inline]
 pub(crate) fn composite_parts(kind: SyntaxKind) -> Option<&'static [SyntaxKind]> {
   use SyntaxKind as K;
   let parts: &'static [SyntaxKind] = match kind {
@@ -347,6 +389,8 @@ pub(crate) fn describe(kind: SyntaxKind) -> String {
 
 /// True if `word` is a keyword in `edition`: strict keywords always, `async`, `await` and
 /// `dyn` from 2018, `gen` from 2024. Contextual keywords such as `union` are not included.
+/// Inlined: called with a literal, the match folds away.
+#[inline]
 pub(crate) fn is_keyword_in(word: &str, edition: Edition) -> bool {
   match word {
     "as" | "break" | "const" | "continue" | "crate" | "else" | "enum" | "extern" | "false"

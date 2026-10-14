@@ -12,7 +12,7 @@
 //!   single-threaded speed. mto below twice rustfmt's throughput, or layout below
 //!   [`MIN_LAYOUT_MB_PER_S`], fails.
 //!
-//! Everything is logged to `logs/corpus.log`.
+//! Everything is logged to `.dev/logs/corpus.log`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,36 +46,30 @@ pub fn cache_dir(root: &Path) -> PathBuf {
   root.join("compat").join("cache").join("corpus")
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
+  use crate::cli::on;
   let log = Logger::new(root, "corpus");
-  log.info(&format!("cargo xtask corpus {}", args.join(" ")));
-  let words: Vec<&str> = args.iter().map(String::as_str).collect();
-  let with_rust = words.contains(&"--with-rust");
-  let code = match words.first().copied() {
-    Some("update") if words.len() == 1 => update(root, &log),
-    Some("fetch") if words[1..].iter().all(|w| *w == "--with-rust") => fetch(root, with_rust, &log),
-    Some("bench") if words.len() == 1 || words[1..] == ["--markdown"] => {
-      match fetch(root, false, &log) {
-        0 => bench(root, words.len() == 2, &log),
-        code => code,
-      }
-    }
-    Some("check")
-      if words[1..]
-        .iter()
-        .all(|w| *w == "--with-rust" || *w == "--baseline") =>
-    {
+  log.info(&format!("cargo xtask {}", crate::cli::line()));
+  let code = match m.subcommand() {
+    Some(("update", _)) => update(root, &log),
+    Some(("fetch", sub)) => fetch(root, on(sub, "with-rust"), &log),
+    Some(("bench", sub)) => match fetch(root, false, &log) {
+      0 => bench(root, on(sub, "markdown"), &log),
+      code => code,
+    },
+    Some(("check", sub)) => {
+      let with_rust = on(sub, "with-rust");
+      let flags: &[&str] = if on(sub, "baseline") {
+        &["--baseline"]
+      } else {
+        &[]
+      };
       match fetch(root, with_rust, &log) {
-        0 => check(root, &words[1..], with_rust, &log),
+        0 => check(root, flags, with_rust, &log),
         code => code,
       }
     }
-    _ => {
-      eprintln!(
-        "Usage: cargo xtask corpus update | fetch [--with-rust] | check [--with-rust] [--baseline] | bench [--markdown]"
-      );
-      2
-    }
+    _ => unreachable!("clap requires a subcommand"),
   };
   log.info(&format!("exit code {}", code));
   ExitCode::from(code)
@@ -332,6 +326,11 @@ fn bench(root: &Path, markdown: bool, log: &Logger) -> u8 {
     "layout, one thread:         {:.1} MB/s (at least {:.0} required)",
     layout, MIN_LAYOUT_MB_PER_S
   );
+  if let Some(breach) =
+    crate::metrics::record_checked(root, "speed.layout.one_thread.mb_per_s", layout, "MB/s")
+  {
+    println!("ratchet: {} (filed as an incident)", breach);
+  }
   log.info(&format!(
     "bench: {} files, {} bytes, floor {:.3}s, layout {:.2} MB/s",
     files, bytes, floor, layout

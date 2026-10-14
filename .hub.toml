@@ -1,0 +1,847 @@
+# The hub for mtindo's development: `cargo xtask tui`. Everything below is read by the
+# hub (xtask/hub), which knows nothing of mtindo; xtask/hub/SPEC.md describes each key.
+
+[hub]
+name = "mto dev"
+refresh = "1s"
+start = "dashboard"
+min_width = 60
+narrow_below = 100
+state = ".dev/hub"
+include = ["xtask/hub/git.hub.toml"]   # the git window: 0, then gt for History and Refs
+vim = true               # vim's keys and modes; f2 or :set vim toggles them
+
+# ── Colors and styles ───────────────────────────────────────────────────────────────
+
+[theme]
+bg = "#15171b"
+fg = "#d7d4cc"
+dim = "#8a9099"          # 5.5:1 on bg; dim text carries labels and notes
+accent = "#e3a857"
+info = "#6fc3c0"
+ok = "#8fc47f"
+bad = "#e3716b"
+warn = "#d8b55c"
+frame = "#3a414b"
+selected = "#26303b"
+
+[styles]
+text = { fg = "fg" }
+title = { fg = "accent", bold = true }
+frame = { fg = "frame" }
+selected = { bg = "selected", bold = true }
+dim = { fg = "dim" }
+key = { fg = "accent", bold = true }
+tab = { fg = "bg", bg = "accent", bold = true }
+ok = { fg = "ok" }
+bad = { fg = "bad" }
+warn = { fg = "warn" }
+info = { fg = "info" }
+accent = { fg = "accent" }
+
+# ── Sources ─────────────────────────────────────────────────────────────────────────
+
+[[source]]
+name = "git"
+kind = "git"
+refresh = "3s"
+
+[[source]]
+name = "runs"
+kind = "toml"
+glob = ".dev/runs/*/run.toml"
+computed = { took = "secs(started, ended)", age_s = "age(started)" }
+
+[[source]]
+name = "samples"
+kind = "tsv"
+glob = ".dev/runs/*/samples.tsv"
+header = true
+refresh = "2s"
+
+[[source]]
+name = "incidents"
+kind = "toml"
+glob = ".dev/incidents/*/*/incident.toml"
+computed = { seen = "len(occurrence)", first_seen = "first(pluck(occurrence, \"when\"))", last_seen = "last(pluck(occurrence, \"when\"))", rank = "if(status == \"open\", 0, if(status == \"flaky\", 1, if(status == \"fixed\", 2, 3)))", blocking = "kind starts_with \"fuzz-\" or kind in [\"meaning\", \"unstable\", \"panic\"]" }
+
+[[source]]
+name = "series"
+kind = "tsv"
+glob = ".dev/metrics/*.tsv"
+header = true
+group = { by = "_name", list = ["value", "when"], last = ["value", "unit", "when", "tree"] }
+computed = { change = "pct_change(value_list)", points = "len(value_list)" }
+refresh = "5s"
+
+[[source]]
+name = "points"
+kind = "tsv"
+glob = ".dev/metrics/*.tsv"
+header = true
+refresh = "5s"
+
+[[source]]
+name = "compat"
+kind = "lines"
+glob = "compat/compatibility.txt"
+pattern = '^set (?P<set>\S+) files (?P<mf>\d+) (?P<f>\d+) lines (?P<ml>\d+) (?P<l>\d+)'
+computed = { files = "100 * mf / max(f, 1)", lines = "100 * ml / max(l, 1)" }
+refresh = "10s"
+
+[[source]]
+name = "ratchet"
+kind = "lines"
+glob = "compat/performance.txt"
+pattern = '^limit (?P<name>\S+) (?P<limit>\S+) (?P<tolerance>\S+) (?P<better>\S+)'
+refresh = "10s"
+
+[[source]]
+name = "mismatches"
+kind = "lines"
+glob = ".dev/logs/diff-first.txt"
+pattern = '^(?P<kind>\S+) \[(?P<set>[^\]]+)\] (?P<file>\S+):(?P<line>\d+)'
+group = { by = "kind", list = ["file"], last = ["file", "set"] }
+computed = { count = "len(file_list)" }
+refresh = "10s"
+
+# Each suite task's latest result, whichever run gave it (cargo xtask test).
+[[source]]
+name = "suite"
+kind = "tsv"
+glob = ".dev/logs/last-test.tsv"
+header = true
+refresh = "5s"
+
+[[source]]
+name = "green"
+kind = "tsv"
+glob = ".dev/logs/last-green.tsv"
+header = true
+refresh = "5s"
+
+[[source]]
+name = "logs"
+kind = "files"
+glob = ".dev/logs/*.log"
+refresh = "5s"
+
+[[source]]
+name = "profiles"
+kind = "files"
+glob = ".dev/runs/*-memst/report.txt"
+refresh = "5s"
+
+[[source]]
+name = "commands"
+kind = "commands"
+run = "cargo xtask help --json"
+refresh = "1h"
+
+# ── Dashboard ───────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "gates"
+type = "gauges"
+title = "V1.0 GATES"
+source = "compat"
+label = "{set | pad:20}"
+value = "lines"
+target = "99.9"
+text = "{if(lines >= 99.9 and files >= 99, \"✓ met\", \"✗ not yet\")} · files {files | num:1}%  lines {lines | num:2}%"
+style = [ { when = "lines >= 99.9 and files >= 99", style = "ok" }, { style = "warn" } ]
+
+[[widget]]
+id = "open-incidents"
+type = "table"
+title = "INCIDENTS THAT FAIL THE SUITE"
+source = "incidents"
+filter = "blocking and status in [\"open\", \"flaky\"]"
+sort = ["-signature"]
+empty = "none open: the suite's incidents gate is green"
+columns = [
+  { header = "KIND", value = "{kind}", width = 12, style = "bad" },
+  { header = "WHAT", value = "{title}", width = "fill" },
+]
+
+[[widget]]
+id = "last-green"
+type = "text"
+title = "LAST GREEN"
+source = "green"
+row = "last"
+lines = [
+  "{tree}",
+  "{when | ago} · {groups} · {seconds | duration}",
+]
+
+[[widget]]
+id = "suite"
+type = "table"
+title = "SUITE · each task as it last ran · F reruns what failed"
+source = "suite"
+sort = ["state"]
+selectable = true
+empty = "No suite run recorded yet: T runs it."
+columns = [
+  { header = "", value = "{if(state == \"passed\", \"✓\", if(state == \"failed\", \"✗\", \"–\"))}", width = 1, style = [ { when = "state == \"failed\"", style = "bad" }, { when = "state == \"passed\"", style = "ok" }, { style = "dim" } ] },
+  { header = "GROUP", value = "{group}", width = 6, style = "dim" },
+  { header = "TASK", value = "{title}", width = "fill" },
+  { header = "TOOK", value = "{seconds | duration}", width = 6, align = "right" },
+  { header = "WHEN", value = "{when | ago}", width = 8, align = "right", style = "dim" },
+]
+
+[[widget]]
+id = "running"
+type = "table"
+title = "RUNNING"
+source = "runs"
+filter = "state == \"running\" and age(heartbeat) < 30"
+empty = "nothing running"
+columns = [
+  { header = "", value = "▶", width = 1, style = "info" },
+  { header = "COMMAND", value = "{command}", width = "fill" },
+  { header = "FOR", value = "{age_s | duration}", width = 8, align = "right" },
+]
+
+[[widget]]
+id = "recent"
+type = "table"
+title = "RECENT"
+source = "runs"
+filter = "state != \"running\""
+sort = ["-started"]
+limit = 12
+columns = [
+  { header = "", value = "{if(state == \"passed\", \"✓\", if(state == \"cancelled\", \"○\", \"✗\"))}", width = 1, style = [ { when = "state == \"passed\"", style = "ok" }, { when = "state == \"cancelled\"", style = "dim" }, { style = "bad" } ] },
+  { header = "COMMAND", value = "{command}", width = "fill" },
+  { header = "TOOK", value = "{took | duration}", width = 7, align = "right" },
+  { header = "WHEN", value = "{started | ago}", width = 11, align = "right", style = "dim" },
+]
+
+[[widget]]
+id = "trends"
+type = "sparklines"
+title = "TRENDS"
+source = "series"
+filter = "_name in [\"speed.speedup.stable\", \"speed.layout.one_thread.mb_per_s\", \"memst.serde.allocs\", \"compat.corpus-unformatted.lines\", \"task.clippy.seconds\"]"
+label = "{_name}"
+values = "value_list"
+text = "{value | short} {unit}"
+style = "info"
+
+# ── Run ─────────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "commands"
+type = "table"
+title = "COMMANDS · enter configures · : searches"
+source = "commands"
+selectable = true
+columns = [
+  { header = "COMMAND", value = "{path}", width = 26, style = "accent" },
+  { header = "WHAT IT DOES", value = "{about}", width = "fill" },
+]
+
+[[widget]]
+id = "recent-commands"
+type = "list"
+title = "RUN AGAIN (r)"
+source = "runs"
+sort = ["-started"]
+limit = 15
+selectable = true
+item = "{if(state == \"passed\", \"✓\", \"✗\")} {command}"
+style = [ { when = "state == \"passed\"", style = "ok" }, { when = "state == \"running\"", style = "info" }, { style = "bad" } ]
+
+# ── Jobs ────────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "jobs"
+type = "table"
+title = "JOBS · enter opens"
+source = "runs"
+sort = ["-started"]
+limit = 200
+selectable = true
+open = "job"
+empty = "Nothing recorded in .dev/runs/ yet: every cargo xtask command leaves a record."
+columns = [
+  { header = "STATE", value = "{if(state == \"running\" and age(heartbeat) > 30, \"stale\", state)}", width = 10, style = [ { when = "state == \"passed\"", style = "ok" }, { when = "state == \"running\" and age(heartbeat) < 30", style = "info" }, { when = "state in [\"cancelled\"]", style = "dim" }, { when = "state == \"running\"", style = "dim" }, { style = "bad" } ] },
+  { header = "COMMAND", value = "{command}", width = "fill" },
+  { header = "STARTED", value = "{started | time}", width = 8 },
+  { header = "TOOK", value = "{took | duration}", width = 7, align = "right" },
+  { header = "PEAK", value = "{if(peak_rss_kb > 0, peak_rss_kb * 1024, \"\") | bytes | or:-}", width = 8, align = "right" },
+  { header = "", value = "{if(detached, \"bg\", \"\")}", width = 2, style = "dim" },
+]
+
+[[widget]]
+id = "jobs-output"
+type = "log"
+title = "OUTPUT · {sel.jobs.id}"
+path = "{sel.jobs._dir}/output.log"
+follow = true
+level = "error|ERROR|panicked|FAILED|failed|ok|passed"
+styles = { error = "bad", ERROR = "bad", panicked = "bad", FAILED = "bad", failed = "bad", ok = "ok", passed = "ok" }
+# A section per suite task (✓ or ✗) and per test binary cargo runs.
+fold = "^(\\s+Running |✓ |✗ )"
+empty = "a foreground run's output went to its terminal and its log"
+
+[[widget]]
+id = "job-record"
+type = "kv"
+title = "RUN"
+source = "runs"
+filter = "id == row.id"
+pairs = [
+  ["command", "{command}"],
+  ["state", "{state}"],
+  ["exit", "{exit | or:-}"],
+  ["tree", "{tree}"],
+  ["started", "{started}"],
+  ["took", "{took | duration}"],
+  ["heartbeat", "{heartbeat | ago}"],
+  ["supervisor", "{pid}"],
+  ["command pid", "{child}"],
+  ["peak memory", "{peak_rss_kb * 1024 | bytes}"],
+  ["folder", "{_reldir}"],
+]
+
+[[widget]]
+id = "job-memory"
+type = "chart"
+title = "MEMORY (MB)"
+source = "samples"
+filter = "_dir == row._dir"
+x = "seconds"
+y = "rss_kb / 1024"
+y_label = "MB"
+
+[[widget]]
+id = "job-output"
+type = "log"
+title = "OUTPUT"
+path = "{row._dir}/output.log"
+follow = true
+level = "error|ERROR|panicked|FAILED|failed|ok|passed"
+styles = { error = "bad", ERROR = "bad", panicked = "bad", FAILED = "bad", failed = "bad", ok = "ok", passed = "ok" }
+fold = "^(\\s+Running |✓ |✗ )"
+empty = "a foreground run's output went to its terminal and its log"
+
+# ── Incidents ───────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "incidents"
+type = "table"
+title = "INCIDENTS · enter opens · open first"
+source = "incidents"
+sort = ["rank", "kind", "-signature"]
+selectable = true
+open = "incident"
+empty = "No incidents."
+columns = [
+  { header = "STATUS", value = "{if(status == \"open\" and blocking, \"✗ open\", status)}", width = 8, style = [ { when = "status == \"open\" and blocking", style = "bad" }, { when = "status == \"open\"", style = "warn" }, { when = "status == \"fixed\"", style = "ok" }, { style = "dim" } ] },
+  { header = "KIND", value = "{kind}", width = 17 },
+  { header = "ID", value = "{signature | trim:9}", width = 9, style = "dim" },
+  { header = "TARGET", value = "{target}", width = 20 },
+  { header = "SEEN", value = "{seen}", width = 4, align = "right" },
+  { header = "FIRST", value = "{first_seen | ago}", width = 9, align = "right", style = "dim" },
+  { header = "LAST", value = "{last_seen | ago}", width = 9, align = "right" },
+  { header = "WHAT IT SAID", value = "{title}", width = "fill" },
+]
+
+[[widget]]
+id = "incident-page"
+type = "file"
+title = "{row.kind} · {row.status}"
+path = "{row._dir}/README.md"
+markdown = true
+
+# ── Metrics ─────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "series-list"
+type = "table"
+title = "SERIES"
+source = "series"
+sort = ["_name"]
+selectable = true
+columns = [
+  { header = "SERIES", value = "{_name}", width = "fill" },
+  { header = "LATEST", value = "{value | short} {unit}", width = 16, align = "right" },
+  { header = "CHANGE", value = "{if(change > 0, \"↑\", if(change < 0, \"↓\", \"\"))}{change | num:1 | or:-}", width = 8, align = "right", style = [ { when = "change != 0", style = "info" }, { style = "dim" } ] },
+  { header = "TREND", value = "{value_list | spark:12}", width = 12, style = "info" },
+]
+
+[[widget]]
+id = "series-chart"
+type = "chart"
+title = "{sel.series-list._name}"
+source = "points"
+filter = "_name == sel.series-list._name"
+x = "when"
+y = "value"
+# Each commit as a line: which one a series moved at.
+annotate = { source = "git-log", at = "when", text = "{short} {subject | trim:40}" }
+
+[[widget]]
+id = "ratchet"
+type = "table"
+title = "RATCHET (compat/performance.txt, this machine only)"
+source = "ratchet"
+columns = [
+  { header = "SERIES", value = "{name}", width = "fill" },
+  { header = "RECORDED", value = "{limit | short}", width = 10, align = "right" },
+  { header = "SLACK", value = "{100 * tolerance | num:0}%", width = 6, align = "right" },
+  { header = "BETTER", value = "{better}", width = 7 },
+]
+
+# ── Compatibility ───────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "compat-sets"
+type = "gauges"
+title = "MATCHING THE STANDARD FORMATTER (lines; ┊ is the v1.0 bar)"
+source = "compat"
+label = "{set | pad:20}"
+value = "lines"
+target = "99.9"
+text = "{ml | int}/{l | int} lines · {mf | int}/{f | int} files"
+style = [ { when = "lines >= 99.9", style = "ok" }, { style = "info" } ]
+
+[[widget]]
+id = "mismatch-kinds"
+type = "bars"
+title = "FIRST MISMATCH BY SYNTAX KIND (the next slice's work list)"
+source = "mismatches"
+sort = ["-count"]
+selectable = true
+label = "{kind}"
+value = "count"
+text = "{count} · e.g. {file | trim:40}"
+style = "info"
+
+[[widget]]
+id = "compat-breaks"
+type = "table"
+title = "LEFT ALONE BY THE STANDARD FORMATTER, CHANGED BY MTO"
+source = "incidents"
+filter = "kind == \"compat-break\" and status == \"open\""
+selectable = true
+open = "incident"
+columns = [
+  { header = "SET", value = "{target}", width = 20, style = "dim" },
+  { header = "WHAT", value = "{title}", width = "fill" },
+]
+
+# ── memst ───────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "profiles"
+type = "table"
+title = "MEMST PROFILES · enter opens · s profiles serde"
+source = "profiles"
+sort = ["-_mtime"]
+selectable = true
+open = "profile"
+empty = "No profiles yet: s runs memst on the corpus's serde."
+columns = [
+  { header = "PROFILE", value = "{_reldir}", width = "fill" },
+]
+
+[[widget]]
+id = "profile-report"
+type = "file"
+title = "{row._reldir}"
+path = "{row._path}"
+
+[[widget]]
+id = "memst-trends"
+type = "sparklines"
+title = "MEMST SERIES"
+source = "series"
+filter = "_name starts_with \"memst.\""
+label = "{_name}"
+values = "value_list"
+text = "{value | short} {unit}"
+style = "info"
+
+# ── Logs ────────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "log-files"
+type = "list"
+title = "LOGS"
+source = "logs"
+sort = ["_name"]
+selectable = true
+item = "{_name}"
+
+[[widget]]
+id = "log-view"
+type = "log"
+title = "{sel.log-files._name} · / filters"
+path = "{sel.log-files._path}"
+follow = true
+level = 'ERROR|WARNING|INFO|DEBUG'
+styles = { ERROR = "bad", WARNING = "warn", DEBUG = "dim" }
+
+# ── Terminal ────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "shell"
+type = "terminal"
+title = "Terminal"
+# command = "nvim"        # the user's shell when left out
+# ctrl+\ gives the keys back; esc does too while no full-screen program (nvim,
+# less) runs. `escape = [...]` gives this terminal its own keys in place of ctrl+\.
+
+# ── Screens ─────────────────────────────────────────────────────────────────────────
+
+[[screen]]
+id = "dashboard"
+title = "Dashboard"
+key = "1"
+layout = { split = "columns", sizes = ["48%", "fill"], children = [
+  { split = "rows", sizes = [8, "fill", 8, 4], children = ["gates", "suite", "open-incidents", "last-green"] },
+  { split = "rows", sizes = [6, "fill", 8], children = ["running", "recent", "trends"] },
+] }
+narrow = { split = "rows", sizes = [8, 6, "fill"], children = ["gates", "running", "recent"] }
+
+[[screen]]
+id = "run"
+title = "Run"
+key = "2"
+layout = { split = "columns", sizes = ["65%", "fill"], children = ["commands", "recent-commands"] }
+narrow = "commands"
+
+[[screen]]
+id = "jobs"
+title = "Jobs"
+key = "3"
+layout = { split = "rows", sizes = ["fill", 10], children = ["jobs", "jobs-output"] }
+narrow = "jobs"
+
+[[screen]]
+id = "job"
+page = true
+title = "{row.command | trim:48} · {row.state}"
+layout = { split = "rows", sizes = [13, "fill"], children = [
+  { split = "columns", sizes = [48, "fill"], children = ["job-record", "job-memory"] },
+  "job-output",
+] }
+
+[[screen]]
+id = "incidents"
+title = "Incidents"
+key = "4"
+layout = "incidents"
+
+[[screen]]
+id = "incident"
+page = true
+title = "{row.kind} {row.signature | trim:9}"
+layout = "incident-page"
+
+[[screen]]
+id = "metrics"
+title = "Metrics"
+key = "5"
+layout = { split = "columns", sizes = ["58%", "fill"], children = [
+  "series-list",
+  { split = "rows", sizes = ["fill", 11], children = ["series-chart", "ratchet"] },
+] }
+narrow = "series-list"
+
+[[screen]]
+id = "compat"
+title = "Compat"
+key = "6"
+layout = { split = "rows", sizes = [6, "fill", "35%"], children = ["compat-sets", "mismatch-kinds", "compat-breaks"] }
+
+[[screen]]
+id = "logs"
+title = "Logs"
+key = "7"
+layout = { split = "columns", sizes = [24, "fill"], children = ["log-files", "log-view"] }
+
+[[screen]]
+id = "memst"
+title = "memst"
+key = "8"
+layout = { split = "rows", sizes = ["fill", 9], children = ["profiles", "memst-trends"] }
+
+[[screen]]
+id = "terminal"
+title = "Terminal"
+key = "9"
+layout = "shell"
+
+[[screen]]
+id = "profile"
+page = true
+title = "memst {row._reldir | trim:40}"
+layout = "profile-report"
+
+# ── Actions ─────────────────────────────────────────────────────────────────────────
+
+[[action]]
+id = "cancel"
+label = "cancel"
+key = "c"
+on = "jobs"
+when = "sel.jobs.state == \"running\""
+confirm = "Cancel {sel.jobs.command}?\nIts record, output and samples are kept; it ends as cancelled."
+run = "cargo xtask runs cancel {sel.jobs.id}"
+then = "refresh"
+toast = "asked {sel.jobs.id} to stop"
+
+[[action]]
+id = "rerun"
+label = "run again"
+key = "r"
+on = "jobs"
+run = "cargo xtask {sel.jobs.command} --detach"
+mode = "background"
+toast = "started {sel.jobs.command}"
+
+[[action]]
+id = "tail"
+label = "follow output"
+key = "t"
+on = "jobs"
+when = "sel.jobs.detached"
+run = "cargo xtask runs tail {sel.jobs.id}"
+mode = "terminal"
+
+[[action]]
+id = "job-cancel"
+label = "cancel"
+key = "c"
+on = "job"
+when = "row.state == \"running\""
+confirm = "Cancel {row.command}?"
+run = "cargo xtask runs cancel {row.id}"
+then = "refresh"
+
+[[action]]
+id = "job-rerun"
+label = "run again"
+key = "r"
+on = "job"
+run = "cargo xtask {row.command} --detach"
+mode = "background"
+then = "back"
+
+[[action]]
+id = "recent-rerun"
+label = "run again"
+key = "r"
+on = "recent-commands"
+run = "cargo xtask {sel.recent-commands.command} --detach"
+mode = "background"
+
+[[action]]
+id = "replay"
+label = "replay"
+key = "p"
+on = "incident"
+when = "row.kind starts_with \"fuzz-\""
+run = "cargo xtask incidents replay {row.signature}"
+then = "refresh"
+toast = "replayed {row.signature | trim:9}: see its history"
+
+[[action]]
+id = "minimize"
+label = "minimize"
+key = "m"
+on = "incident"
+when = "row.kind starts_with \"fuzz-\""
+run = "cargo xtask incidents minimize {row.signature} --detach"
+mode = "background"
+toast = "minimizing in the background (Jobs)"
+
+[[action]]
+id = "promote"
+label = "promote to test"
+key = "P"
+on = "incident"
+when = "row.kind starts_with \"fuzz-\" and row.regression_test == \"\""
+confirm = "Keep {row.signature | trim:9}'s inputs as a regression test in tests/fuzz_regressions/?\nOnly an incident that no longer fails can be promoted."
+run = "cargo xtask incidents promote {row.signature}"
+then = "refresh"
+
+[[action]]
+id = "wont-fix"
+label = "won't fix"
+key = "w"
+on = "incident"
+when = "row.status in [\"open\", \"flaky\"]"
+confirm = "Mark {row.kind} {row.signature | trim:9} won't fix?\nIt stops failing the suite."
+run = "cargo xtask incidents mark {row.signature} wont-fix"
+then = "refresh"
+
+[[action]]
+id = "reopen"
+label = "reopen"
+key = "o"
+on = "incident"
+when = "row.status in [\"fixed\", \"wont-fix\"]"
+run = "cargo xtask incidents mark {row.signature} open"
+then = "refresh"
+
+[[action]]
+id = "recheck"
+label = "recheck all"
+key = "R"
+on = "incidents"
+run = "cargo xtask incidents recheck --detach"
+mode = "background"
+toast = "rechecking every fuzz incident (Jobs)"
+
+[[action]]
+id = "board"
+label = "write INCIDENTS.md"
+key = "M"
+on = "incidents"
+run = "cargo xtask incidents board"
+toast = "wrote .dev/incidents/INCIDENTS.md"
+
+[[action]]
+id = "diff"
+label = "run diff"
+key = "d"
+on = "compat"
+run = "cargo xtask diff --detach"
+mode = "background"
+toast = "diff started (Jobs)"
+
+[[action]]
+id = "bench"
+label = "run bench"
+key = "b"
+on = "metrics"
+run = "cargo xtask corpus bench --detach"
+mode = "background"
+toast = "bench started (Jobs)"
+
+[[action]]
+id = "memst"
+label = "profile serde"
+key = "s"
+on = "metrics"
+run = "cargo xtask memst --detach"
+mode = "background"
+toast = "memst started (Jobs)"
+
+[[action]]
+id = "profile-serde"
+label = "profile serde"
+key = "s"
+on = "memst"
+run = "cargo xtask memst --detach"
+mode = "background"
+toast = "memst started (Jobs)"
+
+[[action]]
+id = "ratchet-update"
+label = "record ratchet"
+key = "u"
+on = "metrics"
+confirm = "Record the latest speed and memory figures as the new limits (compat/performance.txt)?"
+run = "cargo xtask metrics ratchet --update"
+then = "refresh"
+
+[[action]]
+id = "suite"
+label = "run suite"
+key = "T"
+on = "dashboard"
+run = "cargo xtask test --detach"
+mode = "background"
+toast = "suite started (Jobs)"
+
+[[action]]
+id = "suite-failed"
+label = "rerun failed"
+key = "F"
+on = "dashboard"
+run = "cargo xtask test --failed --detach"
+mode = "background"
+toast = "the tasks that failed, again (Jobs)"
+
+[[action]]
+id = "suite-one"
+label = "run this task"
+key = "enter"
+on = "suite"
+run = "cargo xtask test --target {sel.suite.id} --detach"
+mode = "background"
+toast = "{sel.suite.id} started (Jobs)"
+
+[[action]]
+id = "copy-id"
+label = "copy id"
+key = "y"
+on = "jobs"
+copy = "{sel.jobs.id}"
+
+# ── Keys, bars, alerts, palette ─────────────────────────────────────────────────────
+
+# The engine's keys. An action left out keeps its default; `cargo xtask tui` then `?`,
+# or `cargo run -p hub -- --keys [--vim]`, lists every one as it is bound.
+[bindings.default]
+quit = ["q", "ctrl+c"]
+back = ["esc", "backspace"]
+help = ["?"]
+palette = [":", "ctrl+p"]
+search = ["/"]
+alerts = ["!"]
+next = ["tab"]
+previous = ["shift+tab"]
+up = ["up", "k"]
+down = ["down", "j"]
+page_up = ["pageup"]
+page_down = ["pagedown"]
+refresh = ["ctrl+r"]
+
+# With vim keys on (f2, :set vim); the vim defaults apply to what is left out.
+[bindings.vim]
+palette = [":", "ctrl+p"]
+
+[topbar]
+segments = [
+  { text = "{hub.name}", style = "title" },
+  { source = "git", text = "{branch} @ {short}" },
+  { source = "git", text = "(clean)", when = "not dirty", style = "ok" },
+  { source = "git", text = "(uncommitted changes)", when = "dirty", style = "warn" },
+  { source = "runs", count = "state == \"running\" and age(heartbeat) < 30", text = "{count} running", when = "count > 0", style = "info" },
+  { source = "incidents", count = "blocking and status in [\"open\", \"flaky\"]", text = "{count} incident(s) failing the suite", when = "count > 0", style = "bad" },
+  { source = "green", text = "last green {when | ago}", style = "dim" },
+]
+
+[footer]
+extra = [["{screens}", "screens"], ["{palette}", "run"], ["{search}", "search"], ["{alerts}", "alerts"]]
+
+[[alert]]
+source = "incidents"
+when = "status == \"open\" and kind != \"compat-break\""
+key = "id"
+text = "new incident: {kind} {target}: {title | trim:50}"
+style = "bad"
+open = "incident"
+
+[[alert]]
+source = "runs"
+when = "state in [\"failed\", \"crashed\", \"timed-out\"]"
+key = "id"
+text = "run {state}: {command}"
+style = "warn"
+open = "job"
+
+[palette]
+source = "commands"
+run = "cargo xtask {path} {args}"
+background = "cargo xtask {path} {args} --detach"
+presets = "presets.toml"
+recent = { source = "runs", command = "command", limit = 6 }

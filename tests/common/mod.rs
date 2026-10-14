@@ -39,6 +39,24 @@ impl TestEnvironment {
     path
   }
 
+  /// `mto` with `args`, as [`TestEnvironment::mto_cmd`] runs it, started and not waited
+  /// for.
+  pub fn mto_spawn(&self, args: &[&str]) -> std::process::Child {
+    StdCommand::new(assert_cmd::cargo::cargo_bin("mto"))
+      .args(args)
+      .current_dir(self.dir.path())
+      .env("HOME", self.dir.path().join(".home"))
+      .env("CI", "1")
+      .env_remove("XDG_CONFIG_HOME")
+      .env_remove("XDG_STATE_HOME")
+      .env_remove("MTINDO_COMMAND")
+      .env_remove("MTINDO_CONFIG")
+      .stdout(std::process::Stdio::null())
+      .stderr(std::process::Stdio::null())
+      .spawn()
+      .unwrap()
+  }
+
   pub fn mto_cmd(&self) -> Command {
     let mut cmd = Command::cargo_bin("mto").unwrap();
     // Hermetic: no rustfmt.toml or user config from the developer's home, and no user
@@ -94,6 +112,14 @@ impl TestEnvironment {
       fs::create_dir_all(parent_dir).unwrap();
     }
 
+    #[cfg(unix)]
     std::os::unix::fs::symlink(original_path, link_path).unwrap();
+    // Windows links a folder and a file differently.
+    #[cfg(windows)]
+    if original_path.is_dir() {
+      std::os::windows::fs::symlink_dir(original_path, link_path).unwrap();
+    } else {
+      std::os::windows::fs::symlink_file(original_path, link_path).unwrap();
+    }
   }
 }

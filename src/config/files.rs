@@ -81,20 +81,25 @@ pub(super) struct Folder {
 
 impl Folder {
   pub fn scan(folder: &Path) -> Folder {
+    Folder::with(folder, |name| folder.join(name).is_file())
+  }
+
+  /// [`Self::scan`] with `is_file` saying whether the folder holds a file of that name, as
+  /// its listing says.
+  pub fn with(folder: &Path, is_file: impl Fn(&str) -> bool) -> Folder {
     let first = |names: &[&str]| -> Vec<PathBuf> {
       names
         .iter()
+        .filter(|name| is_file(name))
         .map(|name| folder.join(name))
-        .filter(|path| path.is_file())
         .collect()
     };
     let mto = first(&MTO_NAMES);
-    let cargo = folder.join("Cargo.toml");
     Folder {
       standard: first(&STANDARD_NAMES).into_iter().next(),
       both_mto: mto.len() > 1,
       mto: mto.into_iter().next(),
-      cargo: cargo.is_file().then_some(cargo),
+      cargo: is_file("Cargo.toml").then(|| folder.join("Cargo.toml")),
     }
   }
 }

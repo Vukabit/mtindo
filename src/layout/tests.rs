@@ -147,6 +147,41 @@ fn test_header_stays_first_byte_for_byte() {
   );
 }
 
+/// A held unit keeps its place, as if pinned, while what is inside it is still laid out;
+/// holding every move gives back the order as written.
+#[test]
+fn test_held_units_keep_their_places() {
+  let source = "struct A;\nfn b() {}\nmod m {\n    fn z() {}\n    struct Y;\n}\n";
+  let config = LayoutConfig::default();
+  let laid = layout(source, &config).unwrap();
+  assert_eq!(
+    laid
+      .moves
+      .iter()
+      .map(|m| m.identifier.as_str())
+      .collect::<Vec<_>>(),
+    ["m", "Y"]
+  );
+  let module = &laid.moves[0];
+  assert_eq!(module.kind, ItemKind::ModDecl);
+  assert_eq!(module.before, Some((ItemKind::StructDecl, "A".to_string())));
+  assert!(source[module.span.0..module.span.1].starts_with("mod m {"));
+  let held: HashSet<usize> = [module.span.0].into();
+  let kept = layout_holding(source, &config, &held).unwrap();
+  assert_eq!(
+    kept.text,
+    "struct A;\n\nfn b() {}\n\nmod m {\n    struct Y;\n\n    fn z() {}\n}\n"
+  );
+  assert!(crate::verify::verify_layout(source, &kept.text, kept.edition).is_empty());
+  let all: HashSet<usize> = laid.moves.iter().map(|m| m.span.0).collect();
+  let none = layout_holding(source, &config, &all).unwrap();
+  assert!(none.moves.is_empty());
+  assert_eq!(
+    none.text,
+    "struct A;\n\nfn b() {}\n\nmod m {\n    fn z() {}\n\n    struct Y;\n}\n"
+  );
+}
+
 #[test]
 fn test_impl_functions_follow_the_trait() {
   let source = "trait T {\n    fn a();\n    fn b();\n}\nimpl T for X {\n    fn extra() {}\n\n    const C: u8 = 0;\n    fn b() {}\n    // pinned\n    // mto: pin\n    fn z() {}\n    fn a() {}\n}\n";
@@ -252,6 +287,64 @@ fn test_inline_modules_are_laid_out_at_every_level() {
   assert_eq!(arranged(skipped), skipped);
 }
 
+/// Items compared under any `type_order` (empty, partial, full) and the settings that keep
+/// some kinds as written are one order: never `a < b < c < a`, which made sorting panic. An
+/// import among constants, below the others, with `type_order = []` and
+/// `sort_imports = false` was one.
+#[test]
+fn test_items_compare_as_one_order_under_any_type_order() {
+  use std::cmp::Ordering;
+  let source = "use a::A;\nuse z::Z;\npub use m::M;\n\nconst B: u8 = 1;\npub const C: u8 = 2;\n\
+                pub use crate::abi::STACK_ENTRY;\npub(crate) const D: u8 = 3;\nstatic E: u8 = 0;\n\
+                fn f() {}\npub fn g() {}\nstruct S;\nimpl S {}\nmacro_rules! m { () => {} }\n\
+                mod x {}\npub type T = u8;\n";
+  let defaults = LayoutConfig::default();
+  let orders = [
+    vec![],
+    vec![ItemKind::FnDecl],
+    vec![ItemKind::ConstDecl, ItemKind::UseDecl],
+    defaults.type_order.clone(),
+  ];
+  for type_order in orders {
+    for sort_imports in [false, true] {
+      for sort_alphabetically in [false, true] {
+        for group_impls in [false, true] {
+          let config = LayoutConfig {
+            type_order: type_order.clone(),
+            sort_imports,
+            sort_alphabetically,
+            group_impls,
+            ..LayoutConfig::default()
+          };
+          let (split, _) = split(source, "\n\n", &config, &HashSet::new()).unwrap();
+          let units: Vec<&Unit> = split.units.iter().filter(|u| !u.pinned).collect();
+          let families = Vec::new();
+          let cmp = |a: &Unit, b: &Unit| order::compare(a, b, &config, &families, false);
+          for &a in &units {
+            for &b in &units {
+              assert_eq!(cmp(a, b), cmp(b, a).reverse(), "{} / {}", a.text, b.text);
+              for &c in &units {
+                if cmp(a, b) != Ordering::Greater && cmp(b, c) != Ordering::Greater {
+                  assert_ne!(
+                    cmp(a, c),
+                    Ordering::Greater,
+                    "{:?} sort_imports {}: {} <= {} <= {}",
+                    config.type_order,
+                    sort_imports,
+                    a.text,
+                    b.text,
+                    c.text
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 #[test]
 fn test_modules_sort_as_the_standard_formatter_does() {
   // Without `r#`, by bytes; a test module declared last stands apart from the others.
@@ -260,6 +353,22 @@ fn test_modules_sort_as_the_standard_formatter_does() {
     arranged(source),
     "mod Z;\nmod b;\nmod r#type;\n\n#[cfg(test)]\nmod tests;\n"
   );
+}
+
+/// The moves are the fewest units out of their written order: one item brought up from the
+/// end moves alone, not every item it passed.
+#[test]
+fn test_moves_are_the_fewest_units_out_of_order() {
+  let source = "struct A;\nstruct B;\nstruct C;\nuse x;\n";
+  let laid = layout(source, &LayoutConfig::default()).unwrap();
+  assert_eq!(laid.moves.len(), 1);
+  assert_eq!(laid.moves[0].identifier, "x");
+  assert_eq!(
+    laid.moves[0].before,
+    Some((ItemKind::StructDecl, "A".to_string()))
+  );
+  assert_eq!(longest_increasing(&[3, 0, 1, 2]), [1, 2, 3].into());
+  assert_eq!(longest_increasing(&[]), HashSet::new());
 }
 
 #[test]

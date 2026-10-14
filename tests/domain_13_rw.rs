@@ -48,6 +48,33 @@ const REAL_WORLD_TARGETS: &[&str] = &[
   "rand",
 ];
 
+/// What `mto doctor` finds to hold back in the run that broke the build, in one line.
+fn culprit(env: &TestEnvironment, repo_dir: &std::path::Path) -> String {
+  let output = env
+    .mto_cmd()
+    .args(["doctor", "last", "--", "cargo", "check", "--lib", "--quiet"])
+    .current_dir(repo_dir)
+    .output()
+    .unwrap();
+  let said = String::from_utf8_lossy(&output.stderr);
+  let held: Vec<&str> = said
+    .lines()
+    .skip_while(|l| !l.starts_with("doctor: held back"))
+    .skip(1)
+    .take_while(|l| l.starts_with("  "))
+    .map(str::trim)
+    .collect();
+  match output.status.code() {
+    Some(0) if !held.is_empty() => format!("mto doctor holds back: {}", held.join("; ")),
+    Some(5) => "mto doctor: the build fails with every edit held back".into(),
+    code => format!(
+      "mto doctor exited with {:?}: {}",
+      code,
+      said.lines().last().unwrap_or("")
+    ),
+  }
+}
+
 fn git(dir: &std::path::Path, args: &[&str]) -> bool {
   Command::new("git")
     .args(args)
@@ -122,7 +149,8 @@ fn test_realworld_compilation_invariance() {
       .unwrap();
       let format_output = env
         .mto_cmd()
-        .args(["-q", "--no-history", "--allow-dirty", "-R", "."])
+        // Recorded in the test's own history, for `mto doctor` to narrow down a break.
+        .args(["-q", "-R", "."])
         .current_dir(&repo_dir)
         .output()
         .unwrap();
@@ -145,8 +173,10 @@ fn test_realworld_compilation_invariance() {
         .unwrap();
       if !check_post.success() {
         failures.push(format!(
-          "{} ({}): failed post-format compilation",
-          name, label
+          "{} ({}): failed post-format compilation; {}",
+          name,
+          label,
+          culprit(&env, &repo_dir)
         ));
       }
     }

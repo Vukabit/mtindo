@@ -324,6 +324,11 @@ impl SyntaxKind {
     )
   }
 
+  /// A kind of node, not of token: every kind declared from `SourceFile` on.
+  pub fn is_node(self) -> bool {
+    self >= SyntaxKind::SourceFile
+  }
+
   /// Whitespace, comments, the byte-order mark and the shebang: tokens the parser skips.
   /// Doc comments are not trivia; they become attributes.
   pub fn is_trivia(self) -> bool {

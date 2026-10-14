@@ -6,7 +6,7 @@
 
 use super::shape::*;
 use super::space;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, TextRange};
 use crate::text::unicode::str_width;
 
 /// Format-like macros, with how many arguments come before the format string (the standard
@@ -156,12 +156,12 @@ pub fn first_line_width(text: &str) -> usize {
 /// The node's tokens on one line, spaced as the Rust style spaces them ([`super::space`]);
 /// a pair no rule covers keeps a space if it was written with one.
 pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
+  // Only the code tokens are made, with the nodes on the way to them.
   let tokens: Vec<SyntaxToken> = node
-    .descendants_with_tokens()
-    .into_iter()
+    .descendants_where(|kind| !kind.is_node() && !kind.is_trivia())
     .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
-      _ => None,
+      SyntaxElement::Token(t) => Some(t),
+      SyntaxElement::Node(_) => None,
     })
     .collect();
   flat_tokens(&tokens, spacing)
@@ -170,7 +170,7 @@ pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
 /// Tokens on one line, spaced as [`flat`] spaces a node's.
 pub fn flat_tokens(tokens: &[SyntaxToken], spacing: Spacing) -> String {
   let config = spacing.config();
-  let mut out = String::new();
+  let mut out = String::with_capacity(tokens.iter().map(|t| t.text().len() + 1).sum());
   // Inside a macro's token tree the tokens are not code yet (`::` is two colons, `,` may
   // follow nothing): their commas stay and their spacing is as written, any space one space.
   let in_tree = |t: &SyntaxToken| t.parent().kind() == SyntaxKind::TokenTree;
@@ -335,11 +335,31 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     // A literal is kept as written however long; the line runs over, as it does for the
     // standard formatter.
     SyntaxKind::Literal => Some(flat(node, shape.limits.spacing)),
+    // Anything else on one line, unless something in it the standard formatter would break
+    // for its own width: then left as written.
     _ => {
       let text = flat(node, shape.limits.spacing);
-      (text.width() <= shape.width).then_some(text)
+      (text.width() <= shape.width && !breaks_inside(node, shape.limits)).then_some(text)
     }
   }
+}
+
+/// Whether something inside `node` is past the width the standard formatter keeps it on one
+/// line within: a chain of two links or more past `chain_width`, arguments past
+/// `fn_call_width`, array elements past `array_width`.
+fn breaks_inside(node: &SyntaxNode, limits: Limits) -> bool {
+  node.descendants().iter().any(|d| {
+    let width = || flat(d, limits.spacing).width();
+    match d.kind() {
+      SyntaxKind::MethodCallExpr
+      | SyntaxKind::FieldExpr
+      | SyntaxKind::AwaitExpr
+      | SyntaxKind::TryExpr => chain(d, limits.spacing).2.len() >= 2 && width() > limits.chain,
+      SyntaxKind::ArgList => width().saturating_sub(2) > limits.fn_call,
+      SyntaxKind::ArrayExpr => width().saturating_sub(2) > limits.array,
+      _ => false,
+    }
+  })
 }
 
 /// A `?` around a chain is part of the chain; around anything else it is a suffix.
@@ -914,40 +934,38 @@ fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
       })
   };
   if list
-    .descendants()
-    .iter()
-    .any(|n| comparison(n) && n.children().iter().any(comparison))
+    .descendant_nodes_where(|kind| kind == SyntaxKind::BinExpr)
+    .any(|n| comparison(&n) && n.children_iter().any(|c| comparison(&c)))
   {
     return None;
   }
   // `<-` written touching (the obsolete in-place arrow) and `builtin #` rustc rejects or
   // keeps apart; a `#` outside an attribute is left as written.
-  let tokens: Vec<SyntaxToken> = list
-    .descendants_with_tokens()
-    .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
-      _ => None,
-    })
+  // Kinds and ranges only: no handles.
+  let tokens: Vec<(SyntaxKind, &str, TextRange)> = list
+    .token_texts()
+    .filter(|(kind, _, _)| !kind.is_trivia())
     .collect();
-  if tokens.windows(2).any(|w| {
-    w[0].kind() == SyntaxKind::Lt
-      && w[1].kind() == SyntaxKind::Minus
-      && w[0].text_range().end == w[1].text_range().start
-  }) || tokens.iter().any(|t| t.kind() == SyntaxKind::Pound)
-  {
-    return None;
-  }
-  // Generic arguments that would have to break are not laid out yet (as in statements).
-  if list
-    .descendants()
-    .iter()
-    .any(|d| d.kind() == SyntaxKind::GenericArgList)
-    && name.width() + flat(&list, shape.limits.spacing).width() > shape.width
+  if tokens
+    .windows(2)
+    .any(|w| w[0].0 == SyntaxKind::Lt && w[1].0 == SyntaxKind::Minus && w[0].2.end == w[1].2.start)
+    || tokens.iter().any(|t| t.0 == SyntaxKind::Pound)
   {
     return None;
   }
   let items = list_items(&list);
+  // Generic arguments that would have to break are not laid out yet (as in statements): an
+  // argument holding them must fit on its own line with its comma when the list breaks.
+  let own_line = shape.block_indent(shape.limits.tab).width.saturating_sub(1);
+  if items.iter().any(|item| {
+    item
+      .descendants()
+      .iter()
+      .any(|d| d.kind() == SyntaxKind::GenericArgList)
+      && flat(item, shape.limits.spacing).width() > own_line
+  }) {
+    return None;
+  }
   let commas = list
     .children_with_tokens()
     .iter()

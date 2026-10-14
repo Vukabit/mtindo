@@ -1,0 +1,41 @@
+# Where every measured figure stood before the optimization rounds (round 1 began
+# 2026-10-12): `cargo xtask metrics compare` sets each beside its latest value. Lines:
+#   NAME VALUE UNIT higher|lower WHEN SOURCE
+# and notes for results kept in no series. A SOURCE starting `[polled]` marks a wall time
+# taken while xtask waited for a child by polling, at 5, 15, 35, 75, 155, 315 and 515 ms
+# and then every 200 ms: each was rounded up to the next poll (a 0.37 s run measured
+# 0.54 s, a 2 ms one 6.5 ms). Waiting has been exact since 2026-10-13; such a figure is
+# shown but not compared. The CPU times of the same runs were never polled, and a run of
+# several seconds (the writes' 7.9 s) was off by under 3%.
+
+speed.mto.laid_out.mb_per_s 120 MB/s higher 2026-10-11 [polled] corpus bench, last before round 1
+speed.mto.as_fetched.mb_per_s 65.63 MB/s higher 2026-10-11 [polled] corpus bench, last before round 1
+speed.mto.laid_out.cpu 3.99 s lower 2026-10-11 corpus bench, last before round 1
+speed.mto.as_fetched.cpu 9.43 s lower 2026-10-11 corpus bench, last before round 1
+speed.layout.one_thread.mb_per_s 45.3 MB/s higher 2026-10-11 corpus bench, last before round 1
+speed.speedup.stable 19.48 x higher 2026-10-11 [polled] corpus bench, last before round 1
+speed.speedup.nightly 18.02 x higher 2026-10-11 [polled] corpus bench, last before round 1
+memst.serde.allocs 3200300 allocs lower 2026-10-11 memst on serde, last before round 1
+memst.serde.bytes 534467036 bytes lower 2026-10-11 memst on serde, last before round 1
+memst.serde.peak_live 33128643 bytes lower 2026-10-11 memst on serde, last before round 1
+memst.serde.reallocs 340910 reallocs lower 2026-10-11 memst on serde, last before round 1
+perf.scaling.one_thread.mb_per_s 5.731 MB/s higher 2026-10-13 cargo xtask perf, first run, before any CPU change
+perf.scaling.t2.speedup 1.879 x higher 2026-10-13 cargo xtask perf, first run, before any CPU change
+perf.scaling.t4.speedup 3.318 x higher 2026-10-13 cargo xtask perf, first run, before any CPU change
+perf.scaling.t8.speedup 4.833 x higher 2026-10-13 cargo xtask perf, first run, before any CPU change
+perf.latency.version.median_ms 6.497 ms lower 2026-10-13 [polled] cargo xtask perf, first run, before any CPU change
+perf.latency.stdin.median_ms 6.435 ms lower 2026-10-13 [polled] cargo xtask perf, first run, before any CPU change
+perf.latency.check.median_ms 6.469 ms lower 2026-10-13 [polled] cargo xtask perf, first run, before any CPU change
+perf.latency.check.p99_ms 6.518 ms lower 2026-10-13 [polled] cargo xtask perf, first run, before any CPU change
+perf.growth.items.exponent 1.057 - lower 2026-10-13 cargo xtask perf, first run, before any CPU change
+perf.growth.line.exponent 0.989 - lower 2026-10-13 cargo xtask perf, first run, before any CPU change
+perf.growth.chain.exponent 0.976 - lower 2026-10-13 cargo xtask perf, first run, before any CPU change
+perf.growth.match.exponent 1.256 - lower 2026-10-13 cargo xtask perf, first run, before any CPU change
+doctor.held.cost.x 1.271 x lower 2026-10-12 cargo xtask doctor bench, first run
+doctor.narrow.n10.k1.checks 9.7 checks lower 2026-10-12 cargo xtask doctor bench, first run
+doctor.narrow.n100.k1.checks 15.5 checks lower 2026-10-12 cargo xtask doctor bench, first run
+doctor.narrow.n100.k3.checks 49.6 checks lower 2026-10-12 cargo xtask doctor bench, first run
+io.write.batch.history.ms_per_file 13.19 ms lower 2026-10-13 every write fully flushed, as before round 1: measured as safety.sync = "full"
+
+note Writes before round 1, tokio (668 of 808 files rewritten): 8.4 s with history, 3.5 s without; after it, 0.5 to 0.95 s and 0.45 s.
+note The first growth reading for nesting (-0.52) is not comparable: its largest size passed the nesting limit and was refused.

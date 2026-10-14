@@ -32,25 +32,11 @@ struct DataFile {
   text: String,
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let toolchain = char::UNICODE_VERSION;
-  let mut version = format!("{}.{}.{}", toolchain.0, toolchain.1, toolchain.2);
-  let mut check = false;
-  let mut idx = 0;
-  while idx < args.len() {
-    match args[idx].as_str() {
-      "--check" => check = true,
-      "--version" if idx + 1 < args.len() => {
-        version = args[idx + 1].clone();
-        idx += 1;
-      }
-      other => {
-        eprintln!("Unknown unicode argument `{}`.", other);
-        return ExitCode::from(2);
-      }
-    }
-    idx += 1;
-  }
+  let version = crate::cli::text(m, "version")
+    .unwrap_or_else(|| format!("{}.{}.{}", toolchain.0, toolchain.1, toolchain.2));
+  let check = crate::cli::on(m, "check");
   let version_parts: Vec<u8> = version.split('.').filter_map(|p| p.parse().ok()).collect();
   if version_parts.len() != 3 {
     eprintln!("Unicode version must look like 17.0.0, got `{}`.", version);

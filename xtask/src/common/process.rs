@@ -9,11 +9,12 @@ use std::env;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 /// How long a stopped child has to exit after SIGTERM before it gets SIGKILL.
+#[cfg(unix)]
 pub const GRACE: Duration = Duration::from_secs(5);
 
 /// For whole-corpus runs, real-world crate builds and benchmarks.
@@ -55,6 +56,47 @@ pub struct Separate {
   pub timed_out: bool,
 }
 
+/// How [`watch`] runs a child.
+pub struct Watch<'a> {
+  /// Where stdout and stderr go; `None` leaves them on this process's terminal.
+  pub output: Option<&'a Path>,
+  /// Where its memory and CPU are sampled, if anywhere.
+  pub samples: Option<&'a Path>,
+  pub limit: Duration,
+  /// Polled while the child runs: true stops it and its process tree.
+  pub stop: &'a dyn Fn() -> bool,
+  /// Told the child's process id once it has started.
+  pub started: &'a dyn Fn(u32),
+}
+
+/// What [`watch`] saw a child do.
+#[derive(Debug, PartialEq)]
+pub struct Watched {
+  /// The exit code, as [`exit_code`] gives it; [`TIMED_OUT`] past the limit.
+  pub code: i32,
+  pub timed_out: bool,
+  /// Stopped because `stop` asked.
+  pub stopped: bool,
+}
+
+/// Whether process `pid` is alive.
+pub fn alive(pid: u32) -> bool {
+  #[cfg(unix)]
+  {
+    Command::new("kill")
+      .args(["-0", &pid.to_string()])
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .status()
+      .is_ok_and(|s| s.success())
+  }
+  #[cfg(not(unix))]
+  {
+    let _ = pid;
+    false
+  }
+}
+
 /// Runs `program` in `root` with extra environment variables, for at most `limit`. Returns
 /// the exit code and the output; a child stopped at its limit gives [`TIMED_OUT`] and a
 /// last line saying so.
@@ -67,6 +109,38 @@ pub fn capture(
 ) -> (i32, String) {
   let outcome = run(root, program, args, env_extra, limit);
   (outcome.code, outcome.output)
+}
+
+/// Starts `program` in a process group of its own, with no terminal: stdin from nowhere,
+/// stdout and stderr appended to `output`. It is not waited for and outlives this process
+/// (and the terminal's Ctrl-C). Its process id.
+pub fn detach(
+  root: &Path,
+  program: &str,
+  args: &[String],
+  env_extra: &[(String, String)],
+  output: &Path,
+) -> std::io::Result<u32> {
+  let file = std::fs::OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(output)?;
+  let mut command = Command::new(program);
+  command
+    .args(args)
+    .current_dir(root)
+    .stdin(Stdio::null())
+    .stdout(file.try_clone()?)
+    .stderr(file);
+  for (key, value) in env_extra {
+    command.env(key, value);
+  }
+  #[cfg(unix)]
+  {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+  }
+  Ok(command.spawn()?.id())
 }
 
 /// `90s` as `1m30s`, for messages.
@@ -97,12 +171,11 @@ pub fn exit_code(status: ExitStatus) -> i32 {
   -1
 }
 
-/// Runs an `xtask-tools` command with this terminal's stdin, stdout and stderr. The one
-/// child without a time limit: it is interactive, and the person at the terminal sees it
-/// and can stop it.
-pub fn forward_to_tools(root: &Path, args: &[String]) -> ExitCode {
+/// Runs `cargo` with `cargo_args` then `args` on this terminal, its stdin, stdout and
+/// stderr; for interactive commands (the tools, the hub), which have no time limit.
+pub fn forward(root: &Path, cargo_args: &[&str], args: &[String]) -> ExitCode {
   let status = Command::new("cargo")
-    .args(["run", "--quiet", "--package", "xtask-tools", "--"])
+    .args(cargo_args)
     .args(args)
     .current_dir(root)
     .status();
@@ -113,6 +186,17 @@ pub fn forward_to_tools(root: &Path, args: &[String]) -> ExitCode {
       ExitCode::from(1)
     }
   }
+}
+
+/// Runs an `xtask-tools` command with this terminal's stdin, stdout and stderr. The one
+/// child without a time limit: it is interactive, and the person at the terminal sees it
+/// and can stop it.
+pub fn forward_to_tools(root: &Path, args: &[String]) -> ExitCode {
+  forward(
+    root,
+    &["run", "--quiet", "--package", "xtask-tools", "--"],
+    args,
+  )
 }
 
 /// True if an executable named `tool` is on `PATH`.
@@ -175,7 +259,7 @@ pub fn output_with_input(
       .take()
       .map(|p| Box::new(p) as Box<dyn Read + Send>),
   );
-  let (status, timed_out) = wait(&mut child, limit);
+  let (status, timed_out) = wait(child, limit);
   let status = status?;
   let collect = |handle: thread::JoinHandle<Vec<u8>>| {
     let drained = Instant::now();
@@ -208,10 +292,28 @@ pub fn run(
   env_extra: &[(String, String)],
   limit: Duration,
 ) -> Outcome {
-  let failed = |output: String| Outcome {
-    code: -1,
-    output,
-    timed_out: false,
+  run_sampled(root, program, args, env_extra, limit, None).0
+}
+
+/// [`run`], sampling the child's process tree into `samples` while it runs (see
+/// [`super::sample`]); with what it used, when sampling could start.
+pub fn run_sampled(
+  root: &Path,
+  program: &str,
+  args: &[String],
+  env_extra: &[(String, String)],
+  limit: Duration,
+  samples: Option<&Path>,
+) -> (Outcome, Option<super::sample::Summary>) {
+  let failed = |output: String| {
+    (
+      Outcome {
+        code: -1,
+        output,
+        timed_out: false,
+      },
+      None,
+    )
   };
   let (mut reader, writer) = match std::io::pipe() {
     Ok(pair) => pair,
@@ -231,13 +333,14 @@ pub fn run(
   for (key, value) in env_extra {
     command.env(key, value);
   }
-  let mut child = match command.spawn() {
+  let child = match command.spawn() {
     Ok(child) => child,
     Err(e) => return failed(format!("cannot run {}: {}", program, e)),
   };
   // The parent's copies of the pipe's write end live in `command`; drop them so the read
   // ends when the child and everything it started have exited.
   drop(command);
+  let sampler = samples.and_then(|path| super::sample::Sampler::start(child.id(), path).ok());
   let bytes = Arc::new(Mutex::new(Vec::new()));
   let sink = Arc::clone(&bytes);
   let reading = thread::spawn(move || {
@@ -249,7 +352,8 @@ pub fn run(
       sink.lock().unwrap().extend_from_slice(&chunk[..n]);
     }
   });
-  let (status, timed_out) = wait(&mut child, limit);
+  let (status, timed_out) = wait(child, limit);
+  let used = sampler.map(super::sample::Sampler::stop);
   // A grandchild may hold the pipe open after the child exits; read what arrives shortly
   // after, then go on without it.
   let drained = Instant::now();
@@ -272,21 +376,87 @@ pub fn run(
     Ok(status) => exit_code(status),
     Err(e) => return failed(format!("cannot wait for {}: {}", program, e)),
   };
-  Outcome {
-    code,
-    output,
-    timed_out,
-  }
+  (
+    Outcome {
+      code,
+      output,
+      timed_out,
+    },
+    used,
+  )
 }
 
+/// Stops process `pid` and every process below it: SIGTERM, then SIGKILL after [`GRACE`].
 #[cfg(unix)]
-fn alive(pid: u32) -> bool {
-  Command::new("kill")
-    .args(["-0", &pid.to_string()])
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .status()
-    .is_ok_and(|s| s.success())
+pub fn stop_pid(pid: u32) {
+  let tree = descendants(pid);
+  signal(&tree, "TERM");
+  let started = Instant::now();
+  while started.elapsed() < GRACE && tree.iter().any(|p| alive(*p)) {
+    thread::sleep(Duration::from_millis(50));
+  }
+  signal(&tree, "KILL");
+}
+
+/// Runs a child to its end the way a job runs: its output to the terminal or a file, its
+/// process tree sampled, stopped at its limit or when `stop` says so. With what it used,
+/// when sampling could start.
+pub fn watch(
+  root: &Path,
+  program: &str,
+  args: &[String],
+  env_extra: &[(String, String)],
+  how: Watch,
+) -> std::io::Result<(Watched, Option<super::sample::Summary>)> {
+  let mut command = Command::new(program);
+  command.args(args).current_dir(root).stdin(Stdio::null());
+  for (key, value) in env_extra {
+    command.env(key, value);
+  }
+  if let Some(path) = how.output {
+    let file = std::fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(path)?;
+    command.stdout(file.try_clone()?).stderr(file);
+  }
+  let mut child = command.spawn()?;
+  (how.started)(child.id());
+  let sampler = how
+    .samples
+    .and_then(|path| super::sample::Sampler::start(child.id(), path).ok());
+  let started = Instant::now();
+  let mut stopped = false;
+  let mut timed_out = false;
+  let status = loop {
+    if let Some(status) = child.try_wait()? {
+      break status;
+    }
+    if !stopped && !timed_out {
+      if (how.stop)() {
+        stopped = true;
+        stop_tree(&mut child);
+      } else if started.elapsed() >= how.limit {
+        timed_out = true;
+        stop_tree(&mut child);
+      }
+    }
+    thread::sleep(Duration::from_millis(100));
+  };
+  let used = sampler.map(super::sample::Sampler::stop);
+  let code = if timed_out {
+    TIMED_OUT
+  } else {
+    exit_code(status)
+  };
+  Ok((
+    Watched {
+      code,
+      timed_out,
+      stopped,
+    },
+    used,
+  ))
 }
 
 /// `pid` and every process below it, parents before children.
@@ -322,6 +492,48 @@ fn signal(pids: &[u32], name: &str) {
     .status();
 }
 
+/// [`stop_tree`] for a child another thread waits for, which says on `ended` when it has
+/// ended; its exit status.
+fn stop_by_id(
+  pid: u32,
+  ended: &mpsc::Receiver<std::io::Result<ExitStatus>>,
+) -> std::io::Result<ExitStatus> {
+  let gone = || std::io::Error::other("the thread waiting for the child ended");
+  #[cfg(unix)]
+  {
+    let tree = descendants(pid);
+    signal(&tree, "TERM");
+    let started = Instant::now();
+    let mut status = None;
+    while started.elapsed() < GRACE {
+      if status.is_none() {
+        if let Ok(s) = ended.recv_timeout(Duration::from_millis(50)) {
+          status = Some(s);
+        }
+      } else {
+        thread::sleep(Duration::from_millis(50));
+      }
+      if status.is_some() && tree.iter().all(|pid| !alive(*pid)) {
+        return status.unwrap_or_else(|| Err(gone()));
+      }
+    }
+    signal(&tree, "KILL");
+    match status {
+      Some(status) => status,
+      None => ended.recv().unwrap_or_else(|_| Err(gone())),
+    }
+  }
+  #[cfg(not(unix))]
+  {
+    let _ = Command::new("taskkill")
+      .args(["/T", "/F", "/PID", &pid.to_string()])
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .status();
+    ended.recv().unwrap_or_else(|_| Err(gone()))
+  }
+}
+
 /// Stops a child and every process it started: SIGTERM to all, then SIGKILL to whatever
 /// is left after [`GRACE`]. Elsewhere than Unix, `taskkill /T`.
 fn stop_tree(child: &mut Child) {
@@ -349,22 +561,25 @@ fn stop_tree(child: &mut Child) {
   let _ = child.kill();
 }
 
-/// Waits for `child` up to `limit`; past it, stops the child and its process tree.
-fn wait(child: &mut Child, limit: Duration) -> (std::io::Result<ExitStatus>, bool) {
-  let started = Instant::now();
-  let mut pause = Duration::from_millis(5);
-  loop {
-    match child.try_wait() {
-      Ok(Some(status)) => return (Ok(status), false),
-      Ok(None) => {}
-      Err(e) => return (Err(e), false),
-    }
-    if started.elapsed() >= limit {
-      stop_tree(child);
-      return (child.wait(), true);
-    }
-    thread::sleep(pause);
-    pause = (pause * 2).min(Duration::from_millis(200));
+/// Waits for `child` up to `limit`; past it, stops the child and its process tree. The
+/// child is waited for on a thread of its own, so its end is seen as it comes: polling
+/// would round every time a bench takes up to the next poll.
+fn wait(child: Child, limit: Duration) -> (std::io::Result<ExitStatus>, bool) {
+  let pid = child.id();
+  let (sender, ended) = mpsc::channel();
+  thread::spawn(move || {
+    let mut child = child;
+    let _ = sender.send(child.wait());
+  });
+  match ended.recv_timeout(limit) {
+    Ok(status) => (status, false),
+    Err(mpsc::RecvTimeoutError::Timeout) => (stop_by_id(pid, &ended), true),
+    Err(mpsc::RecvTimeoutError::Disconnected) => (
+      Err(std::io::Error::other(
+        "the thread waiting for the child ended",
+      )),
+      false,
+    ),
   }
 }
 
@@ -378,6 +593,24 @@ mod tests {
 
   fn sh(script: &str) -> Vec<String> {
     vec!["-c".to_string(), script.to_string()]
+  }
+
+  /// A child's end is seen as it comes, not at the next of a widening series of polls
+  /// (which made a 0.37 s run measure 0.54 s).
+  #[cfg(unix)]
+  #[test]
+  fn test_a_child_is_timed_to_its_end() {
+    let started = Instant::now();
+    let out = output(
+      Command::new("sh")
+        .args(["-c", "sleep 0.35"])
+        .stdout(Stdio::piped()),
+      QUICK,
+    )
+    .unwrap();
+    let took = started.elapsed();
+    assert_eq!(out.code, 0);
+    assert!(took < Duration::from_millis(450), "{:?}", took);
   }
 
   #[test]

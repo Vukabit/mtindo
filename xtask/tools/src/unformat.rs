@@ -32,10 +32,16 @@ const RUNS: &[&str] = &[
 /// `text` with its whitespace scrambled; `None` when it has a carriage return (line endings
 /// are left to their own tests).
 pub fn unformat(text: &str, edition: Edition) -> Option<String> {
+  unformat_with(text, edition, seed(text))
+}
+
+/// [`unformat`] with the generator started from `seed` instead of the text: another of the
+/// file's scrambles for each seed.
+pub fn unformat_with(text: &str, edition: Edition, seed: u64) -> Option<String> {
   if text.contains('\r') {
     return None;
   }
-  let mut state = seed(text);
+  let mut state = seed | 1;
   let mut out = String::with_capacity(text.len() + text.len() / 4);
   let mut at = 0;
   let mut previous = None;

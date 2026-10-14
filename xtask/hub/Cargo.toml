@@ -1,0 +1,23 @@
+[package]
+name = "hub"
+version = "0.0.0"
+publish = false
+edition = "2024"
+description = "A terminal hub for a project's development records, declared in .hub.toml"
+
+# Knows nothing of mtindo: everything it shows is declared in the project's .hub.toml
+# (SPEC.md), so it can be lifted out and used by any project.
+[dependencies]
+crossterm = "0.29"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+glob = "0.3"
+libc = "0.2"
+# The terminal widget: a pty, the terminal emulator that reads it, and its drawing.
+portable-pty = "0.9"
+tui-term = "0.3"
+vt100 = "0.16"
+toml = "0.9"
+unicode-width = "0.2"

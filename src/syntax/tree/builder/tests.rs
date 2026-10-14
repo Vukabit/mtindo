@@ -21,6 +21,7 @@ fn build(text: &str, ops: &[Op]) -> (SyntaxNode, Vec<SyntaxError>) {
     .filter(|t| !t.kind.is_trivia())
     .map(|t| t.kind);
   let mut events = Vec::new();
+  let mut messages = Vec::new();
   for op in ops {
     events.push(match op {
       Op::Start(kind) => Event::Start {
@@ -29,7 +30,7 @@ fn build(text: &str, ops: &[Op]) -> (SyntaxNode, Vec<SyntaxError>) {
       },
       Op::StartWrapped(kind, distance) => Event::Start {
         kind: *kind,
-        forward_parent: Some(*distance),
+        forward_parent: std::num::NonZeroU32::new(*distance),
       },
       Op::Tok => Event::Token {
         kind: significant.next().expect("ran out of tokens"),
@@ -45,13 +46,17 @@ fn build(text: &str, ops: &[Op]) -> (SyntaxNode, Vec<SyntaxError>) {
         }
       }
       Op::Finish => Event::Finish,
-      Op::Error(message) => Event::Error {
-        message: message.to_string(),
-      },
+      Op::Error(message) => {
+        messages.push(message.to_string());
+        Event::Error {
+          message: messages.len() as u32 - 1,
+        }
+      }
     });
   }
-  let (green, errors) = build_tree(text, &tokens, events);
-  let root = SyntaxNode::new_root(Rc::new(green));
+  let parsed = crate::syntax::parser::Parsed { events, messages };
+  let (green, errors, _) = build_tree(text, &tokens, parsed);
+  let root = SyntaxNode::new_root(green);
   assert_eq!(root.text(), text, "the tree must reproduce the input");
   (root, errors)
 }
@@ -81,6 +86,16 @@ fn item(tokens: usize) -> Vec<Op> {
   }
   ops.push(Op::Finish);
   ops
+}
+
+/// A file makes about three events per token: each is kept to 8 bytes.
+#[test]
+fn test_an_event_is_small() {
+  assert!(
+    std::mem::size_of::<Event>() <= 8,
+    "{}",
+    std::mem::size_of::<Event>()
+  );
 }
 
 #[test]

@@ -34,6 +34,34 @@ fn record(history: &History, entries: &[(&str, &[u8], &[u8])]) -> String {
   recorder.id().to_string()
 }
 
+/// The build guard writes a file more than once while it narrows a run down; the record
+/// keeps what the file held before the run and what the run left in it last, and whether a
+/// narrowing was left open.
+#[test]
+fn test_a_file_written_again_keeps_its_first_before_and_last_after() {
+  let history = history("again");
+  let mut recorder = history.recorder("mto .", Path::new("/work"), None);
+  let entry = |before: &[u8], after: &[u8]| Entry {
+    path: PathBuf::from("/work/a.rs"),
+    before: history.store(before).unwrap(),
+    after: history.store(after).unwrap(),
+  };
+  recorder.record(&entry(b"a", b"b")).unwrap();
+  recorder.note("check before pass").unwrap();
+  recorder.note("doctor open").unwrap();
+  recorder.record(&entry(b"a", b"c")).unwrap();
+  let id = recorder.id().to_string();
+  let run = history.read(&id).unwrap();
+  assert_eq!(run.entries.len(), 1);
+  assert_eq!(run.entries[0].before, sha256::hex(b"a"));
+  assert_eq!(run.entries[0].after, sha256::hex(b"c"));
+  assert_eq!(run.checks, ["before pass"]);
+  assert!(run.doctor_open);
+  history.append(&id, "doctor closed").unwrap();
+  assert!(!history.read(&id).unwrap().doctor_open);
+  let _ = fs::remove_dir_all(history.dir());
+}
+
 #[test]
 fn test_a_record_cut_short_keeps_its_whole_lines() {
   let text = format!(

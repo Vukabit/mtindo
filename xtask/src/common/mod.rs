@@ -6,6 +6,8 @@ pub mod awake;
 #[allow(dead_code)]
 #[path = "../../../src/text/color.rs"]
 pub mod color;
+pub mod conditions;
 pub mod log;
 pub mod process;
+pub mod sample;
 pub mod tree;

@@ -1,0 +1,13 @@
+[package]
+name = "memst"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# Profiles mto's pipeline: built by `cargo xtask memst` with frame pointers forced on, in
+# its own target folder. A development tool; mtindo itself stays without dependencies.
+[dependencies]
+libc = "0.2"
+mtindo = { path = "../.." }
+object = { version = "0.36", default-features = false, features = ["read", "std"] }
+rustc-demangle = "0.1"

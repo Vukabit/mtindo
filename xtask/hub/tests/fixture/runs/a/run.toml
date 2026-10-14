@@ -1,0 +1,6 @@
+id = "a"
+command = ["build", "--release"]
+state = "passed"
+started = "2026-10-11T10:00:00.000Z"
+ended = "2026-10-11T10:01:30.000Z"
+peak_kb = 2048

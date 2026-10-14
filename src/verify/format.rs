@@ -8,31 +8,43 @@
 //! a multiset, each with its lines trimmed, since formatting may re-indent a block comment
 //! and move a comment across a comma.
 
+use std::borrow::Cow;
+
 use super::{Rule, Violation, describe_list, difference};
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, TextRange, parse_cached};
 
 /// Marks the start of one imported path in a `use`'s canonical tokens.
 const USE_ENTRY: &str = "\u{0}use";
 
-/// Line numbers by byte offset.
-struct LineIndex(Vec<usize>);
+/// Line numbers by byte offset, and the text they index: the text of a tree parsed from
+/// it, whose tokens' texts are slices of it.
+struct LineIndex<'a> {
+  starts: Vec<usize>,
+  text: &'a str,
+}
 
-impl LineIndex {
-  fn new(text: &str) -> LineIndex {
+impl<'a> LineIndex<'a> {
+  fn new(text: &'a str) -> LineIndex<'a> {
     let mut starts = vec![0];
     starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
-    LineIndex(starts)
+    LineIndex { starts, text }
   }
 
   fn line(&self, offset: usize) -> usize {
-    self.0.partition_point(|&start| start <= offset)
+    self.starts.partition_point(|&start| start <= offset)
+  }
+
+  /// The text at `range`, borrowed for as long as the text is.
+  fn at(&self, range: TextRange) -> &'a str {
+    &self.text[range.start as usize..range.end as usize]
   }
 }
 
-/// One canonical token, with the line it came from (1-based) for reports.
+/// One canonical token, with the line it came from (1-based) for reports. Its text is
+/// borrowed from the source unless a rule rewrote it.
 #[derive(Clone, Debug)]
-struct Token {
-  text: String,
+struct Token<'a> {
+  text: Cow<'a, str>,
   line: usize,
 }
 
@@ -65,7 +77,10 @@ pub fn verify_format(input: &str, output: &str, edition: Edition) -> Vec<Violati
       detail,
     });
   }
-  let (lost, added) = difference(&old_comments, &new_comments);
+  let (lost, added) = difference(
+    old_comments.iter().map(String::as_str),
+    new_comments.iter().map(String::as_str),
+  );
   if !lost.is_empty() {
     violations.push(Violation {
       rule: Rule::CommentLost,
@@ -85,8 +100,13 @@ pub fn verify_format(input: &str, output: &str, edition: Edition) -> Vec<Violati
   violations
 }
 
+/// Items in the order of their tokens' texts, compared without copying them.
+fn by_text(a: &[Token], b: &[Token]) -> std::cmp::Ordering {
+  a.iter().map(|t| &t.text).cmp(b.iter().map(|t| &t.text))
+}
+
 /// The canonical token stream of a file, and its comments.
-fn canonical(root: &SyntaxNode, text: &str) -> (Vec<Token>, Vec<String>) {
+fn canonical<'a>(root: &SyntaxNode, text: &'a str) -> (Vec<Token<'a>>, Vec<String>) {
   let lines = LineIndex::new(text);
   let mut tokens = Vec::new();
   let mut comments = Vec::new();
@@ -101,7 +121,7 @@ fn canonical(root: &SyntaxNode, text: &str) -> (Vec<Token>, Vec<String>) {
       )
       && kind == last_kind
     {
-      last.text.push_str(more);
+      last.text.to_mut().push_str(more);
       continue;
     }
     merged.push(token);
@@ -144,19 +164,20 @@ fn continued(text: &str) -> String {
 }
 
 /// The arguments of a `#[derive(...)]` attribute, as tokens without commas, or `None`.
-fn derive_arguments(attr: &SyntaxNode, lines: &LineIndex) -> Option<Vec<Token>> {
-  let tokens: Vec<(String, usize)> = attr
-    .descendants_with_tokens()
-    .into_iter()
+fn derive_arguments<'a>(attr: &SyntaxNode, lines: &LineIndex<'a>) -> Option<Vec<Token<'a>>> {
+  let tokens: Vec<(Cow<'a, str>, usize)> = attr
+    .descendants_with_tokens_iter()
     .filter_map(|e| match e {
+      // Each token's canonical text, as everywhere: a doc comment written in the list
+      // (`/// x`, which keeps a `\r` in a CRLF file) is its text.
       SyntaxElement::Token(t) if !t.kind().is_trivia() => Some((
-        t.text().to_string(),
+        token_text(&t.parent(), t.kind(), lines.at(t.text_range())),
         lines.line(t.text_range().start as usize),
       )),
       _ => None,
     })
     .collect();
-  let texts: Vec<&str> = tokens.iter().map(|(t, _)| t.as_str()).collect();
+  let texts: Vec<&str> = tokens.iter().map(|(t, _)| t.as_ref()).collect();
   if texts.len() < 6
     || texts[..4] != ["#", "[", "derive", "("]
     || texts[texts.len() - 2..] != [")", "]"]
@@ -166,7 +187,7 @@ fn derive_arguments(attr: &SyntaxNode, lines: &LineIndex) -> Option<Vec<Token>> 
   Some(
     tokens[4..tokens.len() - 2]
       .iter()
-      .filter(|(t, _)| t != ",")
+      .filter(|(t, _)| t.as_ref() != ",")
       .map(|(text, line)| Token {
         text: text.clone(),
         line: *line,
@@ -178,15 +199,11 @@ fn derive_arguments(attr: &SyntaxNode, lines: &LineIndex) -> Option<Vec<Token>> 
 /// doc-text for `#[doc = "..."]` and `#![doc = "..."]`: the string's text as a doc
 /// comment's, or `None` for any other attribute.
 fn doc_attribute(attr: &SyntaxNode) -> Option<String> {
-  let texts: Vec<String> = attr
-    .descendants_with_tokens()
-    .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t.text().to_string()),
-      _ => None,
-    })
+  let texts: Vec<&str> = attr
+    .token_texts()
+    .filter(|(kind, _, _)| !kind.is_trivia())
+    .map(|(_, text, _)| text)
     .collect();
-  let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
   let (kind, string) = match texts.as_slice() {
     ["#", "[", "doc", "=", string, "]"] => ("outer", *string),
     ["#", "!", "[", "doc", "=", string, "]"] => ("inner", *string),
@@ -229,11 +246,11 @@ fn doc_text(kind: &str, text: &str) -> String {
 }
 
 /// One child of `parent`, after the rewrites that depend on where it sits.
-fn emit_element(
+fn emit_element<'a>(
   parent: &SyntaxNode,
   element: &SyntaxElement,
-  lines: &LineIndex,
-  out: &mut Vec<Token>,
+  lines: &LineIndex<'a>,
+  out: &mut Vec<Token<'a>>,
   notes: &mut Vec<String>,
 ) {
   match element {
@@ -258,13 +275,15 @@ fn emit_element(
       if node.kind() == SyntaxKind::ExprStmt {
         let inner = node.children();
         if let [expr] = inner.as_slice() {
-          // A `loop` may yield a value through `break value`; then the `;` counts.
-          let valued_break = expr.descendants().iter().any(|d| {
-            d.kind() == SyntaxKind::BreakExpr
-              && d.children().iter().any(|c| is_expression(c.kind()))
-          });
+          // A `loop` may yield a value through `break value`; then the `;` counts. Only a
+          // `loop` is searched: the walk covers all of it.
+          let valued_break = || {
+            expr
+              .descendant_nodes_where(|kind| kind == SyntaxKind::BreakExpr)
+              .any(|d| d.children_iter().any(|c| is_expression(c.kind())))
+          };
           let looping = matches!(expr.kind(), SyntaxKind::WhileExpr | SyntaxKind::ForExpr)
-            || (expr.kind() == SyntaxKind::LoopExpr && !valued_break);
+            || (expr.kind() == SyntaxKind::LoopExpr && !valued_break());
           let block_like = looping
             || matches!(
               expr.kind(),
@@ -301,7 +320,7 @@ fn emit_element(
         && let Some(text) = doc_attribute(node)
       {
         out.push(Token {
-          text,
+          text: text.into(),
           line: lines.line(node.text_range().start as usize),
         });
         return;
@@ -369,7 +388,7 @@ fn emit_element(
         return;
       }
       out.push(Token {
-        text: token_text(parent, kind, token.text()),
+        text: token_text(parent, kind, lines.at(token.text_range())),
         line: lines.line(token.text_range().start as usize),
       });
     }
@@ -377,15 +396,18 @@ fn emit_element(
 }
 
 /// The node's significant children, after the rewrites that act on a whole node.
-fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: &mut Vec<String>) {
+fn emit_node<'a>(
+  node: &SyntaxNode,
+  lines: &LineIndex<'a>,
+  out: &mut Vec<Token<'a>>,
+  notes: &mut Vec<String>,
+) {
   // Comments anywhere in the node, before any child is skipped or replaced.
   if node.parent().is_none() {
-    for element in node.descendants_with_tokens() {
-      if let SyntaxElement::Token(t) = element
-        && matches!(t.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment)
-      {
+    for (kind, text, _) in node.token_texts() {
+      if matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment) {
         notes.push(
-          t.text()
+          text
             .replace("/*", " ")
             .replace("*/", " ")
             .replace("//", " "),
@@ -406,18 +428,19 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     }
     SyntaxKind::Use => return emit_use(node, lines, out),
     // empty-generics: `<>` says nothing, nor does a `:` with no bounds after it.
-    SyntaxKind::GenericParamList | SyntaxKind::GenericArgList if node.children().is_empty() => {
+    SyntaxKind::GenericParamList | SyntaxKind::GenericArgList
+      if node.children_iter().next().is_none() =>
+    {
       return;
     }
     // empty-generics: a `where` with nothing after it.
-    SyntaxKind::WhereClause if node.children().is_empty() => return,
+    SyntaxKind::WhereClause if node.children_iter().next().is_none() => return,
     SyntaxKind::LifetimeParam
       if node
-        .children()
-        .iter()
-        .all(|c| c.kind() == SyntaxKind::TypeBoundList && c.children().is_empty()) =>
+        .children_iter()
+        .all(|c| c.kind() == SyntaxKind::TypeBoundList && c.children_iter().next().is_none()) =>
     {
-      for element in node.children_with_tokens() {
+      for element in node.children_with_tokens_iter() {
         if kind_of(&element) == SyntaxKind::Lifetime {
           emit_element(node, &element, lines, out, notes);
         }
@@ -425,17 +448,16 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
       return;
     }
     SyntaxKind::TypeParam
-      if node.children().iter().all(|c| {
+      if node.children_iter().all(|c| {
         c.kind() == SyntaxKind::Name
-          || (c.kind() == SyntaxKind::TypeBoundList && c.children().is_empty())
+          || (c.kind() == SyntaxKind::TypeBoundList && c.children_iter().next().is_none())
       }) =>
     {
       for child in node
-        .children()
-        .iter()
+        .children_iter()
         .filter(|c| c.kind() == SyntaxKind::Name)
       {
-        emit_node(child, lines, out, notes);
+        emit_node(&child, lines, out, notes);
       }
       return;
     }
@@ -455,8 +477,7 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     SyntaxKind::RecordExprField => {
       // field-init-shorthand: `x: x` is `x`.
       let parts: Vec<SyntaxElement> = node
-        .children_with_tokens()
-        .into_iter()
+        .children_with_tokens_iter()
         .filter(significant)
         .collect();
       let attrs = parts
@@ -472,7 +493,7 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
           emit_element(node, attr, lines, out, notes);
         }
         out.push(Token {
-          text: words(name, ""),
+          text: words(name, "").into(),
           line: lines.line(node.text_range().start as usize),
         });
         return;
@@ -481,8 +502,7 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     SyntaxKind::TuplePat | SyntaxKind::TupleStructPat => {
       // wildcard-suffix: two or more trailing `_` are `..`.
       let children: Vec<SyntaxElement> = node
-        .children_with_tokens()
-        .into_iter()
+        .children_with_tokens_iter()
         .filter(significant)
         .collect();
       let patterns: Vec<usize> = children
@@ -532,8 +552,7 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
         .is_some_and(|p| p.kind() == SyntaxKind::MacroRules) =>
     {
       let children: Vec<SyntaxElement> = node
-        .children_with_tokens()
-        .into_iter()
+        .children_with_tokens_iter()
         .filter(significant)
         .collect();
       let line = lines.line(node.text_range().start as usize);
@@ -563,13 +582,11 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     SyntaxKind::MacroCall if words(node, "").starts_with("try!(") => {
       // try-shorthand: `try!(e)` is `e?`.
       if let Some(tree) = node
-        .children()
-        .into_iter()
+        .children_iter()
         .find(|c| c.kind() == SyntaxKind::TokenTree)
       {
         let inner: Vec<SyntaxElement> = tree
-          .children_with_tokens()
-          .into_iter()
+          .children_with_tokens_iter()
           .filter(significant)
           .collect();
         if inner.len() >= 2 {
@@ -586,24 +603,16 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     }
     SyntaxKind::Visibility => {
       // visibility-in: `pub(in crate)` is `pub(crate)`.
-      let words: Vec<String> = node
-        .descendants_with_tokens()
-        .into_iter()
-        .filter_map(|e| match e {
-          SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t.text().to_string()),
-          _ => None,
-        })
+      let words: Vec<&str> = node
+        .token_texts()
+        .filter(|(kind, _, _)| !kind.is_trivia())
+        .map(|(_, text, _)| text)
         .collect();
-      if let ["pub", "(", "in", target @ ("crate" | "super" | "self"), ")"] = words
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .as_slice()
-      {
+      if let ["pub", "(", "in", target @ ("crate" | "super" | "self"), ")"] = words.as_slice() {
         let line = lines.line(node.text_range().start as usize);
         for text in ["pub", "(", target, ")"] {
           out.push(Token {
-            text: text.to_string(),
+            text: text.to_string().into(),
             line,
           });
         }
@@ -613,9 +622,8 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     SyntaxKind::Abi => {
       // explicit-abi: `extern` alone is `extern "C"`.
       let has_string = node
-        .children_with_tokens()
-        .iter()
-        .any(|e| significant(e) && kind_of(e) != SyntaxKind::ExternKw);
+        .children_with_tokens_iter()
+        .any(|e| significant(&e) && kind_of(&e) != SyntaxKind::ExternKw);
       if !has_string {
         let line = lines.line(node.text_range().start as usize);
         out.push(Token {
@@ -657,8 +665,7 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     _ => {}
   }
   let children: Vec<SyntaxElement> = node
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .filter(significant)
     .collect();
   let container = matches!(
@@ -681,7 +688,7 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
     }
     // The braces were emitted in place; the items go between them.
     let close = out.pop();
-    items.sort_by_key(|t| t.iter().map(|t| t.text.clone()).collect::<Vec<_>>());
+    items.sort_by(|a, b| by_text(a, b));
     out.extend(items.into_iter().flatten());
     out.extend(close);
     return;
@@ -704,15 +711,12 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
       if key == SyntaxKind::Use {
         // use-trees: the run is the set of what it imports.
         let mut entries: Vec<Vec<Token>> = run.into_iter().flat_map(split_use).collect();
-        entries.sort_by_key(|t| t.iter().map(|t| t.text.clone()).collect::<Vec<_>>());
+        entries.sort_by(|a, b| by_text(a, b));
         entries.dedup_by(|a, b| a.iter().map(|t| &t.text).eq(b.iter().map(|t| &t.text)));
         out.extend(entries.into_iter().flatten());
         continue;
       }
-      run.sort_by(|a, b| {
-        let text = |t: &Vec<Token>| t.iter().map(|t| t.text.clone()).collect::<Vec<_>>();
-        text(a).cmp(&text(b))
-      });
+      run.sort_by(|a, b| by_text(a, b));
       out.extend(run.into_iter().flatten());
       continue;
     }
@@ -722,17 +726,16 @@ fn emit_node(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>, notes: 
 }
 
 /// A token tree with its delimiters replaced by `open` and `close`.
-fn emit_tree(
+fn emit_tree<'a>(
   tree: &SyntaxNode,
-  open: &str,
-  close: &str,
-  lines: &LineIndex,
-  out: &mut Vec<Token>,
+  open: &'a str,
+  close: &'a str,
+  lines: &LineIndex<'a>,
+  out: &mut Vec<Token<'a>>,
   notes: &mut Vec<String>,
 ) {
   let children: Vec<SyntaxElement> = tree
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .filter(significant)
     .collect();
   let line = lines.line(tree.text_range().start as usize);
@@ -755,11 +758,11 @@ fn emit_tree(
 
 /// use-trees: a `use` as one entry per imported path, each with the `use`'s attributes and
 /// visibility, sorted.
-fn emit_use(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>) {
+fn emit_use<'a>(node: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Token<'a>>) {
   let line = lines.line(node.text_range().start as usize);
   let mut head = Vec::new();
   let mut paths = Vec::new();
-  for child in node.children_with_tokens().into_iter().filter(significant) {
+  for child in node.children_with_tokens_iter().filter(significant) {
     match &child {
       SyntaxElement::Node(n) if n.kind() == SyntaxKind::UseTree => {
         flatten_tree(n, "", &mut paths);
@@ -770,7 +773,7 @@ fn emit_use(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>) {
       }
       SyntaxElement::Token(t) if t.kind() == SyntaxKind::Semi => {}
       SyntaxElement::Token(t) => head.push(Token {
-        text: token_text(node, t.kind(), t.text()),
+        text: token_text(node, t.kind(), lines.at(t.text_range())),
         line,
       }),
     }
@@ -784,7 +787,10 @@ fn emit_use(node: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>) {
       line,
     });
     out.extend(head.iter().cloned());
-    out.push(Token { text: path, line });
+    out.push(Token {
+      text: path.into(),
+      line,
+    });
   }
 }
 
@@ -814,7 +820,7 @@ fn first_difference(old: &[Token], new: &[Token]) -> Option<String> {
     let start = at.saturating_sub(4);
     let end = (at + 5).min(tokens.len());
     let line = tokens.get(at).or(tokens.last()).map_or(0, |t| t.line);
-    let shown: Vec<&str> = tokens[start..end].iter().map(|t| t.text.as_str()).collect();
+    let shown: Vec<&str> = tokens[start..end].iter().map(|t| t.text.as_ref()).collect();
     format!("line {}: `{}`", line, shown.join(" "))
   };
   Some(format!(
@@ -830,7 +836,7 @@ fn flatten_tree(tree: &SyntaxNode, prefix: &str, paths: &mut Vec<String>) {
   let mut list = None;
   let mut glob = false;
   let mut rename = String::new();
-  for child in tree.children_with_tokens().into_iter().filter(significant) {
+  for child in tree.children_with_tokens_iter().filter(significant) {
     match &child {
       SyntaxElement::Node(n) if n.kind() == SyntaxKind::Path => path = words(n, ""),
       SyntaxElement::Node(n) if n.kind() == SyntaxKind::UseTreeList => list = Some(n.clone()),
@@ -852,11 +858,10 @@ fn flatten_tree(tree: &SyntaxNode, prefix: &str, paths: &mut Vec<String>) {
   };
   if let Some(list) = list {
     for inner in list
-      .children()
-      .iter()
+      .children_iter()
       .filter(|c| c.kind() == SyntaxKind::UseTree)
     {
-      flatten_tree(inner, &full, paths);
+      flatten_tree(&inner, &full, paths);
     }
     return;
   }
@@ -895,7 +900,7 @@ fn kind_of(element: &SyntaxElement) -> SyntaxKind {
 /// merge-derives: the first of consecutive `#[derive(...)]` attributes stands for all of
 /// them (their traits, in order, as one list); the others emit nothing. Returns whether
 /// `attr` was handled here.
-fn merged_derive(attr: &SyntaxNode, lines: &LineIndex, out: &mut Vec<Token>) -> bool {
+fn merged_derive<'a>(attr: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Token<'a>>) -> bool {
   let Some(own) = derive_arguments(attr, lines) else {
     return false;
   };
@@ -1041,8 +1046,7 @@ fn sole_expression(block: &SyntaxNode) -> Option<SyntaxNode> {
     return None;
   }
   let inner: Vec<SyntaxElement> = block
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .filter(significant)
     .collect();
   match inner.as_slice() {
@@ -1054,8 +1058,7 @@ fn sole_expression(block: &SyntaxNode) -> Option<SyntaxNode> {
       }
       // A block-like expression (`loop {}`, `match`) stands as a statement without `;`.
       let parts: Vec<SyntaxElement> = expr
-        .children_with_tokens()
-        .into_iter()
+        .children_with_tokens_iter()
         .filter(significant)
         .collect();
       match parts.as_slice() {
@@ -1092,8 +1095,7 @@ fn sortable(element: &SyntaxElement) -> Option<SyntaxKind> {
     SyntaxKind::Use => Some(SyntaxKind::Use),
     SyntaxKind::Module => {
       let declaration = !node
-        .children()
-        .iter()
+        .children_iter()
         .any(|c| c.kind() == SyntaxKind::ItemList);
       let macro_use = node.text().contains("macro_use");
       (declaration && !macro_use).then_some(SyntaxKind::Module)
@@ -1106,7 +1108,7 @@ fn sortable(element: &SyntaxElement) -> Option<SyntaxKind> {
 }
 
 /// A `use`'s canonical tokens cut into one entry per imported path.
-fn split_use(tokens: Vec<Token>) -> Vec<Vec<Token>> {
+fn split_use(tokens: Vec<Token<'_>>) -> Vec<Vec<Token<'_>>> {
   let mut entries: Vec<Vec<Token>> = Vec::new();
   for token in tokens {
     if token.text == USE_ENTRY {
@@ -1121,20 +1123,20 @@ fn split_use(tokens: Vec<Token>) -> Vec<Vec<Token>> {
 
 /// A token's canonical text: doc comments as their text, numbers normalized, `...` in a
 /// range pattern as `..=`.
-fn token_text(parent: &SyntaxNode, kind: SyntaxKind, text: &str) -> String {
+fn token_text<'a>(parent: &SyntaxNode, kind: SyntaxKind, text: &'a str) -> Cow<'a, str> {
   match kind {
     // range-pattern: `...` is `..=`.
-    SyntaxKind::Dot3 if parent.kind() == SyntaxKind::RangePat => "..=".to_string(),
-    SyntaxKind::OuterLineDoc | SyntaxKind::OuterBlockDoc => doc_text("outer", text),
-    SyntaxKind::InnerLineDoc | SyntaxKind::InnerBlockDoc => doc_text("inner", text),
-    SyntaxKind::IntNumber | SyntaxKind::FloatNumber => number(kind, text),
-    SyntaxKind::Str | SyntaxKind::ByteStr | SyntaxKind::CStr => continued(text),
-    _ => text.to_string(),
+    SyntaxKind::Dot3 if parent.kind() == SyntaxKind::RangePat => "..=".into(),
+    SyntaxKind::OuterLineDoc | SyntaxKind::OuterBlockDoc => doc_text("outer", text).into(),
+    SyntaxKind::InnerLineDoc | SyntaxKind::InnerBlockDoc => doc_text("inner", text).into(),
+    SyntaxKind::IntNumber | SyntaxKind::FloatNumber => number(kind, text).into(),
+    SyntaxKind::Str | SyntaxKind::ByteStr | SyntaxKind::CStr => continued(text).into(),
+    _ => Cow::Borrowed(text),
   }
 }
 
 fn tree(text: &str, edition: Edition) -> (SyntaxNode, usize) {
-  let parsed = parse(text, edition);
+  let parsed = parse_cached(text, edition);
   let errors = parsed.errors().len();
   (parsed.syntax_node(), errors)
 }
@@ -1142,12 +1144,9 @@ fn tree(text: &str, edition: Edition) -> (SyntaxNode, usize) {
 /// The node's significant token texts, joined by `separator`.
 fn words(node: &SyntaxNode, separator: &str) -> String {
   node
-    .descendants_with_tokens()
-    .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t.text().to_string()),
-      _ => None,
-    })
+    .token_texts()
+    .filter(|(kind, _, _)| !kind.is_trivia())
+    .map(|(_, text, _)| text)
     .collect::<Vec<_>>()
     .join(separator)
 }

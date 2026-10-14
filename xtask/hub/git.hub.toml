@@ -1,0 +1,1170 @@
+# The git window: a hub any project can include (`[hub] include = ["git.hub.toml"]`,
+# relative to its .hub.toml). Three screens and a page:
+#
+#   Git      key 0   the branch, the changed files, and the selected file's changes
+#   History          the log with its graph, and the selected commit's changes
+#   Refs             branches, tags, stashes and remotes
+#   Blame    page    who last changed each line of a file (B on a file)
+#
+# Its styles are named git-*; a project's own [styles] may redefine any of them.
+
+[styles]
+git-add = { fg = "green" }
+git-remove = { fg = "red" }
+git-hunk = { fg = "cyan" }
+git-file = { bold = true }
+git-section = { bold = true, reverse = true }
+git-conflict = { fg = "red", bold = true }
+git-staged = { fg = "green" }
+git-head = { bold = true }
+git-graph = { fg = "magenta" }
+git-refs = { fg = "yellow" }
+git-hash = { fg = "yellow" }
+
+# ── Sources ─────────────────────────────────────────────────────────────────────────
+
+[[source]]
+name = "git-head"
+kind = "git"
+of = "head"
+
+[[source]]
+name = "git-status"
+kind = "git"
+of = "tree"
+
+[[source]]
+name = "git-changes"
+kind = "git"
+of = "changes"
+args = "{sel.git-files.path | quote}"
+
+[[source]]
+name = "git-log"
+kind = "git"
+of = "log"
+args = "--all"
+limit = 400
+page = 400
+refresh = "5s"
+
+[[source]]
+name = "git-commit"
+kind = "git"
+of = "commit"
+args = "{sel.git-history.hash}"
+refresh = "1h"
+
+[[source]]
+name = "git-branches"
+kind = "git"
+of = "branches"
+refresh = "3s"
+
+[[source]]
+name = "git-tags"
+kind = "git"
+of = "tags"
+refresh = "10s"
+
+[[source]]
+name = "git-stashes"
+kind = "git"
+of = "stashes"
+refresh = "3s"
+
+[[source]]
+name = "git-remotes"
+kind = "git"
+of = "remotes"
+refresh = "30s"
+
+[[source]]
+name = "git-blame"
+kind = "git"
+of = "blame"
+args = "{row.path | quote}"
+refresh = "10s"
+
+# ── Git: the branch, the files, their changes ───────────────────────────────────────
+
+
+[[source]]
+name = "git-split"
+kind = "git"
+of = "split"
+args = "{row.path | quote}"
+
+[[source]]
+name = "git-words"
+kind = "git"
+of = "words"
+args = "{row.path | quote}"
+
+[[source]]
+name = "git-conflicts"
+kind = "git"
+of = "conflicts"
+args = "{row.path | quote}"
+refresh = "2s"
+
+[[source]]
+name = "git-reflog"
+kind = "git"
+of = "reflog"
+limit = 200
+page = 200
+refresh = "5s"
+
+[[source]]
+name = "git-reflog-commit"
+kind = "git"
+of = "commit"
+args = "{sel.git-reflog-list.hash}"
+
+[[source]]
+name = "git-worktrees"
+kind = "git"
+of = "worktrees"
+refresh = "10s"
+
+[[source]]
+name = "git-bisect"
+kind = "git"
+of = "bisect"
+refresh = "2s"
+
+# The pull request of the branch checked out, and the latest CI runs, from GitHub
+# through `gh` (its own login); each says why when gh is missing or has nothing.
+[[source]]
+name = "gh-pr"
+kind = "command"
+# No pull request is no row; no gh, a failure that says so.
+run = "sh -c 'command -v gh >/dev/null || { echo gh is not installed >&2; exit 1; }; gh pr view --json number,title,state,url,reviewDecision,isDraft,headRefName,baseRefName 2>/dev/null || echo []'"
+parse = "json"
+refresh = "60s"
+
+[[source]]
+name = "gh-runs"
+kind = "command"
+run = "gh run list --limit 30 --json databaseId,displayTitle,status,conclusion,workflowName,headBranch,event,createdAt,url"
+parse = "json"
+refresh = "30s"
+[[widget]]
+id = "git-branch"
+type = "kv"
+title = "{branch | or:(no branch)}"
+source = "git-head"
+pairs = [
+  ["upstream", "{upstream | or:none} · ↑{ahead} ↓{behind}"],
+  ["last", "{short} {subject | trim:60} · {when | ago}"],
+]
+
+[[widget]]
+id = "git-files"
+type = "table"
+title = "Changes"
+source = "git-status"
+selectable = true
+empty = "Nothing to commit: the working tree is clean. c commits what is staged."
+columns = [
+  { header = "IW", value = "{index}{worktree}", width = 3, style = [
+    { when = "conflict", style = "git-conflict" },
+    { when = "staged and not unstaged", style = "git-staged" } ] },
+  { header = "FILE", value = "{label}{if(from != \"\", \" ← \" + from, \"\")}", width = "fill" },
+  { header = "WHAT", value = "{what}", width = 18, style = "dim" },
+]
+
+[[widget]]
+id = "git-diff"
+type = "table"
+title = "{sel.git-files.path | or:Changes of the selected file}"
+source = "git-changes"
+selectable = true
+empty = "Select a file to see its changes."
+columns = [
+  { header = "OLD", value = "{old}", width = 5, align = "right", style = "dim" },
+  { header = "NEW", value = "{new}", width = 5, align = "right", style = "dim" },
+  { header = "", value = "{text}", width = "fill", style = [
+    { when = "kind == \"section\"", style = "git-section" },
+    { when = "kind == \"add\"", style = "git-add" },
+    { when = "kind == \"remove\"", style = "git-remove" },
+    { when = "kind == \"hunk\"", style = "git-hunk" },
+    { when = "kind == \"file\"", style = "git-file" },
+    { when = "kind == \"note\"", style = "dim" } ] },
+]
+
+[[screen]]
+id = "git"
+title = "Git"
+key = "0"
+layout = { split = "columns", sizes = ["40%", "fill"], children = [
+  { split = "rows", sizes = [4, "fill"], children = ["git-branch", "git-files"] },
+  "git-diff" ] }
+narrow = { split = "rows", sizes = [4, "40%", "fill"], children = [
+  "git-branch", "git-files", "git-diff" ] }
+
+# ── History ─────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "git-history"
+type = "table"
+title = "History"
+source = "git-log"
+selectable = true
+empty = "No commits yet."
+columns = [
+  { header = "", value = "{graph}", width = 8, style = "git-graph" },
+  { header = "COMMIT", value = "{short}", width = 8, style = "dim" },
+  { header = "SUBJECT", value = "{if(refs != \"\", \"(\" + refs + \") \", \"\")}{subject}", width = "fill", style = [
+    { when = "refs != \"\"", style = "git-refs" } ] },
+  { header = "AUTHOR", value = "{author}", width = 14, style = "dim" },
+  { header = "WHEN", value = "{when | ago}", width = 11, align = "right", style = "dim" },
+]
+
+[[widget]]
+id = "git-commit-diff"
+type = "table"
+title = "{sel.git-history.short} {sel.git-history.subject | trim:50}"
+source = "git-commit"
+selectable = true
+empty = "Select a commit to see its changes."
+columns = [
+  { header = "OLD", value = "{old}", width = 5, align = "right", style = "dim" },
+  { header = "NEW", value = "{new}", width = 5, align = "right", style = "dim" },
+  { header = "", value = "{text}", width = "fill", style = [
+    { when = "kind == \"add\"", style = "git-add" },
+    { when = "kind == \"remove\"", style = "git-remove" },
+    { when = "kind == \"hunk\"", style = "git-hunk" },
+    { when = "kind == \"file\"", style = "git-file" },
+    { when = "kind == \"note\"", style = "dim" } ] },
+]
+
+[[screen]]
+id = "git-log"
+title = "History"
+layout = { split = "columns", sizes = ["55%", "fill"], children = [
+  "git-history", "git-commit-diff" ] }
+narrow = { split = "rows", sizes = ["50%", "fill"], children = [
+  "git-history", "git-commit-diff" ] }
+
+# ── Refs ────────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "git-branch-list"
+type = "table"
+title = "Branches"
+source = "git-branches"
+selectable = true
+columns = [
+  { header = "", value = "{if(head, \"*\", \"\")}", width = 1, style = "git-head" },
+  { header = "BRANCH", value = "{name}", width = "fill", style = [
+    { when = "head", style = "git-head" }, { when = "remote", style = "dim" } ] },
+  { header = "UPSTREAM", value = "{if(gone, upstream + \" (gone)\", upstream)}", width = 22, style = "dim" },
+  { header = "↑↓", value = "{if(upstream != \"\" and not gone, \"↑\" + ahead + \" ↓\" + behind, \"\")}", width = 9 },
+  { header = "WHEN", value = "{when | ago}", width = 11, align = "right", style = "dim" },
+]
+
+[[widget]]
+id = "git-tag-list"
+type = "table"
+title = "Tags"
+source = "git-tags"
+selectable = true
+empty = "No tags."
+columns = [
+  { header = "TAG", value = "{name}", width = "fill" },
+  { header = "COMMIT", value = "{short}", width = 8, style = "dim" },
+  { header = "WHEN", value = "{when | ago}", width = 11, align = "right", style = "dim" },
+]
+
+[[widget]]
+id = "git-stash-list"
+type = "table"
+title = "Stashes"
+source = "git-stashes"
+selectable = true
+empty = "No stashes. z on the Git screen stashes the changes."
+columns = [
+  { header = "STASH", value = "{name}", width = 10, style = "dim" },
+  { header = "MESSAGE", value = "{subject}", width = "fill" },
+  { header = "WHEN", value = "{when | ago}", width = 11, align = "right", style = "dim" },
+]
+
+[[widget]]
+id = "git-remote-list"
+type = "table"
+title = "Remotes"
+source = "git-remotes"
+selectable = true
+empty = "No remotes."
+columns = [
+  { header = "REMOTE", value = "{name}", width = 12 },
+  { header = "URL", value = "{url}", width = "fill", style = "dim" },
+]
+
+[[screen]]
+id = "git-refs"
+title = "Refs"
+layout = { split = "columns", sizes = ["55%", "fill"], children = [
+  "git-branch-list",
+  { split = "rows", sizes = ["35%", "35%", "fill"], children = [
+    "git-tag-list", "git-stash-list", "git-remote-list" ] } ] }
+
+# ── Blame ───────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "git-blame-lines"
+type = "table"
+title = "Blame {row.path}"
+source = "git-blame"
+selectable = true
+empty = "Nothing to blame: the file has no commits yet."
+columns = [
+  { header = "COMMIT", value = "{if(first, short, \"\")}", width = 8, style = "dim" },
+  { header = "AUTHOR", value = "{if(first, author, \"\")}", width = 14, style = "dim" },
+  { header = "WHEN", value = "{first_when | ago}", width = 11, align = "right", style = "dim" },
+  { header = "LINE", value = "{line}", width = 5, align = "right", style = "dim" },
+  { header = "", value = "{text}", width = "fill" },
+]
+
+[[screen]]
+id = "git-blame"
+page = true
+title = "Blame {row.path}"
+layout = "git-blame-lines"
+
+# ── Side by side, word by word, conflicts ──────────────────────────────────────────
+
+[[widget]]
+id = "git-split-lines"
+type = "table"
+title = "{row.path} · as it was | as it is"
+source = "git-split"
+selectable = true
+empty = "No changes."
+columns = [
+  { header = "OLD", value = "{old}", width = 5, align = "right", style = "dim" },
+  { header = "", value = "{left}", width = "fill", style = [
+    { when = "kind == \"section\"", style = "git-section" },
+    { when = "kind == \"hunk\"", style = "git-hunk" },
+    { when = "kind == \"removed\" or kind == \"changed\"", style = "git-remove" } ] },
+  { header = "NEW", value = "{new}", width = 5, align = "right", style = "dim" },
+  { header = "", value = "{right}", width = "fill", style = [
+    { when = "kind == \"added\" or kind == \"changed\"", style = "git-add" } ] },
+]
+
+[[screen]]
+id = "git-split"
+page = true
+title = "Side by side {row.path}"
+layout = "git-split-lines"
+
+[[widget]]
+id = "git-word-lines"
+type = "table"
+title = "{row.path} · word by word: [-removed-] {{+added+}}"
+source = "git-words"
+selectable = true
+empty = "No changes."
+columns = [
+  { header = "OLD", value = "{old}", width = 5, align = "right", style = "dim" },
+  { header = "NEW", value = "{new}", width = 5, align = "right", style = "dim" },
+  { header = "", value = "{text}", width = "fill", style = [
+    { when = "kind == \"section\"", style = "git-section" },
+    { when = "kind == \"hunk\"", style = "git-hunk" },
+    { when = "kind == \"changed\"", style = "git-add" } ] },
+]
+
+[[screen]]
+id = "git-words"
+page = true
+title = "Word by word {row.path}"
+layout = "git-word-lines"
+
+[[widget]]
+id = "git-conflict-lines"
+type = "table"
+title = "{row.path} · o ours · t theirs · b both · a resolved"
+source = "git-conflicts"
+selectable = true
+empty = "No conflict markers left: a marks the file resolved."
+columns = [
+  { header = "#", value = "{hunk}", width = 3, align = "right", style = "dim" },
+  { header = "LINE", value = "{line}", width = 5, align = "right", style = "dim" },
+  { header = "SIDE", value = "{if(kind == \"context\" or kind == \"marker\", \"\", kind)}", width = 6, style = "dim" },
+  { header = "", value = "{text}", width = "fill", style = [
+    { when = "kind == \"ours\"", style = "git-add" },
+    { when = "kind == \"theirs\"", style = "git-staged" },
+    { when = "kind == \"marker\" or kind == \"base\"", style = "dim" } ] },
+]
+
+[[screen]]
+id = "git-conflict"
+page = true
+title = "Conflicts in {row.path}"
+layout = "git-conflict-lines"
+
+# ── Reflog, worktrees, bisect, CI ───────────────────────────────────────────────────
+
+[[widget]]
+id = "git-reflog-list"
+type = "table"
+title = "Where HEAD has been"
+source = "git-reflog"
+selectable = true
+columns = [
+  { header = "", value = "{name}", width = 10, style = "dim" },
+  { header = "COMMIT", value = "{short}", width = 9, style = "git-hash" },
+  { header = "WHAT", value = "{subject}", width = "fill" },
+  { header = "WHEN", value = "{when | ago}", width = 9, align = "right", style = "dim" },
+]
+
+[[widget]]
+id = "git-reflog-diff"
+type = "table"
+title = "{sel.git-reflog-list.short | or:The selected entry}"
+source = "git-reflog-commit"
+selectable = true
+columns = [
+  { header = "", value = "{text}", width = "fill", style = [
+    { when = "kind == \"add\"", style = "git-add" },
+    { when = "kind == \"remove\"", style = "git-remove" },
+    { when = "kind == \"hunk\"", style = "git-hunk" },
+    { when = "kind == \"file\"", style = "git-file" } ] },
+]
+
+[[screen]]
+id = "git-reflog"
+title = "Reflog"
+layout = { split = "columns", sizes = ["55%", "fill"], children = [
+  "git-reflog-list", "git-reflog-diff" ] }
+narrow = { split = "rows", sizes = ["50%", "fill"], children = [
+  "git-reflog-list", "git-reflog-diff" ] }
+
+[[widget]]
+id = "git-worktree-list"
+type = "table"
+title = "Worktrees"
+source = "git-worktrees"
+selectable = true
+columns = [
+  { header = "PATH", value = "{path}", width = "fill" },
+  { header = "ON", value = "{if(branch != \"\", branch, \"detached at \" + short)}", width = "30%" },
+  { header = "", value = "{if(main, \"main\", \"\")}{if(locked, \" locked\", \"\")}{if(prunable, \" prunable\", \"\")}", width = 16, style = "dim" },
+]
+
+[[widget]]
+id = "git-bisect-steps"
+type = "table"
+title = "Bisect · on History, + marks good and - bad"
+source = "git-bisect"
+selectable = true
+empty = "No bisection under way. On History, + marks a commit good and - bad, which starts one."
+columns = [
+  { header = "", value = "{verb}", width = 10, style = [
+    { when = "verb == \"good\"", style = "git-add" },
+    { when = "verb == \"bad\" or verb == \"first bad\"", style = "git-remove" } ] },
+  { header = "COMMIT", value = "{short}", width = 9, style = "git-hash" },
+  { header = "", value = "{subject}", width = "fill" },
+]
+
+[[screen]]
+id = "git-work"
+title = "Worktrees"
+layout = { split = "rows", sizes = ["50%", "fill"], children = [
+  "git-worktree-list", "git-bisect-steps" ] }
+
+[[widget]]
+id = "gh-pr-kv"
+type = "kv"
+title = "Pull request"
+source = "gh-pr"
+empty = "No pull request for this branch."
+pairs = [
+  ["PR", "#{number} {title}"],
+  ["State", "{state}{if(isDraft, \" (draft)\", \"\")} · review {reviewDecision | or:none}"],
+  ["Branch", "{headRefName} → {baseRefName}"],
+]
+
+[[widget]]
+id = "gh-run-list"
+type = "table"
+title = "CI runs"
+source = "gh-runs"
+selectable = true
+empty = "No runs."
+columns = [
+  { header = "", value = "{if(status != \"completed\", \"… \" + status, if(conclusion == \"success\", \"✓ passed\", \"✗ \" + conclusion))}", width = 14, style = [
+    { when = "status != \"completed\"", style = "info" },
+    { when = "conclusion == \"success\"", style = "ok" },
+    { style = "bad" } ] },
+  { header = "WORKFLOW", value = "{workflowName}", width = "20%" },
+  { header = "", value = "{displayTitle}", width = "fill" },
+  { header = "BRANCH", value = "{headBranch}", width = "15%", style = "dim" },
+  { header = "WHEN", value = "{createdAt | ago}", width = 9, align = "right", style = "dim" },
+]
+
+[[screen]]
+id = "git-ci"
+title = "CI"
+layout = { split = "rows", sizes = [5, "fill"], children = ["gh-pr-kv", "gh-run-list"] }
+
+# ── Actions: files ──────────────────────────────────────────────────────────────────
+
+[[action]]
+id = "git-stage"
+label = "stage"
+key = "space"
+on = "git-files"
+when = "sel.git-files.unstaged or sel.git-files.untracked or sel.git-files.conflict"
+run = "git add -- {sel.git-files.path | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-unstage"
+label = "unstage"
+key = "space"
+on = "git-files"
+when = "sel.git-files.staged and not sel.git-files.unstaged"
+run = "git restore --staged -- {sel.git-files.path | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-stage-all"
+label = "stage all"
+key = "a"
+on = "git-files"
+run = "git add --all"
+then = "refresh"
+
+[[action]]
+id = "git-unstage-all"
+label = "unstage all"
+key = "A"
+on = "git-files"
+run = "git restore --staged -- ."
+then = "refresh"
+
+[[action]]
+id = "git-discard"
+label = "discard"
+key = "d"
+on = "git-files"
+when = "sel.git-files.unstaged"
+confirm = "Discard the changes to {sel.git-files.path} that are not staged?\nundo brings them back, while the hub runs."
+run = "git restore -- {sel.git-files.path | quote}"
+before = "git diff -- {sel.git-files.path | quote}"
+undo = "git apply --recount -"
+undo_input = "{before}\n"
+then = "refresh"
+
+[[action]]
+id = "git-delete-untracked"
+label = "delete"
+key = "d"
+on = "git-files"
+when = "sel.git-files.untracked"
+confirm = "Delete {sel.git-files.path}? It was never committed and cannot be brought back."
+run = "git clean -f -- {sel.git-files.path | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-edit"
+label = "edit"
+key = "e"
+on = "git-files"
+when = "not sel.git-files.folder"
+run = "sh -c '${{EDITOR:-vi}} \"$1\"' edit {sel.git-files.path | quote}"
+mode = "terminal"
+then = "refresh"
+
+[[action]]
+id = "git-blame-file"
+label = "blame"
+key = "B"
+on = "git-files"
+when = "not sel.git-files.untracked and not sel.git-files.folder"
+open = "git-blame"
+
+# ── Actions: hunks and lines ────────────────────────────────────────────────────────
+
+[[action]]
+id = "git-stage-hunk"
+label = "stage hunk"
+key = "space"
+on = "git-diff"
+when = "sel.git-diff.side == \"unstaged\" and sel.git-diff.patch != \"\""
+run = "git apply --cached --recount -"
+input = "{sel.git-diff.patch}"
+then = "refresh"
+
+[[action]]
+id = "git-unstage-hunk"
+label = "unstage hunk"
+key = "space"
+on = "git-diff"
+when = "sel.git-diff.side == \"staged\" and sel.git-diff.patch != \"\""
+run = "git apply --cached --recount --reverse -"
+input = "{sel.git-diff.patch}"
+then = "refresh"
+
+[[action]]
+id = "git-stage-untracked"
+label = "stage file"
+key = "space"
+on = "git-diff"
+when = "sel.git-diff.side == \"untracked\""
+run = "git add -- {sel.git-files.path | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-stage-line"
+label = "stage line"
+key = "S"
+on = "git-diff"
+when = "sel.git-diff.side == \"unstaged\" and sel.git-diff.line_patch != \"\""
+run = "git apply --cached --recount -"
+input = "{sel.git-diff.line_patch}"
+then = "refresh"
+
+[[action]]
+id = "git-unstage-line"
+label = "unstage line"
+key = "S"
+on = "git-diff"
+when = "sel.git-diff.side == \"staged\" and sel.git-diff.line_patch != \"\""
+run = "git apply --cached --recount --reverse -"
+input = "{sel.git-diff.line_patch}"
+then = "refresh"
+
+[[action]]
+id = "git-discard-hunk"
+label = "discard hunk"
+key = "d"
+on = "git-diff"
+when = "sel.git-diff.side == \"unstaged\" and sel.git-diff.patch != \"\""
+confirm = "Discard this hunk of {sel.git-diff.file}?\nIt cannot be brought back."
+run = "git apply --recount --reverse -"
+undo = "git apply --recount -"
+undo_input = "{sel.git-diff.patch}"
+input = "{sel.git-diff.patch}"
+then = "refresh"
+
+# ── Actions: commits and the branch ─────────────────────────────────────────────────
+
+[[action]]
+id = "git-commit"
+label = "commit"
+key = "c"
+on = "git"
+ask = [
+  { name = "summary", label = "Summary", required = true },
+  { name = "body", label = "Body", lines = 6 },
+]
+run = "git commit --cleanup=strip -m {ask.summary | quote} -m {ask.body | quote}"
+before = "git rev-parse HEAD"
+undo = "git reset --soft {before}"
+then = "refresh"
+toast = "committed: {ask.summary}"
+
+[[action]]
+id = "git-commit-editor"
+label = "commit in editor"
+key = "C"
+on = "git"
+run = "git commit --verbose"
+mode = "terminal"
+then = "refresh"
+
+[[action]]
+id = "git-amend"
+label = "amend"
+key = "M"
+on = "git"
+confirm = "Add what is staged to the last commit, keeping its message?"
+run = "git commit --amend --no-edit"
+before = "git rev-parse HEAD"
+undo = "git reset --soft {before}"
+then = "refresh"
+
+[[action]]
+id = "git-stash"
+label = "stash"
+key = "z"
+on = "git"
+ask = [{ name = "message", label = "Message (may be empty)" }]
+run = "git stash push --include-untracked --message {ask.message | quote}"
+undo = "git stash pop"
+then = "refresh"
+
+[[action]]
+id = "git-fetch"
+label = "fetch"
+key = "f"
+on = "git"
+run = "git fetch --all --prune"
+timeout = "5m"
+then = "refresh"
+toast = "fetched"
+
+[[action]]
+id = "git-pull"
+label = "pull"
+key = "p"
+on = "git"
+run = "git pull --ff-only"
+before = "git rev-parse HEAD"
+undo = "git reset --keep {before}"
+timeout = "5m"
+then = "refresh"
+toast = "pulled"
+
+[[action]]
+id = "git-push"
+label = "push"
+key = "P"
+on = "git"
+confirm = "Push the branch checked out to its upstream (origin, set as its upstream if it has none)?"
+run = "git push --set-upstream origin HEAD"
+timeout = "5m"
+then = "refresh"
+toast = "pushed"
+
+# ── Actions: history ────────────────────────────────────────────────────────────────
+
+[[action]]
+id = "git-copy-hash"
+label = "copy hash"
+key = "y"
+on = "git-history"
+copy = "{sel.git-history.hash}"
+
+[[action]]
+id = "git-checkout-commit"
+label = "check out"
+key = "o"
+on = "git-history"
+confirm = "Check out {sel.git-history.short} \"{sel.git-history.subject}\"?\nYou will be on no branch (detached)."
+run = "git switch --detach {sel.git-history.hash}"
+before = "sh -c 'git symbolic-ref --quiet --short HEAD || git rev-parse HEAD'"
+undo = "git checkout {before | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-revert"
+label = "revert"
+key = "r"
+on = "git-history"
+confirm = "Make a commit that undoes {sel.git-history.short} \"{sel.git-history.subject}\"?"
+run = "git revert --no-edit {sel.git-history.hash}"
+before = "git rev-parse HEAD"
+undo = "git reset --keep {before}"
+then = "refresh"
+
+[[action]]
+id = "git-cherry-pick"
+label = "cherry-pick"
+key = "x"
+on = "git-history"
+confirm = "Apply {sel.git-history.short} \"{sel.git-history.subject}\" onto the branch checked out?"
+run = "git cherry-pick {sel.git-history.hash}"
+before = "git rev-parse HEAD"
+undo = "git reset --keep {before}"
+then = "refresh"
+
+[[action]]
+id = "git-tag"
+label = "tag"
+key = "t"
+on = "git-history"
+ask = [{ name = "name", label = "Tag name", required = true }]
+run = "git tag {ask.name | quote} {sel.git-history.hash}"
+then = "refresh"
+
+[[action]]
+id = "git-reset-soft"
+label = "reset here (soft)"
+key = "u"
+on = "git-history"
+confirm = "Move the branch to {sel.git-history.short}, keeping every change after it staged?"
+run = "git reset --soft {sel.git-history.hash}"
+before = "git rev-parse HEAD"
+undo = "git reset --soft {before}"
+then = "refresh"
+
+[[action]]
+id = "git-rebase-interactive"
+label = "rebase from here"
+key = "I"
+on = "git-history"
+run = "git rebase --interactive {sel.git-history.hash}"
+mode = "terminal"
+then = "refresh"
+
+# ── Actions: branches, tags, stashes, remotes ───────────────────────────────────────
+
+[[action]]
+id = "git-switch"
+label = "switch"
+key = "space"
+on = "git-branch-list"
+when = "not sel.git-branch-list.head and not sel.git-branch-list.remote"
+run = "git switch {sel.git-branch-list.name | quote}"
+before = "sh -c 'git symbolic-ref --quiet --short HEAD || git rev-parse HEAD'"
+undo = "git checkout {before | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-track"
+label = "track"
+key = "space"
+on = "git-branch-list"
+when = "sel.git-branch-list.remote"
+run = "git switch --track {sel.git-branch-list.name | quote}"
+before = "sh -c 'git symbolic-ref --quiet --short HEAD || git rev-parse HEAD'"
+undo = "git checkout {before | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-new-branch"
+label = "new branch"
+key = "n"
+on = "git-branch-list"
+ask = [{ name = "name", label = "New branch, from the one checked out", required = true }]
+run = "git switch --create {ask.name | quote}"
+before = "sh -c 'git symbolic-ref --quiet --short HEAD || git rev-parse HEAD'"
+undo = "git checkout {before | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-rename-branch"
+label = "rename"
+key = "R"
+on = "git-branch-list"
+when = "not sel.git-branch-list.remote"
+ask = [{ name = "name", label = "New name", default = "{sel.git-branch-list.name}", required = true }]
+run = "git branch --move {sel.git-branch-list.name | quote} {ask.name | quote}"
+undo = "git branch --move {ask.name | quote} {sel.git-branch-list.name | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-merge"
+label = "merge"
+key = "m"
+on = "git-branch-list"
+when = "not sel.git-branch-list.head"
+confirm = "Merge {sel.git-branch-list.name} into the branch checked out?"
+run = "git merge --no-edit {sel.git-branch-list.name | quote}"
+before = "git rev-parse HEAD"
+undo = "git reset --keep {before}"
+then = "refresh"
+
+[[action]]
+id = "git-rebase"
+label = "rebase onto"
+key = "r"
+on = "git-branch-list"
+when = "not sel.git-branch-list.head"
+confirm = "Rebase the branch checked out onto {sel.git-branch-list.name}?"
+run = "git rebase {sel.git-branch-list.name | quote}"
+before = "git rev-parse HEAD"
+undo = "git reset --keep {before}"
+then = "refresh"
+
+[[action]]
+id = "git-delete-branch"
+label = "delete"
+key = "D"
+on = "git-branch-list"
+when = "not sel.git-branch-list.head and not sel.git-branch-list.remote"
+confirm = "Delete branch {sel.git-branch-list.name}?\ngit refuses if it is not merged."
+run = "git branch --delete {sel.git-branch-list.name | quote}"
+before = "git rev-parse {sel.git-branch-list.name | quote}"
+undo = "git branch {sel.git-branch-list.name | quote} {before}"
+then = "refresh"
+
+[[action]]
+id = "git-delete-tag"
+label = "delete"
+key = "D"
+on = "git-tag-list"
+confirm = "Delete tag {sel.git-tag-list.name} here (not on any remote)?"
+run = "git tag --delete {sel.git-tag-list.name | quote}"
+before = "git rev-parse {sel.git-tag-list.name | quote}"
+undo = "git tag {sel.git-tag-list.name | quote} {before}"
+then = "refresh"
+
+[[action]]
+id = "git-stash-apply"
+label = "apply"
+key = "space"
+on = "git-stash-list"
+run = "git stash apply {sel.git-stash-list.name | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-stash-pop"
+label = "pop"
+key = "p"
+on = "git-stash-list"
+confirm = "Apply {sel.git-stash-list.name} and drop it?"
+run = "git stash pop {sel.git-stash-list.name | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-stash-drop"
+label = "drop"
+key = "D"
+on = "git-stash-list"
+confirm = "Drop {sel.git-stash-list.name} \"{sel.git-stash-list.subject}\"?\nIt cannot be brought back."
+run = "git stash drop {sel.git-stash-list.name | quote}"
+before = "git rev-parse {sel.git-stash-list.name | quote}"
+undo = "git stash store --message {sel.git-stash-list.subject | quote} {before}"
+then = "refresh"
+
+[[action]]
+id = "git-fetch-remote"
+label = "fetch"
+key = "f"
+on = "git-remote-list"
+run = "git fetch --prune {sel.git-remote-list.name | quote}"
+timeout = "5m"
+then = "refresh"
+toast = "fetched {sel.git-remote-list.name}"
+
+# ── Actions: side by side, words, conflicts ─────────────────────────────────────────
+
+[[action]]
+id = "git-open-split"
+label = "side by side"
+key = "V"
+on = "git-files"
+when = "not sel.git-files.folder"
+open = "git-split"
+
+[[action]]
+id = "git-open-words"
+label = "word by word"
+key = "W"
+on = "git-files"
+when = "not sel.git-files.folder and not sel.git-files.untracked"
+open = "git-words"
+
+[[action]]
+id = "git-open-conflict"
+label = "resolve"
+key = "X"
+on = "git-files"
+when = "sel.git-files.conflict and not sel.git-files.folder"
+open = "git-conflict"
+
+[[action]]
+id = "git-take-ours"
+label = "ours"
+key = "o"
+on = "git-conflict-lines"
+run = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+input = "{sel.git-conflict-lines.ours_file}"
+before = "cat -- {row.path | quote}"
+undo = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+undo_input = "{before}\n"
+then = "refresh"
+toast = "conflict {sel.git-conflict-lines.hunk}: ours"
+
+[[action]]
+id = "git-take-theirs"
+label = "theirs"
+key = "t"
+on = "git-conflict-lines"
+run = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+input = "{sel.git-conflict-lines.theirs_file}"
+before = "cat -- {row.path | quote}"
+undo = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+undo_input = "{before}\n"
+then = "refresh"
+toast = "conflict {sel.git-conflict-lines.hunk}: theirs"
+
+[[action]]
+id = "git-take-both"
+label = "both"
+key = "b"
+on = "git-conflict-lines"
+run = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+input = "{sel.git-conflict-lines.both_file}"
+before = "cat -- {row.path | quote}"
+undo = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+undo_input = "{before}\n"
+then = "refresh"
+toast = "conflict {sel.git-conflict-lines.hunk}: both"
+
+[[action]]
+id = "git-take-ours-all"
+label = "all ours"
+key = "O"
+on = "git-conflict"
+confirm = "Take our side of every conflict in {row.path}?"
+run = "git checkout --ours -- {row.path | quote}"
+before = "cat -- {row.path | quote}"
+undo = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+undo_input = "{before}\n"
+then = "refresh"
+
+[[action]]
+id = "git-take-theirs-all"
+label = "all theirs"
+key = "T"
+on = "git-conflict"
+confirm = "Take their side of every conflict in {row.path}?"
+run = "git checkout --theirs -- {row.path | quote}"
+before = "cat -- {row.path | quote}"
+undo = "sh -c 'cat > \"$1\"' write {row.path | quote}"
+undo_input = "{before}\n"
+then = "refresh"
+
+[[action]]
+id = "git-resolved"
+label = "resolved"
+key = "a"
+on = "git-conflict"
+run = "git add -- {row.path | quote}"
+undo = "git restore --staged -- {row.path | quote}"
+then = "back"
+toast = "{row.path} resolved"
+
+# ── Actions: reflog, worktrees, bisect ──────────────────────────────────────────────
+
+[[action]]
+id = "git-reflog-reset"
+label = "reset here"
+key = "u"
+on = "git-reflog-list"
+confirm = "Move the branch back to {sel.git-reflog-list.name} ({sel.git-reflog-list.short})?\nChanges not committed are kept; it refuses if they would be lost."
+run = "git reset --keep {sel.git-reflog-list.hash}"
+before = "git rev-parse HEAD"
+undo = "git reset --keep {before}"
+then = "refresh"
+
+[[action]]
+id = "git-reflog-checkout"
+label = "check out"
+key = "o"
+on = "git-reflog-list"
+confirm = "Check out {sel.git-reflog-list.short}, leaving the branch?"
+run = "git switch --detach {sel.git-reflog-list.hash}"
+before = "sh -c 'git symbolic-ref --quiet --short HEAD || git rev-parse HEAD'"
+undo = "git checkout {before | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-worktree-add"
+label = "new worktree"
+key = "n"
+on = "git-worktree-list"
+ask = [
+  { name = "path", label = "Folder", required = true },
+  { name = "branch", label = "New branch", required = true },
+]
+run = "git worktree add -b {ask.branch | quote} {ask.path | quote}"
+undo = "git worktree remove {ask.path | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-worktree-remove"
+label = "remove"
+key = "D"
+on = "git-worktree-list"
+when = "not sel.git-worktree-list.main"
+confirm = "Remove the worktree at {sel.git-worktree-list.path}?\ngit refuses while it has changes."
+run = "git worktree remove {sel.git-worktree-list.path | quote}"
+then = "refresh"
+
+[[action]]
+id = "git-worktree-prune"
+label = "prune"
+key = "p"
+on = "git-worktree-list"
+run = "git worktree prune"
+then = "refresh"
+
+[[action]]
+id = "git-bisect-good"
+label = "good"
+key = "+"
+on = "git-history"
+run = "sh -c 'git bisect log >/dev/null 2>&1 || git bisect start; git bisect good \"$1\"' good {sel.git-history.hash}"
+then = "refresh"
+toast = "{sel.git-history.short}: good"
+
+[[action]]
+id = "git-bisect-bad"
+label = "bad"
+key = "-"
+on = "git-history"
+run = "sh -c 'git bisect log >/dev/null 2>&1 || git bisect start; git bisect bad \"$1\"' bad {sel.git-history.hash}"
+then = "refresh"
+toast = "{sel.git-history.short}: bad"
+
+[[action]]
+id = "git-bisect-skip"
+label = "skip"
+key = "s"
+on = "git-bisect-steps"
+run = "git bisect skip"
+then = "refresh"
+
+[[action]]
+id = "git-bisect-reset"
+label = "end bisect"
+key = "R"
+on = "git-bisect-steps"
+confirm = "End the bisection, back where it started?"
+run = "git bisect reset"
+then = "refresh"
+
+# ── Actions: CI ─────────────────────────────────────────────────────────────────────
+
+[[action]]
+id = "gh-run-open"
+label = "open"
+key = "o"
+on = "gh-run-list"
+when = "sel.gh-run-list.url != \"\""
+run = "gh run view --web {sel.gh-run-list.databaseId}"
+mode = "background"
+
+[[action]]
+id = "gh-run-log"
+label = "failed log"
+key = "l"
+on = "gh-run-list"
+when = "sel.gh-run-list.conclusion == \"failure\""
+run = "sh -c 'gh run view \"$1\" --log-failed | less -R' log {sel.gh-run-list.databaseId}"
+mode = "terminal"
+
+[[action]]
+id = "gh-run-watch"
+label = "watch"
+key = "w"
+on = "gh-run-list"
+when = "sel.gh-run-list.status != \"completed\""
+run = "gh run watch {sel.gh-run-list.databaseId}"
+mode = "terminal"
+
+[[action]]
+id = "gh-run-rerun"
+label = "rerun failed"
+key = "r"
+on = "gh-run-list"
+when = "sel.gh-run-list.conclusion == \"failure\""
+confirm = "Run the failed jobs of {sel.gh-run-list.displayTitle} again?"
+run = "gh run rerun {sel.gh-run-list.databaseId} --failed"
+then = "refresh"
+
+[[action]]
+id = "gh-pr-open"
+label = "open pull request"
+key = "O"
+on = "git-ci"
+run = "gh pr view --web"
+mode = "background"

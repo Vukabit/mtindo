@@ -1,20 +1,32 @@
 //! Development tasks for mtindo, run with `cargo xtask <command>`.
 //!
-//! This crate is never published and is not part of the `mto` binary. It has no
-//! dependencies, not even mtindo, so the test runner builds when the library does not;
-//! commands that need mtindo are forwarded to `xtask-tools` (`xtask/tools`). Every
-//! command that keeps a record logs to `logs/NAME.log`.
+//! This crate is never published and is not part of the `mto` binary. It does not depend
+//! on mtindo, so the test runner builds when the library does not; commands that need
+//! mtindo are forwarded to `xtask-tools` (`xtask/tools`). Every command that keeps a record
+//! logs to `.dev/logs/NAME.log`, and every command but help and the record readers leaves a run
+//! record under `.dev/runs/` (see [`runs`]); `--detach` runs it in the background.
 
 mod bench;
 mod capabilities;
+mod cli;
 mod common;
 mod corpus;
+mod coverage;
 mod diff;
+mod doctor;
 mod fuzz;
+mod fuzz_diff;
 mod gates;
+mod incidents;
+mod io;
+mod memst;
+mod metrics;
+mod perf;
 mod race;
+mod runs;
 mod settings;
 mod sha256;
+mod status;
 mod test;
 mod toml_test;
 mod unicode;
@@ -23,82 +35,8 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use common::color::{HelpPalette, color_enabled};
-
-const COMMANDS: &[Command] = &[
-  (
-    "test",
-    "[-h] [OPTIONS]",
-    "Run the gates and test suites (see cargo xtask test -h)",
-    test::run,
-  ),
-  (
-    "capabilities",
-    "refresh|check|sync|report",
-    "Track rustfmt's options and flags against mto (compat/); report takes --markdown",
-    capabilities::run,
-  ),
-  (
-    "corpus",
-    "update|fetch|check|bench",
-    "Pinned real-world corpus (compat/corpus.txt); --with-rust, check --baseline; bench [--markdown]: speed table against rustfmt",
-    corpus::run,
-  ),
-  (
-    "diff",
-    "[--update] [--markdown]",
-    "How much of the Rust style mto reproduces, against compat/compatibility.txt",
-    diff::run,
-  ),
-  (
-    "fuzz",
-    "run TARGET [--time SECONDS]|collect|recheck|list",
-    "Fuzz a target; crashes are kept under fuzz/crashes/ with when, commit and what they said",
-    fuzz::run,
-  ),
-  (
-    "gates",
-    "[all|GATE]",
-    "Check repository rules (default: all; gates listed below)",
-    gates::run,
-  ),
-  (
-    "lexdiff",
-    "[--edition YEAR] [PATH...]",
-    "Compare mto's lexer with rustc's (default: this repo, edition 2021)",
-    |root, args| forward(root, "lexdiff", args),
-  ),
-  (
-    "parsecheck",
-    "[PATH...]",
-    "Parse with each crate's edition; report syntax errors",
-    |root, args| forward(root, "parsecheck", args),
-  ),
-  (
-    "race",
-    "[--rounds N] [--filter TEXT] [--real N] [--gross] [--markdown]",
-    "Time rustfmt, rustfmt nightly and mto feature by feature (net of start-up), drawn live",
-    race::run,
-  ),
-  (
-    "settings",
-    "[--check]",
-    "Regenerate src/options/rustfmt.rs from the pinned rustfmt releases; --check only compares",
-    settings::run,
-  ),
-  (
-    "toml-test",
-    "",
-    "Run the TOML conformance suite (compat/toml-test.txt) against mto's parser",
-    toml_test::run,
-  ),
-  (
-    "unicode",
-    "[--version X.Y.Z] [--check]",
-    "Regenerate src/text/unicode tables; --check only compares",
-    unicode::run,
-  ),
-];
+use clap::ArgMatches;
+use common::color::color_enabled;
 
 const EXIT_CODES: &[(&str, &str)] = &[
   ("0", "success"),
@@ -106,41 +44,95 @@ const EXIT_CODES: &[(&str, &str)] = &[
   ("2", "bad arguments"),
 ];
 
-/// The column where help descriptions start.
-const HELP_COLUMN: usize = 34;
+/// Each command's entry point, by name; [`cli::tree`] defines what it accepts.
+fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
+  match name {
+    "test" => test::run(root, m),
+    "capabilities" => capabilities::run(root, m),
+    "corpus" => corpus::run(root, m),
+    "diff" => diff::run(root, m),
+    "doctor" => doctor::run(root, m),
+    "fuzz" => fuzz::run(root, m),
+    "gates" => gates::run(root, m),
+    "incidents" => incidents::run(root, m),
+    "io" => io::run(root, m),
+    "perf" => perf::run(root, m),
+    "lexdiff" => {
+      let mut args = vec![
+        "--edition".to_string(),
+        cli::text(m, "edition").unwrap_or_default(),
+      ];
+      args.extend(cli::texts(m, "paths"));
+      forward(root, "lexdiff", args)
+    }
+    "memst" => memst::run(root, m),
+    "metrics" => metrics::run(root, m),
+    "parsecheck" => forward(root, "parsecheck", cli::texts(m, "paths")),
+    "race" => race::run(root, m),
+    "runs" => runs::run(root, m),
+    "settings" => settings::run(root, m),
+    "status" => status::run(root, m),
+    "toml-test" => toml_test::run(root, m),
+    "tui" => {
+      let mut args = Vec::new();
+      if cli::on(m, "check") {
+        args.push("--check".to_string());
+      }
+      if let Some(screen) = cli::text(m, "render") {
+        args.extend(["--render".to_string(), screen]);
+        args.extend([
+          "--size".to_string(),
+          cli::text(m, "size").unwrap_or_default(),
+        ]);
+      }
+      common::process::forward(
+        root,
+        &["run", "--quiet", "--release", "--package", "hub", "--"],
+        &args,
+      )
+    }
+    "unicode" => unicode::run(root, m),
+    other => unreachable!("{} is in the tree but has no entry point", other),
+  }
+}
 
-/// One command: (name, arguments, what it does, entry point). Dispatch and help both read
-/// this table, so a command cannot exist without being documented.
-type Command = (
-  &'static str,
-  &'static str,
-  &'static str,
-  fn(&Path, &[String]) -> ExitCode,
-);
-
-/// Runs a command of `xtask-tools`, the binary that links mtindo.
-fn forward(root: &Path, command: &str, args: &[String]) -> ExitCode {
+/// Runs a command of `xtask-tools`, the binary that links mtindo, with what was given.
+fn forward(root: &Path, command: &str, args: Vec<String>) -> ExitCode {
   let mut all = vec![command.to_string()];
-  all.extend_from_slice(args);
+  all.extend(args);
   common::process::forward_to_tools(root, &all)
 }
 
 fn main() -> ExitCode {
   let args: Vec<String> = env::args().skip(1).collect();
   let root = project_root();
-  match args.first().map(String::as_str) {
-    None | Some("help") | Some("-h") | Some("--help") => {
-      print!("{}", render_help(color_enabled(false)));
-      ExitCode::SUCCESS
-    }
-    Some(name) => match COMMANDS.iter().find(|command| command.0 == name) {
-      Some(command) => (command.3)(&root, &args[1..]),
+  match cli::parse(&args) {
+    cli::Parsed::Help(path) => match render_help(&root, &path, color_enabled(false)) {
+      Some(text) => {
+        print!("{}", text);
+        ExitCode::SUCCESS
+      }
       None => {
-        eprintln!("Unknown xtask command `{}`.", name);
-        eprintln!("Run 'cargo xtask help' for usage.");
+        eprintln!("cargo xtask: no command `{}`", path.join(" "));
         ExitCode::from(2)
       }
     },
+    cli::Parsed::Json => {
+      print!("{}", cli::json());
+      ExitCode::SUCCESS
+    }
+    cli::Parsed::Error(message) => {
+      eprint!("{}", message);
+      eprintln!("Run 'cargo xtask help' for usage.");
+      ExitCode::from(2)
+    }
+    cli::Parsed::Run(name, m) => {
+      if runs::supervised(&args) {
+        runs::start(&root, &args)
+      } else {
+        dispatch(&root, &name, &m)
+      }
+    }
   }
 }
 
@@ -152,71 +144,64 @@ fn project_root() -> PathBuf {
     .unwrap_or(manifest_dir)
 }
 
-/// The help screen. The text is fixed; only the colors depend on `color`.
-fn render_help(color: bool) -> String {
-  let p = HelpPalette::new(color, "cargo xtask");
-  let mut out = String::new();
-  out.push_str(&format!(
-    "{} {}\n",
-    p.heading("usage:"),
-    p.usage_line("cargo xtask <COMMAND> [ARGS]")
-  ));
-  out.push_str("\nDevelopment tasks for mtindo. Never published; not part of the mto binary.\n");
-  out.push_str(&format!("\n{}\n", p.heading("commands:")));
-  for (name, args, help, _) in COMMANDS {
-    let label = format!("  {} {}", p.long(name), p.value(args));
-    let width = 2 + name.len() + 1 + args.len();
-    out.push_str(&p.row(&label, width, HELP_COLUMN, help));
+/// The help for `path`: `cargo xtask` itself with its gates and exit codes, the test
+/// runner with its groups and tasks, or any command as the tree describes it. Fixed text;
+/// only the colors depend on `color`.
+fn render_help(root: &Path, path: &[String], color: bool) -> Option<String> {
+  if path == ["test"] {
+    return Some(test::render_help(root, color));
   }
-  let help_label = format!("  {}", p.long("help"));
-  out.push_str(&p.row(
-    &help_label,
-    6,
-    HELP_COLUMN,
-    "Show this help (also -h, --help, or no command)",
-  ));
-  out.push_str(&format!("\n{}\n", p.heading("gates:")));
-  for (name, help, _) in gates::GATES {
-    let label = format!("  {}", p.value(name));
-    out.push_str(&p.row(&label, 2 + name.len(), HELP_COLUMN, help));
+  let mut out = cli::help(path, color)?;
+  if path.is_empty() {
+    let p = common::color::HelpPalette::new(color, "cargo xtask");
+    out.push_str(&format!("\n{}\n", p.heading("gates:")));
+    for (name, help, _) in gates::GATES {
+      let label = format!("  {}", p.value(name));
+      out.push_str(&p.row(&label, 2 + name.len(), 30, help));
+    }
+    out.push_str(&format!("\n{}\n", p.heading("exit codes:")));
+    for (code, meaning) in EXIT_CODES {
+      out.push_str(&format!("  {}  {}\n", p.value(code), meaning));
+    }
   }
-  out.push_str(&format!("\n{}\n", p.heading("exit codes:")));
-  for (code, meaning) in EXIT_CODES {
-    out.push_str(&format!("  {}  {}\n", p.value(code), meaning));
-  }
-  out
+  Some(out)
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
 
+  fn root() -> PathBuf {
+    project_root()
+  }
+
   #[test]
-  fn test_help_is_identical_apart_from_color() {
-    let colored = render_help(true);
-    let mut stripped = String::new();
-    let mut rest = colored.as_str();
-    while let Some(idx) = rest.find('\x1b') {
-      stripped.push_str(&rest[..idx]);
-      rest = &rest[idx..];
-      rest = &rest[rest.find('m').unwrap() + 1..];
+  fn test_every_command_has_an_entry_point() {
+    // Each command's help renders, and dispatch knows each name (an unknown one panics).
+    for command in cli::tree().get_subcommands() {
+      if command.get_name() == "help" {
+        continue;
+      }
+      let path = vec![command.get_name().to_string()];
+      assert!(render_help(&root(), &path, false).is_some());
+      let source = include_str!("main.rs");
+      assert!(
+        source.contains(&format!("\"{}\" =>", command.get_name())),
+        "{} has no entry point",
+        command.get_name()
+      );
     }
-    stripped.push_str(rest);
-    assert_eq!(stripped, render_help(false));
   }
 
   #[test]
   fn test_help_lists_every_command_and_gate() {
-    let help = render_help(false);
-    for (name, args, help_text, _) in COMMANDS {
+    let help = render_help(&root(), &[], false).unwrap();
+    for command in cli::tree().get_subcommands() {
       assert!(
-        help.contains(&format!("  {} {}", name, args)),
+        help.contains(&format!("\n  {}", command.get_name())),
         "{} missing from help",
-        name
+        command.get_name()
       );
-      // Descriptions wrap, so compare with runs of spaces and line breaks as one.
-      let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
-      assert!(flat.contains(help_text), "{}", help_text);
     }
     for (name, _, _) in gates::GATES {
       assert!(

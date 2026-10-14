@@ -4,10 +4,10 @@
 //! Exit codes: 0 when nothing failed, 1 when anything failed, 2 for bad arguments. Only a
 //! task outside the chosen groups is skipped; a chosen task that cannot run (its tool is
 //! missing) fails, and a task past its time limit is stopped and fails, so a green run
-//! means every chosen task ran and passed. Every run is logged to `logs/test.log` with
+//! means every chosen task ran and passed. Every run is logged to `.dev/logs/test.log` with
 //! each task's full output.
 //!
-//! Every green default or full run is added to `logs/last-green.tsv`, named by its exact
+//! Every green default or full run is added to `.dev/logs/last-green.tsv`, named by its exact
 //! tree (`<commit>` or `<commit>-dirty.<digest>`); after a failure the runner shows the
 //! last green tree and what changed since.
 //!
@@ -19,7 +19,7 @@
 //! is wall-clock time, so sleep would cut the fuzzing short while still passing.
 
 mod manual;
-mod tasks;
+pub mod tasks;
 
 use std::collections::HashMap;
 use std::fs;
@@ -43,53 +43,16 @@ use crate::common::{process, tree};
 /// Lines of a failed task's output shown in the terminal; the log has all of it.
 const FAILURE_TAIL_LINES: usize = 60;
 
-/// The command-line flags: (flags, value name, help). Parsing and -h both use this table.
-const FLAGS: &[(&str, &str, &str)] = &[
-  ("-h, --help", "", "Show this help and exit"),
-  (
-    "--group",
-    "GROUP",
-    "Run only this group; repeatable. Default: gates and tests.",
-  ),
-  (
-    "--full",
-    "",
-    "Run every group, including heavy (network), fuzz (nightly) and bench.",
-  ),
-  (
-    "--target",
-    "ID",
-    "Run one task by id, whatever its group (ids are listed below).",
-  ),
-  (
-    "--fuzz-time",
-    "SECONDS",
-    "Seconds to fuzz each target. Default: 10.",
-  ),
-  (
-    "--bless",
-    "",
-    "Regenerate the regression fixtures' expected outputs, then list what changed.",
-  ),
-  (
-    "--list",
-    "",
-    "Show which tasks would run, without running them.",
-  ),
-];
-
 /// More sleep than this during a fuzz task fails it.
 const FUZZ_SLEEP_ALLOWED_SECONDS: u64 = 60;
 
 /// One line per green default or full run: when, tree, groups, seconds.
-const GREEN_FILE: &str = "logs/last-green.tsv";
+const GREEN_FILE: &str = ".dev/logs/last-green.tsv";
 
 const GREEN_HEADER: &str = "when\ttree\tgroups\tseconds\n";
 
-/// The column where help descriptions start.
-const HELP_COLUMN: usize = 28;
-
-const USAGE: &str = "cargo xtask test [-h] [--group GROUP] [--full] [--target ID] [--fuzz-time SECONDS] [--bless] [--list]";
+/// Each task's latest result, whichever run gave it: `.dev/logs/last-test.tsv`.
+const LAST_FILE: &str = ".dev/logs/last-test.tsv";
 
 /// Terminal colors for the run report; empty strings when color is off.
 struct Colors {
@@ -110,11 +73,12 @@ impl Colors {
 struct Options {
   groups: Vec<String>,
   full: bool,
+  /// Only the tasks that failed when they last ran.
+  failed: bool,
   target: String,
   fuzz_time: u32,
   bless: bool,
   list: bool,
-  help: bool,
 }
 
 /// A spinner with the running task's title, shown only on a terminal.
@@ -183,11 +147,14 @@ pub fn check_help(root: &Path) -> Vec<String> {
       missing.push(format!("-h does not list task {}", task.id));
     }
   }
-  for (flags, _, _) in FLAGS {
-    for flag in flags.split(", ") {
-      if !help.contains(flag) {
-        missing.push(format!("-h does not list flag {}", flag));
-      }
+  for arg in crate::cli::find(&["test".to_string()])
+    .map(|c| c.get_arguments().cloned().collect::<Vec<_>>())
+    .unwrap_or_default()
+  {
+    if let Some(long) = arg.get_long()
+      && !help.contains(&format!("--{}", long))
+    {
+      missing.push(format!("-h does not list flag --{}", long));
     }
   }
   for (name, _) in ENV_VARS {
@@ -206,19 +173,74 @@ pub fn check_help(root: &Path) -> Vec<String> {
   missing
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
-  let options = match parse_args(args) {
-    Ok(options) => options,
-    Err(e) => {
-      eprintln!("usage: {}", USAGE);
-      eprintln!("cargo xtask test: error: {}", e);
-      return ExitCode::from(2);
-    }
-  };
-  if options.help {
-    print!("{}", render_help(root, color_enabled(false)));
-    return ExitCode::SUCCESS;
+/// The help screen. The text is fixed; only the colors depend on `color`.
+pub fn render_help(root: &Path, color: bool) -> String {
+  let p = HelpPalette::new(color, "cargo xtask test");
+  let mut out = crate::cli::help(&["test".to_string()], color).unwrap_or_default();
+  let defaults: Vec<&str> = DEFAULT_GROUPS.to_vec();
+  out.push_str(&format!(
+    "\n{}\n",
+    p.heading(&format!("groups (default: {}):", defaults.join(", ")))
+  ));
+  for (name, info) in GROUPS {
+    out.push_str(&format!("  {}{}\n", p.value(&format!("{:<7}", name)), info));
   }
+  out.push_str(&format!(
+    "\n{}\n",
+    p.heading("tasks (id, group, what it checks; run one with --target ID):")
+  ));
+  let (tasks, _) = tasks::build(root, false, DEFAULT_FUZZ_TIME);
+  for task in tasks.iter() {
+    out.push_str(&format!(
+      "  {}{:<7}{}\n",
+      p.value(&format!("{:<26}", task.id)),
+      task.group,
+      task.title
+    ));
+  }
+  out.push_str(&format!(
+    "\n{}\n",
+    p.heading("environment variables the runner sets:")
+  ));
+  for (name, info) in ENV_VARS {
+    out.push_str(&format!(
+      "  {}{}\n",
+      p.value(&format!("{:<20}", name)),
+      info
+    ));
+  }
+  out.push_str(&format!("\n{}\n", p.heading("files:")));
+  for (path, info) in [
+    (
+      ".dev/logs/test.log",
+      "every run, with the full output of every task",
+    ),
+    (
+      ".dev/logs/capabilities.log",
+      "what cargo xtask capabilities read, fetched and wrote",
+    ),
+    (
+      ".dev/logs/last-green.tsv",
+      "every green default or full run, by exact tree",
+    ),
+    (
+      "compat/rustfmt-surface.txt",
+      "rustfmt's options and flags; update with cargo xtask capabilities refresh",
+    ),
+    (
+      "compat/capabilities.txt",
+      "mto's status for each; add new items with cargo xtask capabilities sync",
+    ),
+  ] {
+    out.push_str(&format!("  {:<28}{}\n", path, info));
+  }
+  out.push_str(&format!("\n{}\n", p.heading("exit codes:")));
+  out.push_str("  0 every chosen task ran and passed, 1 something failed, 2 bad arguments\n");
+  out
+}
+
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
+  let options = options_of(m);
   let colors = Colors {
     on: color_enabled(false),
   };
@@ -228,7 +250,22 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     println!("{} {}", colors.paint("93", "warning:"), warning);
     log.warning(&warning);
   }
-  let groups = select(&mut tasks, &options);
+  let mut groups = select(&mut tasks, &options);
+  if options.failed {
+    let failed = last_failed(root);
+    if failed.is_empty() {
+      println!("Nothing failed when it last ran ({}).", LAST_FILE);
+      return ExitCode::SUCCESS;
+    }
+    for task in tasks.iter_mut() {
+      task.state = if failed.contains(&task.id) {
+        State::Pending
+      } else {
+        State::Excluded
+      };
+    }
+    groups = vec!["failed last time".to_string()];
+  }
   if !options.target.is_empty() && !tasks.iter().any(|t| t.id == options.target) {
     eprintln!(
       "Unknown task id '{}'. Use --list to see the ids.",
@@ -281,6 +318,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
   if options.bless {
     print_blessed_changes(root, &colors);
   }
+  record_last(root, &tasks, &revision);
   let failed = print_summary(&tasks, elapsed, &log, &colors);
   if failed == 0 {
     let default_groups = groups.iter().any(|g| g == "gates") && groups.iter().any(|g| g == "tests");
@@ -331,6 +369,19 @@ fn install_hint(tool: &str) -> &'static str {
   }
 }
 
+/// The ids of the tasks that failed when they last ran.
+fn last_failed(root: &Path) -> Vec<String> {
+  std::fs::read_to_string(root.join(LAST_FILE))
+    .unwrap_or_default()
+    .lines()
+    .skip(1)
+    .filter_map(|l| {
+      let f: Vec<&str> = l.split('\t').collect();
+      (f.get(2) == Some(&"failed")).then(|| f[0].to_string())
+    })
+    .collect()
+}
+
 /// The latest line of [`GREEN_FILE`]: when, and which tree.
 fn last_green(root: &Path) -> Option<(String, String)> {
   let text = fs::read_to_string(root.join(GREEN_FILE)).ok()?;
@@ -343,61 +394,20 @@ fn last_green(root: &Path) -> Option<(String, String)> {
   Some((fields.next()?.to_string(), fields.next()?.to_string()))
 }
 
-fn parse_args(args: &[String]) -> Result<Options, String> {
-  let mut options = Options {
-    groups: Vec::new(),
-    full: false,
-    target: String::new(),
-    fuzz_time: DEFAULT_FUZZ_TIME,
-    bless: false,
-    list: false,
-    help: false,
-  };
-  let mut idx = 0;
-  while idx < args.len() {
-    let (flag, inline) = match args[idx].split_once('=') {
-      Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
-      _ => (args[idx].as_str(), None),
-    };
-    let mut value = |name: &str| -> Result<String, String> {
-      if let Some(value) = inline.clone() {
-        return Ok(value);
-      }
-      idx += 1;
-      args
-        .get(idx)
-        .cloned()
-        .ok_or_else(|| format!("argument {}: expected one argument", name))
-    };
-    match flag {
-      "-h" | "--help" => options.help = true,
-      "--full" => options.full = true,
-      "--bless" => options.bless = true,
-      "--list" => options.list = true,
-      "--group" => {
-        let group = value("--group")?;
-        if !GROUPS.iter().any(|(name, _)| *name == group) {
-          let names: Vec<&str> = GROUPS.iter().map(|(n, _)| *n).collect();
-          return Err(format!(
-            "argument --group: invalid choice: '{}' (choose from {})",
-            group,
-            names.join(", ")
-          ));
-        }
-        options.groups.push(group);
-      }
-      "--target" => options.target = value("--target")?,
-      "--fuzz-time" => {
-        let text = value("--fuzz-time")?;
-        options.fuzz_time = text
-          .parse()
-          .map_err(|_| format!("argument --fuzz-time: invalid int value: '{}'", text))?;
-      }
-      other => return Err(format!("unrecognized arguments: {}", other)),
-    }
-    idx += 1;
+fn options_of(m: &clap::ArgMatches) -> Options {
+  use crate::cli::{on, text, texts};
+  Options {
+    groups: texts(m, "group"),
+    full: on(m, "full"),
+    failed: on(m, "failed"),
+    target: text(m, "target").unwrap_or_default(),
+    fuzz_time: m
+      .get_one::<u32>("fuzz-time")
+      .copied()
+      .unwrap_or(DEFAULT_FUZZ_TIME),
+    bless: on(m, "bless"),
+    list: on(m, "list"),
   }
-  Ok(options)
 }
 
 fn print_blessed_changes(root: &Path, colors: &Colors) {
@@ -535,7 +545,7 @@ fn print_task_line(task: &Task, colors: &Colors) {
         colors.paint(
           "90",
           &format!(
-            "    ... {} earlier lines in logs/test.log",
+            "    ... {} earlier lines in .dev/logs/test.log",
             lines.len() - FAILURE_TAIL_LINES
           )
         )
@@ -561,108 +571,64 @@ fn record_green(root: &Path, revision: &str, groups: &[String], elapsed: f64, lo
     groups.join(","),
     elapsed
   ));
-  let written = fs::create_dir_all(root.join("logs")).and_then(|_| fs::write(&path, text));
+  let written =
+    fs::create_dir_all(root.join(".dev").join("logs")).and_then(|_| fs::write(&path, text));
   match written {
     Ok(()) => log.info(&format!("Recorded green tree {}", revision)),
     Err(e) => log.warning(&format!("cannot write {}: {}", GREEN_FILE, e)),
   }
 }
 
-/// The help screen. The text is fixed; only the colors depend on `color`.
-fn render_help(root: &Path, color: bool) -> String {
-  let p = HelpPalette::new(color, "cargo xtask test");
-  let mut out = String::new();
-  out.push_str(&format!(
-    "{} {}\n",
-    p.heading("usage:"),
-    p.usage_line(USAGE)
-  ));
-  out.push_str(
-        "\nRun mtindo's gates and test suites; report each as passed, failed or skipped with a reason.\n",
+/// Adds this run's results to `.dev/logs/last-test.tsv`, each task's replacing what an
+/// earlier run said of it; tasks it did not run keep theirs. In the order of the suite.
+fn record_last(root: &Path, tasks: &[Task], tree: &str) {
+  let header = "id\tgroup\tstate\tseconds\twhen\ttree\ttitle\tnote";
+  let mut known: HashMap<String, String> = std::fs::read_to_string(root.join(LAST_FILE))
+    .unwrap_or_default()
+    .lines()
+    .skip(1)
+    .filter_map(|l| {
+      l.split('\t')
+        .next()
+        .map(|id| (id.to_string(), l.to_string()))
+    })
+    .collect();
+  let when = crate::common::log::timestamp(std::time::SystemTime::now());
+  let clean = |t: &str| t.replace(['\t', '\n'], " ");
+  for task in tasks {
+    let state = match task.state {
+      State::Pass => "passed",
+      State::Fail => "failed",
+      State::Skip => "skipped",
+      State::Pending | State::Excluded => continue,
+    };
+    known.insert(
+      task.id.clone(),
+      format!(
+        "{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}",
+        task.id,
+        task.group,
+        state,
+        task.seconds,
+        when,
+        tree,
+        clean(&task.title),
+        clean(&task.note)
+      ),
     );
-  out.push_str(&format!("\n{}\n", p.heading("options:")));
-  for (flags, value, help) in FLAGS {
-    let mut label = String::from("  ");
-    let mut width = 2;
-    for (idx, flag) in flags.split(", ").enumerate() {
-      if idx > 0 {
-        label.push_str(", ");
-        width += 2;
-      }
-      label.push_str(&if flag.starts_with("--") {
-        p.long(flag)
-      } else {
-        p.short(flag)
-      });
-      width += flag.len();
+  }
+  let mut text = format!("{}\n", header);
+  for task in tasks {
+    if let Some(line) = known.remove(&task.id) {
+      text.push_str(&line);
+      text.push('\n');
     }
-    if !value.is_empty() {
-      label.push(' ');
-      label.push_str(&p.value(value));
-      width += 1 + value.len();
-    }
-    out.push_str(&p.row(&label, width, HELP_COLUMN, help));
   }
-  let defaults: Vec<&str> = DEFAULT_GROUPS.to_vec();
-  out.push_str(&format!(
-    "\n{}\n",
-    p.heading(&format!("groups (default: {}):", defaults.join(", ")))
-  ));
-  for (name, info) in GROUPS {
-    out.push_str(&format!("  {}{}\n", p.value(&format!("{:<7}", name)), info));
+  let path = root.join(LAST_FILE);
+  if let Some(dir) = path.parent() {
+    let _ = std::fs::create_dir_all(dir);
   }
-  out.push_str(&format!(
-    "\n{}\n",
-    p.heading("tasks (id, group, what it checks; run one with --target ID):")
-  ));
-  let (tasks, _) = tasks::build(root, false, DEFAULT_FUZZ_TIME);
-  for task in tasks.iter() {
-    out.push_str(&format!(
-      "  {}{:<7}{}\n",
-      p.value(&format!("{:<26}", task.id)),
-      task.group,
-      task.title
-    ));
-  }
-  out.push_str(&format!(
-    "\n{}\n",
-    p.heading("environment variables the runner sets:")
-  ));
-  for (name, info) in ENV_VARS {
-    out.push_str(&format!(
-      "  {}{}\n",
-      p.value(&format!("{:<20}", name)),
-      info
-    ));
-  }
-  out.push_str(&format!("\n{}\n", p.heading("files:")));
-  for (path, info) in [
-    (
-      "logs/test.log",
-      "every run, with the full output of every task",
-    ),
-    (
-      "logs/capabilities.log",
-      "what cargo xtask capabilities read, fetched and wrote",
-    ),
-    (
-      "logs/last-green.tsv",
-      "every green default or full run, by exact tree",
-    ),
-    (
-      "compat/rustfmt-surface.txt",
-      "rustfmt's options and flags; update with cargo xtask capabilities refresh",
-    ),
-    (
-      "compat/capabilities.txt",
-      "mto's status for each; add new items with cargo xtask capabilities sync",
-    ),
-  ] {
-    out.push_str(&format!("  {:<28}{}\n", path, info));
-  }
-  out.push_str(&format!("\n{}\n", p.heading("exit codes:")));
-  out.push_str("  0 every chosen task ran and passed, 1 something failed, 2 bad arguments\n");
-  out
+  let _ = std::fs::write(path, text);
 }
 
 fn run_task(
@@ -706,6 +672,12 @@ fn run_task(
     }
   };
   task.seconds = started.elapsed().as_secs_f64();
+  crate::metrics::record(
+    root,
+    &format!("task.{}.seconds", task.id),
+    task.seconds,
+    "s",
+  );
   spinner.stop();
   log.debug(&format!("Output of [{}]:\n{}", task.id, output));
   task.output = output;
@@ -726,6 +698,16 @@ fn run_task(
             awake::duration(asleep),
             awake::duration(task.seconds as u64)
         ));
+  }
+  // The real-world check's breaks are incidents; its passing fixes them.
+  if task.id == "domain_13_rw" {
+    let filed = crate::incidents::from_real_world(root, code == 0, &task.output);
+    if filed > 0 {
+      log.info(&format!(
+        "domain_13_rw: {} compile-break incident(s) filed or fixed",
+        filed
+      ));
+    }
   }
   if code == 0 {
     task.state = State::Pass;
@@ -818,6 +800,18 @@ mod tests {
     words.iter().map(|w| w.to_string()).collect()
   }
 
+  /// The options `cargo xtask test ARGS` parses to.
+  fn parse_args(words: &[String]) -> Result<Options, String> {
+    let mut all = vec!["test".to_string()];
+    all.extend(words.iter().cloned());
+    match crate::cli::parse(&all) {
+      crate::cli::Parsed::Run(_, m) => Ok(options_of(&m)),
+      crate::cli::Parsed::Help(_) => Err("help".to_string()),
+      crate::cli::Parsed::Error(e) => Err(e),
+      crate::cli::Parsed::Json => Err("json".to_string()),
+    }
+  }
+
   fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
   }
@@ -868,19 +862,16 @@ mod tests {
     assert!(
       parse_args(&args(&["--group", "nope"]))
         .unwrap_err()
-        .contains("invalid choice: 'nope'")
+        .contains("nope")
     );
     assert!(parse_args(&args(&["--fuzz-time", "x"])).is_err());
-    assert!(
-      parse_args(&args(&["--target"]))
-        .unwrap_err()
-        .contains("expected one argument")
-    );
+    assert!(parse_args(&args(&["--target"])).is_err());
     assert!(
       parse_args(&args(&["--frobnicate"]))
         .unwrap_err()
-        .contains("unrecognized")
+        .contains("--frobnicate")
     );
+    assert_eq!(parse_args(&args(&["-h"])).unwrap_err(), "help");
   }
 
   #[test]

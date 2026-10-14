@@ -6,6 +6,60 @@ use super::{Choice, File, Kind, Setting};
 
 pub(super) static SETTINGS: &[Setting] = &[
   Setting {
+    name: "doctor.command",
+    file: File::User,
+    kind: Kind::List,
+    default: "[\"cargo\", \"check\", \"--workspace\", \"--all-targets\", \"--keep-going\"]",
+    default_2024: None,
+    summary: "The command the build guard runs, as its words",
+    doc: "The build guard runs it in the project's folder before and after each run that \
+              writes files, and while it narrows down a run that broke the build. It is run \
+              as these words, not through a shell. `mto doctor on -- COMMAND` sets it.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
+    name: "doctor.enabled",
+    file: File::User,
+    kind: Kind::Bool,
+    default: "false",
+    default_2024: None,
+    summary: "Check that the project still builds after each run (it runs `command`)",
+    doc: "With it on, mto runs `doctor.command` before and after each run that writes \
+              files, and holds back the fewest edits that break the build. With it off, mto \
+              runs no command. `mto doctor on` and `mto doctor off` set it.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
+    name: "doctor.max_checks",
+    file: File::User,
+    kind: Kind::Integer,
+    default: "64",
+    default_2024: None,
+    summary: "The most times one narrowing runs the command",
+    doc: "Past this many runs of the command, a narrowing holds back every edit of the \
+              files it has narrowed down to.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
+    name: "doctor.timeout",
+    file: File::User,
+    kind: Kind::Integer,
+    default: "600",
+    default_2024: None,
+    summary: "Seconds the command may run before it counts as failed",
+    doc: "A command still running after this many seconds is stopped and counts as failed. \
+              0: no limit.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "history.enabled",
     file: File::User,
     kind: Kind::Bool,
@@ -76,6 +130,22 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "report.save",
+    file: File::User,
+    kind: Kind::Bool,
+    default: "true",
+    default_2024: None,
+    summary: "Keep a report of each bug mto finds in itself, for `mto report`",
+    doc: "When the verifier stops a write, or laying out a file fails, the report is kept \
+              beside history and the run names it in one line; `mto report` shows, saves, \
+              sends and prunes reports. A report holds the smallest part of the file that \
+              still fails, never the whole file unless asked. Off, the whole report is \
+              printed instead, and nothing is kept.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "safety.allow_dirty",
     file: File::User,
     kind: Kind::Bool,
@@ -85,6 +155,30 @@ pub(super) static SETTINGS: &[Setting] = &[
     doc: "With history off there is no `mto restore`, so mto refuses to rewrite a file \
               that git sees uncommitted changes in. This turns that guard off, as \
               `--allow-dirty` does for one run. With history on it has no effect.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
+    name: "safety.sync",
+    file: File::User,
+    kind: Kind::Choice(&[
+      choice(
+        "batch",
+        "Each file reaches the disk in order, and everything a run wrote lasts once it \
+         ends.",
+      ),
+      choice("full", "Each file lasts as soon as it is written."),
+    ]),
+    default: "\"batch\"",
+    default_2024: None,
+    summary: "How much each write makes last at once",
+    doc: "Either way a crash leaves each file as it was or as mto wrote it, and history \
+              holds its earlier contents before it changes. `batch` keeps writes in order \
+              and makes them all last once the run ends, as git's `core.fsyncMethod = \
+              batch` does: on macOS a run writing hundreds of files takes a fraction of \
+              the time. `full` makes each file last before the next is written, so a power \
+              cut mid-run loses nothing already written, at a full disk flush per file.",
     channels: None,
     hidden: false,
     replaced_by: None,

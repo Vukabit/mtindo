@@ -14,7 +14,7 @@ use super::expr::{flat, flat_tokens, is_chain, rewrite};
 use super::items::header_start;
 use super::shape::{Limits, Shape, Spacing};
 use crate::options::format::FormatConfig;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, parse};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, parse_tokens};
 use crate::text::unicode::str_width;
 
 /// The statement laid out, starting at column `indent` on a line of its own, its later lines
@@ -32,10 +32,7 @@ pub fn rewrite_statement(
   }
   // Types are printed flat for now: a statement whose generic arguments would have to
   // break is left as written.
-  let generics = node
-    .descendants()
-    .iter()
-    .any(|d| d.kind() == K::GenericArgList);
+  let generics = node.subtree_has(|kind| kind == K::GenericArgList);
   if generics && indent + str_width(&flat_code(node, Spacing::of(config))) > config.max_width {
     return None;
   }
@@ -66,50 +63,66 @@ pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig
       )
   };
   node
-    .descendants()
-    .iter()
-    .filter(|n| laid(n) && !n.ancestors().iter().skip(1).any(laid))
-    .all(|n| rewrite(n, shape).is_some_and(|t| !t.contains('\n')))
+    .descendants_iter()
+    .filter(|n| laid(n) && !n.ancestors_iter().skip(1).any(|a| laid(&a)))
+    .all(|n| rewrite(&n, shape).is_some_and(|t| !t.contains('\n')))
 }
 
 /// Whether `text` holds the statement's code tokens, commas aside (a list laid out
 /// vertically gains a trailing comma, one laid out on a line loses it).
 pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
-  let theirs = code_tokens(node)
-    .into_iter()
-    .filter(|t| t.kind() != K::Comma)
-    .map(|t| t.text().to_string());
+  // As `code_tokens` picks them, read straight from the tree.
+  let start = header_start(node).unwrap_or(node.text_range().start as usize);
+  if written_as(node, start, text) {
+    return true;
+  }
+  let theirs = node
+    .token_texts()
+    .filter(|&(kind, _, range)| {
+      !kind.is_trivia() && range.start as usize >= start && kind != K::Comma
+    })
+    .map(|(_, text, _)| text);
   // Inside a function body, where the statement stands, so that tokens split as they do
   // there (`>>` closing two generic lists).
-  let parsed = parse(&format!("fn f() {{\n{}\n}}", text), Edition::E2021).syntax_node();
-  let ours = parsed
-    .descendants_with_tokens()
+  let wrapped = format!("fn f() {{\n{}\n}}", text);
+  let ours = parse_tokens(&wrapped, Edition::E2021)
     .into_iter()
-    .skip_while(|e| e.kind() != K::LBrace)
+    .skip_while(|&(kind, _)| kind != K::LBrace)
     .skip(1)
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
-        Some(t.text().to_string())
-      }
-      _ => None,
-    });
+    .filter(|&(kind, _)| !kind.is_trivia() && kind != K::Comma)
+    .map(|(_, text)| text);
   // The function's closing brace ends what was parsed.
-  let mut ours: Vec<String> = ours.collect();
+  let mut ours: Vec<&str> = ours.collect();
   ours.pop();
   theirs.eq(ours)
+}
+
+/// Whether `text` is the node's text from `from` to its end exactly: laid out as written,
+/// so holding the same tokens without parsing it to compare.
+pub(super) fn written_as(node: &SyntaxNode, from: usize, text: &str) -> bool {
+  let mut rest = text;
+  let same = node
+    .token_texts()
+    .filter(|&(_, _, range)| range.start as usize >= from)
+    .all(|(_, token, _)| match rest.strip_prefix(token) {
+      Some(after) => {
+        rest = after;
+        true
+      }
+      None => false,
+    });
+  same && rest.is_empty()
 }
 
 /// Whether a macro call's arguments are in braces: they are left as written, and so is a
 /// statement holding them.
 fn braced(call: &SyntaxNode) -> bool {
   call
-    .children()
-    .iter()
+    .children_iter()
     .find(|c| c.kind() == K::TokenTree)
     .and_then(|tree| {
       tree
-        .children_with_tokens()
-        .into_iter()
+        .children_with_tokens_iter()
         .find(|e| !e.kind().is_trivia())
     })
     .is_none_or(|first| first.kind() == K::LBrace)
@@ -123,49 +136,59 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
     return false;
   }
   // `x.0 .0`: the standard formatter keeps the space a chain layout would drop.
-  let tokens: Vec<SyntaxElement> = node
-    .descendants_with_tokens()
-    .into_iter()
-    .filter(|e| matches!(e, SyntaxElement::Token(_)))
-    .collect();
-  let spaced_tuple_field = tokens.windows(4).any(|w| {
-    w[0].kind() == K::IntNumber
-      && w[1].kind() == K::Whitespace
-      && w[2].kind() == K::Dot
-      && w[3].kind() == K::IntNumber
-  });
+  let tokens: Vec<SyntaxKind> = node.token_texts().map(|(kind, _, _)| kind).collect();
+  let spaced_tuple_field = tokens
+    .windows(4)
+    .any(|w| w == [K::IntNumber, K::Whitespace, K::Dot, K::IntNumber]);
   // From after its attributes and the comments before it, which are laid out on their own.
   let Some(start) = header_start(node) else {
     return false;
   };
+  let safe = |e: &SyntaxElement| match e {
+    SyntaxElement::Token(t) => {
+      !matches!(
+        t.kind(),
+        K::LineComment
+          | K::BlockComment
+          | K::OuterLineDoc
+          | K::InnerLineDoc
+          | K::OuterBlockDoc
+          | K::InnerBlockDoc
+      ) && !(t.kind().is_literal() && t.text().contains('\n'))
+    }
+    SyntaxElement::Node(n) => {
+      !matches!(
+        n.kind(),
+        K::BlockExpr | K::MatchArmList | K::Attr | K::LetElse
+      ) && !(n.kind() == K::MacroCall && braced(n))
+    }
+  };
+  // Every kind `safe` can turn down: the walk below makes nothing else.
+  let suspect = |kind: SyntaxKind| {
+    kind.is_literal()
+      || matches!(
+        kind,
+        K::LineComment
+          | K::BlockComment
+          | K::OuterLineDoc
+          | K::InnerLineDoc
+          | K::OuterBlockDoc
+          | K::InnerBlockDoc
+          | K::BlockExpr
+          | K::MatchArmList
+          | K::Attr
+          | K::LetElse
+          | K::MacroCall
+      )
+  };
   matches!(node.kind(), K::ExprStmt | K::LetStmt)
     && !spaced_tuple_field
     && node
-      .children_with_tokens()
-      .iter()
+      .children_with_tokens_iter()
       .filter(|e| e.text_range().start as usize >= start)
-      .flat_map(|e| match e {
-        SyntaxElement::Node(n) => n.descendants_with_tokens(),
-        token => vec![token.clone()],
-      })
       .all(|e| match &e {
-        SyntaxElement::Token(t) => {
-          !matches!(
-            t.kind(),
-            K::LineComment
-              | K::BlockComment
-              | K::OuterLineDoc
-              | K::InnerLineDoc
-              | K::OuterBlockDoc
-              | K::InnerBlockDoc
-          ) && !(t.kind().is_literal() && t.text().contains('\n'))
-        }
-        SyntaxElement::Node(n) => {
-          !matches!(
-            n.kind(),
-            K::BlockExpr | K::MatchArmList | K::Attr | K::LetElse
-          ) && !(n.kind() == K::MacroCall && braced(n))
-        }
+        SyntaxElement::Node(n) => n.descendants_where(suspect).all(|d| safe(&d)),
+        token => safe(token),
       })
 }
 
@@ -174,8 +197,7 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
 fn code_tokens(node: &SyntaxNode) -> Vec<SyntaxToken> {
   let start = header_start(node).unwrap_or(node.text_range().start as usize);
   node
-    .descendants_with_tokens()
-    .into_iter()
+    .descendants_with_tokens_iter()
     .filter_map(|e| match e {
       SyntaxElement::Token(t)
         if !t.kind().is_trivia() && t.text_range().start as usize >= start =>
@@ -195,7 +217,7 @@ fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
     K::LetStmt => {
       // The initializer is the node after `=`.
       let mut after_eq = false;
-      for element in node.children_with_tokens() {
+      for element in node.children_with_tokens_iter() {
         match element {
           SyntaxElement::Token(t) if t.kind() == K::Eq => after_eq = true,
           SyntaxElement::Node(n) if after_eq => return Some(n),
@@ -289,7 +311,7 @@ fn last_line_used(text: &str, indent: usize) -> usize {
 /// line), the type on the pattern's last line; `None` when it does not fit, the type is
 /// flat for now.
 fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<String> {
-  let pattern = node.children().into_iter().find(|c| c.kind() != K::Attr)?;
+  let pattern = node.children_iter().find(|c| c.kind() != K::Attr)?;
   let flat_head = flat_before(node, expression, shape.limits.spacing)?;
   let flat_pattern = flat(&pattern, shape.limits.spacing);
   // Only a plain `let`: `super let` and the like are left as written.

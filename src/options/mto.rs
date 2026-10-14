@@ -325,7 +325,7 @@ pub(super) static SETTINGS: &[Setting] = &[
     default_2024: None,
     summary: "The order of item kinds in a file",
     doc: "The order in which kinds of items appear in a file, top to bottom. Kinds left \
-              out of the list go after the listed ones. `#[cfg(test)]` modules go where \
+              out of the list go after the listed ones, in their default order. `#[cfg(test)]` modules go where \
               `test_module` says. `extern crate` items and item macro calls (such as `include!`) are not \
               kinds here: they never move, because moving them can change what the code \
               means.",

@@ -18,7 +18,18 @@ impl<'a> Cursor<'a> {
 
   /// Consumes characters while `predicate` holds.
   pub(super) fn eat_while(&mut self, predicate: impl Fn(char) -> bool) {
-    while let Some(c) = self.first() {
+    let bytes = self.text.as_bytes();
+    while let Some(&byte) = bytes.get(self.pos) {
+      // ASCII, nearly all of any source, read as it is.
+      let c = if byte.is_ascii() {
+        byte as char
+      } else {
+        self
+          .rest()
+          .chars()
+          .next()
+          .expect("a character at a boundary")
+      };
       if !predicate(c) {
         break;
       }
@@ -32,6 +43,10 @@ impl<'a> Cursor<'a> {
   }
 
   pub(super) fn first(&self) -> Option<char> {
+    let byte = *self.text.as_bytes().get(self.pos)?;
+    if byte.is_ascii() {
+      return Some(byte as char);
+    }
     self.rest().chars().next()
   }
 

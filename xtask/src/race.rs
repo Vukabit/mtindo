@@ -43,7 +43,7 @@
 //! frame by frame, to replay resizes), and `--frames DIR` writes every frame whose text
 //! changed, exactly as drawn (`NNNN.raw`) and as plain text (`NNNN.txt`).
 //!
-//! The machine is kept awake while it runs; details go to `logs/race.log`.
+//! The machine is kept awake while it runs; details go to `.dev/logs/race.log`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -309,16 +309,13 @@ struct Screen {
   rows: Option<usize>,
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "race");
-  log.info(&format!("cargo xtask race {}", args.join(" ")));
-  let options = match parse_args(args) {
+  log.info(&format!("cargo xtask {}", crate::cli::line()));
+  let options = match options_of(m) {
     Ok(options) => options,
     Err(e) => {
-      eprintln!("{}", e);
-      eprintln!(
-        "Usage: cargo xtask race [--rounds N] [--filter TEXT] [--real N] [--gross] [--markdown] [--live] [--size COLSxROWS[,...]] [--frames DIR]"
-      );
+      eprintln!("cargo xtask race: error: {}", e);
       return ExitCode::from(2);
     }
   };
@@ -1009,76 +1006,56 @@ fn needed(race: &Race) -> Vec<usize> {
   set.into_iter().collect()
 }
 
+/// The options from `cargo xtask race`'s matches; clap has checked each value's type.
+fn options_of(m: &clap::ArgMatches) -> Result<Options, String> {
+  use crate::cli::{on, text};
+  let mut sizes = Vec::new();
+  for size in text(m, "size")
+    .iter()
+    .flat_map(|s| s.split(',').map(str::to_string).collect::<Vec<_>>())
+  {
+    let parsed = size
+      .split_once('x')
+      .and_then(|(c, r)| Some((c.parse().ok()?, r.parse().ok()?)))
+      .filter(|(c, r)| *c >= 20 && *r >= 8);
+    match parsed {
+      Some(size) => sizes.push(size),
+      None => {
+        return Err(format!(
+          "--size wants COLSxROWS (at least 20x8), got `{}`",
+          size
+        ));
+      }
+    }
+  }
+  let rounds = m
+    .get_one::<usize>("rounds")
+    .copied()
+    .unwrap_or(DEFAULT_ROUNDS);
+  if rounds == 0 {
+    return Err("--rounds needs a positive number, got `0`".to_string());
+  }
+  Ok(Options {
+    rounds,
+    filter: text(m, "filter").unwrap_or_default(),
+    markdown: on(m, "markdown"),
+    live: on(m, "live"),
+    sizes,
+    frames: text(m, "frames").map(PathBuf::from),
+    gross: on(m, "gross"),
+    real: m
+      .get_one::<usize>("real")
+      .copied()
+      .unwrap_or(DEFAULT_REAL_FILES),
+  })
+}
+
 fn paint(color: bool, code: &str, text: &str) -> String {
   if color {
     format!("\x1b[{}m{}\x1b[0m", code, text)
   } else {
     text.to_string()
   }
-}
-
-fn parse_args(args: &[String]) -> Result<Options, String> {
-  let mut options = Options {
-    rounds: DEFAULT_ROUNDS,
-    filter: String::new(),
-    markdown: false,
-    live: false,
-    sizes: Vec::new(),
-    frames: None,
-    gross: false,
-    real: DEFAULT_REAL_FILES,
-  };
-  let mut idx = 0;
-  while idx < args.len() {
-    match args[idx].as_str() {
-      "--rounds" if idx + 1 < args.len() => {
-        options.rounds = args[idx + 1]
-          .parse()
-          .ok()
-          .filter(|n| *n > 0)
-          .ok_or_else(|| format!("--rounds needs a positive number, got `{}`", args[idx + 1]))?;
-        idx += 1;
-      }
-      "--filter" if idx + 1 < args.len() => {
-        options.filter = args[idx + 1].clone();
-        idx += 1;
-      }
-      "--markdown" => options.markdown = true,
-      "--live" => options.live = true,
-      "--size" if idx + 1 < args.len() => {
-        for size in args[idx + 1].split(',') {
-          let parsed = size
-            .split_once('x')
-            .and_then(|(c, r)| Some((c.parse().ok()?, r.parse().ok()?)))
-            .filter(|(c, r)| *c >= 20 && *r >= 8);
-          match parsed {
-            Some(size) => options.sizes.push(size),
-            None => {
-              return Err(format!(
-                "--size wants COLSxROWS (at least 20x8), got `{}`",
-                size
-              ));
-            }
-          }
-        }
-        idx += 1;
-      }
-      "--gross" => options.gross = true,
-      "--real" if idx + 1 < args.len() => {
-        options.real = args[idx + 1]
-          .parse()
-          .map_err(|_| format!("--real needs a number, got `{}`", args[idx + 1]))?;
-        idx += 1;
-      }
-      "--frames" if idx + 1 < args.len() => {
-        options.frames = Some(PathBuf::from(&args[idx + 1]));
-        idx += 1;
-      }
-      other => return Err(format!("Unknown race argument `{}`.", other)),
-    }
-    idx += 1;
-  }
-  Ok(options)
 }
 
 fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String> {
@@ -2089,21 +2066,21 @@ fn summary(race: &Race, elapsed: u64, options: &Options) -> String {
       .collect();
     out.push_str(&format!(
       "{}{} inputs left out of the layout rows: mto found syntax errors in them (see \
-             logs/race.log)\n",
+             .dev/logs/race.log)\n",
       if options.markdown { "" } else { " " },
       inputs.len()
     ));
   }
   if !race.excluded.is_empty() {
     out.push_str(&format!(
-      "{}{} inputs left out: rustfmt exited with an error on them (see logs/race.log)\n",
+      "{}{} inputs left out: rustfmt exited with an error on them (see .dev/logs/race.log)\n",
       if options.markdown { "" } else { " " },
       race.excluded.len()
     ));
   }
   if errors > 0 {
     out.push_str(&format!(
-      "{}{} cells show `error`: mto exited with an error on their inputs (see logs/race.log)\n",
+      "{}{} cells show `error`: mto exited with an error on their inputs (see .dev/logs/race.log)\n",
       if options.markdown { "" } else { " " },
       errors
     ));
@@ -2753,11 +2730,15 @@ mod tests {
 
   #[test]
   fn test_size_argument() {
-    let args: Vec<String> = ["--size", "80x24,40x10", "--live", "--frames", "/tmp/f"]
-      .iter()
-      .map(|s| s.to_string())
-      .collect();
-    let options = parse_args(&args).unwrap();
+    let parsed = |words: &[&str]| {
+      let mut all = vec!["race".to_string()];
+      all.extend(words.iter().map(|s| s.to_string()));
+      match crate::cli::parse(&all) {
+        crate::cli::Parsed::Run(_, m) => options_of(&m),
+        _ => Err("bad arguments".to_string()),
+      }
+    };
+    let options = parsed(&["--size", "80x24,40x10", "--live", "--frames", "/tmp/f"]).unwrap();
     assert_eq!(options.sizes, vec![(80, 24), (40, 10)]);
     assert!(options.live);
     assert_eq!(
@@ -2767,7 +2748,9 @@ mod tests {
         rows: Some(10)
       }
     );
-    assert!(parse_args(&["--size".to_string(), "10x2".to_string()]).is_err());
+    assert!(parsed(&["--size", "10x2"]).is_err());
+    assert_eq!(parsed(&[]).unwrap().real, DEFAULT_REAL_FILES);
+    assert_eq!(parsed(&[]).unwrap().rounds, DEFAULT_ROUNDS);
   }
 
   /// A time that is almost all start-up shows `≈0` and earns no speed-up, on either side.

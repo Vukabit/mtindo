@@ -1,0 +1,9 @@
+z8R// rustfmrite_mode: modified
+// Test "modified" }
+
+
+#[cfg
+( & a , b
+)]
+fn
+main() {}

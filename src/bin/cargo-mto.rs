@@ -3,6 +3,7 @@
 //! the sibling `mto` binary then lays out each target's root file and the modules it
 //! declares. Options after `--` go to `mto`, as `cargo fmt` passes them to the
 //! formatter.
+#![deny(unsafe_code)]
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -181,7 +182,7 @@ fn parse(raw: &[String]) -> Result<Parsed, String> {
         return Ok(Parsed::Exit(0));
       }
       "--version" => {
-        println!("mto {}", env!("CARGO_PKG_VERSION"));
+        println!("mto {}", mtindo::version::short());
         return Ok(Parsed::Exit(0));
       }
       "--check" => args.check = true,

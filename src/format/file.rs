@@ -33,6 +33,7 @@
 //! it, at its new indentation, so that a second run decides the same.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::format::attrs::rewrite_attr;
 use crate::format::imports::rewrite_use;
@@ -41,51 +42,91 @@ use crate::format::space::{spacing, wants_space};
 use crate::format::stmt::rewrite_statement;
 use crate::options::format::{FormatConfig, NewlineStyle};
 use crate::syntax::ast::Attr;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, parse};
+use crate::syntax::{
+  Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, TextRange, parse, parse_cached,
+};
 use crate::text::unicode::char_width;
+
+/// A set of byte offsets.
+type OffsetSet = HashSet<usize, BuildHasherDefault<OffsetHasher>>;
+
+/// A map keyed by byte offsets.
+type Offsets<V> = HashMap<usize, V, BuildHasherDefault<OffsetHasher>>;
+
+/// Hashes a byte offset with one multiplication. Offsets are only looked up, never iterated
+/// in hash order, and come from the file being formatted, so a hash built to resist
+/// attackers buys nothing here and costs time on every token.
+#[derive(Default)]
+struct OffsetHasher(u64);
+
+impl Hasher for OffsetHasher {
+  fn finish(&self) -> u64 {
+    self.0
+  }
+
+  fn write(&mut self, bytes: &[u8]) {
+    for byte in bytes {
+      self.write_u64(u64::from(*byte));
+    }
+  }
+
+  fn write_usize(&mut self, n: usize) {
+    self.write_u64(n as u64);
+  }
+
+  fn write_u64(&mut self, n: u64) {
+    // Fibonacci hashing, folded so both the high and the low bits vary.
+    let h = (self.0 ^ n).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    self.0 = h ^ (h >> 32);
+  }
+}
 
 /// The roles tokens play in the indentation.
 #[derive(Default)]
 struct Roles {
   /// A token that starts something in a container, with the container's opening offset
   /// (`None` at the top level).
-  starts: HashMap<usize, Option<usize>>,
+  starts: Offsets<Option<usize>>,
   /// A container's closing delimiter, with its opening offset.
-  closers: HashMap<usize, usize>,
+  closers: Offsets<usize>,
   /// Containers' opening delimiters, with where the line their indentation follows is.
-  openers: HashMap<usize, usize>,
+  openers: Offsets<usize>,
   /// Comments just before a container's closing delimiter, with its opening offset.
-  trailing: HashMap<usize, usize>,
+  trailing: Offsets<usize>,
   /// Containers whose blank lines after the opening delimiter stay (module and extern
   /// bodies).
-  keeps_leading_blank: HashSet<usize>,
+  keeps_leading_blank: OffsetSet,
   /// Containers whose contents are not indented past them (match arms, with
   /// `match_arm_indent = false`), by their opening offset.
-  unindented: HashSet<usize>,
+  unindented: OffsetSet,
   /// Containers whose blank lines before the closing delimiter stay (extern bodies), by
   /// their opening offset.
-  keeps_trailing_blank: HashSet<usize>,
+  keeps_trailing_blank: OffsetSet,
   /// Ranges left exactly as written.
   verbatim: Vec<(usize, usize)>,
   /// Statements and items, by where they start: where they end.
-  statements: HashMap<usize, usize>,
+  statements: Offsets<usize>,
   /// Where line comments and line doc comments start, in order.
   line_comments: Vec<usize>,
   /// Statements in blocks the width-budget code may lay out, `use` declarations and
   /// attributes, by where they start.
-  layable: HashMap<usize, SyntaxNode>,
+  layable: Offsets<SyntaxNode>,
   /// Where a token starts that the Rust style puts at the start of a line, even when it is
   /// written after other code.
-  breaks: HashSet<usize>,
+  breaks: OffsetSet,
   /// Where an attribute starts that follows another of the same item: no blank line comes
   /// between them.
-  joined: HashSet<usize>,
+  joined: OffsetSet,
+  /// Every token of the file, in order: found by the same walk, which makes the handles of
+  /// the nodes above them once.
+  tokens: Vec<SyntaxToken>,
 }
 
 /// A token, with where it starts.
-struct Tok {
+struct Tok<'a> {
   kind: SyntaxKind,
-  text: String,
+  /// Its text, borrowed from the file's.
+  text: &'a str,
   start: usize,
   token: SyntaxToken,
   /// An empty space put between two tokens written touching, where a line may break.
@@ -117,7 +158,7 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
     // A carriage return of its own (in a string, most likely): left as written.
     return source.to_string();
   }
-  let parsed = parse(&text, edition);
+  let parsed = parse_cached(&text, edition);
   if !parsed.errors().is_empty() {
     return source.to_string();
   }
@@ -136,9 +177,9 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
   let body = reindent(&root, &text, edition, config);
   // Line endings inside a multi-line string are part of the string: a file whose strings
   // hold line breaks keeps its own endings.
-  let strings_span_lines = root.descendants_with_tokens().iter().any(
-    |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_literal() && t.text().contains('\n')),
-  );
+  let strings_span_lines = root
+    .token_texts()
+    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'));
   let newline = if strings_span_lines {
     if first_crlf { "\r\n" } else { "\n" }
   } else {
@@ -149,28 +190,23 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
   } else {
     body.replace('\n', newline)
   };
+  if bom.is_empty() {
+    return body;
+  }
   format!("{}{}", bom, body)
 }
 
-/// Where a container's child starts, if it is something that starts a line: a node, or a
-/// comment standing among them.
-fn construct_start(element: &SyntaxElement) -> Option<usize> {
-  match element {
-    SyntaxElement::Node(node) => Some(node.text_range().start as usize),
-    SyntaxElement::Token(token)
-      if matches!(
-        token.kind(),
-        SyntaxKind::LineComment | SyntaxKind::BlockComment
-      ) || crate::format::items::is_doc(token.kind()) =>
-    {
-      Some(token.text_range().start as usize)
-    }
-    _ => None,
-  }
+/// Where a container's child (of `kind`, at `range`, a node or not) starts, if it is
+/// something that starts a line: a node, or a comment standing among them.
+fn construct_start((kind, range, node): (SyntaxKind, TextRange, bool)) -> Option<usize> {
+  let starts = node
+    || matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment)
+    || crate::format::items::is_doc(kind);
+  starts.then_some(range.start as usize)
 }
 
 fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
-  let children = node.children_with_tokens();
+  let children: Vec<(SyntaxKind, TextRange, bool)> = node.child_spans().collect();
   let is_open = |k: SyntaxKind| {
     matches!(
       k,
@@ -183,10 +219,10 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
       SyntaxKind::RBrace | SyntaxKind::RParen | SyntaxKind::RBrack
     )
   };
-  let open = children.iter().find_map(|e| match e {
-    SyntaxElement::Token(t) if is_open(t.kind()) => Some(t.text_range().start as usize),
-    _ => None,
-  });
+  let open = children
+    .iter()
+    .find(|&&(kind, _, node)| !node && is_open(kind))
+    .map(|&(_, range, _)| range.start as usize);
   let Some(open) = open else {
     return;
   };
@@ -206,8 +242,7 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
   };
   let base = match Some(owner) {
     Some(owner) if owner.kind() == SyntaxKind::MethodCallExpr => owner
-      .children_with_tokens()
-      .iter()
+      .children_with_tokens_iter()
       .find_map(|e| match e {
         SyntaxElement::Token(t) if t.kind() == SyntaxKind::Dot => {
           Some(t.text_range().start as usize)
@@ -215,6 +250,10 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
         _ => None,
       })
       .unwrap_or(open),
+    // A node with text starts with its first token.
+    Some(owner) if owner.kind() != SyntaxKind::SourceFile && !owner.text_range().is_empty() => {
+      owner.text_range().start as usize
+    }
     Some(owner) if owner.kind() != SyntaxKind::SourceFile => owner
       .first_token()
       .map_or(open, |t| t.text_range().start as usize),
@@ -233,29 +272,27 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
   if node.kind() == SyntaxKind::MatchArmList && !config.match_arm_indent {
     roles.unindented.insert(open);
   }
-  let comment =
-    |e: &SyntaxElement| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment);
+  let comment = |kind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment);
   // The comments between the last code and the closing delimiter.
-  if let Some(close_at) = children.iter().rposition(|e| is_close(e.kind())) {
-    for e in children[..close_at].iter().rev() {
-      if let SyntaxElement::Token(t) = e
-        && comment(e)
-      {
-        roles.trailing.insert(t.text_range().start as usize, open);
-      } else if e.kind() != SyntaxKind::Whitespace {
+  if let Some(close_at) = children.iter().rposition(|&(kind, _, _)| is_close(kind)) {
+    for &(kind, range, node) in children[..close_at].iter().rev() {
+      if !node && comment(kind) {
+        roles.trailing.insert(range.start as usize, open);
+      } else if kind != SyntaxKind::Whitespace {
         break;
       }
     }
   }
   let mut inside = false;
-  for child in &children {
-    if let SyntaxElement::Token(t) = child {
-      let at = t.text_range().start as usize;
+  for &child in &children {
+    let (kind, range, node) = child;
+    if !node {
+      let at = range.start as usize;
       if at == open {
         inside = true;
         continue;
       }
-      if is_close(t.kind()) && inside {
+      if is_close(kind) && inside {
         roles.closers.insert(at, open);
         inside = false;
         continue;
@@ -339,7 +376,20 @@ fn is_statement(kind: SyntaxKind) -> bool {
 /// a block holding a statement, or a function's body holding anything, each statement, the
 /// tail and the closing brace. Each takes its container's indentation.
 fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
-  for node in root.descendants() {
+  // Only these kinds can hold lines: the walk makes no handles for the rest.
+  let lines = |kind| {
+    matches!(
+      kind,
+      SyntaxKind::SourceFile
+        | SyntaxKind::ItemList
+        | SyntaxKind::AssocItemList
+        | SyntaxKind::ExternItemList
+        | SyntaxKind::VariantList
+        | SyntaxKind::RecordFieldList
+        | SyntaxKind::BlockExpr
+    )
+  };
+  for node in root.descendant_nodes_where(lines) {
     // Fields of a struct or union definition and an enum's variants are one per line too.
     let items = matches!(
       node.kind(),
@@ -354,17 +404,14 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
         .is_some_and(|p| matches!(p.kind(), SyntaxKind::Struct | SyntaxKind::Union));
     // A function's body with anything in it is one of lines too (`fn_single_line` off).
     let block = node.kind() == SyntaxKind::BlockExpr
-      && (node.children().iter().any(|c| is_statement(c.kind()))
+      && (node.children_iter().any(|c| is_statement(c.kind()))
         || node.parent().is_some_and(|p| p.kind() == SyntaxKind::Fn)
-          && node
-            .children()
-            .iter()
-            .any(|c| c.kind() != SyntaxKind::Label));
+          && node.children_iter().any(|c| c.kind() != SyntaxKind::Label));
     if !items && !block {
       continue;
     }
     let mut any = false;
-    for child in node.children() {
+    for child in node.children_iter() {
       if child.kind() == SyntaxKind::Label {
         continue;
       }
@@ -385,7 +432,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
       // its code, and its code's first line, are indented as it is.
       let mut after_attr = false;
       let mut joined = Vec::new();
-      for element in child.children_with_tokens() {
+      for element in child.children_with_tokens_iter() {
         match &element {
           SyntaxElement::Node(n) if n.kind() == SyntaxKind::Attr => {
             mark(n.text_range().start as usize, true);
@@ -430,7 +477,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
       roles.joined.extend(joined);
     }
     if any && node.kind() != SyntaxKind::SourceFile {
-      for token in node.children_with_tokens() {
+      for token in node.children_with_tokens_iter() {
         if token.kind() == SyntaxKind::RBrace {
           roles.breaks.insert(token.text_range().start as usize);
         }
@@ -445,8 +492,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
 fn meta_like(attr: &SyntaxNode) -> bool {
   // Inside an argument list a path's `::` is two colons, written touching.
   let colons: Vec<(usize, usize)> = attr
-    .descendants_with_tokens()
-    .into_iter()
+    .descendants_with_tokens_iter()
     .filter_map(|e| match e {
       SyntaxElement::Token(t) if t.kind() == SyntaxKind::Colon => {
         Some((t.text_range().start as usize, t.text_range().end as usize))
@@ -456,7 +502,7 @@ fn meta_like(attr: &SyntaxNode) -> bool {
     .collect();
   let in_path = |start: usize, end: usize| colons.iter().any(|&(s, e)| e == start || s == end);
   let mut previous: Option<SyntaxKind> = None;
-  for element in attr.descendants_with_tokens() {
+  for element in attr.descendants_with_tokens_iter() {
     let SyntaxElement::Token(token) = element else {
       if previous == Some(SyntaxKind::Eq) && element.kind() != SyntaxKind::Literal {
         return false;
@@ -557,7 +603,7 @@ fn overflowing(
 }
 
 fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConfig) -> String {
-  let roles = roles(root, text, config);
+  let mut roles = roles(root, text, config);
   // Statements given up on as the pass reaches them (see below), beside the ranges known
   // before it.
   let gave_up: std::cell::RefCell<Vec<(usize, usize)>> = Default::default();
@@ -566,18 +612,16 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     (idx > 0 && at < roles.verbatim[idx - 1].1)
       || gave_up.borrow().iter().any(|&(s, e)| s < at && at < e)
   };
-  let tokens: Vec<Tok> = root
-    .descendants_with_tokens()
+  debug_assert_eq!(root.text(), text, "the tree is not the text's");
+  let tokens: Vec<Tok> = std::mem::take(&mut roles.tokens)
     .into_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) => Some(Tok {
-        kind: t.kind(),
-        text: t.text().to_string(),
-        start: t.text_range().start as usize,
-        token: t,
-        synthetic: false,
-      }),
-      _ => None,
+    .map(|t| Tok {
+      kind: t.kind(),
+      // The tree is the text's own parse, so a token's range in it is its text.
+      text: &text[t.text_range().start as usize..t.text_range().end as usize],
+      start: t.text_range().start as usize,
+      token: t,
+      synthetic: false,
     })
     .collect();
   // A space where none is written before what must start a line, for the line break to
@@ -591,7 +635,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     {
       spaced.push(Tok {
         kind: SyntaxKind::Whitespace,
-        text: String::new(),
+        text: "",
         start: tok.start,
         token: tok.token.clone(),
         synthetic: true,
@@ -608,7 +652,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   // How far the construct being continued moved.
   let mut delta: isize = 0;
   // Each container's indentation, as written and as output.
-  let mut open_indent: HashMap<usize, (usize, usize)> = HashMap::new();
+  let mut open_indent: Offsets<(usize, usize)> = Offsets::default();
   let mut previous_significant: Option<usize> = None;
   // A line comment that ended a line of code: its column as written and as output.
   let mut comment_column: Option<(usize, usize)> = None;
@@ -652,7 +696,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       let written = width_of(written_text, tab);
       code_on_line = false;
       if in_verbatim(tok.start) {
-        out.push_str(&tok.text);
+        out.push_str(tok.text);
         out_line_start = out.len() - written_text.len();
         lines.push((next_start, written, written));
         comment_column = None;
@@ -744,7 +788,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       match spaced {
         Some(true) => out.push(' '),
         Some(false) => {}
-        None => out.push_str(&tok.text),
+        None => out.push_str(tok.text),
       }
       continue;
     }
@@ -834,7 +878,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     out.push_str(if trimmed {
       tok.text.trim_end()
     } else {
-      &tok.text
+      tok.text
     });
     // Two tokens written touching that the Rust style spaces.
     if let Some(next) = next
@@ -862,8 +906,8 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
 
 fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let mut roles = Roles::default();
-  for child in root.children_with_tokens() {
-    if let Some(start) = construct_start(&child) {
+  for child in root.child_spans() {
+    if let Some(start) = construct_start(child) {
       roles.starts.insert(start, None);
     }
   }
@@ -872,14 +916,19 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let mut attrs = Vec::new();
   let mut stranded = Vec::new();
   let mut line_comments = Vec::new();
-  for element in root.descendants_with_tokens() {
+  // A `#[rustfmt::skip]` (or `rustfmt_skip`, or either in a `cfg_attr`) holds one of these
+  // words: a file with neither has none, and no node's attributes need reading.
+  let any_skip = root
+    .token_texts()
+    .any(|(kind, text, _)| kind == SyntaxKind::Ident && matches!(text, "skip" | "rustfmt_skip"));
+  for element in root.descendants_with_tokens_iter() {
     match &element {
       SyntaxElement::Node(node) => {
         let range = node.text_range();
-        let skipped = node.kind() != SyntaxKind::SourceFile
+        let skipped = any_skip
+          && node.kind() != SyntaxKind::SourceFile
           && node
-            .children()
-            .into_iter()
+            .children_of_kind(SyntaxKind::Attr)
             .filter_map(Attr::cast)
             .any(|a| a.is_rustfmt_skip());
         let in_list = node.parent().is_some_and(|p| {
@@ -899,7 +948,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         // the expression it sits in: its lines count toward the statement around it,
         // which the standard formatter gives up on whole when one of them does not fit.
         let in_expression = || {
-          node.ancestors().iter().skip(1).any(|a| {
+          node.ancestors_iter().skip(1).any(|a| {
             matches!(
               a.kind(),
               SyntaxKind::ClosureExpr | SyntaxKind::ArgList | SyntaxKind::MatchArmList
@@ -969,7 +1018,6 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         }
       }
       SyntaxElement::Token(token) => {
-        let marker = token.text().trim();
         let start = token.text_range().start as usize;
         if matches!(
           token.kind(),
@@ -987,6 +1035,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           stranded.push(start);
         }
         if token.kind() == SyntaxKind::LineComment {
+          let marker = token.text().trim();
           if marker == "// mto: off" && region.is_none() {
             region = Some(start);
           } else if marker == "// mto: on"
@@ -995,6 +1044,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             roles.verbatim.push((from, token.text_range().end as usize));
           }
         }
+        roles.tokens.push(token.clone());
       }
     }
   }
@@ -1037,8 +1087,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
 /// A file with `#![rustfmt::skip]` is left alone.
 fn skips_itself(root: &SyntaxNode) -> bool {
   root
-    .children()
-    .into_iter()
+    .children_iter()
     .filter_map(Attr::cast)
     .any(|a| a.is_inner() && a.is_rustfmt_skip())
 }

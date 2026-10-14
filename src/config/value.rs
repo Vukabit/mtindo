@@ -132,14 +132,28 @@ pub(super) fn check(setting: &Setting, value: &toml::Value) -> Result<Option<Val
   Ok(Some(checked))
 }
 
-/// A setting's default under a style edition.
+/// A setting's default under a style edition. Read from its text once per setting and
+/// edition: every folder resolved asks for every default.
 pub(super) fn default_of(setting: &Setting, style_edition: u16) -> Option<Value> {
+  thread_local! {
+    // By the setting's address: settings live in static tables, and two files may share a
+    // name.
+    static DEFAULTS: std::cell::RefCell<std::collections::HashMap<(usize, u16), Option<Value>>> =
+      std::cell::RefCell::new(std::collections::HashMap::new());
+  }
   let text = setting.default_for(style_edition);
   if text.is_empty() {
     return None;
   }
-  let table = toml::parse(&format!("v = {}", text)).ok()?;
-  check(setting, table.get("v")?).ok().flatten()
+  let key = (setting as *const Setting as usize, style_edition);
+  if let Some(found) = DEFAULTS.with(|defaults| defaults.borrow().get(&key).cloned()) {
+    return found;
+  }
+  let found = toml::parse(&format!("v = {}", text))
+    .ok()
+    .and_then(|table| check(setting, table.get("v")?).ok().flatten());
+  DEFAULTS.with(|defaults| defaults.borrow_mut().insert(key, found.clone()));
+  found
 }
 
 /// Checks a value given on the command line (`--config key=value`). Booleans, numbers and

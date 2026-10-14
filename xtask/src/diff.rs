@@ -11,14 +11,14 @@ use crate::common::log::Logger;
 use crate::common::process;
 use crate::corpus;
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "diff");
-  log.info(&format!("cargo xtask diff {}", args.join(" ")));
-  if let Some(other) = args.iter().find(|a| *a != "--update" && *a != "--markdown") {
-    eprintln!("unexpected argument `{}`", other);
-    eprintln!("Usage: cargo xtask diff [--update] [--markdown]");
-    return ExitCode::from(2);
-  }
+  log.info(&format!("cargo xtask {}", crate::cli::line()));
+  let args: Vec<String> = ["update", "markdown"]
+    .iter()
+    .filter(|f| crate::cli::on(m, f))
+    .map(|f| format!("--{}", f))
+    .collect();
   if corpus::fetch(root, false, &log) != 0 {
     return ExitCode::from(1);
   }
@@ -61,9 +61,12 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     "--record".into(),
     root.join("compat/compatibility.txt").display().to_string(),
     "--meaning-log".into(),
-    root.join("logs/diff-meaning.txt").display().to_string(),
+    root
+      .join(".dev/logs/diff-meaning.txt")
+      .display()
+      .to_string(),
     "--broke-log".into(),
-    root.join("logs/diff-broke.txt").display().to_string(),
+    root.join(".dev/logs/diff-broke.txt").display().to_string(),
     "--exceptions".into(),
     root
       .join("compat/meaning-exceptions.txt")
@@ -79,6 +82,8 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     ));
   }
   log.info("running xtask-tools diff (release build)");
+  let findings = root.join(".dev/logs/diff-findings.tsv");
+  let _ = std::fs::remove_file(&findings);
   let done = process::output(
     Command::new("cargo")
       .args([
@@ -100,6 +105,42 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
           "the diff was stopped at its time limit of {}",
           process::duration(process::HEAVY)
         );
+      }
+      // The run's numbers become series.
+      let tallies = root.join(".dev/logs/diff-tallies.tsv");
+      if let Ok(text) = std::fs::read_to_string(&tallies) {
+        for line in text.lines() {
+          let f: Vec<&str> = line.split('\t').collect();
+          let n = |i: usize| f.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+          if let Some(set) = f.first() {
+            let share = |a: f64, b: f64| if b > 0.0 { 100.0 * a / b } else { 0.0 };
+            crate::metrics::record(
+              root,
+              &format!("compat.{}.files", set),
+              share(n(1), n(2)),
+              "%",
+            );
+            crate::metrics::record(
+              root,
+              &format!("compat.{}.lines", set),
+              share(n(3), n(4)),
+              "%",
+            );
+            crate::metrics::record(root, &format!("compat.{}.skipped", set), n(5), "files");
+          }
+        }
+        let _ = std::fs::remove_file(&tallies);
+      }
+      // The run's findings become incidents; on a complete run, those no longer found
+      // are fixed.
+      if let Ok(text) = std::fs::read_to_string(&findings) {
+        let inputs = root.join(".dev/logs/diff-inputs");
+        let counts = crate::incidents::from_diff(root, &text, &inputs);
+        println!(
+          "incidents: {} new, {} reopened, {} seen again, {} fixed (cargo xtask incidents)",
+          counts.new, counts.reopened, counts.again, counts.fixed
+        );
+        log.info(&format!("incidents from the diff: {:?}", counts));
       }
       ExitCode::from(done.code.clamp(0, 255) as u8)
     }

@@ -5,16 +5,23 @@ mod cases;
 mod common;
 mod corpus;
 mod diff;
+mod diff_fuzz;
+mod doctor_bench;
 mod lexdiff;
-// The same logger as xtask, compiled from its file: logs/NAME.log at the repository root.
+// The same logger as xtask, compiled from its file: .dev/logs/NAME.log at the repository root.
 #[allow(dead_code)]
 #[path = "../../src/common/log.rs"]
 mod log;
 mod parsecheck;
+mod perf;
 // The same child-process helpers as xtask, with their time limits.
 #[allow(dead_code)]
 #[path = "../../src/common/process.rs"]
 mod process;
+// Sampling a child's memory, which the process helpers offer.
+#[allow(dead_code)]
+#[path = "../../src/common/sample.rs"]
+mod sample;
 mod toml_test;
 mod unformat;
 
@@ -32,6 +39,14 @@ fn main() -> ExitCode {
     Some("corpus-speed") => corpus::speed(&args[1..]),
     Some("toml-test") => toml_test::run(&args[1..]),
     Some("diff") => diff::run(&args[1..]),
+    Some("diff-fuzz") => diff_fuzz::run(&args[1..]),
+    Some("doctor-bench") => doctor_bench::run(&args[1..]),
+    Some("perf-scaling") => perf::scaling(&args[1..]),
+    Some("perf-growth") => perf::growth(&args[1..]),
+    Some("perf-depth") => perf::depth(&args[1..]),
+    Some("perf-stages") => perf::stages(&args[1..]),
+    Some("perf-walk") => perf::walk(&args[1..]),
+    Some("perf-digest") => perf::digest(&args[1..]),
     // Prints a file with its whitespace scrambled, as `diff` scrambles it.
     Some("unformat") if args.len() == 2 => {
       let path = Path::new(&args[1]);

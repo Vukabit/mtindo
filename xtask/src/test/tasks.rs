@@ -59,6 +59,11 @@ pub const TEST_REGISTRY: &[(&str, &str, &str)] = &[
     "tests",
   ),
   ("domain_2_golden", "Golden layouts", "tests"),
+  (
+    "fuzz_regressions",
+    "Every input a fuzz run found, kept, still passes its target's checks",
+    "tests",
+  ),
   ("snapshots", "Regression fixtures", "tests"),
   (
     "syntax_fixtures",
@@ -240,10 +245,22 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     Action::Check(gate("naming")),
   ));
   tasks.push(Task::new(
+    "incidents",
+    "No open fuzz crash, meaning or unstable incident, or mto panic",
+    "gates",
+    Action::Check(gate("incidents")),
+  ));
+  tasks.push(Task::new(
     "planning",
     "Comments in src/, tests/ and fuzz/ name no stages, milestones or decision ids",
     "gates",
     Action::Check(gate("planning")),
+  ));
+  tasks.push(Task::new(
+    "unsafe",
+    "mtindo denies unsafe code, but for the macOS sync calls in src/durable/apple.rs",
+    "gates",
+    Action::Check(gate("unsafe")),
   ));
   tasks.push(Task::new(
     "capabilities",
@@ -370,6 +387,15 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     )
   };
   tasks.push(Task::new(
+    "hub",
+    "The hub's .hub.toml is valid and every source it reads loads",
+    "tests",
+    command(
+      "cargo",
+      &["run", "--quiet", "--package", "hub", "--", "--check"],
+    ),
+  ));
+  tasks.push(Task::new(
     "lexdiff",
     "Lexer agrees with rustc's lexer on the repo's sources",
     "tests",
@@ -402,6 +428,32 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     )
     .requires(&["git"]),
   );
+  tasks.push(Task::new(
+    "io",
+    "Writing generated files with each way of syncing; the io.* ratchet holds",
+    "heavy",
+    Action::Command(this_binary.clone(), vec!["io".into(), "bench".into()]),
+  ));
+  tasks.push(Task::new(
+    "perf",
+    "One-file latency, thread scaling over the corpus and growth with size; perf.* series",
+    "heavy",
+    Action::Command(this_binary.clone(), vec!["perf".into()]),
+  ));
+  tasks.push(Task::new(
+    "memst",
+    "memst profiles mto on src/text: every allocation recorded, the report reads it back",
+    "heavy",
+    Action::Command(
+      this_binary.clone(),
+      vec![
+        "memst".into(),
+        "src/text".into(),
+        "--view".into(),
+        "overview".into(),
+      ],
+    ),
+  ));
   tasks.push(
     Task::new(
       "diff",
@@ -460,7 +512,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
       .requires(&["rustup"]),
     );
   }
-  // Through `cargo xtask fuzz run`, which keeps what a run finds under fuzz/crashes/.
+  // Through `cargo xtask fuzz run`, which keeps what a run finds under .dev/incidents/fuzz/.
   for target in stems(&root.join("fuzz").join("fuzz_targets")) {
     tasks.push(
       Task::new(
@@ -527,7 +579,14 @@ fn fuzz_24h(root: &Path) -> Vec<String> {
         let log = &log;
         (
           target.clone(),
-          scope.spawn(move || crate::fuzz::fuzz_target(root, target, FUZZ_24H_SECONDS, log)),
+          scope.spawn(move || {
+            crate::fuzz::fuzz_target(
+              root,
+              target,
+              &crate::fuzz::Run::for_seconds(FUZZ_24H_SECONDS),
+              log,
+            )
+          }),
         )
       })
       .collect();
@@ -552,7 +611,7 @@ fn fuzz_24h(root: &Path) -> Vec<String> {
   }
   if filed > 0 {
     problems.push(format!(
-      "filed {} crash(es) under fuzz/crashes/ (cargo xtask fuzz list)",
+      "{} new or reopened incident(s) (cargo xtask incidents)",
       filed
     ));
   }

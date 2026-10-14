@@ -7,7 +7,7 @@ pub enum ImportGroup {
   Local = 2,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ItemKind {
   ModDecl,
   UseDecl,

@@ -2,8 +2,10 @@
 //! reads it: the nearest manifest with a `[package]` (the resolver walks up the folders), whose `edition` may be inherited from
 //! the workspace (`edition.workspace = true`). A package with no edition is 2015.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::config::toml::{self, Table, Value};
 
@@ -16,11 +18,32 @@ pub(super) struct Edition {
   pub line: usize,
 }
 
+/// Every manifest read in a run, each read and parsed once: a workspace's root manifest is
+/// asked for by each of its packages that inherits its edition.
+#[derive(Debug, Default)]
+pub(super) struct Manifests(HashMap<PathBuf, Result<Option<Rc<Table>>, String>>);
+
+impl Manifests {
+  /// The parsed manifest at `path`, or `None` if there is none.
+  fn get(&mut self, path: &Path) -> Result<Option<Rc<Table>>, String> {
+    if let Some(found) = self.0.get(path) {
+      return found.clone();
+    }
+    let found = read(path).map(|table| table.map(Rc::new));
+    self.0.insert(path.to_path_buf(), found.clone());
+    found
+  }
+}
+
 /// The edition of the package whose manifest is `path` (in `folder`); `None` when there is
 /// no manifest there or it has no `[package]`.
-pub(super) fn manifest_edition(path: &Path, folder: &Path) -> Result<Option<Edition>, String> {
+pub(super) fn manifest_edition(
+  manifests: &mut Manifests,
+  path: &Path,
+  folder: &Path,
+) -> Result<Option<Edition>, String> {
   let path = path.to_path_buf();
-  let Some(manifest) = read(&path)? else {
+  let Some(manifest) = manifests.get(&path)? else {
     return Ok(None);
   };
   let Some(package) = manifest.entry("package") else {
@@ -42,7 +65,7 @@ pub(super) fn manifest_edition(path: &Path, folder: &Path) -> Result<Option<Edit
         line: entry.line,
       },
       Value::Table(t) if t.get("workspace").and_then(Value::as_bool) == Some(true) => {
-        workspace_edition(folder)?.ok_or_else(|| {
+        workspace_edition(manifests, folder)?.ok_or_else(|| {
           format!(
             "{}: `edition.workspace = true`, but no workspace above it sets \
                              `workspace.package.edition`",
@@ -76,10 +99,13 @@ fn read(path: &Path) -> Result<Option<Table>, String> {
 }
 
 /// `workspace.package.edition` of the nearest workspace manifest above `package_dir`.
-fn workspace_edition(package_dir: &Path) -> Result<Option<Edition>, String> {
+fn workspace_edition(
+  manifests: &mut Manifests,
+  package_dir: &Path,
+) -> Result<Option<Edition>, String> {
   for folder in package_dir.ancestors() {
     let path = folder.join("Cargo.toml");
-    let Some(manifest) = read(&path)? else {
+    let Some(manifest) = manifests.get(&path)? else {
       continue;
     };
     if let Some(workspace) = manifest.get("workspace").and_then(Value::as_table) {

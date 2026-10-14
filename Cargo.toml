@@ -1,5 +1,5 @@
 [workspace]
-members = ["xtask", "xtask/tools"]
+members = ["xtask", "xtask/hub", "xtask/memst", "xtask/tools"]
 exclude = ["fuzz"]
 
 [package]
@@ -35,3 +35,10 @@ criterion = "0.5"
 [[bench]]
 name = "mtindo_bench"
 harness = false
+
+# One unit, optimized across every module at once: mto is mostly small functions calling
+# each other across modules (the parser, the tree, the formatter), which only inline when
+# they are compiled together. Unwinding stays: a bug failing on one file is caught there.
+[profile.release]
+lto = "fat"
+codegen-units = 1

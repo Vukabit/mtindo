@@ -27,8 +27,7 @@ pub mod rewrites;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::syntax::ast::{Attr, Item, ItemKind};
-use crate::syntax::lexer::tokenize;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse_cached};
 
 /// Marks a scope whose macros are visible in its parent too (`#[macro_use] mod`).
 const MACRO_USE: &str = " [macro_use]";
@@ -194,8 +193,10 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
 
   // Items: a multiset by exact text. A lost and an added item with the same core are one
   // item whose attached comments changed.
-  let full = |items: &[(String, String)]| items.iter().map(|(f, _)| f.clone()).collect::<Vec<_>>();
-  let (mut lost, mut added) = difference(&full(&old.items), &full(&new.items));
+  let (mut lost, mut added) = difference(
+    old.items.iter().map(|(full, _)| full.as_str()),
+    new.items.iter().map(|(full, _)| full.as_str()),
+  );
   let core_of = |text: &str, items: &[(String, String)]| {
     items
       .iter()
@@ -250,7 +251,10 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
     );
   }
 
-  let (lost, added) = difference(&old.comments, &new.comments);
+  let (lost, added) = difference(
+    old.comments.iter().map(String::as_str),
+    new.comments.iter().map(String::as_str),
+  );
   if !lost.is_empty() {
     add(
       Rule::CommentLost,
@@ -267,7 +271,10 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
       ),
     );
   }
-  let (lost, added) = difference(&old.others, &new.others);
+  let (lost, added) = difference(
+    old.others.iter().map(String::as_str),
+    new.others.iter().map(String::as_str),
+  );
   if !lost.is_empty() || !added.is_empty() {
     add(
       Rule::OtherChanged,
@@ -332,13 +339,16 @@ pub(super) fn describe_list(entries: &[String]) -> String {
 }
 
 /// (in `a` but not `b`, in `b` but not `a`), counting repeats.
-pub(super) fn difference(a: &[String], b: &[String]) -> (Vec<String>, Vec<String>) {
+pub(super) fn difference<'a>(
+  a: impl IntoIterator<Item = &'a str>,
+  b: impl IntoIterator<Item = &'a str>,
+) -> (Vec<String>, Vec<String>) {
   let mut counts: BTreeMap<&str, i64> = BTreeMap::new();
   for x in a {
-    *counts.entry(x.as_str()).or_insert(0) += 1;
+    *counts.entry(x).or_insert(0) += 1;
   }
   for x in b {
-    *counts.entry(x.as_str()).or_insert(0) -= 1;
+    *counts.entry(x).or_insert(0) -= 1;
   }
   let mut only_a = Vec::new();
   let mut only_b = Vec::new();
@@ -371,16 +381,16 @@ fn collect(container: &SyntaxNode, scope: &str, source: &str, parts: &mut Parts)
     format!("  (in {})", scope)
   };
   let mut seen_item = false;
-  for element in container.children_with_tokens() {
+  for element in container.children_with_tokens_iter() {
     let (kind, text) = match &element {
       SyntaxElement::Node(node) => {
         let range = node.text_range();
         (
           node.kind(),
-          source[range.start as usize..range.end as usize].to_string(),
+          &source[range.start as usize..range.end as usize],
         )
       }
-      SyntaxElement::Token(token) => (token.kind(), token.text().to_string()),
+      SyntaxElement::Token(token) => (token.kind(), token.text()),
     };
     let header = match &element {
       SyntaxElement::Token(_) => matches!(
@@ -413,7 +423,7 @@ fn collect(container: &SyntaxNode, scope: &str, source: &str, parts: &mut Parts)
           parts.macros.push((visible, name.clone()));
         }
       }
-      let core = core_text(node, source);
+      let (core_start, core) = core_text(node, source);
       parts.sequence.push((
         scope.to_string(),
         format!("{}{}", core, suffix),
@@ -427,9 +437,8 @@ fn collect(container: &SyntaxNode, scope: &str, source: &str, parts: &mut Parts)
             format!("{}…{}", &whole[..from - start], &whole[to - start..])
           };
           let item_start = node.text_range().start as usize;
-          let core_start = item_start + text.find(core.as_str()).unwrap_or(0);
-          let shell_text = shell(&text, item_start);
-          let shell_core = shell(&core, core_start);
+          let shell_text = shell(text, item_start);
+          let shell_core = shell(core, core_start);
           let inner_scope = if scope.is_empty() {
             shell_core.split_whitespace().collect::<Vec<_>>().join(" ")
           } else {
@@ -465,28 +474,33 @@ fn collect(container: &SyntaxNode, scope: &str, source: &str, parts: &mut Parts)
 }
 
 /// The text from a node's first significant child to its last, without the comments and
-/// whitespace attached around it. Attached comments are direct children, so only the
-/// node's own children are looked at.
-fn core_text(node: &SyntaxNode, text: &str) -> String {
-  let children = node.children_with_tokens();
-  let significant = |e: &&SyntaxElement| match e {
+/// whitespace attached around it, with where it starts. Attached comments are direct
+/// children, so only the node's own children are looked at.
+fn core_text<'a>(node: &SyntaxNode, text: &'a str) -> (usize, &'a str) {
+  let significant = |e: &SyntaxElement| match e {
     SyntaxElement::Token(t) => !t.kind().is_trivia(),
     SyntaxElement::Node(_) => true,
   };
   let (Some(first), Some(last)) = (
-    children.iter().find(significant),
-    children.iter().rfind(significant),
+    node.children_with_tokens_iter().find(significant),
+    node.children_with_tokens_iter().rfind(significant),
   ) else {
-    return String::new();
+    return (node.text_range().start as usize, "");
   };
   let from = first.text_range().start as usize;
   let to = last.text_range().end as usize;
-  text[from..to].to_string()
+  (from, &text[from..to])
 }
 
 fn line_endings(text: &str) -> LineEndings {
-  let crlf = text.matches("\r\n").count();
-  let lf = text.matches('\n').count();
+  let bytes = text.as_bytes();
+  let lf = bytes.iter().filter(|&&b| b == b'\n').count();
+  // Most files have no carriage return at all.
+  let crlf = if bytes.contains(&b'\r') {
+    bytes.windows(2).filter(|pair| pair == b"\r\n").count()
+  } else {
+    0
+  };
   match (crlf, lf) {
     (_, 0) => LineEndings::None,
     (0, _) => LineEndings::Lf,
@@ -502,7 +516,7 @@ fn module_body(node: &SyntaxNode) -> Option<SyntaxNode> {
     SyntaxKind::Impl => SyntaxKind::AssocItemList,
     _ => return None,
   };
-  node.children().into_iter().find(|c| c.kind() == body)
+  node.children_iter().find(|c| c.kind() == body)
 }
 
 /// The items that came after a macro-defining item in the input and come before it in the
@@ -522,6 +536,10 @@ fn moved_above_definitions(
         ((scope.as_str(), text.as_str(), *n), *definer)
       })
       .collect()
+  }
+  // Only an item that defines macros can have one moved above it.
+  if !old.iter().any(|(_, _, defines)| *defines) {
+    return Vec::new();
   }
   let (old, new) = (numbered(old), numbered(new));
   let position: HashMap<_, usize> = new.iter().enumerate().map(|(i, (k, _))| (*k, i)).collect();
@@ -545,28 +563,25 @@ fn moved_above_definitions(
 /// The parts of a file. Line endings are compared by their own rule, so here every
 /// `\r\n` reads as `\n` and one changed line ending is not also every item changed.
 fn parts(text: &str, edition: Edition) -> Parts {
-  let text = text.replace("\r\n", "\n");
-  let source = text.clone();
-  let parsed = parse(&text, edition);
+  let text = if text.contains("\r\n") {
+    std::borrow::Cow::Owned(text.replace("\r\n", "\n"))
+  } else {
+    std::borrow::Cow::Borrowed(text)
+  };
+  let parsed = parse_cached(&text, edition);
   let tree = parsed.syntax_node();
   let mut parts = Parts {
     errors: parsed.errors().len(),
     header_first: true,
     ..Parts::default()
   };
-  // Comments straight from the lexer: much cheaper than walking every token of the tree.
-  let mut offset = 0;
-  for token in tokenize(&text, edition) {
-    let end = offset + token.len as usize;
-    if matches!(
-      token.kind,
-      SyntaxKind::LineComment | SyntaxKind::BlockComment
-    ) {
-      parts.comments.push(text[offset..end].to_string());
+  // Comments straight from the tree's tokens, which makes no handles.
+  for (kind, comment, _) in tree.token_texts() {
+    if matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment) {
+      parts.comments.push(comment.to_string());
     }
-    offset = end;
   }
-  collect(&tree, "", &source, &mut parts);
+  collect(&tree, "", &text, &mut parts);
   parts
 }
 

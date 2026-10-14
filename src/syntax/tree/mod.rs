@@ -9,5 +9,5 @@ pub mod green;
 pub mod red;
 
 pub use dump::debug_dump;
-pub use green::{GreenElement, GreenNode, GreenToken};
+pub use green::{GreenElement, GreenNode};
 pub use red::{SyntaxElement, SyntaxNode, SyntaxToken, TextRange};

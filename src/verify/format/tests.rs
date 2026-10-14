@@ -29,6 +29,16 @@ fn test_a_comma_after_no_item_is_not_trailing() {
   same("fn f() { g(a,); }\n", "fn f() { g(a); }\n");
 }
 
+/// A doc comment written inside a derive's list is its text there too: in a CRLF file
+/// its token keeps the `\r`, which is not part of it. Found by the format fuzz target.
+#[test]
+fn test_a_doc_comment_in_a_derive_list_is_its_text() {
+  same(
+    "#[derive(Co// c\n/// d\n  x)]\nenum F {}\n",
+    "#[derive(Co// c\r\n/// d\r\n  x)]\r\nenum F {}\r\n",
+  );
+}
+
 #[test]
 fn test_a_line_doc_comment_ending_in_a_block_closer() {
   // `*/` ending a line doc comment is its text: kept whatever the line ending, and not the

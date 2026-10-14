@@ -1,9 +1,11 @@
-//! Layer 5: what the command line shows, built from the lower layers' tables.
+//! Layer 6: what the command line shows, built from the lower layers' tables.
 
+pub mod doctor;
 pub mod history;
 pub mod manual;
 pub mod modules;
 pub mod options;
+pub mod report;
 
 /// `cargo mto`'s options: (group, flags, value, help). Its parser, its help and the manual
 /// read this table. Help lists the groups in the order they first appear here, and each

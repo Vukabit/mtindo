@@ -21,6 +21,11 @@ pub const GATES: &[Gate] = &[
     check_docs,
   ),
   (
+    "incidents",
+    "no open fuzz crash, meaning or unstable incident, or mto panic (cargo xtask incidents)",
+    crate::incidents::check_gate,
+  ),
+  (
     "layering",
     "modules under src/ only use layers below them",
     check_layering,
@@ -35,6 +40,11 @@ pub const GATES: &[Gate] = &[
     "comments in src/, tests/ and fuzz/ name no stages, milestones or decision ids",
     check_planning,
   ),
+  (
+    "unsafe",
+    "mtindo denies unsafe code, but for the macOS sync calls in src/durable/apple.rs",
+    check_unsafe,
+  ),
 ];
 
 /// Each manifest and the dependencies it may declare. mtindo and the mto binary are
@@ -44,6 +54,8 @@ const ALLOWED_DEPENDENCIES: &[(&str, Allowed)] = &[
   ("Cargo.toml", Allowed::Only(&[])),
   ("xtask/Cargo.toml", Allowed::AnyBut(&["mtindo"])),
   ("xtask/tools/Cargo.toml", Allowed::AnyBut(&[])),
+  ("xtask/memst/Cargo.toml", Allowed::AnyBut(&[])),
+  ("xtask/hub/Cargo.toml", Allowed::AnyBut(&["mtindo"])),
 ];
 
 /// The widest a line of public Markdown may be, in characters.
@@ -53,26 +65,34 @@ const DOC_LINE_LIMIT: usize = 80;
 /// Modules sharing a layer may not use each other.
 const LAYERS: &[(&str, u8)] = &[
   ("text", 0),
+  ("durable", 0),
+  ("version", 0),
   ("syntax", 1),
   ("options", 1),
   ("history", 1),
   ("verify", 2),
   ("order", 2),
   ("layout", 3),
+  ("report", 3),
   ("format", 3),
   ("config", 4),
-  ("cli", 5),
+  ("doctor", 5),
+  ("fuzzing", 6),
+  ("cli", 6),
 ];
 
-/// Where the reference formatter's name may appear anywhere: the tooling that runs it as
-/// the answer key, its recorded surface and capabilities, the settings table generated from
-/// it, and test inputs taken from it.
+/// Where the reference formatter's name may appear anywhere: the contributor guide and the
+/// tooling it describes, which runs it as the answer key, its recorded surface and
+/// capabilities, the settings table generated from it, and test inputs taken from it (the
+/// fixtures, and fuzz inputs grown from them).
 const NAMING_ALLOWED_PATHS: &[&str] = &[
+  "CONTRIBUTING.md",
   "xtask/",
   "compat/",
   "fuzz/",
   "src/options/rustfmt.rs",
   "tests/fixtures/",
+  "tests/fuzz_regressions/",
 ];
 
 /// Spellings of the name that do work wherever they appear: its configuration files, the
@@ -96,6 +116,10 @@ const NAMING_ALLOWED_SPELLINGS: &[&str] = &[
 /// README sections where the name is the point: the credits, and the development commands
 /// that run it.
 const NAMING_README_SECTIONS: &[&str] = &["## Credits", "## Development"];
+
+/// The one file of mtindo allowed unsafe code: the `fcntl` calls macOS syncs with, which the
+/// standard library does not offer (see src/durable).
+const UNSAFE_ALLOWED: &str = "src/durable/apple.rs";
 
 /// Every gate: (name, what it checks, check). `all` runs them in this order.
 /// A gate: (name, what it checks, check returning the problems found).
@@ -250,8 +274,31 @@ pub fn check_planning(root: &Path) -> Vec<String> {
   problems
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
-  let which = args.first().map(String::as_str).unwrap_or("all");
+/// Every crate root of mtindo (the library, `mto`, and the binaries under src/bin) denies
+/// unsafe code, and only [`UNSAFE_ALLOWED`] allows it back.
+pub fn check_unsafe(root: &Path) -> Vec<String> {
+  let src = root.join("src");
+  let mut files = Vec::new();
+  collect_rust_files(&src, &mut files);
+  files.sort();
+  let mut problems = Vec::new();
+  for file in &files {
+    let relative = file
+      .strip_prefix(root)
+      .unwrap_or(file)
+      .display()
+      .to_string()
+      .replace('\\', "/");
+    if let Ok(content) = fs::read_to_string(file) {
+      problems.extend(unsafe_problems(&relative, &content));
+    }
+  }
+  problems
+}
+
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
+  let which = crate::cli::text(m, "gate").unwrap_or_else(|| "all".to_string());
+  let which = which.as_str();
   let mut problems = Vec::new();
   if which == "all" {
     for (_, _, check) in GATES {
@@ -513,6 +560,44 @@ fn top_module(src: &Path, file: &Path) -> Option<String> {
   }
 }
 
+fn unsafe_problems(path: &str, content: &str) -> Vec<String> {
+  let crate_root = path == "src/lib.rs"
+    || path == "src/main.rs"
+    || path
+      .strip_prefix("src/bin/")
+      .is_some_and(|f| !f.contains('/'));
+  let mut problems = Vec::new();
+  if crate_root && !content.lines().any(|l| l.trim() == "#![deny(unsafe_code)]") {
+    problems.push(format!(
+      "{}: a crate root without #![deny(unsafe_code)]",
+      path
+    ));
+  }
+  if path != UNSAFE_ALLOWED {
+    for (idx, line) in content.lines().enumerate() {
+      // Attributes only: not a comment, nor test text naming one.
+      let code = line.split("//").next().unwrap_or("").trim_start();
+      if code.starts_with('#')
+        && [
+          "allow(unsafe_code)",
+          "expect(unsafe_code)",
+          "warn(unsafe_code)",
+        ]
+        .iter()
+        .any(|a| code.contains(a))
+      {
+        problems.push(format!(
+          "{}:{}: unsafe code is allowed only in {}",
+          path,
+          idx + 1,
+          UNSAFE_ALLOWED
+        ));
+      }
+    }
+  }
+  problems
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -539,7 +624,7 @@ mod tests {
     let problems = layer_violations("syntax", "src/syntax/mod.rs", content);
     assert_eq!(
       problems,
-      vec!["src/syntax/mod.rs:1: `syntax` (layer 1) may not use `crate::cli` (layer 5)"]
+      vec!["src/syntax/mod.rs:1: `syntax` (layer 1) may not use `crate::cli` (layer 6)"]
     );
   }
 
@@ -628,5 +713,22 @@ mod tests {
     );
     assert_eq!(top_module(src, Path::new("/repo/src/lib.rs")), None);
     assert_eq!(top_module(src, Path::new("/repo/src/main.rs")), None);
+  }
+
+  #[test]
+  fn test_unsafe_is_denied_but_in_one_file() {
+    assert!(unsafe_problems("src/lib.rs", "#![deny(unsafe_code)]\npub mod a;\n").is_empty());
+    assert_eq!(
+      unsafe_problems("src/bin/tool.rs", "fn main() {}\n"),
+      vec!["src/bin/tool.rs: a crate root without #![deny(unsafe_code)]"]
+    );
+    assert_eq!(
+      unsafe_problems("src/text/mod.rs", "#![allow(unsafe_code)]\n"),
+      vec!["src/text/mod.rs:1: unsafe code is allowed only in src/durable/apple.rs"]
+    );
+    assert!(unsafe_problems(UNSAFE_ALLOWED, "#![allow(unsafe_code)]\n").is_empty());
+    // A comment or a string naming it is not an attribute.
+    assert!(unsafe_problems("src/a.rs", "// see allow(unsafe_code)\n").is_empty());
+    assert!(unsafe_problems("src/a.rs", "let s = \"#![allow(unsafe_code)]\";\n").is_empty());
   }
 }

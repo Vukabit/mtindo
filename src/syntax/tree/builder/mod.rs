@@ -1,43 +1,13 @@
 //! Builds a green tree from parser events, putting every trivia token back in place and
 //! deciding which node owns each comment.
 
-use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
-use std::rc::Rc;
-
-use crate::syntax::SyntaxKind;
 use crate::syntax::lexer::Token;
+use crate::syntax::parser::Parsed;
 use crate::syntax::parser::event::Event;
 use crate::syntax::tree::attach;
-use crate::syntax::tree::green::{GreenElement, GreenNode, GreenToken};
+use crate::syntax::tree::green::{ArenaBuilder, GreenNode, Mark};
 use crate::syntax::tree::red::TextRange;
-
-/// Tokens up to this many bytes are shared through the builder's cache.
-const CACHED_TOKEN_LEN: usize = 16;
-
-/// FNV-1a: a small, fast hash for short keys. The token cache lives for one file and its
-/// keys come from that file, so a hash built to resist attackers is not needed here.
-#[derive(Default)]
-struct Fnv(u64);
-
-impl Hasher for Fnv {
-  fn finish(&self) -> u64 {
-    self.0
-  }
-
-  fn write(&mut self, bytes: &[u8]) {
-    let mut hash = if self.0 == 0 {
-      0xcbf2_9ce4_8422_2325
-    } else {
-      self.0
-    };
-    for byte in bytes {
-      hash ^= u64::from(*byte);
-      hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    self.0 = hash;
-  }
-}
+use crate::syntax::{MAX_DEPTH, SyntaxKind, TOO_DEEP};
 
 /// Replays events over the token stream.
 struct Sink<'a> {
@@ -45,8 +15,13 @@ struct Sink<'a> {
   tokens: &'a [Token],
   starts: Vec<usize>,
   pos: usize,
-  builder: TreeBuilder<'a>,
+  builder: TreeBuilder,
   errors: Vec<SyntaxError>,
+  /// [`Self::pending_trivia`]'s buffer, kept between calls: it runs before every node.
+  trivia: Vec<(SyntaxKind, &'a str)>,
+  /// Nodes not opened because the tree was already one deeper than [`MAX_DEPTH`]: their
+  /// tokens go to the deepest node, so that no tree is deeper than that to walk or drop.
+  flattened: usize,
 }
 
 impl<'a> Sink<'a> {
@@ -65,6 +40,8 @@ impl<'a> Sink<'a> {
       pos: 0,
       builder: TreeBuilder::default(),
       errors: Vec::new(),
+      trivia: Vec::new(),
+      flattened: 0,
     }
   }
 
@@ -93,6 +70,10 @@ impl<'a> Sink<'a> {
   }
 
   fn finish(&mut self) {
+    if self.flattened > 0 {
+      self.flattened -= 1;
+      return;
+    }
     if self.builder.depth() == 1 {
       let remaining = self.tokens.len() - self.pos;
       self.emit_raw(remaining);
@@ -103,25 +84,34 @@ impl<'a> Sink<'a> {
       .current_kind()
       .is_some_and(SyntaxKind::is_attachable)
     {
-      let trivia = self.pending_trivia();
-      let attached = attach::trailing(&trivia);
+      self.pending_trivia();
+      let attached = attach::trailing(&self.trivia);
       self.emit_raw(attached);
     }
     self.builder.finish_node();
   }
 
-  /// The trivia tokens from the current position up to the next significant token.
-  fn pending_trivia(&self) -> Vec<(SyntaxKind, &'a str)> {
-    let mut trivia = Vec::new();
+  /// Fills `self.trivia` with the trivia tokens from the current position up to the next
+  /// significant token.
+  fn pending_trivia(&mut self) {
+    self.trivia.clear();
     let mut idx = self.pos;
     while idx < self.tokens.len() && self.tokens[idx].kind.is_trivia() {
-      trivia.push((
+      self.trivia.push((
         self.tokens[idx].kind,
         &self.text[self.starts[idx]..self.starts[idx + 1]],
       ));
       idx += 1;
     }
-    trivia
+  }
+
+  /// How many trivia tokens there are from the current position up to the next significant
+  /// token.
+  fn pending_trivia_len(&self) -> usize {
+    self.tokens[self.pos..]
+      .iter()
+      .take_while(|token| token.kind.is_trivia())
+      .count()
   }
 
   fn record_lex_error(&mut self, idx: usize) {
@@ -134,30 +124,36 @@ impl<'a> Sink<'a> {
   }
 
   fn start(&mut self, kind: SyntaxKind) {
+    if self.builder.depth() > MAX_DEPTH {
+      self.flattened += 1;
+      return;
+    }
     if self.builder.depth() == 0 {
       self.builder.start_node(kind);
       return;
     }
-    let trivia = self.pending_trivia();
-    let attached = if kind.is_attachable() {
-      // Code just before the trivia (not a line break or the byte-order mark) means the
-      // trivia starts on that code's line.
-      let after_code = self.pos > 0
-        && !matches!(
-          self.tokens[self.pos - 1].kind,
-          SyntaxKind::Whitespace | SyntaxKind::Bom
-        );
-      attach::leading(&trivia, after_code)
-    } else {
-      0
-    };
-    self.emit_raw(trivia.len() - attached);
+    if !kind.is_attachable() {
+      let trivia = self.pending_trivia_len();
+      self.emit_raw(trivia);
+      self.builder.start_node(kind);
+      return;
+    }
+    self.pending_trivia();
+    // Code just before the trivia (not a line break or the byte-order mark) means the trivia
+    // starts on that code's line.
+    let after_code = self.pos > 0
+      && !matches!(
+        self.tokens[self.pos - 1].kind,
+        SyntaxKind::Whitespace | SyntaxKind::Bom
+      );
+    let attached = attach::leading(&self.trivia, after_code);
+    self.emit_raw(self.trivia.len() - attached);
     self.builder.start_node(kind);
   }
 
   /// Adds any pending trivia, then `n_raw_tokens` significant tokens joined into one token.
   fn token(&mut self, kind: SyntaxKind, n_raw_tokens: u8) {
-    let trivia = self.pending_trivia().len();
+    let trivia = self.pending_trivia_len();
     self.emit_raw(trivia);
     let start = self.starts[self.pos];
     let mut end = start;
@@ -177,21 +173,17 @@ pub struct SyntaxError {
   pub range: TextRange,
 }
 
-/// Assembles green nodes bottom-up.
-///
-/// Allocation dominates building, so: every open node's children sit on one shared stack
-/// and a finished node takes its own with a single, exactly sized allocation; and short
-/// tokens with the same kind and text (`(`, a space, a newline and indentation, `fn`) share
-/// one allocation, which is safe because green tokens never change.
+/// Assembles green nodes bottom-up, into one arena for the whole tree.
 #[derive(Default)]
-pub struct TreeBuilder<'a> {
-  /// Each open node: its kind and where its children start on `children`.
-  parents: Vec<(SyntaxKind, usize)>,
-  children: Vec<GreenElement>,
-  tokens: HashMap<(SyntaxKind, &'a str), Rc<GreenToken>, BuildHasherDefault<Fnv>>,
+pub struct TreeBuilder {
+  /// Each open node: its kind and where its children start in the arena's open stack.
+  parents: Vec<(SyntaxKind, Mark)>,
+  arena: ArenaBuilder,
+  /// The most nodes open at once: how deep the tree nests.
+  deepest: usize,
 }
 
-impl<'a> TreeBuilder<'a> {
+impl TreeBuilder {
   /// The kind of the innermost open node.
   pub fn current_kind(&self) -> Option<SyntaxKind> {
     self.parents.last().map(|(kind, _)| *kind)
@@ -201,8 +193,8 @@ impl<'a> TreeBuilder<'a> {
     self.parents.len()
   }
 
-  /// Closes the root node and returns the tree.
-  pub fn finish(mut self) -> GreenNode {
+  /// Closes the root node and returns the tree, over `text`, which the tokens spell.
+  pub fn finish(mut self, text: &str) -> GreenNode {
     assert_eq!(
       self.parents.len(),
       1,
@@ -210,54 +202,55 @@ impl<'a> TreeBuilder<'a> {
       self.parents.len()
     );
     let (kind, first) = self.parents.pop().unwrap();
-    GreenNode::new(kind, self.children.split_off(first))
+    self.arena.node(kind, first);
+    self.arena.finish(text)
   }
 
   pub fn finish_node(&mut self) {
     assert!(self.parents.len() > 1, "finish_node would close the root");
     let (kind, first) = self.parents.pop().unwrap();
-    let children: Vec<GreenElement> = self.children.drain(first..).collect();
-    let node = GreenNode::new(kind, children);
-    self.children.push(GreenElement::Node(Rc::new(node)));
+    self.arena.node(kind, first);
   }
 
   pub fn start_node(&mut self, kind: SyntaxKind) {
-    self.parents.push((kind, self.children.len()));
+    self.parents.push((kind, self.arena.mark()));
+    self.deepest = self.deepest.max(self.parents.len());
   }
 
-  pub fn token(&mut self, kind: SyntaxKind, text: &'a str) {
+  pub fn token(&mut self, kind: SyntaxKind, text: &str) {
     assert!(!self.parents.is_empty(), "token outside any node");
-    let token = if text.len() <= CACHED_TOKEN_LEN {
-      self
-        .tokens
-        .entry((kind, text))
-        .or_insert_with(|| Rc::new(GreenToken::new(kind, text)))
-        .clone()
-    } else {
-      Rc::new(GreenToken::new(kind, text))
-    };
-    self.children.push(GreenElement::Token(token));
+    self.arena.token(kind, text.len() as u32);
   }
 }
 
-/// Builds the tree for `text` from its tokens and the parser's events.
+/// Builds the tree for `text` from its tokens and the parser's events, with how deep it
+/// nests. A tree deeper than [`MAX_DEPTH`] gets an error, [`TOO_DEEP`], as the stages after
+/// the parser walk the tree recursively; it is built one level deeper and no more, still
+/// holding every token.
 pub fn build_tree(
   text: &str,
   tokens: &[Token],
-  mut events: Vec<Event>,
-) -> (GreenNode, Vec<SyntaxError>) {
+  parsed: Parsed,
+) -> (GreenNode, Vec<SyntaxError>, usize) {
+  let Parsed {
+    mut events,
+    mut messages,
+  } = parsed;
   let mut sink = Sink::new(text, tokens);
+  // The kinds a start event opens, outermost last; reused, as nearly every event is a start.
+  let mut kinds = Vec::new();
   for idx in 0..events.len() {
     match std::mem::replace(&mut events[idx], Event::Tombstone) {
       Event::Start {
         kind,
         forward_parent,
       } => {
-        let mut kinds = vec![kind];
+        kinds.clear();
+        kinds.push(kind);
         let mut parent_idx = idx;
         let mut next = forward_parent;
         while let Some(distance) = next {
-          parent_idx += distance as usize;
+          parent_idx += distance.get() as usize;
           match std::mem::replace(&mut events[parent_idx], Event::Tombstone) {
             Event::Start {
               kind,
@@ -269,17 +262,24 @@ pub fn build_tree(
             other => unreachable!("forward parent points at {:?}", other),
           }
         }
-        for kind in kinds.into_iter().rev() {
+        for kind in kinds.drain(..).rev() {
           sink.start(kind);
         }
       }
       Event::Token { kind, n_raw_tokens } => sink.token(kind, n_raw_tokens),
       Event::Finish => sink.finish(),
-      Event::Error { message } => sink.error(message),
+      Event::Error { message } => sink.error(std::mem::take(&mut messages[message as usize])),
       Event::Tombstone => {}
     }
   }
-  (sink.builder.finish(), sink.errors)
+  let depth = sink.builder.deepest;
+  if depth > MAX_DEPTH && !sink.errors.iter().any(|e| e.message == TOO_DEEP) {
+    sink.errors.push(SyntaxError {
+      message: TOO_DEEP.to_string(),
+      range: TextRange::new(0, 0),
+    });
+  }
+  (sink.builder.finish(text), sink.errors, depth)
 }
 
 #[cfg(test)]

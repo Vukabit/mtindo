@@ -99,16 +99,9 @@ struct Variant {
   stable: bool,
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "settings");
-  let check = match args {
-    [] => false,
-    [flag] if flag == "--check" => true,
-    _ => {
-      eprintln!("Usage: cargo xtask settings [--check]");
-      return ExitCode::from(2);
-    }
-  };
+  let check = crate::cli::on(m, "check");
   let generated = match generate(root, &log) {
     Ok(text) => text,
     Err(e) => {

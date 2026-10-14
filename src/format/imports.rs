@@ -12,15 +12,14 @@ use SyntaxKind as K;
 use super::expr::flat;
 use super::shape::Spacing;
 use crate::options::format::{FormatConfig, ImportsLayout};
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse_tokens};
 use crate::text::unicode::str_width;
 
 /// Where a declaration's own text starts: its visibility or `use`, after its attributes and
 /// the comments before it.
 pub fn body_start(node: &SyntaxNode) -> Option<usize> {
   node
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .find(|e| matches!(e.kind(), K::Visibility | K::UseKw))
     .map(|e| e.text_range().start as usize)
 }
@@ -35,31 +34,20 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   // their own.
   let start = body_start(node)?;
   let body: Vec<SyntaxElement> = node
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .filter(|e| e.text_range().start as usize >= start)
     .collect();
   let comment = |e: &SyntaxElement| match e {
     SyntaxElement::Token(t) => t.kind().is_trivia() && t.kind() != K::Whitespace,
-    SyntaxElement::Node(n) => n
-      .descendants_with_tokens()
-      .iter()
-      .any(|d| d.kind().is_trivia() && d.kind() != K::Whitespace),
+    SyntaxElement::Node(n) => n.subtree_has(|kind| kind.is_trivia() && kind != K::Whitespace),
   };
   if body.iter().any(comment) {
     return None;
   }
-  let tree = node
-    .children()
-    .into_iter()
-    .find(|c| c.kind() == K::UseTree)?;
+  let tree = node.children_iter().find(|c| c.kind() == K::UseTree)?;
   let spacing = Spacing::of(config);
   // `pub use `, everything before the tree.
-  let head = match node
-    .children()
-    .into_iter()
-    .find(|c| c.kind() == K::Visibility)
-  {
+  let head = match node.children_iter().find(|c| c.kind() == K::Visibility) {
     Some(visibility) => format!("{} use ", flat(&visibility, spacing)),
     None => "use ".to_string(),
   };
@@ -74,8 +62,7 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
 /// The items of a list, its trees.
 fn items(list: &SyntaxNode) -> Vec<SyntaxNode> {
   list
-    .children()
-    .into_iter()
+    .children_iter()
     .filter(|c| c.kind() == K::UseTree)
     .collect()
 }
@@ -101,9 +88,8 @@ fn list_text(
   // A list holding a list of two or more never stays on one line.
   let nested = items.iter().any(|item| {
     item
-      .children()
-      .iter()
-      .any(|c| c.kind() == K::UseTreeList && self::items(c).len() > 1)
+      .children_iter()
+      .any(|c| c.kind() == K::UseTreeList && self::items(&c).len() > 1)
   });
   let one_line: usize = texts.iter().map(|t| str_width(t)).sum::<usize>() + 2 * (texts.len() - 1);
   // 2 = `{}`; the standard formatter keeps two columns more free, found by measuring it.
@@ -150,28 +136,22 @@ fn list_text(
 
 /// Whether `text` holds the tokens of `body`, commas aside.
 fn same_tokens(body: &[SyntaxElement], text: &str) -> bool {
-  let code = |e: &SyntaxElement| match e {
-    SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
-      Some(t.text().to_string())
+  let code = |&(kind, _): &(SyntaxKind, &str)| !kind.is_trivia() && kind != K::Comma;
+  let mut theirs: Vec<(SyntaxKind, &str)> = Vec::new();
+  for element in body {
+    match element {
+      SyntaxElement::Node(n) => theirs.extend(n.token_texts().map(|(kind, text, _)| (kind, text))),
+      SyntaxElement::Token(t) => theirs.push((t.kind(), t.text())),
     }
-    _ => None,
-  };
-  let theirs: Vec<String> = body
-    .iter()
-    .flat_map(|e| match e {
-      SyntaxElement::Node(n) => n.descendants_with_tokens(),
-      token => vec![token.clone()],
-    })
-    .filter_map(|e| code(&e))
-    .collect();
-  let parsed = parse(&format!("{}\nfn f() {{}}", text), Edition::E2021).syntax_node();
-  let ours: Vec<String> = parsed
-    .descendants_with_tokens()
-    .iter()
-    .take_while(|e| e.kind() != K::FnKw)
-    .filter_map(code)
-    .collect();
-  theirs == ours
+  }
+  let theirs = theirs.into_iter().filter(code).map(|(_, text)| text);
+  let wrapped = format!("{}\nfn f() {{}}", text);
+  let ours = parse_tokens(&wrapped, Edition::E2021)
+    .into_iter()
+    .take_while(|&(kind, _)| kind != K::FnKw)
+    .filter(code)
+    .map(|(_, text)| text);
+  theirs.eq(ours)
 }
 
 /// A tree's text, its path up to the last segment within `width`: a list after it laid out
@@ -183,11 +163,7 @@ fn tree_text(
   config: &FormatConfig,
 ) -> Option<String> {
   let whole = flat(tree, Spacing::of(config));
-  match tree
-    .children()
-    .into_iter()
-    .find(|c| c.kind() == K::UseTreeList)
-  {
+  match tree.children_iter().find(|c| c.kind() == K::UseTreeList) {
     Some(list) => {
       let head = whole
         .strip_suffix(&flat(&list, Spacing::of(config)))?

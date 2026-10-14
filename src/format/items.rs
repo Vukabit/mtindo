@@ -23,8 +23,7 @@ use crate::text::unicode::str_width;
 /// before it.
 pub fn header_start(node: &SyntaxNode) -> Option<usize> {
   node
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .find(|e| e.kind() != K::Attr && !e.kind().is_trivia() && !is_doc(e.kind()))
     .map(|e| e.text_range().start as usize)
 }
@@ -82,19 +81,18 @@ pub fn rewrite_field(
   }
   let start = header_start(node)?;
   let elements: Vec<SyntaxElement> = node
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .filter(|e| e.text_range().start as usize >= start)
     .collect();
   let unwanted = |e: &SyntaxElement| match e {
     SyntaxElement::Token(t) => {
       (t.kind().is_trivia() && t.kind() != K::Whitespace) || is_doc(t.kind())
     }
-    SyntaxElement::Node(n) => n.descendants_with_tokens().iter().any(|d| {
-      (d.kind().is_trivia() && d.kind() != K::Whitespace)
-        || is_doc(d.kind())
+    SyntaxElement::Node(n) => n.subtree_has(|kind| {
+      (kind.is_trivia() && kind != K::Whitespace)
+        || is_doc(kind)
         || matches!(
-          d.kind(),
+          kind,
           K::Attr | K::MacroCall | K::MacroType | K::MacroExpr | K::BlockExpr
         )
     }),
@@ -103,7 +101,8 @@ pub fn rewrite_field(
     return None;
   }
   let spacing = Spacing::of(config);
-  let too_wide = node.descendants().iter().any(|d| {
+  let listed = |kind| matches!(kind, K::TupleType | K::TupleFieldList | K::ArrayType);
+  let too_wide = node.descendant_nodes_where(listed).any(|d| {
     let limit = match d.kind() {
       K::TupleType | K::TupleFieldList => config.fn_call_width,
       K::ArrayType => config.array_width,
@@ -124,7 +123,7 @@ pub fn rewrite_field(
   } else if config.trailing_comma_never {
     if node
       .parent()
-      .and_then(|list| list.children().into_iter().last())
+      .and_then(|list| list.children_iter().next_back())
       .is_some_and(|last| &last == node)
     {
       return None;
@@ -134,8 +133,7 @@ pub fn rewrite_field(
     ","
   };
   let fields = node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == K::RecordFieldList);
   // A struct-like variant whose fields pass `struct_variant_width` is written one field per
   // line, and so are all of an enum's when it has a variant on several lines (one with
@@ -166,7 +164,7 @@ pub fn rewrite_field(
       .collect();
     let pad = " ".repeat(indent + config.tab_spaces);
     let mut lines = String::new();
-    for field in fields.children() {
+    for field in fields.children_iter() {
       let text = flat_tokens(&code_tokens(&[SyntaxElement::Node(field)]), spacing);
       if indent + config.tab_spaces + str_width(&text) + 1 > config.max_width {
         return None;
@@ -210,7 +208,7 @@ pub fn rewrite_header(
     return None;
   }
   let start = header_start(node)?;
-  let body = node.children().into_iter().find(|c| {
+  let body = node.children_iter().find(|c| {
     matches!(
       c.kind(),
       K::BlockExpr
@@ -226,8 +224,7 @@ pub fn rewrite_header(
     None => node.text_range().end as usize,
   };
   let header: Vec<SyntaxElement> = node
-    .children_with_tokens()
-    .into_iter()
+    .children_with_tokens_iter()
     .filter(|e| {
       let at = e.text_range().start as usize;
       start <= at && at < end
@@ -239,14 +236,11 @@ pub fn rewrite_header(
     }
     SyntaxElement::Node(n) => {
       matches!(n.kind(), K::WhereClause | K::MacroCall | K::Attr)
-        || n.descendants().iter().any(|d| d.kind() == K::BlockExpr)
-        || n.descendants_with_tokens().iter().any(|d| {
-          (d.kind().is_trivia() && d.kind() != K::Whitespace)
-            || is_doc(d.kind())
-            || matches!(
-              d.kind(),
-              K::Attr | K::MacroCall | K::MacroType | K::MacroExpr
-            )
+        || n.subtree_has(|kind| kind == K::BlockExpr)
+        || n.subtree_has(|kind| {
+          (kind.is_trivia() && kind != K::Whitespace)
+            || is_doc(kind)
+            || matches!(kind, K::Attr | K::MacroCall | K::MacroType | K::MacroExpr)
         })
     }
   };
@@ -258,27 +252,46 @@ pub fn rewrite_header(
   let one_line = flat_tokens(&tokens, spacing);
   // Lists and patterns held to their widths are not laid out here yet: a header holding
   // one too wide for its width is left as written.
-  let too_wide = node.descendants().iter().any(|d| {
-    let limit = match d.kind() {
-      K::TupleType | K::TuplePat | K::TupleStructPat | K::TupleFieldList => config.fn_call_width,
-      K::RecordPat => config.struct_lit_width,
-      K::SlicePat | K::ArrayType => config.array_width,
-      _ => return false,
-    };
-    let at = d.text_range().start as usize;
-    start <= at
-      && at < end
-      && str_width(&flat_tokens(
-        &code_tokens(&[SyntaxElement::Node(d.clone())]),
-        Spacing::of(config),
-      )) > limit
+  let listed = |kind| {
+    matches!(
+      kind,
+      K::TupleType
+        | K::TuplePat
+        | K::TupleStructPat
+        | K::TupleFieldList
+        | K::RecordPat
+        | K::SlicePat
+        | K::ArrayType
+    )
+  };
+  // Only the header's own nodes: the body may be most of the item.
+  let header_nodes = header.iter().filter_map(|e| match e {
+    SyntaxElement::Node(n) => Some(n),
+    SyntaxElement::Token(_) => None,
   });
+  let too_wide = header_nodes
+    .flat_map(|n| n.descendant_nodes_where(listed))
+    .any(|d| {
+      let limit = match d.kind() {
+        K::TupleType | K::TuplePat | K::TupleStructPat | K::TupleFieldList => config.fn_call_width,
+        K::RecordPat => config.struct_lit_width,
+        K::SlicePat | K::ArrayType => config.array_width,
+        _ => return false,
+      };
+      let at = d.text_range().start as usize;
+      start <= at
+        && at < end
+        && str_width(&flat_tokens(
+          &code_tokens(&[SyntaxElement::Node(d.clone())]),
+          Spacing::of(config),
+        )) > limit
+    });
   if too_wide {
     return None;
   }
   // ` {` after a header followed by a body; a declaration with a return type keeps a column
   // free before its `;` (found by measuring the standard formatter).
-  let has_ret = node.children().iter().any(|c| c.kind() == K::RetType);
+  let has_ret = node.children_iter().any(|c| c.kind() == K::RetType);
   let brace = if body.is_some() {
     2
   } else {
@@ -292,7 +305,7 @@ pub fn rewrite_header(
   };
   // When the standard formatter breaks a trait's bounds is not known yet: a trait with
   // bounds keeps its header as written.
-  if node.kind() == K::Trait && node.children().iter().any(|c| c.kind() == K::TypeBoundList) {
+  if node.kind() == K::Trait && node.children_iter().any(|c| c.kind() == K::TypeBoundList) {
     return None;
   }
   let width = indent + str_width(&one_line) + brace;
@@ -309,7 +322,7 @@ pub fn rewrite_header(
   if body.is_none()
     && has_ret
     && width == config.max_width + 1
-    && let Some(ret) = node.children().into_iter().find(|c| c.kind() == K::RetType)
+    && let Some(ret) = node.children_iter().find(|c| c.kind() == K::RetType)
   {
     let at = ret.text_range().start as usize;
     let (head, tail): (Vec<SyntaxToken>, Vec<SyntaxToken>) = tokens
@@ -333,8 +346,7 @@ pub fn rewrite_header(
   }
   // A function's parameters one per line.
   let params = node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == K::ParamList)
     .filter(|_| node.kind() == K::Fn)?;
   let list_start = params.text_range().start as usize;
@@ -350,8 +362,7 @@ pub fn rewrite_header(
     .cloned()
     .collect();
   let items: Vec<String> = params
-    .children()
-    .iter()
+    .children_iter()
     .map(|p| flat_tokens(&code_tokens(&[SyntaxElement::Node(p.clone())]), spacing))
     .collect();
   if items.is_empty() {
@@ -432,14 +443,11 @@ fn mixed_variants(list: &SyntaxNode, indent: usize, config: &FormatConfig) -> bo
   let spacing = Spacing::of(config);
   let one_line = |variant: &SyntaxNode| {
     // Attributes, doc comments or comments anywhere in it put it on several lines.
-    let attributed = variant.descendants_with_tokens().iter().any(|e| {
-      e.kind() == K::Attr
-        || is_doc(e.kind())
-        || matches!(e.kind(), K::LineComment | K::BlockComment)
+    let attributed = variant.subtree_has(|kind| {
+      kind == K::Attr || is_doc(kind) || matches!(kind, K::LineComment | K::BlockComment)
     });
     let fields_fit = variant
-      .children()
-      .iter()
+      .children_iter()
       .filter(|c| c.kind() == K::RecordFieldList)
       .all(|f| {
         str_width(&flat_tokens(
@@ -455,8 +463,7 @@ fn mixed_variants(list: &SyntaxNode, indent: usize, config: &FormatConfig) -> bo
     !attributed && fields_fit && indent + str_width(&text) < config.max_width
   };
   let variants: Vec<SyntaxNode> = list
-    .children()
-    .into_iter()
+    .children_iter()
     .filter(|v| v.kind() == K::Variant)
     .collect();
   variants.iter().any(|v| !one_line(v)) && variants.iter().any(one_line)

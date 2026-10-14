@@ -32,17 +32,38 @@ mod classify;
 mod impls;
 mod order;
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 pub use classify::import_group_of_text;
 
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
 use crate::syntax::ast::{Attr, Item};
-use crate::syntax::{Edition, Parse, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, Parse, SyntaxElement, SyntaxKind, SyntaxNode, parse_cached};
 use crate::text::source::normalize;
 
 /// Why a file with syntax errors is left alone.
 pub const SYNTAX_ERRORS: &str = "the file has syntax errors";
+
+/// What laying out one file needs beyond its text: the traits declared in it, the units to
+/// keep where they are (by where they start), and the moves made so far.
+pub(super) struct Cx<'a> {
+  pub(super) traits: impls::Traits,
+  held: &'a HashSet<usize>,
+  moves: RefCell<Vec<Move>>,
+}
+
+impl Cx<'_> {
+  /// Whether the unit starting at `start` is to stay where it is.
+  pub(super) fn holds(&self, start: usize) -> bool {
+    self.held.contains(&start)
+  }
+
+  /// Notes the moves between `units` and their new order.
+  pub(super) fn note(&self, arranged: &[Unit]) {
+    self.moves.borrow_mut().extend(moves_of(arranged));
+  }
+}
 
 /// What one layout pass did: the units as found, as arranged, and the new text.
 pub struct Layout {
@@ -54,6 +75,22 @@ pub struct Layout {
   pub text: String,
   /// The edition the file was parsed with (see [`parse_any_edition`]).
   pub edition: Edition,
+  /// The units that moved, at every level, by where they start.
+  pub moves: Vec<Move>,
+}
+
+/// A unit layout put somewhere else: one edit, which [`layout_holding`] can hold back. The
+/// units that moved are the fewest that, kept where they were, give back the order as
+/// written: the others stayed in order among themselves.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Move {
+  /// Where the unit is in the text layout reads: after any byte-order mark, with line
+  /// endings as `\n`.
+  pub span: (usize, usize),
+  pub kind: ItemKind,
+  pub identifier: String,
+  /// The unit it now comes right before, if any: its kind and name.
+  pub before: Option<(ItemKind, String)>,
 }
 
 /// The parsed file, cut into header, units and tail.
@@ -107,9 +144,20 @@ pub struct Unit {
 
 /// Arranges the items of `source`; `Err` with the reason when the file is left alone.
 pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
+  layout_holding(source, config, &HashSet::new())
+}
+
+/// [`layout`], keeping the units that start at `held` (as [`Move::span`] gives them) where
+/// they were written: between the same units, nothing moving across them. Their insides
+/// are still laid out.
+pub fn layout_holding(
+  source: &str,
+  config: &LayoutConfig,
+  held: &HashSet<usize>,
+) -> Result<Layout, String> {
   let normalized = normalize(source)?;
   let apart = "\n".repeat(config.blank_lines_between_blocks + 1);
-  let split = split(&normalized.text, &apart, config)?;
+  let (split, mut moves) = split(&normalized.text, &apart, config, held)?;
   if split.skip_file {
     return Ok(Layout {
       edition: split.edition,
@@ -117,6 +165,7 @@ pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
       after: split.units,
       skipped: true,
       text: source.to_string(),
+      moves: Vec::new(),
     });
   }
   let mut macros = std::collections::HashSet::new();
@@ -128,7 +177,13 @@ pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
       ));
     }
   }
-  let after = order::arrange(&split.units, config)?;
+  let after = around_held(
+    &split.units,
+    |u| held.contains(&u.span.0),
+    |run| order::arrange(run, config),
+  )?;
+  moves.extend(moves_of(&after));
+  moves.sort_by_key(|m| m.span);
   let text = render(&split, &after, config, "", true);
   Ok(Layout {
     edition: split.edition,
@@ -136,6 +191,7 @@ pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
     after,
     skipped: false,
     text: normalized.restore(&text),
+    moves,
   })
 }
 
@@ -143,17 +199,62 @@ pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
 /// 2024), so code that is only valid in an older edition (`async` as a name) still parses.
 /// Without a clean parse, 2021's result is returned.
 pub fn parse_any_edition(text: &str) -> (Edition, Parse) {
-  let first = parse(text, Edition::E2021);
-  if first.errors().is_empty() {
+  let first = parse_cached(text, Edition::E2021);
+  // Too deep in one edition is too deep in all.
+  if first.errors().is_empty()
+    || first
+      .errors()
+      .iter()
+      .any(|e| e.message == crate::syntax::TOO_DEEP)
+  {
     return (Edition::E2021, first);
   }
   for edition in [Edition::E2018, Edition::E2015, Edition::E2024] {
-    let parsed = parse(text, edition);
+    let parsed = parse_cached(text, edition);
     if parsed.errors().is_empty() {
       return (edition, parsed);
     }
   }
   (Edition::E2021, first)
+}
+
+/// Why a file that parsed with errors is left alone: nested deeper than mto follows, or
+/// [`SYNTAX_ERRORS`]. `None` when it parsed without any.
+pub fn refusal(parsed: &Parse) -> Option<String> {
+  let errors = parsed.errors();
+  if errors.iter().any(|e| e.message == crate::syntax::TOO_DEEP) {
+    return Some(format!(
+      "it nests more than {} levels deep, past what mto follows",
+      crate::syntax::MAX_DEPTH
+    ));
+  }
+  (!errors.is_empty()).then(|| SYNTAX_ERRORS.to_string())
+}
+
+/// `units` arranged by `arrange` in the runs between held units: a held unit stays between
+/// the same units it was written between, nothing moving across it, so holding a unit
+/// back undoes its move against every other unit. Its insides are still laid out.
+pub(super) fn around_held(
+  units: &[Unit],
+  held: impl Fn(&Unit) -> bool,
+  arrange: impl Fn(&[Unit]) -> Result<Vec<Unit>, String>,
+) -> Result<Vec<Unit>, String> {
+  if !units.iter().any(&held) {
+    return arrange(units);
+  }
+  let mut out = Vec::with_capacity(units.len());
+  let mut run: Vec<Unit> = Vec::new();
+  for unit in units {
+    if held(unit) {
+      out.extend(arrange(&run)?);
+      run.clear();
+      out.push(unit.clone());
+    } else {
+      run.push(unit.clone());
+    }
+  }
+  out.extend(arrange(&run)?);
+  Ok(out)
 }
 
 /// Whether `next` is another `#[cfg]` variant of `previous`: both have a `#[cfg]`, the same
@@ -198,7 +299,7 @@ fn joined(text: &str, pieces: &[(usize, usize)], apart: &str, loose: &HashSet<us
 /// The plain comments attached above a node, trimmed, in order.
 fn leading_comments(node: &crate::syntax::SyntaxNode) -> Vec<String> {
   let mut comments = Vec::new();
-  for element in node.children_with_tokens() {
+  for element in node.children_with_tokens_iter() {
     match element {
       SyntaxElement::Token(token) if token.kind().is_trivia() => {
         if matches!(
@@ -214,6 +315,30 @@ fn leading_comments(node: &crate::syntax::SyntaxNode) -> Vec<String> {
   comments
 }
 
+/// The positions of a longest strictly increasing run of `values`, the first such run
+/// patience sorting finds.
+fn longest_increasing(values: &[usize]) -> HashSet<usize> {
+  // tails[k]: the position ending the best run of length k + 1 so far.
+  let mut tails: Vec<usize> = Vec::new();
+  let mut previous: Vec<Option<usize>> = vec![None; values.len()];
+  for (at, value) in values.iter().enumerate() {
+    let k = tails.partition_point(|&t| values[t] < *value);
+    previous[at] = k.checked_sub(1).map(|j| tails[j]);
+    if k == tails.len() {
+      tails.push(at);
+    } else {
+      tails[k] = at;
+    }
+  }
+  let mut run = HashSet::new();
+  let mut at = tails.last().copied();
+  while let Some(position) = at {
+    run.insert(position);
+    at = previous[position];
+  }
+  run
+}
+
 /// The text of an inline module (`start..end` of `item`) with its body laid out, or `None`
 /// when it is not one, the body is empty or on one line with its braces, or the body cannot
 /// be laid out (it is then left as written).
@@ -222,15 +347,14 @@ fn module_with_body_laid_out(
   text: &str,
   apart: &str,
   config: &LayoutConfig,
-  traits: &impls::Traits,
+  cx: &Cx,
 ) -> Option<String> {
   let node = item.syntax();
   if node.kind() != SyntaxKind::Module {
     return None;
   }
   let body = node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::ItemList)?;
   let range = body.text_range();
   let (open_end, close_start) = (range.start as usize + 1, range.end as usize - 1);
@@ -250,7 +374,7 @@ fn module_with_body_laid_out(
   let indent = &leading[leading.rfind('\n')? + 1..];
   let base_apart = apart.trim_end_matches(|c| c != '\n');
   let inner_apart = format!("{}{}", base_apart, indent);
-  let split = split_container(&body, text, open_end, &inner_apart, config, traits).ok()?;
+  let split = split_container(&body, text, open_end, &inner_apart, config, cx).ok()?;
   if split.skip_file || split.units.is_empty() {
     return None;
   }
@@ -262,7 +386,13 @@ fn module_with_body_laid_out(
   {
     return None;
   }
-  let arranged = order::arrange(&split.units, config).ok()?;
+  let arranged = around_held(
+    &split.units,
+    |u| cx.holds(u.span.0),
+    |run| order::arrange(run, config),
+  )
+  .ok()?;
+  cx.note(&arranged);
   let inner = render(&split, &arranged, config, indent, false);
   let item_range = node.text_range();
   Some(format!(
@@ -273,6 +403,25 @@ fn module_with_body_laid_out(
     &text[last..close_start],
     &text[close_start..item_range.end as usize]
   ))
+}
+
+/// The units of `arranged` that are not in the longest run kept in their order as written.
+fn moves_of(arranged: &[Unit]) -> Vec<Move> {
+  let order: Vec<usize> = arranged.iter().map(|u| u.index).collect();
+  let stay = longest_increasing(&order);
+  arranged
+    .iter()
+    .enumerate()
+    .filter(|(at, _)| !stay.contains(at))
+    .map(|(at, unit)| Move {
+      span: unit.span,
+      kind: unit.kind.clone(),
+      identifier: unit.identifier.clone(),
+      before: arranged
+        .get(at + 1)
+        .map(|u| (u.kind.clone(), u.identifier.clone())),
+    })
+    .collect()
 }
 
 /// The header, the units in their new order and the tail, joined by the blank lines the
@@ -347,11 +496,17 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
   output
 }
 
-/// Cuts the file into header, units and tail; see the module documentation.
-fn split(text: &str, apart: &str, config: &LayoutConfig) -> Result<Split, String> {
+/// Cuts the file into header, units and tail; see the module documentation. Also gives
+/// the moves made inside the units (module and impl bodies), keeping those at `held`.
+fn split(
+  text: &str,
+  apart: &str,
+  config: &LayoutConfig,
+  held: &HashSet<usize>,
+) -> Result<(Split, Vec<Move>), String> {
   let (edition, parsed) = parse_any_edition(text);
-  if !parsed.errors().is_empty() {
-    return Err(SYNTAX_ERRORS.to_string());
+  if let Some(reason) = refusal(&parsed) {
+    return Err(reason);
   }
   let tree = parsed.syntax_node();
   // Walking every node is costly, so traits are only gathered when they are used.
@@ -360,9 +515,14 @@ fn split(text: &str, apart: &str, config: &LayoutConfig) -> Result<Split, String
   } else {
     impls::Traits::new()
   };
-  let mut split = split_container(&tree, text, 0, apart, config, &traits)?;
+  let cx = Cx {
+    traits,
+    held,
+    moves: RefCell::new(Vec::new()),
+  };
+  let mut split = split_container(&tree, text, 0, apart, config, &cx)?;
   split.edition = edition;
-  Ok(split)
+  Ok((split, cx.moves.into_inner()))
 }
 
 /// Cuts the elements of `container` (the file, or a module's `{ ... }` body starting at
@@ -373,7 +533,7 @@ fn split_container(
   base: usize,
   apart: &str,
   config: &LayoutConfig,
-  traits: &impls::Traits,
+  cx: &Cx,
 ) -> Result<Split, String> {
   let mut header_end = base;
   // The header's elements so far, as (start, end, is a comment).
@@ -390,7 +550,7 @@ fn split_container(
   let mut skip_file = false;
   // Where the last item unit ended, to join `#[cfg]` variants to it.
   let mut last_item_end: Option<usize> = None;
-  for element in container.children_with_tokens() {
+  for element in container.children_with_tokens_iter() {
     let (kind, range) = match &element {
       SyntaxElement::Node(node) => (node.kind(), node.text_range()),
       SyntaxElement::Token(token) => (token.kind(), token.text_range()),
@@ -509,8 +669,8 @@ fn split_container(
     let item_text = if unit.pinned {
       None
     } else {
-      module_with_body_laid_out(&item, text, apart, config, traits)
-        .or_else(|| impls::impl_with_items_ordered(&item, text, apart, config, traits))
+      module_with_body_laid_out(&item, text, apart, config, cx)
+        .or_else(|| impls::impl_with_items_ordered(&item, text, apart, config, cx))
     };
     let with_item = |mut joined: String| {
       if let Some(new) = &item_text {

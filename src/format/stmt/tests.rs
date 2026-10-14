@@ -109,6 +109,18 @@ fn test_macros_laid_out_as_calls_and_arrays() {
     ),
     "fn f() {\n    m!(a,);\n    m!(\n        alpha_beta_gamma_delta,\n        alpha_beta_gamma_delta,\n        alpha_beta_gamma_delta\n    );\n}\n"
   );
+  // A macro last in a call overflows it though an argument holds generics, each argument
+  // fitting on its own line.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    out.push_str(\n        &format!(\n            \"\\n| {} |\",\n            row.iter().map(|c| c).collect::<Vec<_>>().join(\" | \")\n        ),\n    );\n}\n"
+    ),
+    "fn f() {\n    out.push_str(&format!(\n        \"\\n| {} |\",\n        row.iter().map(|c| c).collect::<Vec<_>>().join(\" | \")\n    ));\n}\n"
+  );
+  // A chain past `chain_width` in an operand breaks for the standard formatter, so what holds
+  // it is not joined onto a line.
+  let kept = "fn f() {\n    assert!(\n        std::fs::read_to_string(repo.0.join(\"g.txt\"))\n            .unwrap()\n            .matches(\"<<<<<<<\")\n            .count()\n            == 2\n    );\n}\n";
+  assert_eq!(formatted(kept), kept);
 }
 
 #[test]

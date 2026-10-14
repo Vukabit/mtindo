@@ -13,7 +13,7 @@ use SyntaxKind as K;
 use super::expr::{flat, rewrite};
 use super::shape::{Limits, Shape, Spacing};
 use crate::options::format::FormatConfig;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse, parse_tokens};
 use crate::text::unicode::str_width;
 
 /// The attribute laid out, starting at column `indent` on a line of its own, its later lines
@@ -131,9 +131,23 @@ fn derive(tree: &SyntaxNode, open: &str, indent: usize, config: &FormatConfig) -
   for element in tokens.get(1..tokens.len().checked_sub(1)?)? {
     match element {
       SyntaxElement::Token(t) if t.kind() == K::Comma => names.push(String::new()),
-      SyntaxElement::Token(t) => names.last_mut()?.push_str(t.text()),
+      SyntaxElement::Token(t) => {
+        let name = names.last_mut()?;
+        // Two words written apart would fuse into one.
+        let word = |c: char| c == '_' || c.is_alphanumeric();
+        if name.ends_with(word) && t.text().starts_with(word) {
+          return None;
+        }
+        name.push_str(t.text());
+      }
       SyntaxElement::Node(_) => return None,
     }
+  }
+  // The tokens of a name are joined with nothing between, which keeps their meaning only
+  // for a path: `A B` would become `AB`, an identifier and a string a reserved prefix
+  // (`Par"x"`). Anything else is left to the general layout.
+  if !names.iter().all(|n| n.is_empty() || is_path(n)) {
+    return None;
   }
   // A written trailing comma leaves an empty last name; an empty one elsewhere
   // (`A,, B`) the standard formatter leaves as written.
@@ -169,39 +183,53 @@ fn derive(tree: &SyntaxNode, open: &str, indent: usize, config: &FormatConfig) -
 }
 
 fn has_comment(node: &SyntaxNode) -> bool {
-  node.descendants_with_tokens().iter().any(
-    |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_trivia() && t.kind() != K::Whitespace),
-  )
+  node
+    .token_texts()
+    .any(|(kind, _, _)| kind.is_trivia() && kind != K::Whitespace)
+}
+
+/// Whether a derive name, its tokens joined, is a path: `Name`, `a::b::Name`, `::a::Name`,
+/// `r#Name` (no two words were fused joining it; the caller checks).
+fn is_path(name: &str) -> bool {
+  let rest = name.strip_prefix("::").unwrap_or(name);
+  !rest.is_empty()
+    && rest.split("::").all(|segment| {
+      let ident = segment.strip_prefix("r#").unwrap_or(segment);
+      ident
+        .chars()
+        .next()
+        .is_some_and(|c| c == '_' || crate::text::unicode::is_ident_start(c))
+        && ident.chars().all(crate::text::unicode::is_ident_continue)
+    })
 }
 
 /// Whether `text` holds the attribute's tokens, commas aside.
 fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
-  let code = |e: &SyntaxElement| match e {
-    SyntaxElement::Token(t) if !t.kind().is_trivia() && t.kind() != K::Comma => {
-      Some(t.text().to_string())
-    }
-    _ => None,
-  };
-  let theirs: Vec<String> = node
-    .descendants_with_tokens()
-    .iter()
-    .filter_map(code)
-    .collect();
-  let parsed = parse(&format!("{}\nfn f() {{}}", text), Edition::E2021).syntax_node();
-  let ours: Vec<String> = parsed
-    .descendants_with_tokens()
-    .iter()
-    .take_while(|e| e.kind() != K::FnKw)
-    .filter_map(code)
-    .collect();
-  theirs == ours
+  let code = |kind: SyntaxKind| !kind.is_trivia() && kind != K::Comma;
+  // As written: nothing to compare.
+  if super::stmt::written_as(node, node.text_range().start as usize, text) {
+    return true;
+  }
+  let source = format!("{}\nfn f() {{}}", text);
+  let ours = parse_tokens(&source, Edition::E2021);
+  node
+    .token_texts()
+    .filter(|(kind, _, _)| code(*kind))
+    .map(|(_, t, _)| t)
+    .eq(
+      ours
+        .iter()
+        .take_while(|(kind, _)| *kind != K::FnKw)
+        .filter(|(kind, _)| code(*kind))
+        .map(|(_, t)| *t),
+    )
 }
 
 /// Whether a string in the attribute spans lines; the standard formatter leaves it as written.
 fn spans_lines(node: &SyntaxNode) -> bool {
-  node.descendants_with_tokens().iter().any(
-    |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_literal() && t.text().contains('\n')),
-  )
+  node
+    .token_texts()
+    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
 }
 
 #[cfg(test)]

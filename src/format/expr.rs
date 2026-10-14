@@ -236,6 +236,57 @@ pub fn is_simple(node: &SyntaxNode) -> bool {
   }
 }
 
+/// Whether the standard formatter puts the block on one line when it fits, as `{ expr }`: a
+/// block of one expression where an expression goes (a `let`'s value, an argument, a chain's
+/// start); as a statement or a block's tail only after `unsafe`, `const` or `async`; never
+/// with outer attributes. A closure's body loses its braces instead, and the bodies of `if`,
+/// loops, match arms and functions are laid out with them.
+pub fn joins(block: &SyntaxNode) -> bool {
+  if lone_expression(block).is_none() {
+    return false;
+  }
+  let Some(parent) = block.parent() else {
+    return false;
+  };
+  let prefixed = block.children_with_tokens().iter().any(|e| {
+    matches!(
+      e.kind(),
+      SyntaxKind::UnsafeKw | SyntaxKind::ConstKw | SyntaxKind::AsyncKw
+    )
+  });
+  // Outer attributes, on the block or the statement it is, keep it on lines.
+  let attributes = |n: &SyntaxNode| n.children().iter().any(|c| c.kind() == SyntaxKind::Attr);
+  if attributes(block) || parent.kind() == SyntaxKind::ExprStmt && attributes(&parent) {
+    return false;
+  }
+  // An `async` block as an argument the standard formatter overflows in ways not followed
+  // here: left as written.
+  let asynchronous = block
+    .children_with_tokens()
+    .iter()
+    .any(|e| e.kind() == SyntaxKind::AsyncKw);
+  if asynchronous && parent.kind() == SyntaxKind::ArgList {
+    return false;
+  }
+  match parent.kind() {
+    SyntaxKind::ExprStmt | SyntaxKind::BlockExpr => prefixed,
+    SyntaxKind::ClosureExpr
+    | SyntaxKind::Fn
+    | SyntaxKind::IfExpr
+    | SyntaxKind::WhileExpr
+    | SyntaxKind::ForExpr
+    | SyntaxKind::LoopExpr
+    | SyntaxKind::MatchArm => false,
+    kind => {
+      kind.name().ends_with("_EXPR")
+        || matches!(
+          kind,
+          SyntaxKind::LetStmt | SyntaxKind::ArgList | SyntaxKind::RecordExprField
+        )
+    }
+  }
+}
+
 /// Whether a text's last line holds only closing delimiters, so more can follow on it.
 pub fn last_line_extendable(text: &str) -> bool {
   let last = text.rsplit('\n').next().unwrap_or("");
@@ -255,6 +306,50 @@ pub fn last_line_width(text: &str) -> usize {
 /// The expressions of a list: call arguments, array or tuple elements.
 pub fn list_items(node: &SyntaxNode) -> Vec<SyntaxNode> {
   node.children()
+}
+
+/// The expression a block holds when it holds nothing else: no statement, attribute or
+/// comment, and no prefix but `unsafe`, `const`, `async`, `move` and a label.
+pub fn lone_expression(block: &SyntaxNode) -> Option<SyntaxNode> {
+  if block.kind() != SyntaxKind::BlockExpr {
+    return None;
+  }
+  let mut inside = None;
+  let mut opened = false;
+  for element in block.children_with_tokens() {
+    match &element {
+      SyntaxElement::Token(t) => match t.kind() {
+        SyntaxKind::LBrace => opened = true,
+        SyntaxKind::RBrace | SyntaxKind::Whitespace => {}
+        SyntaxKind::UnsafeKw | SyntaxKind::ConstKw | SyntaxKind::AsyncKw | SyntaxKind::MoveKw
+          if !opened => {}
+        _ => return None,
+      },
+      SyntaxElement::Node(n) if n.kind() == SyntaxKind::Label && !opened => {}
+      SyntaxElement::Node(n)
+        if inside.is_none()
+          && opened
+          && (n.kind().name().ends_with("_EXPR") || n.kind() == SyntaxKind::Literal) =>
+      {
+        inside = Some(n.clone());
+      }
+      SyntaxElement::Node(_) => return None,
+    }
+  }
+  let inside = inside?;
+  let quiet = !inside.descendants_with_tokens().iter().any(|e| {
+    matches!(
+      e.kind(),
+      SyntaxKind::Attr
+        | SyntaxKind::LineComment
+        | SyntaxKind::BlockComment
+        | SyntaxKind::OuterLineDoc
+        | SyntaxKind::InnerLineDoc
+        | SyntaxKind::OuterBlockDoc
+        | SyntaxKind::InnerBlockDoc
+    )
+  });
+  quiet.then_some(inside)
 }
 
 /// The standard formatter moves a right-hand side to the next line when it fits on one line
@@ -378,6 +473,7 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     // standard formatter.
     SyntaxKind::Literal => Some(flat(node, shape.limits.spacing)),
     SyntaxKind::PathExpr => rewrite_path(node, shape),
+    SyntaxKind::BlockExpr if joins(node) => rewrite_block(node, shape),
     // Anything else on one line, unless something in it the standard formatter would break
     // for its own width: then left as written.
     _ => {
@@ -600,6 +696,35 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
       | SyntaxKind::TuplePat
       | SyntaxKind::TupleStructPat
   ) && parent.children().len() == 1
+}
+
+/// A block of one expression ([`joins`]): `{ expr }` on one line when it fits there, else
+/// the expression on a line of its own, one level in.
+fn rewrite_block(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let inside = lone_expression(node)?;
+  let whole = flat(node, shape.limits.spacing);
+  let prefix = &whole[..whole.find('{')?];
+  // 4 = `{ ` and ` }`
+  if let Some(text) = shape
+    .offset_left(prefix.width() + 2)
+    .and_then(|s| s.sub_width(2))
+    .and_then(|s| rewrite(&inside, s))
+    .filter(|t| !t.contains('\n'))
+  {
+    return Some(format!("{}{{ {} }}", prefix, text));
+  }
+  if prefix.width() + 1 > shape.width {
+    return None;
+  }
+  let nested = shape.block_indent(shape.limits.tab);
+  let text = rewrite(&inside, nested)?;
+  Some(format!(
+    "{}{{\n{}{}\n{}}}",
+    prefix,
+    " ".repeat(nested.indent),
+    text,
+    " ".repeat(shape.indent)
+  ))
 }
 
 /// A chain, as the standard formatter's block-indented chain formatter lays it out.

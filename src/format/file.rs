@@ -104,6 +104,8 @@ struct Roles {
   keeps_trailing_blank: OffsetSet,
   /// Ranges left exactly as written.
   verbatim: Vec<(usize, usize)>,
+  /// Statements left as written whole, from their first token, by where they start.
+  kept_whole: OffsetSet,
   /// Statements and items, by where they start: where they end.
   statements: Offsets<usize>,
   /// Where line comments and line doc comments start, in order.
@@ -818,6 +820,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     };
     if let Some(node) = roles.layable.get(&tok.start)
       && !in_verbatim(tok.start)
+      && !roles
+        .kept_whole
+        .contains(&(node.text_range().start as usize))
       && out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
       && let Some((text, to)) = {
         let indent = width_of(&out[out_line_start..], tab);
@@ -1117,7 +1122,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
       roles.verbatim.push(around);
     }
   }
-  // The innermost statement starting with, or around, each chained `const` block.
+  // The innermost statement starting with, or around, each chained `const` block: not laid
+  // out, though it starts the region.
   for block in chained_const {
     if let Some(&around) = statements
       .iter()
@@ -1125,6 +1131,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
       .min_by_key(|&&(start, end)| end - start)
     {
       roles.verbatim.push(around);
+      roles.kept_whole.insert(around.0);
     }
   }
   roles.statements = statements.iter().copied().collect();

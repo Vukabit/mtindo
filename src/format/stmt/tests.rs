@@ -41,6 +41,19 @@ fn test_block_tails_laid_out_as_statements() {
 }
 
 #[test]
+fn test_blocks_of_one_expression() {
+  // On one line where an expression goes, and after `unsafe`, `const` or `async` as a
+  // statement or tail; a plain block as a statement, a block with attributes and a
+  // function's body keep their lines; one too wide holds its expression one level in.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let a = unsafe {\n        g()\n    };\n    let b = {\n        g()\n    };\n    let d = async move {\n        g()\n    };\n    let l = 'a: {\n        g()\n    };\n    foo(unsafe {\n        g()\n    });\n    unsafe {\n        g()\n    };\n    {\n        g()\n    };\n    let s = S { x: unsafe {\n        g()\n    } };\n    let m = unsafe {\n        g()\n    }.h();\n    let n = unsafe { g(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) };\n    #[cfg(miri)]\n    unsafe {\n        g()\n    }\n}\n\nfn h() -> u8 {\n    {\n        g()\n    }\n}\n"
+    ),
+    "fn f() {\n    let a = unsafe { g() };\n    let b = { g() };\n    let d = async move { g() };\n    let l = 'a: { g() };\n    foo(unsafe { g() });\n    unsafe { g() };\n    {\n        g()\n    };\n    let s = S { x: unsafe { g() } };\n    let m = unsafe { g() }.h();\n    let n = unsafe {\n        g(\n            aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,\n        )\n    };\n    #[cfg(miri)]\n    unsafe {\n        g()\n    }\n}\n\nfn h() -> u8 {\n    {\n        g()\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_calls_are_joined_and_broken_to_fit() {
   assert_eq!(
     formatted("fn f() {\n    let x = foo(\n        a,\n        b,\n    );\n}\n"),

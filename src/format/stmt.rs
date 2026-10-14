@@ -420,11 +420,11 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
           | K::InnerBlockDoc
       ) && !(t.kind().is_literal() && t.text().contains('\n'))
     }
+    // A block of one expression the layout code puts on one line.
+    SyntaxElement::Node(n) if n.kind() == K::BlockExpr => super::expr::joins(n),
     SyntaxElement::Node(n) => {
-      !matches!(
-        n.kind(),
-        K::BlockExpr | K::MatchArmList | K::Attr | K::LetElse
-      ) && !(n.kind() == K::MacroCall && braced(n))
+      !matches!(n.kind(), K::MatchArmList | K::Attr | K::LetElse)
+        && !(n.kind() == K::MacroCall && braced(n))
     }
   };
   // Every kind `safe` can turn down: the walk below makes nothing else.
@@ -445,8 +445,9 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
           | K::MacroCall
       )
   };
-  // A tail that is a block itself (`unsafe { .. }`) as any block.
-  (matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node) && node.kind() != K::BlockExpr)
+  // A tail that is a block itself (`unsafe { .. }`) only as one the layout code joins.
+  (matches!(node.kind(), K::ExprStmt | K::LetStmt)
+    || is_tail(node) && (node.kind() != K::BlockExpr || super::expr::joins(node)))
     && !spaced_tuple_field
     && node
       .children_with_tokens_iter()
@@ -542,6 +543,13 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
         let left = rewrite(&left, shape.sub_width(operator.len() + 1)?)?;
         let head = format!("{} {}", left, operator);
         return right_side(&head, &right, indent, shape, tab);
+      }
+      // A block-like statement may end without its `;`.
+      let semi = node
+        .children_with_tokens_iter()
+        .any(|e| e.kind() == K::Semi);
+      if !semi {
+        return rewrite(&expression, shape);
       }
       let text = rewrite(&expression, shape.sub_width(1)?)?;
       Some(format!("{};", text))
@@ -669,7 +677,7 @@ fn takes(node: &SyntaxNode) -> bool {
     is_chain(expression)
       || matches!(
         expression.kind(),
-        K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr | K::MacroExpr
+        K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr | K::MacroExpr | K::BlockExpr
       )
   };
   // An assignment, as a `let`: its two sides laid out as expressions are.
@@ -683,7 +691,7 @@ fn takes(node: &SyntaxNode) -> bool {
       is_chain(&expression)
         || matches!(
           expression.kind(),
-          K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr | K::MacroExpr
+          K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr | K::MacroExpr | K::BlockExpr
         )
         // `return` with a value.
         || expression.kind() == K::ReturnExpr && !expression.children().is_empty()

@@ -203,9 +203,9 @@ fn test_what_f5b_leaves_as_the_standard_formatter_does() {
     "y".repeat(100)
   );
   assert_eq!(formatted(&long), long);
-  // A block that is a binary operator's operand follows its own line.
+  // A block of one expression that is a binary operator's operand goes on one line.
   let operand = "fn f() {\n    a\n        && {\n            b\n        };\n}\n";
-  assert_eq!(formatted(operand), operand);
+  assert_eq!(formatted(operand), "fn f() {\n    a && { b };\n}\n");
 }
 
 #[test]

@@ -42,11 +42,17 @@ fn main() {
   for watched in ["src", "Cargo.toml", "Cargo.lock", "build.rs"] {
     println!("cargo:rerun-if-changed={}", watched);
   }
-  let git_dir = git(&root, &["rev-parse", "--git-dir"]).map(|d| root.join(d));
-  if let Some(git_dir) = &git_dir {
-    // The commit moves with HEAD, and a commit or a staged change touches the index.
-    for watched in ["HEAD", "index"] {
-      println!("cargo:rerun-if-changed={}", git_dir.join(watched).display());
+  // The commit moves with HEAD, the branch it names, and the packed refs. Not the index:
+  // any `git status` rewrites it, and each rewrite would rebuild mto and all that uses it
+  // (the source's own changes are watched above). Only files that exist are named, as
+  // cargo reruns the script on every build for one that does not.
+  let branch = git(&root, &["symbolic-ref", "-q", "HEAD"]);
+  for name in ["HEAD", "packed-refs"].into_iter().chain(branch.as_deref()) {
+    if let Some(path) = git(&root, &["rev-parse", "--git-path", name]) {
+      let path = root.join(path);
+      if path.exists() {
+        println!("cargo:rerun-if-changed={}", path.display());
+      }
     }
   }
   let source = source_hash(&root);

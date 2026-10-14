@@ -322,11 +322,15 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     Action::Check(super::manual::check_manual),
   ));
 
+  // Every test target of the library and binaries at once, in parallel, as the tasks below
+  // build them: `cargo test --test X` resolves features for this package alone, so binaries
+  // built for the whole workspace would be built again, one target at a time. Clippy checks
+  // the rest of the workspace's targets.
   tasks.push(Task::new(
     "build",
     "Build test binaries",
     "tests",
-    command("cargo", &["test", "--workspace", "--no-run", "--quiet"]),
+    command("cargo", &["test", "--no-run", "--quiet"]),
   ));
   let test_files = stems(&root.join("tests"));
   for (id, title, group) in TEST_REGISTRY {

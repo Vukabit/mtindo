@@ -458,14 +458,24 @@ pub fn run(args: &[String]) -> ExitCode {
   ratchet(&options, &tallies)
 }
 
-/// The standard formatter on `text` from `dir`, with an empty home folder.
+/// The standard formatter on `text` from `dir`, with an empty home folder. rustup is told
+/// where it lives and which toolchain to run: the empty home hides its own settings, and a
+/// repository's `rust-toolchain` file would ask for another (the reference is stable).
 pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answer {
+  let rustup_home = std::env::var_os("RUSTUP_HOME")
+    .map(PathBuf::from)
+    .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".rustup")));
+  let mut command = Command::new("rustfmt");
+  if let Some(rustup_home) = rustup_home {
+    command.env("RUSTUP_HOME", rustup_home);
+  }
   let done = process::output_with_input(
-    Command::new("rustfmt")
+    command
       .args(["--edition", edition, "--emit", "stdout"])
       .current_dir(dir)
       .env("HOME", home)
       .env_remove("XDG_CONFIG_HOME")
+      .env("RUSTUP_TOOLCHAIN", "stable")
       .env("RUSTUP_AUTO_INSTALL", "0")
       .stdout(Stdio::piped())
       .stderr(Stdio::piped()),
@@ -476,6 +486,75 @@ pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answe
     Ok(done) => classify(done),
     Err(e) => Answer::NotRun(format!("cannot run rustfmt: {}", e)),
   }
+}
+
+/// `diff-show [--scrambled] FILE [CONTEXT]`: where mto's formatting of FILE first differs from
+/// the standard formatter's, as the harness compares them (the corpus file as fetched, or
+/// with `--scrambled` as the unformatted set scrambles it): the lines around the first
+/// difference from each, side by side as two blocks.
+pub fn show(args: &[String]) -> ExitCode {
+  let scrambled = args.iter().any(|a| a == "--scrambled");
+  let rest: Vec<&String> = args.iter().filter(|a| *a != "--scrambled").collect();
+  let Some(file) = rest.first().map(|f| PathBuf::from(f.as_str())) else {
+    eprintln!("diff-show [--scrambled] FILE [CONTEXT]");
+    return ExitCode::from(2);
+  };
+  let context: usize = rest.get(1).and_then(|n| n.parse().ok()).unwrap_or(6);
+  let Ok(text) = fs::read_to_string(&file) else {
+    eprintln!("cannot read {}", file.display());
+    return ExitCode::from(1);
+  };
+  let edition = edition_for(&file, &text);
+  let input = if scrambled {
+    match unformat(&text, edition) {
+      Some(messy) => messy,
+      None => {
+        eprintln!("{} is not scrambled by the harness", file.display());
+        return ExitCode::from(1);
+      }
+    }
+  } else {
+    text
+  };
+  let dir = file.parent().unwrap_or(Path::new(".")).to_path_buf();
+  let format = Resolver::new(&Overrides::default(), Environment::default())
+    .ok()
+    .and_then(|mut r| r.config_for(&dir).ok())
+    .map(|c| c.stable_only().format())
+    .unwrap_or_default();
+  let ours = mto_output(&input, edition, &format);
+  let home = std::env::temp_dir().join("mtindo-diff-show-home");
+  let _ = fs::create_dir_all(&home);
+  let theirs = match run_standard(&input, edition_year(edition), &dir, &home) {
+    Answer::Text(text) => text,
+    Answer::Refused(why) | Answer::NotRun(why) => {
+      println!("the standard formatter gave no answer: {}", why);
+      return ExitCode::from(1);
+    }
+  };
+  let (a, b): (Vec<&str>, Vec<&str>) = (ours.lines().collect(), theirs.lines().collect());
+  let Some(first) = (0..a.len().max(b.len())).find(|&i| a.get(i) != b.get(i)) else {
+    println!("{}: the same", file.display());
+    return ExitCode::SUCCESS;
+  };
+  let from = first.saturating_sub(context / 2);
+  let block = |lines: &[&str]| -> String {
+    lines
+      .iter()
+      .enumerate()
+      .skip(from)
+      .take(context + 1)
+      .map(|(i, l)| format!("{}{:5} {}\n", if i == first { ">" } else { " " }, i + 1, l))
+      .collect()
+  };
+  println!(
+    "{}: first difference at line {}\n--- mto\n{}--- standard\n{}",
+    file.display(),
+    first + 1,
+    block(&a),
+    block(&b)
+  );
+  ExitCode::from(1)
 }
 
 /// The standard formatter's answer for `input` formatted from `dir`, from the cache or a
@@ -522,6 +601,82 @@ pub fn standard_output(
     Answer::NotRun(_) => {}
   }
   answer
+}
+
+/// `diff-why FILE LINE`: in mto's formatting of the scrambled FILE, what the statement
+/// starting on LINE (1-based, as the harness reports it) holds that may decline it: the
+/// blocks and other kinds in it, as `kind<parent` names.
+pub fn why(args: &[String]) -> ExitCode {
+  let (Some(file), Some(line)) = (
+    args.first(),
+    args.get(1).and_then(|l| l.parse::<usize>().ok()),
+  ) else {
+    eprintln!("diff-why FILE LINE");
+    return ExitCode::from(2);
+  };
+  let file = PathBuf::from(file);
+  let Ok(text) = fs::read_to_string(&file) else {
+    return ExitCode::from(1);
+  };
+  let edition = edition_for(&file, &text);
+  let Some(scrambled) = unformat(&text, edition) else {
+    return ExitCode::from(1);
+  };
+  // The line is one of mto's output, as the harness reports it.
+  let dir = file.parent().unwrap_or(Path::new(".")).to_path_buf();
+  let format = Resolver::new(&Overrides::default(), Environment::default())
+    .ok()
+    .and_then(|mut r| r.config_for(&dir).ok())
+    .map(|c| c.stable_only().format())
+    .unwrap_or_default();
+  let input = mto_output(&scrambled, edition, &format);
+  let offset: usize = input.lines().take(line - 1).map(|l| l.len() + 1).sum();
+  let root = mtindo::syntax::parse(&input, edition).syntax_node();
+  let statement = root
+    .descendants_iter()
+    .filter(|n| {
+      matches!(n.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt)
+        && n.text_range().start as usize >= offset
+    })
+    .min_by_key(|n| n.text_range().start);
+  let Some(statement) = statement else {
+    println!("none");
+    return ExitCode::SUCCESS;
+  };
+  let mut found: Vec<String> = statement
+    .descendants_iter()
+    .filter_map(|n| match n.kind() {
+      SyntaxKind::BlockExpr => Some(format!(
+        "block<{:?}",
+        n.parent().map(|p| p.kind()).unwrap_or(SyntaxKind::Error)
+      )),
+      SyntaxKind::LetElse | SyntaxKind::MatchArmList | SyntaxKind::Attr => {
+        Some(format!("{:?}", n.kind()))
+      }
+      SyntaxKind::MacroCall if n.text().trim_end().ends_with('}') => {
+        Some("braced-macro".to_string())
+      }
+      SyntaxKind::GenericArgList => Some("generics".to_string()),
+      _ => None,
+    })
+    .collect();
+  if statement
+    .token_texts()
+    .any(|(k, _, _)| matches!(k, SyntaxKind::LineComment | SyntaxKind::BlockComment))
+  {
+    found.push("comment".into());
+  }
+  found.sort();
+  found.dedup();
+  println!(
+    "{}",
+    if found.is_empty() {
+      "plain".to_string()
+    } else {
+      found.join(" ")
+    }
+  );
+  ExitCode::SUCCESS
 }
 
 /// What a finished run of the standard formatter says about its input.

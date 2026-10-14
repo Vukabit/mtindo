@@ -40,6 +40,8 @@ fn main() -> ExitCode {
     Some("toml-test") => toml_test::run(&args[1..]),
     Some("diff") => diff::run(&args[1..]),
     Some("diff-fuzz") => diff_fuzz::run(&args[1..]),
+    Some("diff-show") => diff::show(&args[1..]),
+    Some("diff-why") => diff::why(&args[1..]),
     Some("doctor-bench") => doctor_bench::run(&args[1..]),
     Some("perf-scaling") => perf::scaling(&args[1..]),
     Some("perf-growth") => perf::growth(&args[1..]),

@@ -172,6 +172,26 @@ fn test_statements_after_their_attributes() {
   );
 }
 
+/// Statements inside a closure's or a match arm's block are laid out as any statement is:
+/// an assignment's sides as a `let`'s (a long chain broken, also behind `*`), a statement
+/// after its attributes, and a pattern checked against its width even inside a `match`
+/// that ends in `?`.
+#[test]
+fn test_statements_inside_blocks_in_expressions() {
+  let assigned = "fn f() {\n    g(|x| {\n        right_folder = right_folder.consume(counter.element()).consume(counter.element());\n        *seen.lock().unwrap().entry(meta.callsite()).or_insert(0usize) += 1;\n    });\n}\n";
+  assert_eq!(
+    formatted(assigned),
+    "fn f() {\n    g(|x| {\n        right_folder = right_folder\n            .consume(counter.element())\n            .consume(counter.element());\n        *seen\n            .lock()\n            .unwrap()\n            .entry(meta.callsite())\n            .or_insert(0usize) += 1;\n    });\n}\n"
+  );
+  let attributed = "fn f() {\n    g(|| {\n        #[cfg(x)]\n        insert_into(posts::table).values(&data).execute(&mut conn).unwrap();\n    });\n}\n";
+  assert_eq!(
+    formatted(attributed),
+    "fn f() {\n    g(|| {\n        #[cfg(x)]\n        insert_into(posts::table)\n            .values(&data)\n            .execute(&mut conn)\n            .unwrap();\n    });\n}\n"
+  );
+  let pattern = "fn f() {\n    let s = match k {\n        A(ref a) => {\n            let ast::Fn {\n                defaultness,\n                ref sig,\n                ident,\n                ref generics,\n                ..\n            } = **a;\n            x\n        }\n    }?;\n}\n";
+  assert_eq!(formatted(pattern), pattern);
+}
+
 #[test]
 fn test_statements_left_to_the_whole_file_rules() {
   // A comment, a block, a macro: kept as written.

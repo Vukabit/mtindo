@@ -955,8 +955,10 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             )
           })
         };
-        if in_list && node.kind() != SyntaxKind::Attr && !in_expression() {
-          statements.push((range.start as usize, range.end as usize));
+        if in_list && node.kind() != SyntaxKind::Attr {
+          if !in_expression() {
+            statements.push((range.start as usize, range.end as usize));
+          }
           // A `use` from its visibility or `use` on, and an item's header, after their
           // attributes.
           if node.kind() == SyntaxKind::Use

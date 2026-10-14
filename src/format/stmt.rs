@@ -62,9 +62,18 @@ pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig
           | K::SlicePat
       )
   };
+  // Outermost within the statement: a statement inside a block inside a chain (`match x
+  // { ... }?`) is checked whole.
   node
     .descendants_iter()
-    .filter(|n| laid(n) && !n.ancestors_iter().skip(1).any(|a| laid(&a)))
+    .filter(|n| {
+      laid(n)
+        && !n
+          .ancestors_iter()
+          .skip(1)
+          .take_while(|a| a != node)
+          .any(|a| laid(&a))
+    })
     .all(|n| rewrite(&n, shape).is_some_and(|t| !t.contains('\n')))
 }
 
@@ -112,6 +121,36 @@ pub(super) fn written_as(node: &SyntaxNode, from: usize, text: &str) -> bool {
       None => false,
     });
   same && rest.is_empty()
+}
+
+/// An assignment's left side, operator (`=`, `+=` and the rest) and right side.
+fn assignment(expression: &SyntaxNode) -> Option<(SyntaxNode, String, SyntaxNode)> {
+  if expression.kind() != K::BinExpr {
+    return None;
+  }
+  let mut nodes = expression.children_iter();
+  let (left, right) = (nodes.next()?, nodes.next()?);
+  let operator = expression
+    .children_with_tokens_iter()
+    .find_map(|e| match e {
+      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
+      _ => None,
+    })?;
+  matches!(
+    operator.kind(),
+    K::Eq
+      | K::PlusEq
+      | K::MinusEq
+      | K::StarEq
+      | K::SlashEq
+      | K::PercentEq
+      | K::CaretEq
+      | K::AmpEq
+      | K::PipeEq
+      | K::ShlEq
+      | K::ShrEq
+  )
+  .then(|| (left, operator.text().to_string(), right))
 }
 
 /// Whether a macro call's arguments are in braces: they are left as written, and so is a
@@ -213,7 +252,8 @@ fn code_tokens(node: &SyntaxNode) -> Vec<SyntaxToken> {
 fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
   let children = node.children();
   match node.kind() {
-    K::ExprStmt => children.into_iter().next(),
+    // After its attributes (`#[cfg(x)] a.b();`).
+    K::ExprStmt => children.into_iter().find(|c| c.kind() != K::Attr),
     K::LetStmt => {
       // The initializer is the node after `=`.
       let mut after_eq = false;
@@ -268,30 +308,20 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
   match node.kind() {
     K::ExprStmt => {
       let expression = expression_of(node)?;
+      if let Some((left, operator, right)) = assignment(&expression) {
+        // As the standard formatter's `rewrite_assignment`: the left side, then the right
+        // as a `let`'s value is placed.
+        let left = rewrite(&left, shape.sub_width(operator.len() + 1)?)?;
+        let head = format!("{} {}", left, operator);
+        return right_side(&head, &right, indent, shape, tab);
+      }
       let text = rewrite(&expression, shape.sub_width(1)?)?;
       Some(format!("{};", text))
     }
     K::LetStmt => {
       let expression = expression_of(node)?;
       let head = let_head(node, &expression, shape)?;
-      let head_width = last_line_used(&head, indent) + 1;
-      let same_line = shape
-        .offset_left(head_width)
-        .and_then(|s| s.sub_width(1))
-        .and_then(|s| rewrite(&expression, s));
-      let next_line = shape
-        .block_indent(tab)
-        .sub_width(1)
-        .and_then(|s| rewrite(&expression, s));
-      let pad = " ".repeat(indent + tab);
-      match (same_line, next_line) {
-        (Some(same), Some(next)) if prefer_next_line(&same, &next) => {
-          Some(format!("{}\n{}{};", head, pad, next))
-        }
-        (Some(same), _) => Some(format!("{} {};", head, same)),
-        (None, Some(next)) => Some(format!("{}\n{}{};", head, pad, next)),
-        (None, None) => None,
-      }
+      right_side(&head, &expression, indent, shape, tab)
     }
     _ => None,
   }
@@ -352,6 +382,38 @@ fn prefer_next_line(same: &str, next: &str) -> bool {
         .any(|&c| opens(same, c) && !opens(next, c)))
 }
 
+/// `head` (`let x =`, `a.b +=`) and then `value`, with its `;`: on the same line when it
+/// fits there, else on the next one, one level in, as the standard formatter's
+/// `choose_rhs` decides.
+fn right_side(
+  head: &str,
+  value: &SyntaxNode,
+  indent: usize,
+  shape: Shape,
+  tab: usize,
+) -> Option<String> {
+  // `last_line_used` counts a later line's columns past `indent`, as a `let` pattern
+  // spanning lines leaves them.
+  let head_width = last_line_used(head, indent) + 1;
+  let same_line = shape
+    .offset_left(head_width)
+    .and_then(|s| s.sub_width(1))
+    .and_then(|s| rewrite(value, s));
+  let next_line = shape
+    .block_indent(tab)
+    .sub_width(1)
+    .and_then(|s| rewrite(value, s));
+  let pad = " ".repeat(indent + tab);
+  match (same_line, next_line) {
+    (Some(same), Some(next)) if prefer_next_line(&same, &next) => {
+      Some(format!("{}\n{}{};", head, pad, next))
+    }
+    (Some(same), _) => Some(format!("{} {};", head, same)),
+    (None, Some(next)) => Some(format!("{}\n{}{};", head, pad, next)),
+    (None, None) => None,
+  }
+}
+
 /// The shape a statement starting at column `indent` is laid out into.
 fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
   let limits = Limits {
@@ -379,6 +441,27 @@ fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
 /// expression statement, whose expression is a call, chain (`?` and `.await` too), struct
 /// literal, array or tuple.
 fn takes(node: &SyntaxNode) -> bool {
+  let laid = |expression: &SyntaxNode| {
+    // Through `*`, `&`, `!` and `-`: `*a.b().c() += 1` is a chain's.
+    let mut expression = expression.clone();
+    while matches!(expression.kind(), K::PrefixExpr | K::RefExpr)
+      && let Some(inner) = expression.children_iter().next_back()
+    {
+      expression = inner;
+    }
+    let expression = &expression;
+    is_chain(expression)
+      || matches!(
+        expression.kind(),
+        K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr | K::MacroExpr
+      )
+  };
+  // An assignment, as a `let`: its two sides laid out as expressions are.
+  if node.kind() == K::ExprStmt
+    && let Some((left, _, right)) = expression_of(node).as_ref().and_then(assignment)
+  {
+    return laid(&left) || laid(&right);
+  }
   matches!(node.kind(), K::ExprStmt | K::LetStmt)
     && expression_of(node).is_some_and(|expression| {
       is_chain(&expression)

@@ -73,7 +73,7 @@ option  reorder_modules                                  partial      # with for
 option  required_version                                 missing
 option  short_array_element_width_threshold              partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  show_parse_errors                                missing
-option  single_line_if_else_max_width                    missing
+option  single_line_if_else_max_width                    partial      # with format = true, for an `if` with one-expression branches as a value or a block's tail (src/format/stmt/tests.rs); not yet in match arms
 option  single_line_let_else_max_width                   missing
 option  skip_children                                    missing
 option  skip_macro_invocations                           missing

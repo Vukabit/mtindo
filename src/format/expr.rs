@@ -98,6 +98,37 @@ impl Width for str {
   }
 }
 
+/// `head` and then `value`: on the same line when it fits there, else on the next one, one
+/// level in, as the standard formatter's `choose_rhs` decides; nothing after it.
+pub fn assign_value(head: &str, value: &SyntaxNode, shape: Shape) -> Option<String> {
+  let used = if head.contains('\n') {
+    last_line_width(head).saturating_sub(shape.indent)
+  } else {
+    last_line_width(head)
+  };
+  let same = shape.offset_left(used + 1).and_then(|s| rewrite(value, s));
+  if let Some(same) = &same
+    && !same.contains('\n')
+  {
+    return Some(format!("{} {}", head, same));
+  }
+  let nested = shape.block_indent(shape.limits.tab);
+  let next = Shape {
+    width: nested.width.checked_sub(shape.rhs_overhead())?,
+    ..nested
+  };
+  let next = rewrite(value, next);
+  let pad = " ".repeat(nested.indent);
+  match (same, next) {
+    (Some(same), Some(next)) if prefer_next_line(&same, &next) => {
+      Some(format!("{}\n{}{}", head, pad, next))
+    }
+    (Some(same), _) => Some(format!("{} {}", head, same)),
+    (None, Some(next)) => Some(format!("{}\n{}{}", head, pad, next)),
+    (None, None) => None,
+  }
+}
+
 /// A binary expression's operator (`+`, `&&`, `<=`), from its tokens between the operands;
 /// `None` for an assignment, laid out as a statement is.
 pub fn binary_operator(node: &SyntaxNode) -> Option<String> {
@@ -119,6 +150,16 @@ pub fn binary_operator(node: &SyntaxNode) -> Option<String> {
   (!operator.is_empty() && !assigns).then_some(operator)
 }
 
+/// Whether generic arguments are ones [`rewrite_path`] breaks: paths (with generic
+/// arguments of their own), lifetimes and constants, no tuple or array (the standard
+/// formatter breaks those inside too).
+pub fn breakable_generics(list: &SyntaxNode) -> bool {
+  list.children().iter().all(|arg| {
+    let text = flat(arg, Spacing::default());
+    !text.contains(['(', '['])
+  })
+}
+
 /// Whether the last of `count` arguments may overflow: a closure or block always; a call,
 /// struct literal, array or tuple when it is the only argument.
 pub fn can_overflow(node: &SyntaxNode, count: usize) -> bool {
@@ -129,7 +170,18 @@ pub fn can_overflow(node: &SyntaxNode, count: usize) -> bool {
     | SyntaxKind::CallExpr
     | SyntaxKind::MethodCallExpr
     | SyntaxKind::TupleExpr
-    | SyntaxKind::MacroExpr => count == 1,
+    | SyntaxKind::MacroExpr
+    // `combine_control_expr`.
+    | SyntaxKind::IfExpr
+    // Patterns, as the standard formatter's `can_be_overflowed_pat`.
+    | SyntaxKind::RecordPat
+    | SyntaxKind::TuplePat
+    | SyntaxKind::TupleStructPat
+    | SyntaxKind::PathPat => count == 1,
+    SyntaxKind::RefPat | SyntaxKind::BoxPat => node
+      .children()
+      .first()
+      .is_some_and(|c| can_overflow(c, count)),
     SyntaxKind::RefExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr => node
       .children()
       .first()
@@ -257,6 +309,20 @@ pub fn flat_tokens(tokens: &[SyntaxToken], spacing: Spacing) -> String {
   out
 }
 
+/// An `if`'s condition, its block, and what follows its `else` (a block or another `if`).
+pub fn if_parts(node: &SyntaxNode) -> Option<(SyntaxNode, SyntaxNode, SyntaxNode)> {
+  if node.kind() != SyntaxKind::IfExpr {
+    return None;
+  }
+  let children = node.children();
+  match children.as_slice() {
+    [condition, then, otherwise] if then.kind() == SyntaxKind::BlockExpr => {
+      Some((condition.clone(), then.clone(), otherwise.clone()))
+    }
+    _ => None,
+  }
+}
+
 /// Whether `node` is a chain: a method call, field access, `?` or `.await` with a receiver.
 pub fn is_chain(node: &SyntaxNode) -> bool {
   matches!(
@@ -274,12 +340,39 @@ pub fn is_simple(node: &SyntaxNode) -> bool {
   match node.kind() {
     SyntaxKind::Literal => true,
     SyntaxKind::PathExpr => !flat(node, Spacing::default()).contains("::"),
-    SyntaxKind::RefExpr | SyntaxKind::FieldExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr => {
-      node.children().first().is_some_and(is_simple)
-    }
+    SyntaxKind::RefExpr
+    | SyntaxKind::FieldExpr
+    | SyntaxKind::TryExpr
+    | SyntaxKind::PrefixExpr
+    | SyntaxKind::CastExpr => node.children().first().is_some_and(is_simple),
     SyntaxKind::IndexExpr => node.children().iter().all(is_simple),
     _ => false,
   }
+}
+
+/// Whether a block's child is a statement, which makes the block one of lines.
+pub fn is_statement(kind: SyntaxKind) -> bool {
+  matches!(
+    kind,
+    SyntaxKind::LetStmt
+      | SyntaxKind::ExprStmt
+      | SyntaxKind::Fn
+      | SyntaxKind::Struct
+      | SyntaxKind::Enum
+      | SyntaxKind::Union
+      | SyntaxKind::Use
+      | SyntaxKind::Const
+      | SyntaxKind::Static
+      | SyntaxKind::Impl
+      | SyntaxKind::Trait
+      | SyntaxKind::TypeAlias
+      | SyntaxKind::Module
+      | SyntaxKind::MacroRules
+      | SyntaxKind::MacroDef
+      | SyntaxKind::ExternCrate
+      | SyntaxKind::ExternBlock
+      | SyntaxKind::MacroCall
+  )
 }
 
 /// Whether the standard formatter puts the block on one line when it fits, as `{ expr }`: a
@@ -349,6 +442,14 @@ pub fn last_line_width(text: &str) -> usize {
   text.rsplit('\n').next().map_or(0, |l| l.width())
 }
 
+/// Whether a block is one of lines: it holds a statement, or it is a function's body holding
+/// anything.
+pub fn lines_block(node: &SyntaxNode) -> bool {
+  node.children_iter().any(|c| is_statement(c.kind()))
+    || node.parent().is_some_and(|p| p.kind() == SyntaxKind::Fn)
+      && node.children_iter().any(|c| c.kind() != SyntaxKind::Label)
+}
+
 /// The expressions of a list: call arguments, array or tuple elements.
 pub fn list_items(node: &SyntaxNode) -> Vec<SyntaxNode> {
   node.children()
@@ -398,6 +499,18 @@ pub fn lone_expression(block: &SyntaxNode) -> Option<SyntaxNode> {
   quiet.then_some(inside)
 }
 
+/// Whether a block is a branch of an `if` the layout code takes whole: every branch of the
+/// `if`, and of the `else if`s after it, holds one expression ([`rewrite_if_lines`]).
+pub fn one_line_if_block(block: &SyntaxNode) -> bool {
+  let Some(mut node) = block.parent().filter(|p| p.kind() == SyntaxKind::IfExpr) else {
+    return false;
+  };
+  while let Some(up) = node.parent().filter(|p| p.kind() == SyntaxKind::IfExpr) {
+    node = up;
+  }
+  lone_branches(&node)
+}
+
 /// The standard formatter moves a right-hand side to the next line when it fits on one line
 /// there but not on the first, when that saves more than one line, or when its first line
 /// would otherwise end by opening a delimiter that the next line's does not.
@@ -429,7 +542,13 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
       rewrite_chain(node, shape)
     }
     SyntaxKind::RecordExpr | SyntaxKind::RecordPat => rewrite_struct(node, shape),
-    SyntaxKind::ArrayExpr if flat(node, shape.limits.spacing).contains(';') => {
+    // `[x; n]`: a `;` of its own, not one inside an element.
+    SyntaxKind::ArrayExpr
+      if node
+        .children_with_tokens()
+        .iter()
+        .any(|e| e.kind() == SyntaxKind::Semi) =>
+    {
       let text = flat(node, shape.limits.spacing);
       (text.width() <= shape.width).then_some(text)
     }
@@ -500,7 +619,11 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     }
     // A prefix (`&`, `!`, `return `), then what it applies to laid out; what follows
     // `return` gets a column less (found by measuring the standard formatter).
-    SyntaxKind::RefExpr | SyntaxKind::PrefixExpr | SyntaxKind::ReturnExpr => {
+    SyntaxKind::RefExpr
+    | SyntaxKind::PrefixExpr
+    | SyntaxKind::ReturnExpr
+    | SyntaxKind::RefPat
+    | SyntaxKind::BoxPat => {
       let inner_node = node.children().into_iter().last()?;
       let whole = flat(node, shape.limits.spacing);
       let inner_flat = flat(&inner_node, shape.limits.spacing);
@@ -520,6 +643,18 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     SyntaxKind::Literal => Some(flat(node, shape.limits.spacing)),
     SyntaxKind::PathExpr => rewrite_path(node, shape),
     SyntaxKind::BinExpr if binary_operator(node).is_some() => rewrite_binary(node, shape),
+    // The tail of a match arm's or closure's block of it alone is not followed yet.
+    SyntaxKind::IfExpr
+      if node
+        .parent()
+        .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr && !lines_block(&p)) =>
+    {
+      None
+    }
+    SyntaxKind::IfExpr => {
+      rewrite_if_one_line(node, shape).or_else(|| rewrite_if_lines(node, shape, false))
+    }
+    SyntaxKind::LetExpr => rewrite_let_condition(node, shape),
     SyntaxKind::BlockExpr if joins(node) => rewrite_block(node, shape),
     // Anything else on one line, unless something in it the standard formatter would break
     // for its own width: then left as written.
@@ -728,6 +863,20 @@ fn fits_shape(text: String, shape: Shape) -> Option<String> {
   Some(text)
 }
 
+/// Whether an `if` stands where the standard formatter may write it on one line: not as a
+/// statement, and as a block's tail only from style edition 2024 (before, a tail is a
+/// statement too).
+fn if_on_one_line(node: &SyntaxNode, style_2024: bool) -> bool {
+  match node.parent() {
+    Some(p) if p.kind() == SyntaxKind::ExprStmt => false,
+    // As the tail of a block of lines; a match arm's or closure's block of it alone the
+    // standard formatter writes on lines.
+    Some(p) if p.kind() == SyntaxKind::BlockExpr => style_2024 && lines_block(&p),
+    Some(_) => true,
+    None => false,
+  }
+}
+
 /// Whether a chain's receiver, printed as `text`, ends like a block, so that the chain's
 /// links stay at its indentation rather than one level in (the standard formatter's
 /// `is_block_expr`): a call, array, struct literal, macro or block-like expression that
@@ -813,6 +962,23 @@ fn last_item_shape(
 fn leading_width(text: &str) -> usize {
   let last = text.rsplit('\n').next().unwrap_or("");
   last.width() - last.trim_start().width()
+}
+
+/// Whether every branch of an `if` (through its `else if`s) holds one expression.
+fn lone_branches(node: &SyntaxNode) -> bool {
+  let children = node.children();
+  match children.as_slice() {
+    [_, then] => lone_expression(then).is_some(),
+    [_, then, otherwise] => {
+      lone_expression(then).is_some()
+        && if otherwise.kind() == SyntaxKind::IfExpr {
+          lone_branches(otherwise)
+        } else {
+          lone_expression(otherwise).is_some()
+        }
+    }
+    _ => false,
+  }
 }
 
 fn macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments, Unread> {
@@ -1011,6 +1177,19 @@ fn rewrite_binary(node: &SyntaxNode, shape: Shape) -> Option<String> {
   }
   operands.reverse();
   let separator = operator.width();
+  // `let` among the operands (a let chain) breaks them one per line, but for a lone name and
+  // one `let` (`x && let Some(y) = z`).
+  let lets = operands.iter().any(|o| o.kind() == SyntaxKind::LetExpr);
+  // A name, maybe under a unary operator (the standard formatter's `is_ident`).
+  fn is_ident(node: &SyntaxNode) -> bool {
+    match node.kind() {
+      SyntaxKind::PathExpr => !flat(node, Spacing::default()).contains("::"),
+      SyntaxKind::PrefixExpr => node.children().last().is_some_and(is_ident),
+      _ => false,
+    }
+  }
+  let one_line_lets =
+    operands.len() == 2 && is_ident(&operands[0]) && operands[1].kind() == SyntaxKind::LetExpr;
   // Each operand on its own: the first in the shape, the others one level in after the
   // operator and its space, with room for what follows the expression.
   let rewrites: Vec<Option<String>> = operands
@@ -1027,6 +1206,9 @@ fn rewrite_binary(node: &SyntaxNode, shape: Shape) -> Option<String> {
       rewrite(operand, nested)
     })
     .collect();
+  if lets && !one_line_lets {
+    return binary_lines(&operands, &rewrites, &operator, shape);
+  }
   binary_one_line(&operands, &rewrites, &operator, shape)
     .or_else(|| binary_lines(&operands, &rewrites, &operator, shape))
     .or_else(|| {
@@ -1194,6 +1376,110 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
   wrap_str(result, shape)
 }
 
+/// An `if` whose branches each hold one expression, on lines: `if cond {`, each branch's
+/// expression one level in, `} else {` or `} else if cond {`, and `}`, as the standard
+/// formatter writes it where it does not go on one line. The condition is laid out as a
+/// head's is: one breaking or too wide puts `{` on a line of its own, unless its last line
+/// closes delimiters at the `if`'s indentation. `nested` for an `else if`, which follows
+/// `} else ` (7 columns).
+fn rewrite_if_lines(node: &SyntaxNode, shape: Shape, nested: bool) -> Option<String> {
+  let children = node.children();
+  let (condition, then, otherwise) = match children.as_slice() {
+    [condition, then] => (condition, then, None),
+    [condition, then, otherwise] => (condition, then, Some(otherwise)),
+    _ => return None,
+  };
+  // From the `if`'s line, whatever came before it there.
+  let fresh = Shape {
+    width: shape
+      .limits
+      .max_width
+      .checked_sub(shape.indent + shape.offset)?,
+    ..shape
+  };
+  let fresh = if nested { fresh.offset_left(7)? } else { fresh };
+  let condition = rewrite(condition, fresh.offset_left(3)?)?;
+  let last = condition.rsplit('\n').next().unwrap_or("");
+  let closes_at_head =
+    last_line_extendable(&condition) && last.width() - last.trim_start().width() == shape.indent;
+  let column = shape.indent + shape.offset + if nested { 7 } else { 0 };
+  let breaks_brace = (condition.contains('\n') || condition.width() > fresh.width)
+    && !closes_at_head
+    || !condition.contains('\n') && column + 3 + condition.width() + 2 > shape.limits.max_width;
+  let pad = " ".repeat(shape.indent);
+  let inner = shape.block_indent(shape.limits.tab);
+  let inner_pad = " ".repeat(inner.indent);
+  let mut text = format!("if {}", condition);
+  if breaks_brace {
+    text.push_str(&format!("\n{}{{", pad));
+  } else {
+    text.push_str(" {");
+  }
+  let body = rewrite(&lone_expression(then)?, inner)?;
+  text.push_str(&format!("\n{}{}\n{}}}", inner_pad, body, pad));
+  match otherwise {
+    None => {}
+    Some(next) if next.kind() == SyntaxKind::IfExpr => {
+      let line = Shape {
+        offset: 0,
+        width: shape.limits.max_width.checked_sub(shape.indent)?,
+        ..shape
+      };
+      text.push_str(" else ");
+      text.push_str(&rewrite_if_lines(next, line, true)?);
+    }
+    Some(block) => {
+      let body = rewrite(&lone_expression(block)?, inner)?;
+      text.push_str(&format!(" else {{\n{}{}\n{}}}", inner_pad, body, pad));
+    }
+  }
+  Some(text)
+}
+
+/// An `if` with an `else`, each holding one expression, on one line as the standard
+/// formatter's `rewrite_single_line` writes it (`if c { a } else { b }`), within the shape
+/// and `single_line_if_else_max_width`; never as a statement, where its blocks keep lines.
+fn rewrite_if_one_line(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let (condition, then, otherwise) = if_parts(node)?;
+  if !if_on_one_line(node, shape.limits.style_2024) || otherwise.kind() != SyntaxKind::BlockExpr {
+    return None;
+  }
+  let (then, otherwise) = (lone_expression(&then)?, lone_expression(&otherwise)?);
+  // 3 = `if `
+  let condition = rewrite(&condition, shape.offset_left(3)?)?;
+  if condition.contains('\n') {
+    return None;
+  }
+  // `if` and `  {  } else {  }`
+  let fixed = 2 + 16;
+  let width = shape.width.checked_sub(condition.width() + fixed)?;
+  let flat_shape = |width| Shape {
+    indent: 0,
+    offset: 0,
+    width,
+    limits: shape.limits,
+  };
+  let then = rewrite(&then, flat_shape(width))?;
+  let otherwise = rewrite(&otherwise, flat_shape(width.checked_sub(then.width())?))?;
+  if then.contains('\n') || otherwise.contains('\n') {
+    return None;
+  }
+  let text = format!("if {} {{ {} }} else {{ {} }}", condition, then, otherwise);
+  // Measured in bytes, as the standard formatter measures it here.
+  (text.len() <= shape.width && text.len() <= shape.limits.single_line_if_else).then_some(text)
+}
+
+/// `let pattern = value` in a condition: the pattern after `let `, the value after ` =` on
+/// that line, or on the next one level in, as a `let` statement's is placed.
+fn rewrite_let_condition(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let children = node.children();
+  let [pattern, value] = children.as_slice() else {
+    return None;
+  };
+  let pattern = rewrite(pattern, shape.offset_left(4)?)?;
+  assign_value(&format!("let {} =", pattern), value, shape)
+}
+
 /// A chain link printed into `shape`, with its `?`s.
 fn rewrite_link(link: &Link, shape: Shape) -> Option<String> {
   let tries = "?".repeat(link.tries);
@@ -1244,7 +1530,12 @@ fn rewrite_list(
   if !items.is_empty() {
     let last = items.len() - 1;
     let combine = items.len() == 1 && used < shape.limits.tab;
-    let overflow = combine || can_overflow(&items[last], items.len());
+    // Among several closures the last does not overflow (`args_have_many_closure`).
+    let closures = items
+      .iter()
+      .filter(|i| i.kind() == SyntaxKind::ClosureExpr)
+      .count();
+    let overflow = closures < 2 && (combine || can_overflow(&items[last], items.len()));
     // A method chain overflowing a list it is not combined with keeps its links on one
     // line, though its last call's arguments may break (the standard formatter's
     // `force_one_line_chain`).
@@ -1572,7 +1863,9 @@ fn rewrite_path(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .into_iter()
     .filter(|d| d.kind() == SyntaxKind::GenericArgList)
     .find(|d| d.text_range().end == node.text_range().end);
-  let Some(generics) = generics.filter(|_| text.width().saturating_sub(2) > shape.width) else {
+  let Some(generics) =
+    generics.filter(|g| text.width().saturating_sub(2) > shape.width && breakable_generics(g))
+  else {
     return (text.width() <= shape.width && !breaks_inside(node, shape.limits)).then_some(text);
   };
   // The list holds its `::` too: the head runs to its `<`.
@@ -1668,20 +1961,25 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
               .sub_width(1)?
               .offset_left(name.width() + 2)
               .and_then(|s| rewrite(value, s));
+            // A pattern's field keeps only a pattern on one line after its name; else the
+            // pattern goes to the next line, one level in (the standard formatter's
+            // `PatField`).
+            let same = same.filter(|t| n.kind() != SyntaxKind::RecordPatField || !t.contains('\n'));
             match same {
               Some(same) => format!("{}: {}", name, same),
               // A value not laid out here (a binary expression the standard formatter breaks
               // at its operators) may fit on the line its way: left as written.
               None
-                if !(is_chain(value)
-                  || matches!(
-                    value.kind(),
-                    SyntaxKind::CallExpr
-                      | SyntaxKind::RecordExpr
-                      | SyntaxKind::ArrayExpr
-                      | SyntaxKind::TupleExpr
-                      | SyntaxKind::MacroExpr
-                  )) =>
+                if n.kind() != SyntaxKind::RecordPatField
+                  && !(is_chain(value)
+                    || matches!(
+                      value.kind(),
+                      SyntaxKind::CallExpr
+                        | SyntaxKind::RecordExpr
+                        | SyntaxKind::ArrayExpr
+                        | SyntaxKind::TupleExpr
+                        | SyntaxKind::MacroExpr
+                    )) =>
               {
                 return None;
               }

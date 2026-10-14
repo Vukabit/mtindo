@@ -70,7 +70,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("required_version", "missing"),
   ("short_array_element_width_threshold", "partial"),
   ("show_parse_errors", "missing"),
-  ("single_line_if_else_max_width", "missing"),
+  ("single_line_if_else_max_width", "partial"),
   ("single_line_let_else_max_width", "missing"),
   ("skip_children", "missing"),
   ("skip_macro_invocations", "missing"),

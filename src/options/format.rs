@@ -73,6 +73,9 @@ pub struct FormatConfig {
   pub brace_next_line: bool,
   /// `struct_variant_width`: the widest struct-like variant's fields kept on one line.
   pub struct_variant_width: usize,
+  /// `single_line_if_else_max_width`: the widest `if ... { .. } else { .. }` kept on one
+  /// line.
+  pub single_line_if_else_max_width: usize,
   /// `trailing_comma = "Never"`: no comma is added after the last field or variant.
   pub trailing_comma_never: bool,
 }
@@ -106,6 +109,7 @@ impl Default for FormatConfig {
       reorder_modules: true,
       brace_next_line: false,
       struct_variant_width: 35,
+      single_line_if_else_max_width: 50,
       trailing_comma_never: false,
     }
   }

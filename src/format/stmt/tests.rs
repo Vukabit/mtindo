@@ -129,6 +129,41 @@ fn test_closures_with_a_struct_literal_body() {
 }
 
 #[test]
+fn test_control_flow() {
+  // Heads laid out (`if`, `else if`, `while`, `for`, `loop`, `match`), branches on lines as
+  // statements; a condition that breaks puts `{` on its own line unless it ends closing
+  // delimiters at the head's indentation; an `if` as a value on one line within
+  // single_line_if_else_max_width, else on lines.
+  assert_eq!(
+    formatted(
+      "fn g() {\n    if a { b() }\n    if a { b() } else if c { d() } else { e() }\n    while x { y() }\n    for x in y { z() }\n    loop { a() }\n    'outer: loop { a() }\n    if a {}\n    if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa && bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb && ccccccccccccccccccccc { x() }\n    if process_punycode_label_long_name(\n        aaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbb, ccccccccc, ddd) {\n        a();\n    }\n    if process_punycode_label_long_name(aaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbb, cccc) { a(); }\n    if let Some(xxxxxxxxxxxxxxxxxxx) = process_punycode_label_long_name(aaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbbb) {\n        a();\n    }\n    match process_punycode_label_long_name(aaaaaaaaaaaaaaaaaaaaaaa,\n        bbbbbbbbbbbbbbbbbbbbbb, ccccccccc) {\n        _ => {}\n    }\n    let x = if a { 1 } else { 2 };\n    let y = if aaaaaaaaaaaaaaa { bbbbbbbbbbbbbbbbbbbb } else { ccccccccccccccccccc };\n    foo(if a { 1 } else { 2 });\n    self.which_captures(if yes { WhichCaptures::All } else { WhichCaptures::NoneAtAllXxxxxxxxxx });\n    let z = if cond { let q = 1; q } else { 2 };\n}\nfn h() -> u8 {\n    let x = 1;\n    if a { 1 } else { 2 }\n}\n"
+    ),
+    "fn g() {\n    if a {\n        b()\n    }\n    if a {\n        b()\n    } else if c {\n        d()\n    } else {\n        e()\n    }\n    while x {\n        y()\n    }\n    for x in y {\n        z()\n    }\n    loop {\n        a()\n    }\n    'outer: loop {\n        a()\n    }\n    if a {}\n    if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n        && bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n        && ccccccccccccccccccccc\n    {\n        x()\n    }\n    if process_punycode_label_long_name(\n        aaaaaaaaaaaaaaaaaaaaaaa,\n        bbbbbbbbbbbbbbbbbbbbbb,\n        ccccccccc,\n        ddd,\n    ) {\n        a();\n    }\n    if process_punycode_label_long_name(aaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbb, cccc) {\n        a();\n    }\n    if let Some(xxxxxxxxxxxxxxxxxxx) =\n        process_punycode_label_long_name(aaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbbb)\n    {\n        a();\n    }\n    match process_punycode_label_long_name(\n        aaaaaaaaaaaaaaaaaaaaaaa,\n        bbbbbbbbbbbbbbbbbbbbbb,\n        ccccccccc,\n    ) {\n        _ => {}\n    }\n    let x = if a { 1 } else { 2 };\n    let y = if aaaaaaaaaaaaaaa {\n        bbbbbbbbbbbbbbbbbbbb\n    } else {\n        ccccccccccccccccccc\n    };\n    foo(if a { 1 } else { 2 });\n    self.which_captures(if yes {\n        WhichCaptures::All\n    } else {\n        WhichCaptures::NoneAtAllXxxxxxxxxx\n    });\n    let z = if cond {\n        let q = 1;\n        q\n    } else {\n        2\n    };\n}\nfn h() -> u8 {\n    let x = 1;\n    if a {\n        1\n    } else {\n        2\n    }\n}\n"
+  );
+}
+
+#[test]
+fn test_control_flow_in_style_2024() {
+  // Let chains break a `let` per line, but for a name (maybe negated) and one `let`; a
+  // block's tail `if` goes on one line.
+  let config = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  let source = "fn g() {\n    if let Some(x) = foo && let Some(y) = bar { z() }\n    if x && let Some(y) = bar { z() }\n    if !x && let Some(y) = bar { z() }\n}\nfn h() -> u8 {\n    let x = 1;\n    if a { 1 } else { 2 }\n}\n";
+  let once = format_file(source, Edition::E2024, &config);
+  assert_eq!(
+    once,
+    "fn g() {\n    if let Some(x) = foo\n        && let Some(y) = bar\n    {\n        z()\n    }\n    if x && let Some(y) = bar {\n        z()\n    }\n    if !x && let Some(y) = bar {\n        z()\n    }\n}\nfn h() -> u8 {\n    let x = 1;\n    if a { 1 } else { 2 }\n}\n"
+  );
+  assert_eq!(
+    format_file(&once, Edition::E2024, &config),
+    once,
+    "not stable"
+  );
+}
+
+#[test]
 fn test_generic_arguments_broken_to_overflow() {
   // A path ending in generic arguments too wide for an overflowing call's shape breaks
   // them one per line; a call not overflowed keeps them.

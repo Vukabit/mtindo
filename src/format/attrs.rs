@@ -104,6 +104,7 @@ fn call(
     comma_as_written: true,
     style_2024: config.style_edition >= 2024,
     one_line_chains: false,
+    single_line_if_else: config.single_line_if_else_max_width,
   };
   // 1 = `]`
   let width = config

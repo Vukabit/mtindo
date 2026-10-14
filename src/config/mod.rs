@@ -277,6 +277,7 @@ impl Config {
       self.get("trailing_comma").and_then(Value::as_text) == Some("Never");
     config.array_width = width("array_width", 60);
     config.attr_fn_like_width = width("attr_fn_like_width", 70);
+    config.single_line_if_else_max_width = width("single_line_if_else_max_width", 50);
     config.style_edition = self.style_edition();
     config.reorder_imports = flag("reorder_imports", true);
     config.reorder_modules = flag("reorder_modules", true);

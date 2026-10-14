@@ -36,10 +36,13 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::format::attrs::rewrite_attr;
+use crate::format::expr::{is_statement, lines_block};
 use crate::format::imports::rewrite_use;
 use crate::format::items::{is_item, rewrite_header};
 use crate::format::space::{spacing, wants_space};
-use crate::format::stmt::{rewrite_head, rewrite_statement};
+use crate::format::stmt::{
+  rewrite_control_head, rewrite_head, rewrite_let_control, rewrite_statement,
+};
 use crate::options::format::{FormatConfig, NewlineStyle};
 use crate::syntax::ast::Attr;
 use crate::syntax::{
@@ -106,6 +109,9 @@ struct Roles {
   verbatim: Vec<(usize, usize)>,
   /// Statements left as written whole, from their first token, by where they start.
   kept_whole: OffsetSet,
+  /// Where a token starts that follows the one before it on its line after one space: an
+  /// `else` after its `if`'s block, and what follows the `else`.
+  spaced: OffsetSet,
   /// Statements and items, by where they start: where they end.
   statements: Offsets<usize>,
   /// Where line comments and line doc comments start, in order.
@@ -306,6 +312,29 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
   }
 }
 
+/// Whether a block is the body of an `if`, `else`, `while`, `for` or `loop` that is a
+/// statement or a `let`'s value, or the tail of a block of lines: the standard formatter writes it on lines
+/// (an `if`'s may go on one line as a tail, where the statement layout writes it so).
+fn control_block(node: &SyntaxNode) -> bool {
+  let Some(mut control) = node.parent() else {
+    return false;
+  };
+  if !matches!(
+    control.kind(),
+    SyntaxKind::IfExpr | SyntaxKind::WhileExpr | SyntaxKind::ForExpr | SyntaxKind::LoopExpr
+  ) || !node.children_iter().any(|c| c.kind() != SyntaxKind::Label)
+  {
+    return false;
+  }
+  while let Some(up) = control.parent().filter(|p| p.kind() == SyntaxKind::IfExpr) {
+    control = up;
+  }
+  control.parent().is_some_and(|p| {
+    matches!(p.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
+      || p.kind() == SyntaxKind::BlockExpr && lines_block(&p)
+  })
+}
+
 fn indentation(width: usize, config: &FormatConfig) -> String {
   if config.hard_tabs && config.tab_spaces > 0 {
     let mut out = "\t".repeat(width / config.tab_spaces);
@@ -348,31 +377,6 @@ fn is_generated(text: &str, config: &FormatConfig) -> bool {
     })
 }
 
-/// Whether a block's child is a statement, which makes the block one of lines.
-fn is_statement(kind: SyntaxKind) -> bool {
-  matches!(
-    kind,
-    SyntaxKind::LetStmt
-      | SyntaxKind::ExprStmt
-      | SyntaxKind::Fn
-      | SyntaxKind::Struct
-      | SyntaxKind::Enum
-      | SyntaxKind::Union
-      | SyntaxKind::Use
-      | SyntaxKind::Const
-      | SyntaxKind::Static
-      | SyntaxKind::Impl
-      | SyntaxKind::Trait
-      | SyntaxKind::TypeAlias
-      | SyntaxKind::Module
-      | SyntaxKind::MacroRules
-      | SyntaxKind::MacroDef
-      | SyntaxKind::ExternCrate
-      | SyntaxKind::ExternBlock
-      | SyntaxKind::MacroCall
-  )
-}
-
 /// What the Rust style starts a line with wherever it is written: the items and attributes
 /// of a file or a body, an item's or a statement's first token after its attributes, and in
 /// a block holding a statement, or a function's body holding anything, each statement, the
@@ -405,10 +409,8 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
         .parent()
         .is_some_and(|p| matches!(p.kind(), SyntaxKind::Struct | SyntaxKind::Union));
     // A function's body with anything in it is one of lines too (`fn_single_line` off).
-    let block = node.kind() == SyntaxKind::BlockExpr
-      && (node.children_iter().any(|c| is_statement(c.kind()))
-        || node.parent().is_some_and(|p| p.kind() == SyntaxKind::Fn)
-          && node.children_iter().any(|c| c.kind() != SyntaxKind::Label));
+    let block =
+      node.kind() == SyntaxKind::BlockExpr && (lines_block(&node) || control_block(&node));
     if !items && !block {
       continue;
     }
@@ -677,6 +679,13 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     {
       continue;
     }
+    if tok.kind == SyntaxKind::Whitespace
+      && !in_verbatim(tok.start)
+      && next.is_some_and(|n| roles.spaced.contains(&n.start) && !in_verbatim(n.start))
+    {
+      out.push(' ');
+      continue;
+    }
     if out.is_empty() && tok.kind == SyntaxKind::Whitespace {
       // Nothing before the first token.
       continue;
@@ -823,11 +832,24 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       && !roles
         .kept_whole
         .contains(&(node.text_range().start as usize))
-      && out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
+      // An `else if` follows `} else ` on its line.
+      && (out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
+        || node.kind() == SyntaxKind::IfExpr
+          && node.parent().is_some_and(|p| p.kind() == SyntaxKind::IfExpr))
       && let Some((text, to)) = {
         let indent = width_of(&out[out_line_start..], tab);
         let whole = |text: Option<String>| text.map(|t| (t, node.text_range().end as usize));
+        // A control expression's head, as a statement or a tail, or after `} else `.
+        let control = |node: &SyntaxNode| {
+          let line = &out[out_line_start..];
+          let indent = width_of(&line[..line.len() - line.trim_start().len()], tab);
+          let head = rewrite_control_head(node, indent, width_of(line, tab), config)?;
+          Some((head.text, head.open))
+        };
         match node.kind() {
+          SyntaxKind::IfExpr if node.parent().is_some_and(|p| p.kind() == SyntaxKind::IfExpr) => {
+            control(node)
+          }
           SyntaxKind::Use => whole(rewrite_use(node, indent, config)),
           SyntaxKind::Attr => whole(rewrite_attr(node, indent, config)),
           // Not an item given up on whole.
@@ -849,7 +871,17 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             if covered(node) {
               return None;
             }
-            let head = rewrite_head(node, indent, config)?;
+            if let Some(head) = rewrite_let_control(node, indent, config) {
+              return Some((head.text, head.open));
+            }
+            let Some(head) = rewrite_head(node, indent, config) else {
+              let expression = if node.kind() == SyntaxKind::ExprStmt {
+                node.children_iter().find(|c| c.kind() != SyntaxKind::Attr)?
+              } else {
+                node.clone()
+              };
+              return control(&expression);
+            };
             for (at, kind) in head.tail {
               glued.borrow_mut().insert(at);
               if kind == SyntaxKind::Comma {
@@ -1010,6 +1042,39 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             && let Some(start) = crate::format::items::header_start(node)
           {
             roles.layable.insert(start, node.clone());
+          }
+        }
+        // An `else if`, from its `if`; and the `else` before it, or before a block, one
+        // space after the block, with one space after it.
+        if node.kind() == SyntaxKind::IfExpr {
+          if node.parent().is_some_and(|p| {
+            p.kind() == SyntaxKind::IfExpr && p.children_iter().nth(2).as_ref() == Some(node)
+          }) {
+            roles.layable.insert(range.start as usize, node.clone());
+          }
+          let elements: Vec<SyntaxElement> = node.children_with_tokens_iter().collect();
+          if let Some(at) = elements.iter().position(|e| e.kind() == SyntaxKind::ElseKw) {
+            let only_space =
+              |part: &[SyntaxElement]| part.iter().all(|e| e.kind() == SyntaxKind::Whitespace);
+            let before = elements[..at]
+              .iter()
+              .rposition(|e| e.kind() != SyntaxKind::Whitespace);
+            let after = elements[at + 1..]
+              .iter()
+              .position(|e| e.kind() != SyntaxKind::Whitespace)
+              .map(|i| at + 1 + i);
+            if let (Some(before), Some(after)) = (before, after)
+              && elements[before].kind() == SyntaxKind::BlockExpr
+              && only_space(&elements[before + 1..at])
+              && only_space(&elements[at + 1..after])
+            {
+              roles
+                .spaced
+                .insert(elements[at].text_range().start as usize);
+              roles
+                .spaced
+                .insert(elements[after].text_range().start as usize);
+            }
           }
         }
         // A field of a struct definition or a variant, from after its attributes.

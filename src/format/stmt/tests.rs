@@ -29,6 +29,19 @@ fn test_a_closure_last_keeps_its_list_on_one_line() {
 }
 
 #[test]
+fn test_binary_expressions() {
+  // Operands joined by one operator on a line when they fit, else one per line after the
+  // first, the operator first, one level in; mixed operators nest; an operand spanning lines
+  // is indented from its own line.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let a = aaaaaaaaaaaaaaaaaaaaaaaa + bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb + cccccccccccccccccccccccccccc + ddddddddd;\n    let b = aaaaaaaaaaaaaaaaaaaaaaaa && bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb || cccccccccccccccccccccccccccc && ddddddddddd;\n    let c = self.searches_with_match + rhs.searches_with_match + other.searches_with_match + 1;\n    let d = x + foo(aaaaaaaaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, cccccccccccccccccccc);\n    let e = a.b().c() == 2 && x;\n    if_ok = self.some_long_condition_name() && other_thing.call_something(argument_one, argument_two);\n    total_value += aaaaaaaaaaaaaaaaaaaaaaaaaaaa * bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb + cccccccc + ddddddddddddd;\n    let g = !v.is_hide_set() && (v.get_long_help().is_some() || v.is_hide_long_help_set() || v.is_hide_short_help_set());\n    let h = self.name.contains(boundary) || self.filename.as_ref().is_some_and(|filename| filename.contains(boundary));\n    let i = items.iter().filter(|item| item.alpha_value_long_name > 10 && item.beta_value_long_name < 20).count();\n    let k = S { total: self.searches_with_match_long_name + rhs.searches_with_match_long_name + 1, x };\n    foo(alpha_value_long_name + beta_value_long_name + gamma_value_long_name + delta_value_long);\n    return alpha_value_long_name * beta_value_long_name - gamma_value_long_name * delta_value_xx;\n}\nfn g() -> bool {\n    self.alpha_value_long_name == other.alpha_value_long_name && self.beta_value == other.beta_value && x\n}\n"
+    ),
+    "fn f() {\n    let a = aaaaaaaaaaaaaaaaaaaaaaaa\n        + bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n        + cccccccccccccccccccccccccccc\n        + ddddddddd;\n    let b = aaaaaaaaaaaaaaaaaaaaaaaa && bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n        || cccccccccccccccccccccccccccc && ddddddddddd;\n    let c = self.searches_with_match + rhs.searches_with_match + other.searches_with_match + 1;\n    let d = x + foo(\n        aaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,\n        cccccccccccccccccccc,\n    );\n    let e = a.b().c() == 2 && x;\n    if_ok =\n        self.some_long_condition_name() && other_thing.call_something(argument_one, argument_two);\n    total_value +=\n        aaaaaaaaaaaaaaaaaaaaaaaaaaaa * bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb + cccccccc + ddddddddddddd;\n    let g = !v.is_hide_set()\n        && (v.get_long_help().is_some() || v.is_hide_long_help_set() || v.is_hide_short_help_set());\n    let h = self.name.contains(boundary)\n        || self\n            .filename\n            .as_ref()\n            .is_some_and(|filename| filename.contains(boundary));\n    let i = items\n        .iter()\n        .filter(|item| item.alpha_value_long_name > 10 && item.beta_value_long_name < 20)\n        .count();\n    let k = S {\n        total: self.searches_with_match_long_name + rhs.searches_with_match_long_name + 1,\n        x,\n    };\n    foo(alpha_value_long_name + beta_value_long_name + gamma_value_long_name + delta_value_long);\n    return alpha_value_long_name * beta_value_long_name - gamma_value_long_name * delta_value_xx;\n}\nfn g() -> bool {\n    self.alpha_value_long_name == other.alpha_value_long_name\n        && self.beta_value == other.beta_value\n        && x\n}\n"
+  );
+}
+
+#[test]
 fn test_block_tails_laid_out_as_statements() {
   // A block's last expression, with no `;`: joined, broken a link per line, inside a
   // closure; a block as the tail is left to the rest of the formatter.
@@ -214,6 +227,18 @@ fn test_macros_left_as_written() {
   ] {
     assert_eq!(formatted(kept), kept);
   }
+}
+
+#[test]
+fn test_macros_the_standard_formatter_cannot_read() {
+  // Arguments that do not parse as a call's are kept as written inside a laid-out statement;
+  // a macro in braces gets one space after its name.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let end = node.find(|s| s.kind() == T![;] || s.kind() == T![=]).map_or(const_end, |f| f.start());\n    let test = || Ok(ensure!(stringify!\n        {} != \"\"));\n}\n"
+    ),
+    "fn f() {\n    let end = node\n        .find(|s| s.kind() == T![;] || s.kind() == T![=])\n        .map_or(const_end, |f| f.start());\n    let test = || Ok(ensure!(stringify! {} != \"\"));\n}\n"
+  );
 }
 
 #[test]

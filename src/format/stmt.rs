@@ -3,8 +3,9 @@
 //!
 //! Only the statements the expression code covers are taken: a `let` with an initializer,
 //! an expression with a `;`, or a block's tail (its last expression, with none), whose
-//! expression is a call, a method chain, a struct literal, an array, a tuple or a macro call
-//! in parentheses or brackets; any other statement is put on one line when it fits there. A statement holding a comment, a block, a macro in braces
+//! expression is a call, a method chain, a struct literal, an array, a tuple, a binary
+//! expression, a block of one expression or a macro call in parentheses or brackets; any
+//! other statement is put on one line when it fits there. A statement holding a comment, a block, a macro in braces
 //! or a string spanning lines is left to the whole-file rules, which keep its lines as
 //! written; its attributes, and comments before it, are laid out on their own.
 
@@ -661,9 +662,9 @@ fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
   })
 }
 
-/// Whether the layout code takes the statement whole: a `let` with an initializer, or an
-/// expression statement, whose expression is a call, chain (`?` and `.await` too), struct
-/// literal, array or tuple.
+/// Whether the layout code takes the statement whole: a `let` with an initializer, an
+/// expression statement or a block's tail, whose expression is a call, chain (`?` and
+/// `.await` too), struct literal, array, tuple, binary expression or block.
 fn takes(node: &SyntaxNode) -> bool {
   let laid = |expression: &SyntaxNode| {
     // Through `*`, `&`, `!` and `-`: `*a.b().c() += 1` is a chain's.
@@ -675,6 +676,7 @@ fn takes(node: &SyntaxNode) -> bool {
     }
     let expression = &expression;
     is_chain(expression)
+      || super::expr::binary_operator(expression).is_some()
       || matches!(
         expression.kind(),
         K::CallExpr | K::RecordExpr | K::ArrayExpr | K::TupleExpr | K::MacroExpr | K::BlockExpr
@@ -695,6 +697,7 @@ fn takes(node: &SyntaxNode) -> bool {
         )
         // `return` with a value.
         || expression.kind() == K::ReturnExpr && !expression.children().is_empty()
+        || super::expr::binary_operator(&expression).is_some()
     })
 }
 

@@ -5,12 +5,16 @@ use crate::verify::format::verify_format;
 
 /// `source` formatted, checked for meaning and stability.
 fn formatted(source: &str) -> String {
-  let config = FormatConfig::default();
-  let once = format_file(source, Edition::E2021, &config);
+  formatted_with(source, &FormatConfig::default())
+}
+
+/// `source` formatted under `config`, checked for meaning and stability.
+fn formatted_with(source: &str, config: &FormatConfig) -> String {
+  let once = format_file(source, Edition::E2021, config);
   let found = verify_format(source, &once, Edition::E2021);
   assert!(found.is_empty(), "{:?}\n{}", found, once);
   assert_eq!(
-    format_file(&once, Edition::E2021, &config),
+    format_file(&once, Edition::E2021, config),
     once,
     "not stable"
   );
@@ -22,6 +26,18 @@ fn test_a_closure_last_keeps_its_list_on_one_line() {
   // The last link takes a line of its own rather than breaking the closure's list.
   let kept = "impl X {\n    fn split(self) {\n        let update = self\n            .split_count\n            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |c| c.checked_sub(1));\n    }\n}\n";
   assert_eq!(formatted(kept), kept);
+}
+
+#[test]
+fn test_block_tails_laid_out_as_statements() {
+  // A block's last expression, with no `;`: joined, broken a link per line, inside a
+  // closure; a block as the tail is left to the rest of the formatter.
+  assert_eq!(
+    formatted(
+      "fn f() -> Vec<u8> {\n    let a = 1;\n    foo(\n        a, b,\n    )\n}\n\nfn g() -> X {\n    Command::new(\"x\").arg(first_argument_name).arg(second_argument_name).arg(third_argument_name_long)\n}\n\nfn h() {\n    items.iter().for_each(|x| {\n        let y = 1;\n        call(x,\n          y)\n    })\n}\n\nfn k() {\n    b.iter(|| {\n        let p = Owned::new(1).into_shared(guard);\n        unsafe {\n            guard.defer_destroy(p);\n        }\n    });\n}\n"
+    ),
+    "fn f() -> Vec<u8> {\n    let a = 1;\n    foo(a, b)\n}\n\nfn g() -> X {\n    Command::new(\"x\")\n        .arg(first_argument_name)\n        .arg(second_argument_name)\n        .arg(third_argument_name_long)\n}\n\nfn h() {\n    items.iter().for_each(|x| {\n        let y = 1;\n        call(x, y)\n    })\n}\n\nfn k() {\n    b.iter(|| {\n        let p = Owned::new(1).into_shared(guard);\n        unsafe {\n            guard.defer_destroy(p);\n        }\n    });\n}\n"
+  );
 }
 
 #[test]
@@ -49,6 +65,53 @@ fn test_chains_as_the_standard_formatter_lays_them_out() {
   ] {
     assert_eq!(formatted(kept), kept);
   }
+}
+
+#[test]
+fn test_chains_inside_an_overflowing_chain_stay_on_one_line() {
+  // A chain overflowing `Some(...)` keeps every chain inside it on one line: the field's
+  // value goes to the next line instead (use_small_heuristics = "Max").
+  let max = FormatConfig {
+    fn_call_width: 100,
+    chain_width: 100,
+    struct_lit_width: 100,
+    array_width: 100,
+    ..FormatConfig::default()
+  };
+  let kept = "impl X {\n    fn f() {\n        Some(orig_range_with_focus(db, file_id, value.syntax(), value.name()).map(\n            |(FileRange { file_id, range: full_range }, focus_range)| NavigationTarget {\n                file_id,\n                name:\n                    self.name(db).map_or_else(|| sym::underscore.clone(), |it| it.symbol().clone()),\n                alias: None,\n            },\n        ))\n    }\n}\n";
+  assert_eq!(
+    formatted_with(
+      "impl X {\n    fn f() {\n        Some(orig_range_with_focus(db, file_id, value.syntax(), value.name()).map(\n            |(FileRange { file_id, range: full_range }, focus_range)| NavigationTarget {\n                file_id,\n                name: self.name(db).map_or_else(|| sym::underscore.clone(), |it| it.symbol().clone()),\n                alias: None,\n            },\n        ))\n    }\n}\n",
+      &max
+    ),
+    kept
+  );
+}
+
+#[test]
+fn test_closures_with_a_struct_literal_body() {
+  // The body breaks after the closure's `|...|` when the call overflows it; a closure whose
+  // body is a macro called with nothing takes a line of its own; a chain's last link on its
+  // own line indents the body from the link; the arguments break when even `|err| {` does
+  // not fit after the chain.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let x = foo_bar_baz_quux_long_function_name_and_more_more(|it| EvaluatedConst { allocation: it, def: 1 });\n    let matches_x = Arc::new(Pool::with_available_parallelism_capacityxxxxxxxxxxxxxxxxxxxxxxxxxx(|| vec![]));\n    let into_js_generic_impl = if no_into_js_generic {\n        quote! {}\n    } else {\n        let mut clause = declaration_generics\n            .where_clause\n            .clone()\n            .unwrap_or_else(|| syn::WhereClause {\n                where_token: Default::default(),\n                predicates: Default::default(),\n            });\n        clause\n    };\n    Regex::builder().syntax(syntax).configure(config).build(pat).map_err(|err| Error { glob: Some(pat.to_string()), kind: ErrorKind::Regex(err.to_string()) })\n}\n"
+    ),
+    "fn f() {\n    let x = foo_bar_baz_quux_long_function_name_and_more_more(|it| EvaluatedConst {\n        allocation: it,\n        def: 1,\n    });\n    let matches_x =\n        Arc::new(Pool::with_available_parallelism_capacityxxxxxxxxxxxxxxxxxxxxxxxxxx(|| vec![]));\n    let into_js_generic_impl = if no_into_js_generic {\n        quote! {}\n    } else {\n        let mut clause = declaration_generics\n            .where_clause\n            .clone()\n            .unwrap_or_else(|| syn::WhereClause {\n                where_token: Default::default(),\n                predicates: Default::default(),\n            });\n        clause\n    };\n    Regex::builder()\n        .syntax(syntax)\n        .configure(config)\n        .build(pat)\n        .map_err(|err| Error {\n            glob: Some(pat.to_string()),\n            kind: ErrorKind::Regex(err.to_string()),\n        })\n}\n"
+  );
+}
+
+#[test]
+fn test_generic_arguments_broken_to_overflow() {
+  // A path ending in generic arguments too wide for an overflowing call's shape breaks
+  // them one per line; a call not overflowed keeps them.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    Err(PathDeserializationError::unsupported_type(type_name::<V::Valueeeeeeeeeee>()));\n    Some(TypeId::of::<AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>());\n    assert!(query_to_sql_equality::<Range<Int4>, std::ops::RangeInclusive<i32>>(expected, value));\n    assert_eq!(query_id_of(&value), Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()));\n}\n"
+    ),
+    "fn f() {\n    Err(PathDeserializationError::unsupported_type(type_name::<\n        V::Valueeeeeeeeeee,\n    >()));\n    Some(TypeId::of::<\n        AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,\n    >());\n    assert!(query_to_sql_equality::<\n        Range<Int4>,\n        std::ops::RangeInclusive<i32>,\n    >(expected, value));\n    assert_eq!(\n        query_id_of(&value),\n        Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>())\n    );\n}\n"
+  );
 }
 
 #[test]
@@ -152,6 +215,17 @@ fn test_other_statements_on_one_line_when_they_fit() {
 }
 
 #[test]
+fn test_packed_items_count_their_comma() {
+  // An item joins a packed line only with its own comma within the width.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    if gnu {\n        cfg.skip_const(|s| {\n            [\n                \"EXTA\", \"EXTB\", \"B0\", \"B1000000\", \"B110\", \"B115200\", \"B1152000\", \"B1200\", \"B134\",\n                \"B14400\", \"B150\", \"B1500000\", \"B153600\", \"B1800\", \"B19200\", \"B200\", \"B2000000\",\n                \"B230400\", \"B2400\", \"B2500000\", \"B28800\", \"B300\", \"B3000000\", \"B307200\", \"B3500000\",\n                \"B38400\", \"B4000000\", \"B460800\",\n            ]\n            .contains(&s.ident())\n        });\n    }\n}\n"
+    ),
+    "fn f() {\n    if gnu {\n        cfg.skip_const(|s| {\n            [\n                \"EXTA\", \"EXTB\", \"B0\", \"B1000000\", \"B110\", \"B115200\", \"B1152000\", \"B1200\", \"B134\",\n                \"B14400\", \"B150\", \"B1500000\", \"B153600\", \"B1800\", \"B19200\", \"B200\", \"B2000000\",\n                \"B230400\", \"B2400\", \"B2500000\", \"B28800\", \"B300\", \"B3000000\", \"B307200\",\n                \"B3500000\", \"B38400\", \"B4000000\", \"B460800\",\n            ]\n            .contains(&s.ident())\n        });\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_returns_tries_and_closures() {
   // `return` gets a column less; `f(..)?` lays out the call; a closure stays on one line.
   assert_eq!(
@@ -179,6 +253,7 @@ fn test_statements_after_their_attributes() {
 /// an assignment's sides as a `let`'s (a long chain broken, also behind `*`), a statement
 /// after its attributes, and a pattern checked against its width even inside a `match`
 /// that ends in `?`.
+
 #[test]
 fn test_statements_inside_blocks_in_expressions() {
   let assigned = "fn f() {\n    g(|x| {\n        right_folder = right_folder.consume(counter.element()).consume(counter.element());\n        *seen.lock().unwrap().entry(meta.callsite()).or_insert(0usize) += 1;\n    });\n}\n";
@@ -209,6 +284,7 @@ fn test_statements_left_to_the_whole_file_rules() {
 
 /// A statement holding one block laid out to the block's `{`, the block's insides on their
 /// lines and its tail (`})?;`) after the `}`, a trailing comma dropped.
+
 #[test]
 fn test_statements_up_to_their_block() {
   for (source, expected) in [
@@ -240,6 +316,27 @@ fn test_statements_up_to_their_block() {
   ] {
     assert_eq!(formatted(kept), kept);
   }
+}
+
+#[test]
+fn test_struct_literals_keep_a_blank_line_between_fields() {
+  // One blank line after a field's comma stays, before a field or the rest; not before `}`,
+  // and not between call arguments.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let x = S {\n        alpha_field_name: 1,\n\n        beta_field_name: 2, gamma_field_name: 3,\n\n\n        delta: 4,\n\n    };\n    let x = S {\n        alpha_field_name: 1,\n        beta_field_name: 2,\n        gamma_field_name: 3,\n\n        ..Default::default()\n    };\n    call(\n        alpha_argument_number_one,\n\n        beta_argument_number_two, gamma_argument_number_three_long,\n    );\n}\n"
+    ),
+    "fn f() {\n    let x = S {\n        alpha_field_name: 1,\n\n        beta_field_name: 2,\n        gamma_field_name: 3,\n\n        delta: 4,\n    };\n    let x = S {\n        alpha_field_name: 1,\n        beta_field_name: 2,\n        gamma_field_name: 3,\n\n        ..Default::default()\n    };\n    call(\n        alpha_argument_number_one,\n        beta_argument_number_two,\n        gamma_argument_number_three_long,\n    );\n}\n"
+  );
+}
+
+#[test]
+fn test_what_the_standard_formatter_leaves_as_written() {
+  // Ranges chained in a macro (a pattern), a struct literal past struct_lit_width among
+  // binary operands, a `const` block a chain starts with, and a binary field value it
+  // breaks at its operator.
+  let kept = "fn f() {\n    let a =\n        matches!(byte, b'*' | b'-' | b'.' | b'0' ..= b'9' | b'A' ..= b'Z' | b'_' | b'a' ..= b'z');\n    let b = matches!(\n        self.kind,\n        Length(0)\n            | Chunked {\n                state: ChunkedState::End,\n                ..\n            }\n            | Eof(true)\n    );\n    const {\n        S::new(\n            \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n        )\n    }\n    .go();\n    let x = S {\n        searches_with_match: self.searches_with_match_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n            + rhs.searches_with_match,\n    };\n}\n";
+  assert_eq!(formatted(kept), kept);
 }
 
 #[test]

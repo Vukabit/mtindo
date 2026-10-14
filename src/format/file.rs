@@ -942,6 +942,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let mut statements = Vec::new();
   let mut attrs = Vec::new();
   let mut stranded = Vec::new();
+  let mut chained_const = Vec::new();
   let mut line_comments = Vec::new();
   // A `#[rustfmt::skip]` (or `rustfmt_skip`, or either in a `cfg_attr`) holds one of these
   // words: a file with neither has none, and no node's attributes need reading.
@@ -996,7 +997,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             && let Some(start) = crate::format::items::header_start(node)
           {
             roles.layable.insert(start, node.clone());
-          } else if matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
+          } else if (matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
+            || crate::format::stmt::is_tail(node))
             && node
               .parent()
               .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
@@ -1045,6 +1047,24 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         if is_container(node.kind()) {
           container(node, &mut roles, config);
         }
+        // An inline `const` block a chain starts with the standard formatter leaves as
+        // written, and the statement around it.
+        if node.kind() == SyntaxKind::BlockExpr
+          && node
+            .first_token()
+            .is_some_and(|t| t.kind() == SyntaxKind::ConstKw)
+          && node.parent().is_some_and(|p| {
+            matches!(
+              p.kind(),
+              SyntaxKind::MethodCallExpr
+                | SyntaxKind::FieldExpr
+                | SyntaxKind::AwaitExpr
+                | SyntaxKind::TryExpr
+            ) && p.children_iter().next().as_ref() == Some(node)
+          })
+        {
+          chained_const.push(range.start as usize);
+        }
       }
       SyntaxElement::Token(token) => {
         let start = token.text_range().start as usize;
@@ -1092,6 +1112,16 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     if let Some(&around) = statements
       .iter()
       .filter(|&&(start, end)| start < comment && comment < end)
+      .min_by_key(|&&(start, end)| end - start)
+    {
+      roles.verbatim.push(around);
+    }
+  }
+  // The innermost statement starting with, or around, each chained `const` block.
+  for block in chained_const {
+    if let Some(&around) = statements
+      .iter()
+      .filter(|&&(start, end)| start <= block && block < end)
       .min_by_key(|&&(start, end)| end - start)
     {
       roles.verbatim.push(around);

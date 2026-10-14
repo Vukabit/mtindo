@@ -103,6 +103,7 @@ fn call(
     attribute: true,
     comma_as_written: true,
     style_2024: config.style_edition >= 2024,
+    one_line_chains: false,
   };
   // 1 = `]`
   let width = config

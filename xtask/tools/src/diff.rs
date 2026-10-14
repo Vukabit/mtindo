@@ -488,16 +488,18 @@ pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answe
   }
 }
 
-/// `diff-show [--scrambled] FILE [CONTEXT]`: where mto's formatting of FILE first differs from
+/// `diff-show [--scrambled] [--twice] [--save] FILE [CONTEXT]`: where mto's formatting of FILE first differs from
 /// the standard formatter's, as the harness compares them (the corpus file as fetched, or
 /// with `--scrambled` as the unformatted set scrambles it): the lines around the first
-/// difference from each, side by side as two blocks.
+/// difference from each, side by side as two blocks. `--twice` compares with mto run again;
+/// `--save` also writes the input and both outputs to `.dev/logs/diff-show` (as `.txt`).
 pub fn show(args: &[String]) -> ExitCode {
   let scrambled = args.iter().any(|a| a == "--scrambled");
   let twice = args.iter().any(|a| a == "--twice");
+  let save = args.iter().any(|a| a == "--save");
   let rest: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
   let Some(file) = rest.first().map(|f| PathBuf::from(f.as_str())) else {
-    eprintln!("diff-show [--scrambled] [--twice] FILE [CONTEXT]");
+    eprintln!("diff-show [--scrambled] [--twice] [--save] FILE [CONTEXT]");
     return ExitCode::from(2);
   };
   let context: usize = rest.get(1).and_then(|n| n.parse().ok()).unwrap_or(6);
@@ -537,6 +539,20 @@ pub fn show(args: &[String]) -> ExitCode {
       }
     }
   };
+  // The input and both outputs, for running other builds on the same input; not `.rs`, so
+  // that nothing formatting the repository takes them for sources.
+  if save {
+    let out = Path::new(".dev/logs/diff-show");
+    let _ = fs::create_dir_all(out);
+    for (name, text) in [
+      ("input.txt", &input),
+      ("mto.txt", &ours),
+      ("other.txt", &theirs),
+    ] {
+      let _ = fs::write(out.join(name), text);
+    }
+    println!("saved to {}", out.display());
+  }
   let (a, b): (Vec<&str>, Vec<&str>) = (ours.lines().collect(), theirs.lines().collect());
   let Some(first) = (0..a.len().max(b.len())).find(|&i| a.get(i) != b.get(i)) else {
     println!("{}: the same", file.display());

@@ -31,6 +31,10 @@ pub struct Limits {
   pub comma_as_written: bool,
   /// Style edition 2024 or later, for the choices that differ.
   pub style_2024: bool,
+  /// Inside a method chain overflowing the list it ends: every chain in it stays on one
+  /// line, but for its last link's arguments (the standard formatter's
+  /// `force_one_line_chain`).
+  pub one_line_chains: bool,
 }
 
 impl Default for Limits {
@@ -47,6 +51,7 @@ impl Default for Limits {
       attribute: false,
       comma_as_written: false,
       style_2024: false,
+      one_line_chains: false,
     }
   }
 }

@@ -2,15 +2,15 @@
 //! and joined as the Rust style lays them out, rather than kept where they were written.
 //!
 //! Only the statements the expression code covers are taken: a `let` with an initializer,
-//! or an expression with a `;`, whose expression is a call, a method chain, a struct literal,
-//! an array, a tuple or a macro call in parentheses or brackets; any other statement is put
-//! on one line when it fits there. A statement holding a comment, a block, a macro in braces
+//! an expression with a `;`, or a block's tail (its last expression, with none), whose
+//! expression is a call, a method chain, a struct literal, an array, a tuple or a macro call
+//! in parentheses or brackets; any other statement is put on one line when it fits there. A statement holding a comment, a block, a macro in braces
 //! or a string spanning lines is left to the whole-file rules, which keep its lines as
 //! written; its attributes, and comments before it, are laid out on their own.
 
 use SyntaxKind as K;
 
-use super::expr::{flat, flat_tokens, is_chain, rewrite};
+use super::expr::{flat, flat_tokens, is_chain, prefer_next_line, rewrite};
 use super::items::header_start;
 use super::shape::{Limits, Shape, Spacing};
 use crate::options::format::FormatConfig;
@@ -26,6 +26,15 @@ pub struct Head {
   /// Where each token of the tail after the block's `}` starts (`)`, `?`, `;`, `,`), and its
   /// kind: they follow the `}` on its line.
   pub tail: Vec<(usize, SyntaxKind)>,
+}
+
+/// Whether `node` is a block's tail: the expression ending it, with no `;`, laid out as a
+/// statement is but for the `;`.
+pub fn is_tail(node: &SyntaxNode) -> bool {
+  (node.kind().name().ends_with("_EXPR") || node.kind() == K::Literal)
+    && node.parent().is_some_and(|p| {
+      p.kind() == K::BlockExpr && p.children_iter().next_back().as_ref() == Some(node)
+    })
 }
 
 /// A statement holding one block (a closure's body, an `async` or `unsafe` block, a block
@@ -436,7 +445,8 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
           | K::MacroCall
       )
   };
-  matches!(node.kind(), K::ExprStmt | K::LetStmt)
+  // A tail that is a block itself (`unsafe { .. }`) as any block.
+  (matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node) && node.kind() != K::BlockExpr)
     && !spaced_tuple_field
     && node
       .children_with_tokens_iter()
@@ -482,6 +492,7 @@ fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
       }
       None
     }
+    _ if is_tail(node) => Some(node.clone()),
     _ => None,
   }
 }
@@ -513,6 +524,7 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
     attribute: false,
     comma_as_written: false,
     style_2024: config.style_edition >= 2024,
+    one_line_chains: false,
   };
   let shape = Shape {
     indent,
@@ -539,6 +551,7 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
       let head = let_head(node, &expression, shape)?;
       right_side(&head, &expression, indent, shape, tab)
     }
+    _ if is_tail(node) => rewrite(node, shape),
     _ => None,
   }
 }
@@ -574,7 +587,7 @@ fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<
 /// every call, chain, struct literal, array and tuple in it stays on one line by its own
 /// width; else `None`.
 fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
-  if !matches!(node.kind(), K::ExprStmt | K::LetStmt) {
+  if !matches!(node.kind(), K::ExprStmt | K::LetStmt) && !is_tail(node) {
     return None;
   }
   let text = flat_code(node, Spacing::of(config));
@@ -582,20 +595,6 @@ fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
     return None;
   }
   (nested_fit(node, indent, config) && same_tokens(node, &text)).then_some(text)
-}
-
-/// The standard formatter moves a right-hand side to the next line when it fits on one line
-/// there but not on the first, when that saves more than one line, or when its first line
-/// would otherwise end by opening a delimiter that the next line's does not.
-fn prefer_next_line(same: &str, next: &str) -> bool {
-  let lines = |text: &str| text.matches('\n').count();
-  let opens = |text: &str, c: char| text.lines().next().is_some_and(|l| l.ends_with(c));
-  lines(same) > 0
-    && (lines(next) == 0
-      || lines(same) > lines(next) + 1
-      || ['(', '{', '[']
-        .iter()
-        .any(|&c| opens(same, c) && !opens(next, c)))
 }
 
 /// `head` (`let x =`, `a.b +=`) and then `value`, with its `;`: on the same line when it
@@ -644,6 +643,7 @@ fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
     attribute: false,
     comma_as_written: false,
     style_2024: config.style_edition >= 2024,
+    one_line_chains: false,
   };
   Some(Shape {
     indent,
@@ -678,7 +678,7 @@ fn takes(node: &SyntaxNode) -> bool {
   {
     return laid(&left) || laid(&right);
   }
-  matches!(node.kind(), K::ExprStmt | K::LetStmt)
+  (matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node))
     && expression_of(node).is_some_and(|expression| {
       is_chain(&expression)
         || matches!(

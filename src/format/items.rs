@@ -67,6 +67,7 @@ pub fn is_item(kind: SyntaxKind) -> bool {
       | K::TypeAlias
       | K::Const
       | K::Static
+      | K::ExternCrate
   )
 }
 

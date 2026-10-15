@@ -530,9 +530,9 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
           }
           other => {
             mark(other.text_range().start as usize, after_attr);
-            // A statement's, field's, variant's or foreign item's attributes join it with no
-            // blank line, as the standard formatter combines them; an item's in a file or
-            // module keep one.
+            // A statement's, field's, variant's, match arm's, foreign item's, `use`'s and
+            // `extern crate`'s attributes join it with no blank line, as the standard
+            // formatter combines them; another item's in a file or module keep one.
             let combined = node.kind() == SyntaxKind::ExternItemList
               || matches!(
                 child.kind(),
@@ -541,6 +541,8 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
                   | SyntaxKind::RecordField
                   | SyntaxKind::Variant
                   | SyntaxKind::MatchArm
+                  | SyntaxKind::Use
+                  | SyntaxKind::ExternCrate
               );
             if after_attr && combined {
               joined.push(other.text_range().start as usize);
@@ -1197,6 +1199,57 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               roles
                 .spaced
                 .insert(elements[after].text_range().start as usize);
+            }
+          }
+        }
+        // A macro call's name and its arguments: `name! {` one space apart, `name!(` and
+        // `name![` touching.
+        if node.kind() == SyntaxKind::MacroCall {
+          let elements: Vec<SyntaxElement> = node.children_with_tokens_iter().collect();
+          if let Some(bang) = elements.iter().position(|e| e.kind() == SyntaxKind::Bang)
+            && let Some(tree) = elements[bang + 1..]
+              .iter()
+              .find(|e| e.kind() != SyntaxKind::Whitespace)
+            && tree.kind() == SyntaxKind::TokenTree
+            && let SyntaxElement::Node(tree) = tree
+          {
+            let at = tree.text_range().start as usize;
+            if tree
+              .first_token()
+              .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
+            {
+              roles.spaced.insert(at);
+            } else {
+              roles.tight.insert(at);
+            }
+          }
+        }
+        // Inner attributes in a row, and the comments between them, follow one another with
+        // no blank line.
+        if matches!(node.kind(), SyntaxKind::SourceFile | SyntaxKind::ItemList) {
+          let mut after_inner = false;
+          let mut pending: Vec<usize> = Vec::new();
+          for element in node.children_with_tokens_iter() {
+            match &element {
+              SyntaxElement::Node(n) if n.kind() == SyntaxKind::Attr => {
+                let inner = Attr::cast(n.clone()).is_some_and(|a| a.is_inner());
+                if inner && after_inner {
+                  roles.joined.extend(pending.drain(..));
+                  roles.joined.insert(n.text_range().start as usize);
+                }
+                pending.clear();
+                after_inner = inner;
+              }
+              SyntaxElement::Token(t)
+                if matches!(t.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment) =>
+              {
+                pending.push(t.text_range().start as usize);
+              }
+              SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {}
+              _ => {
+                after_inner = false;
+                pending.clear();
+              }
             }
           }
         }

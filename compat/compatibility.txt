@@ -4,6 +4,6 @@
 # records new numbers.
 reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
 set tests files 292 462 lines 9414 11227 skipped 0
-set tests-with-settings files 225 559 lines 16888 22055 skipped 0
-set corpus files 9872 10436 lines 2647163 2653974 skipped 260
-set corpus-unformatted files 4219 10416 lines 2417619 2772411 skipped 273
+set tests-with-settings files 225 559 lines 16889 22055 skipped 0
+set corpus files 9872 10436 lines 2647164 2653974 skipped 260
+set corpus-unformatted files 4576 10416 lines 2421285 2772411 skipped 273

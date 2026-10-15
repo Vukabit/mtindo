@@ -1598,6 +1598,21 @@ fn rewrite_list(
     if placeholder.is_some() {
       over_shape = None;
     }
+    // `vec![x; n]` the standard formatter overflows across lines when it does not fit on
+    // the line, which is not done here: the list fails.
+    let repeat_macro = |item: &SyntaxNode| {
+      matches!(item.kind(), SyntaxKind::MacroExpr | SyntaxKind::MacroCall)
+        && macro_arguments(item, shape.limits.spacing).is_ok_and(|arguments| {
+          arguments
+            .list
+            .children_with_tokens()
+            .iter()
+            .any(|e| e.kind() == SyntaxKind::Semi)
+        })
+    };
+    if overflow && placeholder.is_none() && repeat_macro(&items[last]) {
+      return None;
+    }
     let mut probe = texts.clone();
     if let Some(over) = &placeholder {
       probe[last] = over.lines().next().unwrap_or("").to_string();
@@ -1783,6 +1798,16 @@ fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
     shape.limits.fn_call
   };
 
+  // `vec![x; n]`: on one line when it fits there; the standard formatter's layout across
+  // lines (`vec_with_semi`) is not followed here: left as written.
+  if list
+    .children_with_tokens()
+    .iter()
+    .any(|e| e.kind() == SyntaxKind::Semi)
+  {
+    let text = format!("{}{}", name, flat(&list, shape.limits.spacing));
+    return (text.width() <= shape.width).then_some(text);
+  }
   let items = list_items(&list);
   // Generic arguments that would have to break are not laid out yet (as in statements): an
   // argument holding them must fit on its own line with its comma when the list breaks.
@@ -1816,15 +1841,6 @@ fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
     |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_literal() && t.text().contains('\n')),
   ) {
     return None;
-  }
-  // `vec![x; n]`: on one line, or left as written.
-  if list
-    .children_with_tokens()
-    .iter()
-    .any(|e| e.kind() == SyntaxKind::Semi)
-  {
-    let text = format!("{}{}", name, flat(&list, shape.limits.spacing));
-    return (text.width() <= shape.width).then_some(text);
   }
   let shape = Shape {
     limits: Limits {

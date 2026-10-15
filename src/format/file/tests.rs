@@ -16,6 +16,20 @@ fn formatted(source: &str) -> String {
 }
 
 #[test]
+fn test_attributes_extern_crates_and_macro_calls() {
+  // Inner attributes in a row with no blank line between; a `use`'s and an `extern crate`'s
+  // attributes joined to it, another item's keeping a blank line; `extern crate` on one
+  // line; `name! {` one space apart, `name!(` and `name![` touching; `vec![x; n]` on one
+  // line.
+  assert_eq!(
+    formatted(
+      "#![feature(test)]\n\n#![warn(rust_2018_idioms)]\n\n// c\n#![allow(x)]\n\n#[macro_use]\n\nextern\n    crate bitflags;\nextern  crate  alloc as std2 ;\n#[cfg(x)]\n\nuse a::b;\n#[derive(Debug)]\n\nstruct S;\nbitflags!\n{ pub struct A: u8 {} }\nfoo!\n(a, b);\nbar!   [1];\nfn f() {\n    m!\n    { x };\n    let x = n!\n    (1);\n    let vec\n=\nvec![33u8;\n    1024];\n}\n"
+    ),
+    "#![feature(test)]\n#![warn(rust_2018_idioms)]\n// c\n#![allow(x)]\n\n#[macro_use]\nextern crate bitflags;\nextern crate alloc as std2;\n#[cfg(x)]\nuse a::b;\n#[derive(Debug)]\n\nstruct S;\nbitflags! { pub struct A: u8 {} }\nfoo!(a, b);\nbar![1];\nfn f() {\n    m! { x };\n    let x = n!(1);\n    let vec = vec![33u8; 1024];\n}\n"
+  );
+}
+
+#[test]
 fn test_blank_lines_and_trailing_whitespace() {
   assert_eq!(
     formatted("\n\nfn a() {   \n\n\n    x();  \n\n}\n\n\n\nfn b() {} // note   \n\n\n"),

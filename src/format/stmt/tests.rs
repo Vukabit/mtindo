@@ -277,6 +277,20 @@ fn test_macros_the_standard_formatter_cannot_read() {
 }
 
 #[test]
+fn test_match_arms() {
+  // Each arm on its own line: alternatives packed when short, else one per line with `|`
+  // first; a guard after them or on the next line; a body on the arm's line, a block's,
+  // `match`'s or `loop`'s `{` after `=>`; a struct pattern's fields with its `..` on one line
+  // when they fit without it.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    match x {\n        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14\n          | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 => a,\n        Foo::Aaaaaaaaaaaaaaaa | Foo::Bbbbbbbbbbbbbbbbbbbb\n          | Foo::Cccccccccccccccccc | Foo::Dddddddddddddd => b,\n        _ => call_something_long(aaaaaaaaaaaaaaaaaaaaaaaaa,\n           bbbbbbbbbbbbbbbbbbbbbbbbbbbbb, cccccccccccc),\n        _ => some_value.method_one().method_two_long_name()\n            .method_three_long_name().four(),\n        _ => {\n           a(); b() }\n        _    =>    {}\n        _ => unsafe {\n            a() },\n        _ => match y { _ => 1 },\n        _ => loop { a() },\n        _ => S { a: 1, b: 2, c: 3, d: 4, eeeeeeeeeeeee: 5,\n          ffffffffffffff: 6, ggggggggggggggg: 7 },\n        Some(x) if x > 1 => 2,\n        Some(aaaaaaaaaaaaaaaaaaaaaa) if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n            && bbbbbbbbbbbbbbbbbbbbbbbbbbbbb => {}\n        Point { xxxxxxxxxxxxxx, yyyyyyyyyyyyy, .. } => 3,\n        ErrorKind::ParseChar { character, index, .. } => {\n            write!(f, \"invalid character: found `{}` at {}\", character, index)\n        }\n    }\n}\n"
+    ),
+    "fn f() {\n    match x {\n        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19\n        | 20 | 21 | 22 | 23 | 24 => a,\n        Foo::Aaaaaaaaaaaaaaaa\n        | Foo::Bbbbbbbbbbbbbbbbbbbb\n        | Foo::Cccccccccccccccccc\n        | Foo::Dddddddddddddd => b,\n        _ => call_something_long(\n            aaaaaaaaaaaaaaaaaaaaaaaaa,\n            bbbbbbbbbbbbbbbbbbbbbbbbbbbbb,\n            cccccccccccc,\n        ),\n        _ => some_value\n            .method_one()\n            .method_two_long_name()\n            .method_three_long_name()\n            .four(),\n        _ => {\n            a();\n            b()\n        }\n        _ => {}\n        _ => unsafe { a() },\n        _ => match y {\n            _ => 1,\n        },\n        _ => loop {\n            a()\n        },\n        _ => S {\n            a: 1,\n            b: 2,\n            c: 3,\n            d: 4,\n            eeeeeeeeeeeee: 5,\n            ffffffffffffff: 6,\n            ggggggggggggggg: 7,\n        },\n        Some(x) if x > 1 => 2,\n        Some(aaaaaaaaaaaaaaaaaaaaaa)\n            if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa && bbbbbbbbbbbbbbbbbbbbbbbbbbbbb => {}\n        Point {\n            xxxxxxxxxxxxxx,\n            yyyyyyyyyyyyy,\n            ..\n        } => 3,\n        ErrorKind::ParseChar {\n            character, index, ..\n        } => {\n            write!(f, \"invalid character: found `{}` at {}\", character, index)\n        }\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_other_statements_on_one_line_when_they_fit() {
   assert_eq!(
     formatted("fn f() {\n    let name =\n    \"my-app\";\n    x\n        += 1;\n    let y;\n}\n"),

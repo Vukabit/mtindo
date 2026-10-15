@@ -4,6 +4,7 @@
 //! expression into the [`shape::Shape`] left for it, trying layouts in the standard
 //! formatter's order.
 
+pub mod arms;
 pub mod attrs;
 pub mod expr;
 pub mod file;

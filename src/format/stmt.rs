@@ -27,6 +27,9 @@ pub struct Head {
   /// Where each token of the tail after the block's `}` starts (`)`, `?`, `;`, `,`), and its
   /// kind: they follow the `}` on its line.
   pub tail: Vec<(usize, SyntaxKind)>,
+  /// Whether a comma in the tail stays (after a match arm's body); else it goes, as the
+  /// arguments it closed are on one line.
+  pub keep_comma: bool,
 }
 
 /// Whether `node` is a block's tail: the expression ending it, with no `;`, laid out as a
@@ -196,6 +199,7 @@ pub fn rewrite_control_head(
     text,
     open: open as usize,
     tail: Vec::new(),
+    keep_comma: false,
   })
 }
 
@@ -401,6 +405,7 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
     text,
     open: open.start as usize,
     tail: tail.iter().map(|t| (t.2, t.0)).collect(),
+    keep_comma: false,
   })
 }
 
@@ -449,6 +454,7 @@ pub fn rewrite_let_control(
     text: format!("{} {}", head, same.text),
     open: same.open,
     tail: Vec::new(),
+    keep_comma: false,
   })
 }
 
@@ -522,6 +528,39 @@ pub fn rewrite_statement(
   same_tokens(node, &text).then_some(text)
 }
 
+/// Whether an expression (or a pattern) holds nothing laying it out would lose or misplace:
+/// a comment, a block not laid out on one line, a `match`'s arms, a macro in braces, an
+/// attribute, a string spanning lines, a tuple field written `x.0 .0`.
+pub(super) fn clean_expression(node: &SyntaxNode) -> bool {
+  // `x.0 .0`: the standard formatter keeps the space a chain layout would drop.
+  let tokens: Vec<SyntaxKind> = node.token_texts().map(|(kind, _, _)| kind).collect();
+  if tokens
+    .windows(4)
+    .any(|w| w == [K::IntNumber, K::Whitespace, K::Dot, K::IntNumber])
+  {
+    return false;
+  }
+  // Every kind `safe` can turn down: the walk makes nothing else.
+  let suspect = |kind: SyntaxKind| {
+    kind.is_literal()
+      || matches!(
+        kind,
+        K::LineComment
+          | K::BlockComment
+          | K::OuterLineDoc
+          | K::InnerLineDoc
+          | K::OuterBlockDoc
+          | K::InnerBlockDoc
+          | K::BlockExpr
+          | K::MatchArmList
+          | K::Attr
+          | K::LetElse
+          | K::MacroCall
+      )
+  };
+  safe(&SyntaxElement::Node(node.clone())) && node.descendants_where(suspect).all(|d| safe(&d))
+}
+
 /// Whether every call, chain, struct literal, array, tuple and pattern in `node` stays on
 /// one line by its own width, laid out from column `indent`.
 pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> bool {
@@ -586,6 +625,31 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
   let mut ours: Vec<&str> = ours.collect();
   ours.pop();
   theirs.eq(ours)
+}
+
+/// The shape a statement starting at column `indent` is laid out into.
+pub(super) fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
+  let limits = Limits {
+    max_width: config.max_width,
+    tab: config.tab_spaces,
+    fn_call: config.fn_call_width,
+    chain: config.chain_width,
+    struct_lit: config.struct_lit_width,
+    array: config.array_width,
+    short_item: config.short_array_element_width_threshold,
+    spacing: Spacing::of(config),
+    attribute: false,
+    comma_as_written: false,
+    style_2024: config.style_edition >= 2024,
+    one_line_chains: false,
+    single_line_if_else: config.single_line_if_else_max_width,
+  };
+  Some(Shape {
+    indent,
+    offset: 0,
+    width: config.max_width.checked_sub(indent)?,
+    limits,
+  })
 }
 
 /// Whether `text` is the node's text from `from` to its end exactly: laid out as written,
@@ -670,39 +734,6 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
         SyntaxElement::Node(n) => clean_expression(n),
         token => safe(token),
       })
-}
-
-/// Whether an expression (or a pattern) holds nothing laying it out would lose or misplace:
-/// a comment, a block not laid out on one line, a `match`'s arms, a macro in braces, an
-/// attribute, a string spanning lines, a tuple field written `x.0 .0`.
-fn clean_expression(node: &SyntaxNode) -> bool {
-  // `x.0 .0`: the standard formatter keeps the space a chain layout would drop.
-  let tokens: Vec<SyntaxKind> = node.token_texts().map(|(kind, _, _)| kind).collect();
-  if tokens
-    .windows(4)
-    .any(|w| w == [K::IntNumber, K::Whitespace, K::Dot, K::IntNumber])
-  {
-    return false;
-  }
-  // Every kind `safe` can turn down: the walk makes nothing else.
-  let suspect = |kind: SyntaxKind| {
-    kind.is_literal()
-      || matches!(
-        kind,
-        K::LineComment
-          | K::BlockComment
-          | K::OuterLineDoc
-          | K::InnerLineDoc
-          | K::OuterBlockDoc
-          | K::InnerBlockDoc
-          | K::BlockExpr
-          | K::MatchArmList
-          | K::Attr
-          | K::LetElse
-          | K::MacroCall
-      )
-  };
-  safe(&SyntaxElement::Node(node.clone())) && node.descendants_where(suspect).all(|d| safe(&d))
 }
 
 /// The statement's code tokens, from after its attributes and the comments before it, which
@@ -918,31 +949,6 @@ fn safe(element: &SyntaxElement) -> bool {
         && !(n.kind() == K::MacroCall && braced(n))
     }
   }
-}
-
-/// The shape a statement starting at column `indent` is laid out into.
-fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
-  let limits = Limits {
-    max_width: config.max_width,
-    tab: config.tab_spaces,
-    fn_call: config.fn_call_width,
-    chain: config.chain_width,
-    struct_lit: config.struct_lit_width,
-    array: config.array_width,
-    short_item: config.short_array_element_width_threshold,
-    spacing: Spacing::of(config),
-    attribute: false,
-    comma_as_written: false,
-    style_2024: config.style_edition >= 2024,
-    one_line_chains: false,
-    single_line_if_else: config.single_line_if_else_max_width,
-  };
-  Some(Shape {
-    indent,
-    offset: 0,
-    width: config.max_width.checked_sub(indent)?,
-    limits,
-  })
 }
 
 /// Whether the layout code takes the statement whole: a `let` with an initializer, an

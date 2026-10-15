@@ -408,14 +408,13 @@ pub fn joins(block: &SyntaxNode) -> bool {
     return false;
   }
   match parent.kind() {
-    SyntaxKind::ExprStmt | SyntaxKind::BlockExpr => prefixed,
+    SyntaxKind::ExprStmt | SyntaxKind::BlockExpr | SyntaxKind::MatchArm => prefixed,
     SyntaxKind::ClosureExpr
     | SyntaxKind::Fn
     | SyntaxKind::IfExpr
     | SyntaxKind::WhileExpr
     | SyntaxKind::ForExpr
-    | SyntaxKind::LoopExpr
-    | SyntaxKind::MatchArm => false,
+    | SyntaxKind::LoopExpr => false,
     kind => {
       kind.name().ends_with("_EXPR")
         || matches!(
@@ -642,6 +641,22 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     // standard formatter.
     SyntaxKind::Literal => Some(flat(node, shape.limits.spacing)),
     SyntaxKind::PathExpr => rewrite_path(node, shape),
+    SyntaxKind::OrPat => rewrite_or_pattern(node, shape),
+    // `name @ pattern`: the pattern laid out after the binding.
+    SyntaxKind::IdentPat
+      if node
+        .children()
+        .last()
+        .is_some_and(|c| c.kind().name().ends_with("_PAT")) =>
+    {
+      let inner = node.children().into_iter().last()?;
+      let prefix = flat(node, shape.limits.spacing)
+        .strip_suffix(&flat(&inner, shape.limits.spacing))?
+        .to_string();
+      // The standard formatter holds back the name and `@ `, not the space before `@`.
+      let text = rewrite(&inner, shape.offset_left(prefix.width().saturating_sub(1))?)?;
+      Some(format!("{}{}", prefix, text))
+    }
     SyntaxKind::BinExpr if binary_operator(node).is_some() => rewrite_binary(node, shape),
     // The tail of a match arm's or closure's block of it alone is not followed yet.
     SyntaxKind::IfExpr
@@ -1476,7 +1491,17 @@ fn rewrite_let_condition(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let [pattern, value] = children.as_slice() else {
     return None;
   };
-  let pattern = rewrite(pattern, shape.offset_left(4)?)?;
+  // 4 = `let `; 2 = ` =`, held back for a lone condition's but not in a let chain.
+  let chained = node
+    .parent()
+    .is_some_and(|p| p.kind() == SyntaxKind::BinExpr);
+  let pattern_shape = shape.offset_left(4)?;
+  let pattern_shape = if chained {
+    pattern_shape
+  } else {
+    pattern_shape.sub_width(2)?
+  };
+  let pattern = rewrite(pattern, pattern_shape)?;
   assign_value(&format!("let {} =", pattern), value, shape)
 }
 
@@ -1530,12 +1555,16 @@ fn rewrite_list(
   if !items.is_empty() {
     let last = items.len() - 1;
     let combine = items.len() == 1 && used < shape.limits.tab;
-    // Among several closures the last does not overflow (`args_have_many_closure`).
+    // A slice pattern's last element does not overflow; among several closures the last
+    // does not either (`args_have_many_closure`).
+    let slice = items[0]
+      .parent()
+      .is_some_and(|p| p.kind() == SyntaxKind::SlicePat);
     let closures = items
       .iter()
       .filter(|i| i.kind() == SyntaxKind::ClosureExpr)
       .count();
-    let overflow = closures < 2 && (combine || can_overflow(&items[last], items.len()));
+    let overflow = !slice && closures < 2 && (combine || can_overflow(&items[last], items.len()));
     // A method chain overflowing a list it is not combined with keeps its links on one
     // line, though its last call's arguments may break (the standard formatter's
     // `force_one_line_chain`).
@@ -1808,6 +1837,49 @@ fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
   rewrite_list(&name, &list_items(&list), shape, width, open, close)
 }
 
+/// Alternative patterns (`A | B`), as the standard formatter writes them: on one line when
+/// they fit; when every one is short, packed onto lines; else one per line. A line after
+/// the first starts with `| ` at the patterns' indentation.
+fn rewrite_or_pattern(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let alternatives = node.children();
+  let texts: Vec<String> = alternatives
+    .iter()
+    .map(|a| rewrite(a, shape))
+    .collect::<Option<_>>()?;
+  let short = alternatives
+    .iter()
+    .zip(&texts)
+    .all(|(a, t)| t.len() <= 20 && !t.contains('\n') && short_pattern(a));
+  let pad = " ".repeat(shape.indent);
+  if short {
+    // As `write_list` packs them: each after the first counted with its ` |`, and a space
+    // between.
+    let mut text = String::new();
+    let mut line = 0;
+    for (i, alternative) in texts.iter().enumerate() {
+      let total = alternative.len() + if i > 0 { 2 } else { 0 };
+      if line > 0 && line + 1 + total > shape.width {
+        text.push_str(&format!("\n{}", pad));
+        line = 0;
+      } else if line > 0 {
+        text.push(' ');
+        line += 1;
+      }
+      if i > 0 {
+        text.push_str("| ");
+      }
+      text.push_str(alternative);
+      line += total;
+    }
+    return Some(text);
+  }
+  let total: usize = texts.iter().map(|t| t.width()).sum::<usize>() + 3 * (texts.len() - 1);
+  if total <= shape.width && !texts.iter().any(|t| t.contains('\n')) {
+    return Some(texts.join(" | "));
+  }
+  Some(texts.join(&format!("\n{}| ", pad)))
+}
+
 /// The two sides of a binary expression on one line when they fit, the right one after a
 /// left one no wider than the indentation or opening a block even spanning lines; else the
 /// right side on the next line one level in, after the operator (`rewrite_pair`).
@@ -2012,9 +2084,35 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .width
     .checked_sub(path.width() + 3 + 2)
     .map(|w| w.min(shape.limits.struct_lit));
-  let horizontal = h_width.is_some_and(|w| definitive(&all, w) == Tactic::Horizontal);
+  let mut horizontal = h_width.is_some_and(|w| definitive(&all, w) == Tactic::Horizontal);
+  // A pattern ending in `..` (the standard formatter's `rewrite_struct_pat`): its fields are
+  // held to the width less ` { `, `, ..` and ` }`; fitting there they stay on one line with
+  // the `..`, inside braces on lines of their own when that line is too wide.
+  let mut rest_line = false;
+  let h_rest = shape
+    .width
+    .checked_sub(path.width() + 3 + 6)
+    .map(|w| w.min(shape.limits.struct_lit));
+  // `Path { .. }` alone: on one line only where its `..` fits that width.
+  if node.kind() == SyntaxKind::RecordPat && spread.as_deref() == Some("..") && fields.is_empty() {
+    horizontal = h_rest.is_some_and(|w| w >= 2);
+  }
+  if node.kind() == SyntaxKind::RecordPat && spread.as_deref() == Some("..") && !fields.is_empty() {
+    let fits = h_rest.is_some_and(|w| definitive(&fields, w) == Tactic::Horizontal);
+    let line = fields.join(", ").width() + 4;
+    horizontal = fits && h_rest.is_some_and(|w| line <= w);
+    rest_line = fits && !horizontal;
+  }
   let text = if horizontal {
     format!("{} {{ {} }}", path, all.join(", "))
+  } else if rest_line {
+    format!(
+      "{} {{\n{}{}, ..\n{}}}",
+      path,
+      " ".repeat(v_shape.indent),
+      fields.join(", "),
+      " ".repeat(shape.indent)
+    )
   } else {
     let pad = " ".repeat(v_shape.indent);
     let mut body = String::new();
@@ -2043,6 +2141,34 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     format!("{} {{{}\n{}}}", path, body, " ".repeat(shape.indent))
   };
   wrap_str(text, shape)
+}
+
+/// Whether a pattern is short for packing alternatives: a literal, `_`, `..`, a name, a
+/// tuple of at most one, a single-segment tuple struct of at most one, or one of those
+/// behind `&`, `box` or parentheses.
+fn short_pattern(node: &SyntaxNode) -> bool {
+  match node.kind() {
+    SyntaxKind::LiteralPat | SyntaxKind::WildcardPat | SyntaxKind::RestPat => true,
+    SyntaxKind::IdentPat => !node
+      .children()
+      .iter()
+      .any(|c| c.kind().name().ends_with("_PAT")),
+    // A bare name is a binding to the standard formatter.
+    SyntaxKind::PathPat => !flat(node, Spacing::default()).contains("::"),
+    SyntaxKind::TuplePat => node.children().len() <= 1,
+    SyntaxKind::TupleStructPat => {
+      let children = node.children();
+      children
+        .first()
+        .is_some_and(|p| !flat(p, Spacing::default()).contains("::"))
+        && children.len() <= 2
+    }
+    SyntaxKind::RefPat | SyntaxKind::BoxPat | SyntaxKind::ParenPat => {
+      node.children().first().is_some_and(short_pattern)
+    }
+    SyntaxKind::OrPat => node.children().iter().all(short_pattern),
+    _ => false,
+  }
 }
 
 /// Whether `text` fits: its first line in the shape's width, the rest within the line width.

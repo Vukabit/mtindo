@@ -35,6 +35,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
+use crate::format::arms::{Arm, rewrite_arm};
 use crate::format::attrs::rewrite_attr;
 use crate::format::expr::{is_statement, lines_block};
 use crate::format::imports::rewrite_use;
@@ -313,7 +314,7 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
 }
 
 /// Whether a block is the body of an `if`, `else`, `while`, `for` or `loop` that is a
-/// statement or a `let`'s value, or the tail of a block of lines: the standard formatter writes it on lines
+/// statement, a `let`'s value or a match arm's body, or the tail of a block of lines: the standard formatter writes it on lines
 /// (an `if`'s may go on one line as a tail, where the statement layout writes it so).
 fn control_block(node: &SyntaxNode) -> bool {
   let Some(mut control) = node.parent() else {
@@ -330,8 +331,10 @@ fn control_block(node: &SyntaxNode) -> bool {
     control = up;
   }
   control.parent().is_some_and(|p| {
-    matches!(p.kind(), SyntaxKind::ExprStmt | SyntaxKind::LetStmt)
-      || p.kind() == SyntaxKind::BlockExpr && lines_block(&p)
+    matches!(
+      p.kind(),
+      SyntaxKind::ExprStmt | SyntaxKind::LetStmt | SyntaxKind::MatchArm
+    ) || p.kind() == SyntaxKind::BlockExpr && lines_block(&p)
   })
 }
 
@@ -393,10 +396,12 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
         | SyntaxKind::VariantList
         | SyntaxKind::RecordFieldList
         | SyntaxKind::BlockExpr
+        | SyntaxKind::MatchArmList
     )
   };
   for node in root.descendant_nodes_where(lines) {
     // Fields of a struct or union definition and an enum's variants are one per line too.
+    // A `match`'s arms too.
     let items = matches!(
       node.kind(),
       SyntaxKind::SourceFile
@@ -404,6 +409,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
         | SyntaxKind::AssocItemList
         | SyntaxKind::ExternItemList
         | SyntaxKind::VariantList
+        | SyntaxKind::MatchArmList
     ) || node.kind() == SyntaxKind::RecordFieldList
       && node
         .parent()
@@ -470,6 +476,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
                   | SyntaxKind::ExprStmt
                   | SyntaxKind::RecordField
                   | SyntaxKind::Variant
+                  | SyntaxKind::MatchArm
               );
             if after_attr && combined {
               joined.push(other.text_range().start as usize);
@@ -839,6 +846,16 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       && let Some((text, to)) = {
         let indent = width_of(&out[out_line_start..], tab);
         let whole = |text: Option<String>| text.map(|t| (t, node.text_range().end as usize));
+        // A head laid out: its tail follows the block's `}` on its line.
+        let take_head = |head: crate::format::stmt::Head| {
+          for (at, kind) in head.tail {
+            glued.borrow_mut().insert(at);
+            if kind == SyntaxKind::Comma && !head.keep_comma {
+              dropped.borrow_mut().insert(at);
+            }
+          }
+          (head.text, head.open)
+        };
         // A control expression's head, as a statement or a tail, or after `} else `.
         let control = |node: &SyntaxNode| {
           let line = &out[out_line_start..];
@@ -851,6 +868,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             control(node)
           }
           SyntaxKind::Use => whole(rewrite_use(node, indent, config)),
+          SyntaxKind::MatchArm => match rewrite_arm(node, indent, config) {
+            Some(Arm::Whole(text)) => Some((text, node.text_range().end as usize)),
+            Some(Arm::Head(head)) => Some(take_head(head)),
+            None => None,
+          },
           SyntaxKind::Attr => whole(rewrite_attr(node, indent, config)),
           // Not an item given up on whole.
           SyntaxKind::RecordField | SyntaxKind::Variant => {
@@ -882,13 +904,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
               };
               return control(&expression);
             };
-            for (at, kind) in head.tail {
-              glued.borrow_mut().insert(at);
-              if kind == SyntaxKind::Comma {
-                dropped.borrow_mut().insert(at);
-              }
-            }
-            Some((head.text, head.open))
+            Some(take_head(head))
           }),
         }
       }
@@ -1076,6 +1092,12 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 .insert(elements[after].text_range().start as usize);
             }
           }
+        }
+        // A match arm, from after its attributes.
+        if node.kind() == SyntaxKind::MatchArm
+          && let Some(start) = crate::format::items::header_start(node)
+        {
+          roles.layable.insert(start, node.clone());
         }
         // A field of a struct definition or a variant, from after its attributes.
         if crate::format::items::is_field(node)

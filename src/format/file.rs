@@ -21,12 +21,14 @@
 //!   and end of a container (a module body keeps its first, an extern block both), and the
 //!   file ends with one line break, in the `newline_style`.
 //!
-//! Left as written, as the standard formatter leaves them: macro bodies, `macro_rules!`
-//! definitions, attributes it cannot read as names and values, anything marked
-//! `#[rustfmt::skip]`, `// mto: off` regions, files that skip themselves, files with syntax
-//! errors, files `disable_all_formatting` or `format_generated_files` turn away, a
+//! Left as written, as the standard formatter leaves them: macro bodies (a braced call's
+//! re-indented, keeping its layout, unless `rustfmt::skip::macros` names it),
+//! `macro_rules!` definitions, attributes it cannot read as names and values, anything
+//! marked `#[rustfmt::skip]`, `// mto: off` regions, files that skip themselves, files with
+//! syntax errors, files `disable_all_formatting` or `format_generated_files` turn away, a
 //! statement with a comment between a binary operator's operands, and a statement or item
-//! with a line of code longer than `max_width`, which the standard formatter gives up on.
+//! with a line of code longer than `max_width`, which the standard formatter gives up on
+//! (a braced macro call aside).
 //! The lines of a closure, an argument or a match arm count toward the statement around it,
 //! since the standard formatter formats them as part of its expression. Lines after a
 //! statement's first are measured as written; its first line is measured as the pass reaches
@@ -108,6 +110,9 @@ struct Roles {
   keeps_trailing_blank: OffsetSet,
   /// Ranges left exactly as written.
   verbatim: Vec<(usize, usize)>,
+  /// A braced macro call's arguments, by where they start: where they end. Not laid out,
+  /// but re-indented as the standard formatter's `trim_left_preserve_layout` does.
+  preserved: Offsets<usize>,
   /// Statements left as written whole, from their first token, by where they start.
   kept_whole: OffsetSet,
   /// Where a token starts that follows the one before it on its line after one space: an
@@ -206,6 +211,23 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
     return body;
   }
   format!("{}{}", bom, body)
+}
+
+/// Whether a node is a macro call with braces (`m! { .. }`), or a statement of one.
+fn braced_macro(node: &SyntaxNode) -> bool {
+  let mut node = node.clone();
+  while matches!(node.kind(), SyntaxKind::ExprStmt | SyntaxKind::MacroExpr)
+    && let Some(inner) = node.children_iter().find(|c| c.kind() != SyntaxKind::Attr)
+  {
+    node = inner;
+  }
+  node.kind() == SyntaxKind::MacroCall
+    && node.children_iter().any(|c| {
+      c.kind() == SyntaxKind::TokenTree
+        && c
+          .first_token()
+          .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
+    })
 }
 
 /// Where a container's child (of `kind`, at `range`, a node or not) starts, if it is
@@ -505,15 +527,33 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
       // Its own attributes, each on a line, and the line after them; the comments before
       // its code, and its code's first line, are indented as it is.
       let mut after_attr = false;
+      // After a doc comment, which joins like an attribute.
+      let mut after_doc = false;
+      // A statement's, field's, variant's, match arm's, foreign item's, `use`'s and
+      // `extern crate`'s attributes and doc comments join it with no blank line, as the
+      // standard formatter combines them; another item's in a file or module keep one.
+      let combined = node.kind() == SyntaxKind::ExternItemList
+        || matches!(
+          child.kind(),
+          SyntaxKind::LetStmt
+            | SyntaxKind::ExprStmt
+            | SyntaxKind::RecordField
+            | SyntaxKind::Variant
+            | SyntaxKind::MatchArm
+            | SyntaxKind::Use
+            | SyntaxKind::ExternCrate
+        );
       let mut joined = Vec::new();
       for element in child.children_with_tokens_iter() {
         match &element {
           SyntaxElement::Node(n) if n.kind() == SyntaxKind::Attr => {
             mark(n.text_range().start as usize, true);
+            // A blank line between a doc comment and an attribute stays.
             if after_attr {
               joined.push(n.text_range().start as usize);
             }
             after_attr = true;
+            after_doc = false;
           }
           SyntaxElement::Token(t)
             if crate::format::items::is_doc(t.kind())
@@ -521,6 +561,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
           {
             mark(t.text_range().start as usize, false);
             after_attr = false;
+            after_doc = crate::format::items::is_doc(t.kind());
           }
           SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {}
           SyntaxElement::Token(t)
@@ -530,21 +571,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
           }
           other => {
             mark(other.text_range().start as usize, after_attr);
-            // A statement's, field's, variant's, match arm's, foreign item's, `use`'s and
-            // `extern crate`'s attributes join it with no blank line, as the standard
-            // formatter combines them; another item's in a file or module keep one.
-            let combined = node.kind() == SyntaxKind::ExternItemList
-              || matches!(
-                child.kind(),
-                SyntaxKind::LetStmt
-                  | SyntaxKind::ExprStmt
-                  | SyntaxKind::RecordField
-                  | SyntaxKind::Variant
-                  | SyntaxKind::MatchArm
-                  | SyntaxKind::Use
-                  | SyntaxKind::ExternCrate
-              );
-            if after_attr && combined {
+            if (after_attr || after_doc) && combined {
               joined.push(other.text_range().start as usize);
             }
             break;
@@ -677,6 +704,39 @@ fn overflowing(
     at = line_end + 1;
   }
   found
+}
+
+/// A braced macro call's arguments as the standard formatter's `trim_left_preserve_layout`
+/// writes them: the first line as written, without trailing whitespace; each later line
+/// trimmed and indented from `indent` by as much as it was past the least indented of them
+/// (tabs counting `tab_spaces`); a blank line empty.
+fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfig) -> String {
+  let tab = config.tab_spaces.max(1);
+  let mut lines = snippet.split('\n');
+  let first = lines.next().unwrap_or("").trim_end();
+  let rest: Vec<&str> = lines.collect();
+  let leading = |line: &str| {
+    line
+      .chars()
+      .take_while(|c| *c == ' ' || *c == '\t')
+      .map(|c| if c == '\t' { tab } else { 1 })
+      .sum::<usize>()
+  };
+  let least = rest
+    .iter()
+    .filter(|l| !l.trim().is_empty())
+    .map(|l| leading(l))
+    .min()
+    .unwrap_or(0);
+  let mut out = first.to_string();
+  for line in rest {
+    out.push('\n');
+    if !line.trim().is_empty() {
+      out.push_str(&" ".repeat(indent + leading(line) - least));
+      out.push_str(line.trim());
+    }
+  }
+  out
 }
 
 fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConfig) -> String {
@@ -915,6 +975,22 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         .chain(gave_up.borrow().iter())
         .any(|&(s, e)| s <= start && end <= e)
     };
+    // A braced macro call's arguments, re-indented from the line they start on.
+    if let Some(&end) = roles.preserved.get(&tok.start)
+      && !in_verbatim(tok.start)
+    {
+      let line = &out[out_line_start..];
+      let indent = width_of(&line[..line.len() - line.trim_start().len()], tab);
+      out.push_str(&preserve_layout(&text[tok.start..end], indent, config));
+      if let Some(at) = out.rfind('\n') {
+        out_line_start = at + 1;
+      }
+      laid_out_to = end;
+      previous_significant = None;
+      code_on_line = true;
+      comment_column = None;
+      continue;
+    }
     if let Some(node) = roles.layable.get(&tok.start)
       && !in_verbatim(tok.start)
       && !roles
@@ -1104,6 +1180,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let mut statements = Vec::new();
   let mut attrs = Vec::new();
   let mut stranded = Vec::new();
+  let mut braced_macros: Vec<(usize, usize)> = Vec::new();
   let mut chained_const = Vec::new();
   let mut line_comments = Vec::new();
   // A `#[rustfmt::skip]` (or `rustfmt_skip`, or either in a `cfg_attr`) holds one of these
@@ -1146,6 +1223,11 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           })
         };
         if in_list && node.kind() != SyntaxKind::Attr {
+          // A braced macro call is re-indented whatever its width, never given up on: it
+          // still holds its own long lines.
+          if braced_macro(node) {
+            braced_macros.push((range.start as usize, range.end as usize));
+          }
           if !in_expression() {
             statements.push((range.start as usize, range.end as usize));
           }
@@ -1291,6 +1373,24 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           node.kind(),
           SyntaxKind::TokenTree | SyntaxKind::MacroRules | SyntaxKind::MacroDef
         );
+        // A braced macro call's arguments, with no string spanning lines in them (whose
+        // lines the standard formatter treats apart).
+        if node.kind() == SyntaxKind::TokenTree
+          && node
+            .parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::MacroCall && !skipped_macro(&p))
+          && node
+            .first_token()
+            .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
+          && !config.hard_tabs
+          && !node
+            .token_texts()
+            .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+        {
+          roles
+            .preserved
+            .insert(range.start as usize, range.end as usize);
+        }
         if kept || skipped || unparsed_attr {
           roles
             .verbatim
@@ -1366,13 +1466,11 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   if let Some(from) = region {
     roles.verbatim.push((from, text.len()));
   }
-  roles.verbatim.extend(overflowing(
-    &statements,
-    &attrs,
-    &line_comments,
-    text,
-    config,
-  ));
+  roles.verbatim.extend(
+    overflowing(&statements, &attrs, &line_comments, text, config)
+      .into_iter()
+      .filter(|range| !braced_macros.contains(range)),
+  );
   // The innermost statement around each stranded comment.
   for comment in stranded {
     if let Some(&around) = statements
@@ -1409,6 +1507,28 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   roles.verbatim = merged;
   roles
+}
+
+/// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names: left
+/// exactly as written.
+fn skipped_macro(call: &SyntaxNode) -> bool {
+  let Some(path) = call.children_iter().find(|c| c.kind() == SyntaxKind::Path) else {
+    return false;
+  };
+  let name = path.text().to_string();
+  let name = name.rsplit("::").next().unwrap_or("").trim().to_string();
+  call.ancestors_iter().any(|owner| {
+    owner
+      .children_iter()
+      .filter(|c| c.kind() == SyntaxKind::Attr)
+      .any(|attr| {
+        let text: String = attr.text().to_string().split_whitespace().collect();
+        text
+          .split_once("rustfmt::skip::macros(")
+          .and_then(|(_, rest)| rest.split_once(')'))
+          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
+      })
+  })
 }
 
 /// A file with `#![rustfmt::skip]` is left alone.

@@ -414,8 +414,32 @@ pub fn rewrite_header(
   // A type alias, const or static: on one line, its calls and lists each within their
   // widths, or left as written.
   if matches!(node.kind(), K::TypeAlias | K::Const | K::Static) {
-    return (width <= config.max_width && super::stmt::nested_fit(node, indent, config))
-      .then(|| (format!("{}{}", one_line, suffix), end));
+    if width <= config.max_width && super::stmt::nested_fit(node, indent, config) {
+      return Some((format!("{}{}", one_line, suffix), end));
+    }
+    // A const's or static's value on the next line one level in, when it fits there on
+    // one line (as a `let`'s moves).
+    let eq = node
+      .children_with_tokens_iter()
+      .find(|e| e.kind() == K::Eq)
+      .filter(|_| node.kind() != K::TypeAlias)?;
+    // A value holding a block, which has a layout of its own, is left as written.
+    if node.subtree_has(|kind| matches!(kind, K::BlockExpr | K::MatchArmList)) {
+      return None;
+    }
+    let at = eq.text_range().end;
+    let (head, value): (Vec<SyntaxToken>, Vec<SyntaxToken>) = tokens
+      .iter()
+      .cloned()
+      .partition(|t| t.text_range().start < at);
+    let (head, value) = (flat_tokens(&head, spacing), flat_tokens(&value, spacing));
+    let inner = indent + config.tab_spaces;
+    // A string spanning lines stays on the item's line.
+    return (indent + str_width(&head) <= config.max_width
+      && !value.contains('\n')
+      && inner + str_width(&value) <= config.max_width
+      && super::stmt::nested_fit(node, inner, config))
+    .then(|| (format!("{}\n{}{}", head, " ".repeat(inner), value), end));
   }
   if width <= config.max_width {
     return Some((format!("{}{}", one_line, suffix), end));

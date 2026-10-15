@@ -305,8 +305,10 @@ whether mto honors it yet; `--toml` prints them as a commented file.
 Unknown keys are warnings. A value of the wrong type or outside the legal
 values stops the run with exit code `2`, naming the file, line and column.
 `mto --man` documents every setting, the formatting settings and mto's, with
-its legal values and defaults. Without `format = true`, the formatting
-settings change nothing except the style edition.
+its legal values and defaults; so does [docs/config/](docs/config/README.md),
+with how far mto honors each one and a JSON Schema of `mto.toml` for editors.
+Without `format = true`, the formatting settings change nothing except the
+style edition.
 
 `mto init` writes an `mto.toml` with layout on and mto's other settings at
 their defaults, each with a comment; without the comments:

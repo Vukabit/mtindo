@@ -47,7 +47,8 @@ in this workspace written in Rust like the rest. Its dependencies (`clap`,
 crate, which `cargo xtask gates` holds to none:
 
 ```bash
-# No runtime dependencies, layering, docs width, capability statuses
+# No runtime dependencies, layering, docs width, capability statuses,
+# metrics papers matching their records
 cargo xtask gates
 # Regenerate src/text/unicode tables from the Unicode Character Database
 cargo xtask unicode
@@ -74,6 +75,10 @@ cargo xtask corpus bench [--markdown]
 # rustfmt on its own tests, the corpus and the corpus with scrambled
 # whitespace; fails below compat/compatibility.txt, --update records
 cargo xtask diff [--update] [--markdown]
+# Regenerate the metrics papers in docs/metrics/ from the recorded data
+# (compat/ and its history, .dev/ when present); runs no suite. --check
+# only compares, as the metrics-docs gate does
+cargo xtask docs metrics [--check]
 # Move every corpus pin to its repository's current HEAD
 cargo xtask corpus update
 # Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's
@@ -83,6 +88,10 @@ cargo xtask race [--rounds N] [--filter TEXT]
 # Regenerate src/options/rustfmt.rs, rustfmt's settings table, from the
 # releases pinned in compat/rustfmt-surface.txt; --check only compares
 cargo xtask settings [--check]
+# Regenerate docs/config/, the settings reference and mto.toml's JSON
+# Schema, from the settings table; --check only compares (the config-docs
+# task of cargo xtask test fails while it is stale)
+cargo xtask docs config [--check]
 # Check the TOML parser against the pinned toml-test conformance suite
 # (compat/toml-test.txt): every valid file decodes to the expected
 # values and every invalid one is refused
@@ -96,6 +105,14 @@ cargo xtask fuzz coverage [TARGET...]
 # mto against the standard formatter on scrambled corpus files and
 # generated source; each way they disagree shrunk and filed once
 cargo xtask fuzz diff [--time SECONDS] [--seed N] [--replay FILE]
+# The scrambled-pair suite: corpus files drawn by a fresh seed (printed),
+# items shuffled and whitespace scrambled, each checked token for token;
+# mto and the standard formatter scored against each other, and the
+# crates that compile offline built scrambled, after mto and after the
+# standard formatter. A crate mto breaks is filed as a compile break, one
+# the scrambler breaks as a scrambler bug; --seed replays a run
+cargo xtask pairs [--seed N] [--crates NAME,...] [--files N] \
+  [--no-compile] [--keep DIR]
 # Every failure kept with its story and filed once (fuzz crashes, mto's
 # output failing the meaning check or changing on a second run, panics,
 # files mto changes that the standard formatter leaves alone, real crates

@@ -212,6 +212,11 @@ pub fn rewrite_header(
     return None;
   }
   let start = header_start(node)?;
+  if matches!(node.kind(), K::Const | K::Static)
+    && let Some(text) = const_value(node, start, indent, config)
+  {
+    return Some((text, node.text_range().end as usize));
+  }
   let body = node.children_iter().find(|c| {
     matches!(
       c.kind(),
@@ -240,7 +245,7 @@ pub fn rewrite_header(
     }
     SyntaxElement::Node(n) => {
       matches!(n.kind(), K::MacroCall | K::Attr)
-        || n.subtree_has(|kind| kind == K::BlockExpr)
+        || n.subtree_has(|kind| matches!(kind, K::BlockExpr | K::MatchArmList))
         || n.subtree_has(|kind| {
           (kind.is_trivia() && kind != K::Whitespace)
             || is_doc(kind)
@@ -405,10 +410,13 @@ pub fn rewrite_header(
     (None, true) => " ".to_string(),
     (None, false) => String::new(),
   };
-  // When the standard formatter breaks a trait's bounds is not known yet: a trait with
-  // bounds keeps its header as written.
-  if node.kind() == K::Trait && node.children_iter().any(|c| c.kind() == K::TypeBoundList) {
-    return None;
+  // A trait's bounds have a layout of their own.
+  if node.kind() == K::Trait
+    && let Some(bounds) = node.children_iter().find(|c| c.kind() == K::TypeBoundList)
+  {
+    body.as_ref()?;
+    return trait_bounds(&tokens, &bounds, indent, where_block.as_deref(), config)
+      .map(|text| (text, end));
   }
   let width = indent + str_width(&one_line) + brace;
   // A type alias, const or static: on one line, its calls and lists each within their
@@ -567,6 +575,34 @@ pub fn rewrite_header(
   ))
 }
 
+/// A macro call standing as an item or statement, its arguments in parentheses or brackets,
+/// laid out as one in an expression is (the standard formatter's `rewrite_macro` in item
+/// position), with its `;`. `None` for one holding a comment, or that does not fit.
+pub fn rewrite_macro_item(
+  node: &SyntaxNode,
+  indent: usize,
+  config: &FormatConfig,
+) -> Option<String> {
+  if config.hard_tabs || config.tab_spaces == 0 || node.kind() != K::MacroCall {
+    return None;
+  }
+  let start = header_start(node)?;
+  let commented = node.token_texts().any(|(kind, _, range)| {
+    range.start as usize >= start && kind.is_trivia() && kind != K::Whitespace
+  });
+  if commented {
+    return None;
+  }
+  let semi = node
+    .children_with_tokens_iter()
+    .any(|e| e.kind() == K::Semi);
+  let shape = super::stmt::statement_shape(indent, config)?;
+  let shape = if semi { shape.sub_width(1)? } else { shape };
+  let text = super::expr::rewrite(node, shape)?;
+  let text = if semi { format!("{};", text) } else { text };
+  super::stmt::same_tokens(node, &text).then_some(text)
+}
+
 /// The code tokens of some elements, in order.
 fn code_tokens(elements: &[SyntaxElement]) -> Vec<SyntaxToken> {
   elements
@@ -592,6 +628,64 @@ fn comma_follows(node: &SyntaxNode) -> bool {
     next = token.next_sibling_or_token();
   }
   false
+}
+
+/// A const or static with a value, as the standard formatter's `rewrite_static` lays it out:
+/// everything up to `=` on one line, then the value placed as a `let`'s is (on that line, or
+/// on the next one level in), then `;`. `None` for one with a `where` clause, or anything
+/// before the value or in it that laying it out would lose.
+fn const_value(
+  node: &SyntaxNode,
+  start: usize,
+  indent: usize,
+  config: &FormatConfig,
+) -> Option<String> {
+  let eq = node
+    .children_with_tokens_iter()
+    .find(|e| e.kind() == K::Eq)?
+    .text_range();
+  let value = node
+    .children_iter()
+    .find(|c| c.text_range().start >= eq.end)?;
+  // A comment outside the value (after `=`, after `;`) would be lost; the value's own are
+  // checked as it is laid out.
+  let inside = value.text_range();
+  let commented = node.token_texts().any(|(kind, _, range)| {
+    (kind.is_trivia() && kind != K::Whitespace)
+      && range.start as usize >= start
+      && !(inside.start <= range.start && range.start < inside.end)
+  });
+  if commented
+    || node.children_iter().any(|c| c.kind() == K::WhereClause)
+    || !super::stmt::clean_expression(&value)
+  {
+    return None;
+  }
+  let head: Vec<SyntaxElement> = node
+    .children_with_tokens_iter()
+    .filter(|e| {
+      let at = e.text_range().start as usize;
+      start <= at && at < eq.end as usize
+    })
+    .collect();
+  // Nothing in the head that printing it flat would lose.
+  if head.iter().any(|e| match e {
+    SyntaxElement::Token(t) => t.kind().is_trivia() && t.kind() != K::Whitespace,
+    SyntaxElement::Node(n) => n.subtree_has(|kind| {
+      (kind.is_trivia() && kind != K::Whitespace) || matches!(kind, K::Attr | K::MacroCall)
+    }),
+  }) {
+    return None;
+  }
+  let head = flat_tokens(&code_tokens(&head), Spacing::of(config));
+  // Types are printed flat: one whose head runs past the line would have to break.
+  if indent + str_width(&head) + 2 > config.max_width {
+    return None;
+  }
+  // 1 = `;`
+  let shape = super::stmt::statement_shape(indent, config)?.sub_width(1)?;
+  let text = format!("{};", super::expr::assign_value(&head, &value, shape)?);
+  super::stmt::same_tokens(node, &text).then_some(text)
 }
 
 /// Whether an enum has both a variant written on several lines and one on a single line.
@@ -632,6 +726,71 @@ fn spaced_after(after: &[SyntaxToken], spacing: Spacing) -> String {
     Some(t) if t.kind() == K::Semi => flat_tokens(after, spacing),
     Some(_) => format!(" {}", flat_tokens(after, spacing)),
   }
+}
+
+/// A trait's header with its bounds, as the standard formatter's `format_trait` lays it out:
+/// the bounds after `:` on the header's line when they fit there, else on the next line one
+/// level in, together or one per line each after the first led by `+`; the body's `{` after
+/// a space, or on a line of its own after a header across lines or one too long for it.
+/// A `where` clause follows on lines of its own. The widths are measured as the standard
+/// formatter measures them, the text before the trait's name counted twice on the header's
+/// line and the indentation twice on the next.
+fn trait_bounds(
+  tokens: &[SyntaxToken],
+  bounds: &SyntaxNode,
+  indent: usize,
+  where_block: Option<&str>,
+  config: &FormatConfig,
+) -> Option<String> {
+  let spacing = Spacing::of(config);
+  let (at, to) = (bounds.text_range().start, bounds.text_range().end);
+  let head: Vec<SyntaxToken> = tokens
+    .iter()
+    .filter(|t| t.text_range().start < at)
+    .cloned()
+    .collect();
+  // Only the `where` clause may follow the bounds.
+  if where_block.is_none() && tokens.iter().any(|t| t.text_range().start >= to) {
+    return None;
+  }
+  let head = flat_tokens(&head, spacing);
+  let prefix = head.find("trait ")? + "trait ".len();
+  let plus = if spacing.compressed_type_punctuation {
+    "+"
+  } else {
+    " + "
+  };
+  let parts: Vec<String> = bounds
+    .children_iter()
+    .map(|b| flat_tokens(&code_tokens(&[SyntaxElement::Node(b)]), spacing))
+    .collect();
+  if parts.is_empty() {
+    return None;
+  }
+  let joined = parts.join(plus);
+  let pad = " ".repeat(indent + config.tab_spaces);
+  let one_line = indent + prefix + str_width(&head) + 1 + str_width(&joined) <= config.max_width;
+  let text = if one_line {
+    format!("{} {}", head, joined)
+  } else if str_width(&joined) <= config.max_width.saturating_sub(2 * indent) {
+    format!("{}\n{}{}", head, pad, joined)
+  } else {
+    let sep = format!("\n{}+ ", pad);
+    format!("{}\n{}{}", head, pad, parts.join(&sep))
+  };
+  // A `where` clause on lines of its own after them, with the body's `{`.
+  if let Some(block) = where_block {
+    return Some(format!("{}{}", text, block));
+  }
+  let last = text.rsplit('\n').next().unwrap_or("");
+  let brace_apart = text.contains('\n')
+    || config.brace_next_line
+    || str_width(last) + 2 > config.max_width.saturating_sub(indent);
+  Some(if brace_apart {
+    format!("{}\n{}", text, " ".repeat(indent))
+  } else {
+    format!("{} ", text)
+  })
 }
 
 #[cfg(test)]

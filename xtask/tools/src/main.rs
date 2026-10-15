@@ -3,6 +3,7 @@
 
 mod cases;
 mod common;
+mod config_docs;
 mod corpus;
 mod diff;
 mod diff_fuzz;
@@ -12,6 +13,7 @@ mod lexdiff;
 #[allow(dead_code)]
 #[path = "../../src/common/log.rs"]
 mod log;
+mod pairs;
 mod parsecheck;
 mod perf;
 // The same child-process helpers as xtask, with their time limits.
@@ -22,6 +24,7 @@ mod process;
 #[allow(dead_code)]
 #[path = "../../src/common/sample.rs"]
 mod sample;
+mod scramble;
 mod toml_test;
 mod unformat;
 
@@ -36,6 +39,7 @@ fn main() -> ExitCode {
     Some("lexdiff") => lexdiff::run(&root, &args[1..]),
     Some("parsecheck") => parsecheck::run(&root, &args[1..]),
     Some("corpus-check") => corpus::run(&root, &args[1..]),
+    Some("docs-config") => config_docs::run(&root, &args[1..]),
     Some("corpus-speed") => corpus::speed(&args[1..]),
     Some("toml-test") => toml_test::run(&args[1..]),
     Some("diff") => diff::run(&args[1..]),
@@ -43,6 +47,7 @@ fn main() -> ExitCode {
     Some("diff-show") => diff::show(&args[1..]),
     Some("diff-why") => diff::why(&args[1..]),
     Some("doctor-bench") => doctor_bench::run(&args[1..]),
+    Some("pairs") => pairs::run(&args[1..]),
     Some("perf-scaling") => perf::scaling(&args[1..]),
     Some("perf-growth") => perf::growth(&args[1..]),
     Some("perf-depth") => perf::depth(&args[1..]),

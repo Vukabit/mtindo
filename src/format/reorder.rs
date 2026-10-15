@@ -78,13 +78,19 @@ pub fn reorder(
       if order.iter().enumerate().all(|(i, &o)| i == o) {
         continue;
       }
+      // The first item's leading comments stay in the first slot, before the run.
+      let start_of = |i: usize| {
+        if i == 0 {
+          code_start(&run[0])
+        } else {
+          run[i].text_range().start as usize
+        }
+      };
       for (slot, &from) in order.iter().enumerate() {
-        let range = run[slot].text_range();
-        let source = run[from].text_range();
         moves.push((
-          range.start as usize,
-          range.end as usize,
-          text[source.start as usize..source.end as usize].to_string(),
+          start_of(slot),
+          run[slot].text_range().end as usize,
+          text[start_of(from)..run[from].text_range().end as usize].to_string(),
         ));
       }
     }
@@ -104,12 +110,31 @@ pub fn reorder(
   Some(out)
 }
 
+/// Where an item's code starts, its attributes included: after the comments it carries
+/// before it.
+fn code_start(item: &SyntaxNode) -> usize {
+  item
+    .children_with_tokens_iter()
+    .find(|e| !e.kind().is_trivia())
+    .map_or(item.text_range().start as usize, |e| {
+      e.text_range().start as usize
+    })
+}
+
 /// Whether a run holds a comment, in a declaration or between two, doc comments aside.
+/// The comments the run's first item carries before it stay where they are: they come
+/// before the run, which the standard formatter sorts without them.
 fn has_comment(run: &[SyntaxNode]) -> bool {
   let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment));
-  run
-    .iter()
-    .any(|item| item.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment)))
+  let commented = |item: &SyntaxNode, from: usize| {
+    item.token_texts().any(|(kind, _, range)| {
+      range.start as usize >= from && matches!(kind, K::LineComment | K::BlockComment)
+    })
+  };
+  commented(&run[0], code_start(&run[0]))
+    || run[1..]
+      .iter()
+      .any(|item| item.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment)))
     || run.windows(2).any(|pair| {
       let mut next = pair[0].next_sibling_or_token();
       while let Some(element) = next {

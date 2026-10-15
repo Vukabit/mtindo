@@ -5,7 +5,7 @@ use crate::options::format::FormatConfig;
 /// The width limits of the Rust style: the line width, one indentation level, and the widths
 /// above which a list, chain or literal is no longer kept on one line. [`Limits::default`]
 /// is the standard formatter's at its defaults.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Limits {
   /// `max_width`.
   pub max_width: usize,
@@ -33,10 +33,76 @@ pub struct Limits {
   pub style_2024: bool,
   /// `single_line_if_else_max_width`.
   pub single_line_if_else: usize,
+  /// `single_line_let_else_max_width`.
+  pub single_line_let_else: usize,
+  /// `blank_lines_lower_bound` and `blank_lines_upper_bound`: the blank lines kept between
+  /// the statements of a block.
+  pub blank_lines: (usize, usize),
+  /// `match_arm_indent`.
+  pub match_arm_indent: bool,
+  /// `trailing_semicolon`.
+  pub trailing_semicolon: bool,
+  /// Laying out a macro's arguments: a closure's body keeps or lacks its block as written.
+  pub inside_macro: bool,
+  /// Laying out a block's last expression as its statement: an expression from style
+  /// edition 2024, rather than one taken out of a match arm's or closure's block.
+  pub block_tail: bool,
   /// Inside a method chain overflowing the list it ends: every chain in it stays on one
   /// line, but for its last link's arguments (the standard formatter's
   /// `force_one_line_chain`).
   pub one_line_chains: bool,
+}
+
+impl Limits {
+  /// The limits a statement is laid out under with these settings.
+  pub fn of(config: &FormatConfig) -> Limits {
+    Limits {
+      max_width: config.max_width,
+      tab: config.tab_spaces,
+      fn_call: config.fn_call_width,
+      chain: config.chain_width,
+      struct_lit: config.struct_lit_width,
+      array: config.array_width,
+      short_item: config.short_array_element_width_threshold,
+      spacing: Spacing::of(config),
+      attribute: false,
+      comma_as_written: false,
+      style_2024: config.style_edition >= 2024,
+      one_line_chains: false,
+      single_line_if_else: config.single_line_if_else_max_width,
+      single_line_let_else: config.single_line_let_else_max_width,
+      blank_lines: (
+        config.blank_lines_lower_bound,
+        config.blank_lines_upper_bound,
+      ),
+      match_arm_indent: config.match_arm_indent,
+      trailing_semicolon: config.trailing_semicolon,
+      inside_macro: false,
+      block_tail: false,
+    }
+  }
+
+  /// The settings these limits were read from, for the statement and arm layout a block
+  /// inside an expression lays its insides out with.
+  pub fn config(self) -> FormatConfig {
+    FormatConfig {
+      max_width: self.max_width,
+      tab_spaces: self.tab,
+      fn_call_width: self.fn_call,
+      chain_width: self.chain,
+      struct_lit_width: self.struct_lit,
+      array_width: self.array,
+      short_array_element_width_threshold: self.short_item,
+      style_edition: if self.style_2024 { 2024 } else { 2021 },
+      single_line_if_else_max_width: self.single_line_if_else,
+      single_line_let_else_max_width: self.single_line_let_else,
+      blank_lines_lower_bound: self.blank_lines.0,
+      blank_lines_upper_bound: self.blank_lines.1,
+      match_arm_indent: self.match_arm_indent,
+      trailing_semicolon: self.trailing_semicolon,
+      ..self.spacing.config()
+    }
+  }
 }
 
 impl Default for Limits {
@@ -55,13 +121,19 @@ impl Default for Limits {
       style_2024: false,
       one_line_chains: false,
       single_line_if_else: 50,
+      single_line_let_else: 50,
+      blank_lines: (0, 1),
+      match_arm_indent: true,
+      trailing_semicolon: true,
+      inside_macro: false,
+      block_tail: false,
     }
   }
 }
 
 /// The space an expression is printed into: its line's indentation, how far into the line it
 /// starts past that, and the width left on its first line.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Shape {
   pub indent: usize,
   pub offset: usize,
@@ -78,6 +150,19 @@ impl Shape {
       offset: 0,
       width: self.limits.max_width.saturating_sub(indent),
       limits: self.limits,
+    }
+  }
+
+  /// The shape a block's insides start from, one level in: what holds the block no longer
+  /// constrains them (the standard formatter's visitor starts a context of its own).
+  pub fn block_inside(self) -> Shape {
+    let inner = self.block_indent(self.limits.tab);
+    Shape {
+      limits: Limits {
+        one_line_chains: false,
+        ..inner.limits
+      },
+      ..inner
     }
   }
 
@@ -107,7 +192,7 @@ impl Shape {
 
 /// The settings spacing within a line reads: `spaces_around_ranges`, `space_before_colon`,
 /// `space_after_colon` and `type_punctuation_density`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Spacing {
   pub spaces_around_ranges: bool,
   pub space_before_colon: bool,

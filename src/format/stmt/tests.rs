@@ -54,6 +54,18 @@ fn test_block_tails_laid_out_as_statements() {
 }
 
 #[test]
+fn test_blocks_inside_expressions() {
+  // Closures with blocks in chains and calls, a `match` as a value or the only argument, an
+  // `async` block, comments between statements, an `if` body put in a block of its own.
+  assert_eq!(
+    formatted(
+      "fn main() {\n    let v: Vec<_> = items.iter().map(|x| { let y = x + 1; y * 2 }).filter(|x| x > &3).collect();\n    let r = match x { Some(a) => a, None => { println!(\"none\"); 0 } };\n    foo(a, |x| {\n        let y = x;\n        // comment\n        y\n    });\n    let f = async move { let a = b().await; a };\n    items.iter().for_each(|x| if x.is_some() { do_it(x) });\n    Some(match op {\n        A => 1,\n        B => 2,\n    })\n}\n"
+    ),
+    "fn main() {\n    let v: Vec<_> = items\n        .iter()\n        .map(|x| {\n            let y = x + 1;\n            y * 2\n        })\n        .filter(|x| x > &3)\n        .collect();\n    let r = match x {\n        Some(a) => a,\n        None => {\n            println!(\"none\");\n            0\n        }\n    };\n    foo(a, |x| {\n        let y = x;\n        // comment\n        y\n    });\n    let f = async move {\n        let a = b().await;\n        a\n    };\n    items.iter().for_each(|x| {\n        if x.is_some() {\n            do_it(x)\n        }\n    });\n    Some(match op {\n        A => 1,\n        B => 2,\n    })\n}\n"
+  );
+}
+
+#[test]
 fn test_blocks_of_one_expression() {
   // On one line where an expression goes, and after `unsafe`, `const` or `async` as a
   // statement or tail; a plain block as a statement, a block with attributes and a
@@ -111,6 +123,18 @@ fn test_chains_inside_an_overflowing_chain_stay_on_one_line() {
       &max
     ),
     kept
+  );
+}
+
+#[test]
+fn test_closure_parameters_on_lines() {
+  // Parameters too long for one line go one per line after `|` when that leaves the body
+  // room, else the closure moves to the next line.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let do_abort = |abort_handle: &mut Option<AbortHandle>, join_handle: Option<&mut JoinHandle<_>>| {\n        foo();\n        bar()\n    };\n    let do_abort = |abort_handle: &mut Option<AbortHandle>, join_handle: Option<&mut JoinHandle<_>>| x;\n}\n"
+    ),
+    "fn f() {\n    let do_abort = |abort_handle: &mut Option<AbortHandle>,\n                    join_handle: Option<&mut JoinHandle<_>>| {\n        foo();\n        bar()\n    };\n    let do_abort =\n        |abort_handle: &mut Option<AbortHandle>, join_handle: Option<&mut JoinHandle<_>>| x;\n}\n"
   );
 }
 
@@ -186,6 +210,19 @@ fn test_layouts_keep_every_token() {
   ] {
     assert_eq!(formatted(kept), kept);
   }
+}
+
+#[test]
+fn test_let_else() {
+  // A `let ... else`: `else {` on the value's line when it fits; a block of one expression on
+  // that line within `single_line_let_else_max_width`, else on lines; a comment after `{` moves
+  // to the next line.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let Some(rustc) = rustc_minor_version() else { return; };\n    let Some(x) = y else { return };\n    let Ok(data) = frame.into_data() else { // Match\n        continue;\n    };\n}\n"
+    ),
+    "fn f() {\n    let Some(rustc) = rustc_minor_version() else {\n        return;\n    };\n    let Some(x) = y else { return };\n    let Ok(data) = frame.into_data() else {\n        // Match\n        continue;\n    };\n}\n"
+  );
 }
 
 #[test]
@@ -359,11 +396,10 @@ fn test_statements_inside_blocks_in_expressions() {
 
 #[test]
 fn test_statements_left_to_the_whole_file_rules() {
-  // A comment, a block, a macro: kept as written.
+  // A comment, a closure whose parameters would break: kept as written.
   for kept in [
     "fn f() {\n    let x = foo(\n        a, // why\n        b,\n    );\n}\n",
-    "fn f() {\n    let x = foo(\n        a,\n        || {\n            b\n        },\n    );\n}\n",
-    "fn f() {\n    let x = foo(\n        a,\n        m! { b },\n    );\n}\n",
+    "fn f() {\n    let x = foo(\n        a,\n        |S { aaaaaaaa, bbbbbbbbbbbb }| {\n            b\n        },\n    );\n}\n",
   ] {
     assert_eq!(formatted(kept), kept);
   }
@@ -414,6 +450,17 @@ fn test_struct_literals_keep_a_blank_line_between_fields() {
       "fn f() {\n    let x = S {\n        alpha_field_name: 1,\n\n        beta_field_name: 2, gamma_field_name: 3,\n\n\n        delta: 4,\n\n    };\n    let x = S {\n        alpha_field_name: 1,\n        beta_field_name: 2,\n        gamma_field_name: 3,\n\n        ..Default::default()\n    };\n    call(\n        alpha_argument_number_one,\n\n        beta_argument_number_two, gamma_argument_number_three_long,\n    );\n}\n"
     ),
     "fn f() {\n    let x = S {\n        alpha_field_name: 1,\n\n        beta_field_name: 2,\n        gamma_field_name: 3,\n\n        delta: 4,\n    };\n    let x = S {\n        alpha_field_name: 1,\n        beta_field_name: 2,\n        gamma_field_name: 3,\n\n        ..Default::default()\n    };\n    call(\n        alpha_argument_number_one,\n        beta_argument_number_two,\n        gamma_argument_number_three_long,\n    );\n}\n"
+  );
+}
+
+#[test]
+fn test_trailing_semicolons() {
+  // A block's last `return`, `break` or `continue` gains a `;` on a line of its own.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    if x {\n        return\n    }\n    loop {\n        if a {\n            continue\n        } else {\n            break\n        }\n    }\n}\n"
+    ),
+    "fn f() {\n    if x {\n        return;\n    }\n    loop {\n        if a {\n            continue;\n        } else {\n            break;\n        }\n    }\n}\n"
   );
 }
 

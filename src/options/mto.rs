@@ -92,7 +92,7 @@ pub(super) static SETTINGS: &[Setting] = &[
     doc: "The order of the functions inside an impl of a trait declared in the same \
               file. Only the functions trade places; other items and blank lines stay where \
               they are. A trait declared under the same name twice in the file is skipped. \
-              the standard formatter's `reorder_impl_items` is honored as well, as the standard formatter applies it.",
+              The standard formatter's `reorder_impl_items` is honored as well, as the standard formatter applies it.",
     channels: None,
     hidden: false,
     replaced_by: None,

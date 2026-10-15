@@ -181,12 +181,70 @@ pub fn collect_rs(dir: &Path, files: &mut Vec<PathBuf>) {
   }
 }
 
+/// How many lines `got` shares with `want` in order: the length of their longest common
+/// subsequence, by Myers' O(ND) diff over line ids.
+pub fn common_lines<'a>(got: &[&'a str], want: &[&'a str]) -> usize {
+  let mut ids: BTreeMap<&'a str, u32> = BTreeMap::new();
+  let mut id = |line: &'a str| -> u32 {
+    let next = ids.len() as u32;
+    *ids.entry(line).or_insert(next)
+  };
+  let a: Vec<u32> = got.iter().map(|l| id(l)).collect();
+  let b: Vec<u32> = want.iter().map(|l| id(l)).collect();
+  let (n, m) = (a.len() as isize, b.len() as isize);
+  let max = (n + m) as usize;
+  let offset = max as isize;
+  let mut v = vec![0isize; 2 * max + 2];
+  for d in 0..=max as isize {
+    let mut k = -d;
+    while k <= d {
+      let index = (k + offset) as usize;
+      let mut x = if k == -d || (k != d && v[index - 1] < v[index + 1]) {
+        v[index + 1]
+      } else {
+        v[index - 1] + 1
+      };
+      let mut y = x - k;
+      while x < n && y < m && a[x as usize] == b[y as usize] {
+        x += 1;
+        y += 1;
+      }
+      v[index] = x;
+      if x >= n && y >= m {
+        return ((n + m - d) / 2) as usize;
+      }
+      k += 2;
+    }
+  }
+  0
+}
+
 pub fn edition_year(edition: Edition) -> &'static str {
   match edition {
     Edition::E2015 => "2015",
     Edition::E2018 => "2018",
     Edition::E2021 => "2021",
     _ => "2024",
+  }
+}
+
+/// Fences `downloads` (compat/cache) off from this repository, whose own settings must not
+/// reach the corpus and the test pairs: a `root = true` mto.toml ends mto's search upwards,
+/// and an empty rustfmt.toml ends both tools' search for one (empty, so cached answers keep
+/// their key).
+pub fn fence(downloads: &Path) {
+  let fences = [
+    (
+      "mto.toml",
+      "# Written by `cargo xtask diff`: nothing here takes settings from above.\nroot = true\n",
+    ),
+    ("rustfmt.toml", ""),
+  ];
+  for (name, text) in fences {
+    let fence = downloads.join(name);
+    if !fence.exists() {
+      let _ = fs::write(&fence, text);
+    }
   }
 }
 
@@ -228,6 +286,15 @@ pub fn kind_at_line(text: &str, line: usize, edition: Edition) -> String {
   }
 }
 
+/// The text a panic carried.
+pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+  payload
+    .downcast_ref::<&str>()
+    .map(|s| s.to_string())
+    .or_else(|| payload.downcast_ref::<String>().cloned())
+    .unwrap_or_else(|| "a panic without a message".to_string())
+}
+
 pub fn run(args: &[String]) -> ExitCode {
   let options = match parse_args(args) {
     Ok(options) => options,
@@ -236,23 +303,8 @@ pub fn run(args: &[String]) -> ExitCode {
       return ExitCode::from(2);
     }
   };
-  // The corpus and the test pairs sit inside this repository, whose own settings must not
-  // reach them: a `root = true` mto.toml ends mto's search upwards, and an empty
-  // rustfmt.toml ends both tools' search for one (empty, so cached answers keep their key).
   if let Some(downloads) = options.cache.parent() {
-    let fences = [
-      (
-        "mto.toml",
-        "# Written by `cargo xtask diff`: nothing here takes settings from above.\nroot = true\n",
-      ),
-      ("rustfmt.toml", ""),
-    ];
-    for (name, text) in fences {
-      let fence = downloads.join(name);
-      if !fence.exists() {
-        let _ = fs::write(&fence, text);
-      }
-    }
+    fence(downloads);
   }
   let cases = collect_cases(&options);
   eprintln!(
@@ -824,44 +876,6 @@ fn collect_cases(options: &Options) -> Vec<Case> {
   cases
 }
 
-/// How many lines `got` shares with `want` in order: the length of their longest common
-/// subsequence, by Myers' O(ND) diff over line ids.
-fn common_lines<'a>(got: &[&'a str], want: &[&'a str]) -> usize {
-  let mut ids: BTreeMap<&'a str, u32> = BTreeMap::new();
-  let mut id = |line: &'a str| -> u32 {
-    let next = ids.len() as u32;
-    *ids.entry(line).or_insert(next)
-  };
-  let a: Vec<u32> = got.iter().map(|l| id(l)).collect();
-  let b: Vec<u32> = want.iter().map(|l| id(l)).collect();
-  let (n, m) = (a.len() as isize, b.len() as isize);
-  let max = (n + m) as usize;
-  let offset = max as isize;
-  let mut v = vec![0isize; 2 * max + 2];
-  for d in 0..=max as isize {
-    let mut k = -d;
-    while k <= d {
-      let index = (k + offset) as usize;
-      let mut x = if k == -d || (k != d && v[index - 1] < v[index + 1]) {
-        v[index + 1]
-      } else {
-        v[index - 1] + 1
-      };
-      let mut y = x - k;
-      while x < n && y < m && a[x as usize] == b[y as usize] {
-        x += 1;
-        y += 1;
-      }
-      v[index] = x;
-      if x >= n && y >= m {
-        return ((n + m - d) / 2) as usize;
-      }
-      k += 2;
-    }
-  }
-  0
-}
-
 /// Writes each file's matched lines to `log` and lists the files that matched fewer lines
 /// than at the run before, which a total alone hides behind gains elsewhere; beside it,
 /// `diff-first.txt` names each mismatching file's first differing line and its kind.
@@ -1025,15 +1039,6 @@ fn nearest_config(dir: &Path) -> String {
     current = here.parent();
   }
   String::new()
-}
-
-/// The text a panic carried.
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-  payload
-    .downcast_ref::<&str>()
-    .map(|s| s.to_string())
-    .or_else(|| payload.downcast_ref::<String>().cloned())
-    .unwrap_or_else(|| "a panic without a message".to_string())
 }
 
 fn parse_args(args: &[String]) -> Result<Options, String> {

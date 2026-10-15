@@ -9,11 +9,12 @@
 use SyntaxKind as K;
 
 use super::expr::{
-  first_line_width, flat, joins, last_line_width, lone_expression, prefer_next_line, rewrite,
+  first_line_width, flat, joins, last_line_width, lone_expression, multi_line_condition,
+  plain_block, prefer_next_line, rewrite,
 };
 use super::items::header_start;
 use super::shape::{Shape, Spacing};
-use super::stmt::{Head, clean_expression, rewrite_control_head, statement_shape};
+use super::stmt::{Head, clean_expression, compared, rewrite_control_head, statement_shape};
 use crate::options::format::FormatConfig;
 use crate::syntax::{Edition, SyntaxKind, SyntaxNode};
 use crate::text::unicode::str_width;
@@ -47,10 +48,7 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
     .children_with_tokens_iter()
     .find(|e| e.text_range().start as usize >= start && !e.kind().is_trivia())
     .is_some_and(|e| e.kind() == K::Pipe);
-  let commented = node.descendants_with_tokens_iter().any(|e| {
-    e.text_range().start as usize >= start && matches!(e.kind(), K::LineComment | K::BlockComment)
-  });
-  if leading_pipe || commented || !clean_expression(pattern) {
+  if leading_pipe || !clean_expression(pattern) {
     return None;
   }
   let condition = match guard {
@@ -85,6 +83,22 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   } else {
     " => ".to_string()
   };
+  // A plain block of one expression the standard formatter takes the expression out of
+  // (`flatten_arm_body`): not a macro call's, nor a control expression's whose condition
+  // would span lines.
+  let written_body = body.clone();
+  let mut body = body.clone();
+  while body.kind() == K::BlockExpr
+    && plain_block(&body)
+    && !lone_macro(&body)
+    && let Some(inner) = lone_expression(&body)
+    && !shape
+      .offset_left(used + 4)
+      .is_some_and(|s| multi_line_condition(&inner, s))
+  {
+    body = inner;
+  }
+  let body = &body;
   let laid = match body.kind() {
     K::BlockExpr => {
       let prefixed = body
@@ -106,9 +120,6 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
         } else {
           Arm::Whole(format!("{} => {{}}", lhs))
         }
-      } else if !prefixed && lone_expression(body).is_some() && !lone_macro(body) {
-        // The standard formatter takes the expression out of its block.
-        return None;
       } else {
         // On the arm's line when it fits there (`unsafe { f() }`), else its `{` after
         // `=>`; a block with a prefix keeps a comma after it, a plain one none.
@@ -144,7 +155,11 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
       }
     }
     // Block-like, the arm's line keeps their head; a comma follows them.
-    K::MatchExpr | K::LoopExpr if !forbid_same_line => {
+    // Written so, with a comma after them (one taken out of its block is laid out whole
+    // below: the pass would write the block's `}`).
+    K::MatchExpr | K::LoopExpr
+      if !forbid_same_line && written_comma.is_some() && *body == written_body =>
+    {
       let comma = written_comma.as_ref()?;
       let head = rewrite_control_head(body, indent, indent + used + 4, config)?;
       Arm::Head(Head {
@@ -154,21 +169,23 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
         keep_comma: true,
       })
     }
-    K::MatchExpr | K::LoopExpr | K::WhileExpr | K::ForExpr => return None,
     _ => {
-      if forbid_same_line || !clean_expression(body) {
+      if !clean_expression(body) {
         return None;
       }
       // 4 = ` => `, 1 = `,`
       let same_shape = shape.offset_left(used + 4).and_then(|s| s.sub_width(1));
-      let same = same_shape.and_then(|s| rewrite(body, s));
+      let same = if forbid_same_line {
+        None
+      } else {
+        same_shape.and_then(|s| rewrite(body, s))
+      };
       let budget = same_shape.map_or(0, |s| s.width);
       let fits = |text: &String| !text.contains('\n') && str_width(text) <= budget;
-      let text = match same {
-        Some(same) if fits(&same) => same,
+      match same {
+        Some(same) if fits(&same) => Arm::Whole(format!("{}{}{},", lhs, arrow, same)),
         same => {
-          // The next line's form is the standard formatter's choice when it looks better,
-          // in a block of its own: not done here.
+          // On the next line, in a block of its own, when that looks better.
           let next = rewrite(
             body,
             Shape {
@@ -178,17 +195,34 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
               ..shape
             },
           );
+          // After a guard on a line of its own, `{` starts the next line.
+          let open = if forbid_same_line {
+            format!("\n{}{{", " ".repeat(indent))
+          } else {
+            " {".to_string()
+          };
+          let next_line = |next: String| {
+            Arm::Whole(format!(
+              "{} =>{}\n{}{}\n{}}}",
+              lhs,
+              open,
+              " ".repeat(indent + tab),
+              next,
+              " ".repeat(indent)
+            ))
+          };
+          let on_line = |same: String| Arm::Whole(format!("{}{}{},", lhs, arrow, same));
           let extend = extends(body);
           match (same, next) {
-            (Some(same), Some(next)) if prefer_next_line(&same, &next) => return None,
-            (Some(same), _) if extend && first_line_width(&same) <= budget => same,
-            (Some(same), Some(_)) if same.contains('\n') => return None,
-            (Some(same), _) => same,
-            (None, _) => return None,
+            (Some(same), Some(next)) if prefer_next_line(&same, &next) => next_line(next),
+            (Some(same), _) if extend && first_line_width(&same) <= budget => on_line(same),
+            (Some(same), Some(next)) if same.contains('\n') => next_line(next),
+            (None, Some(next)) => next_line(next),
+            (None, None) => return None,
+            (Some(same), _) => on_line(same),
           }
         }
-      };
-      Arm::Whole(format!("{}{}{},", lhs, arrow, text))
+      }
     }
   };
   // The same tokens, commas aside.
@@ -200,19 +234,23 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
     Arm::Whole(_) => node.text_range().end as usize,
     Arm::Head(head) => head.open,
   };
+  // No comment in what is laid out here: a block body's are its own.
+  if node.descendants_with_tokens_iter().any(|e| {
+    let at = e.text_range().start as usize;
+    at >= start && at < end && matches!(e.kind(), K::LineComment | K::BlockComment)
+  }) {
+    return None;
+  }
   let written: String = node
     .token_texts()
     .filter(|&(kind, _, range)| {
-      !kind.is_trivia()
-        && kind != K::Comma
-        && (range.start as usize) >= start
-        && (range.start as usize) < end
+      compared(kind) && (range.start as usize) >= start && (range.start as usize) < end
     })
     .map(|(_, text, _)| text)
     .collect();
   let ours: String = crate::syntax::parse_tokens(laid_text, Edition::E2021)
     .into_iter()
-    .filter(|(kind, _)| !kind.is_trivia() && *kind != K::Comma)
+    .filter(|(kind, _)| compared(*kind))
     .map(|(_, text)| text)
     .collect();
   (written == ours).then_some(laid)

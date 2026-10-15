@@ -60,6 +60,11 @@ pub const KINDS: &[(&str, &str, bool)] = &[
     false,
   ),
   (
+    "scrambler-bug",
+    "the scrambled-pair suite's scrambler made a file or crate that fails its checks or no longer compiles",
+    false,
+  ),
+  (
     "speed-regression",
     "a speed figure fell below its record",
     false,
@@ -85,6 +90,9 @@ pub const STATUSES: &[&str] = &["open", "flaky", "fixed", "wont-fix"];
 
 /// The kinds `cargo xtask diff` finds, and so rechecks.
 const DIFF_KINDS: &[&str] = &["meaning", "unstable", "panic", "compat-break"];
+
+/// How a compile break `domain_13_rw` filed is seen again.
+const REAL_WORLD_REPLAY: &str = "cargo xtask test --target domain_13_rw";
 
 /// What [`file`] did.
 #[derive(Debug, PartialEq)]
@@ -464,7 +472,11 @@ pub fn from_real_world(root: &Path, passed: bool, output: &str) -> usize {
   if passed {
     let mut fixed = 0;
     for (dir, mut incident) in all(root) {
-      if incident.kind == "compile-break" && incident.status == "open" {
+      // Only its own: the scrambled-pair suite's are fixed by replaying their seed.
+      if incident.kind == "compile-break"
+        && incident.status == "open"
+        && incident.replay == REAL_WORLD_REPLAY
+      {
         mark(root, &dir, &mut incident, "fixed", &tree);
         fixed += 1;
       }
@@ -487,7 +499,7 @@ pub fn from_real_world(root: &Path, passed: bool, output: &str) -> usize {
       target: crate_name,
       said: line,
       input: None,
-      replay: "cargo xtask test --target domain_13_rw",
+      replay: REAL_WORLD_REPLAY,
       tree: &tree,
       run: "",
       key: Some(which),

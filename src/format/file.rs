@@ -150,8 +150,16 @@ struct Tok<'a> {
   synthetic: bool,
 }
 
+/// Whether this pass writes a block's insides on lines of their own: a block of lines, a
+/// control expression's, or one holding a comment.
+pub fn block_of_lines(node: &SyntaxNode) -> bool {
+  node.kind() == SyntaxKind::BlockExpr && (lines_block(node) || control_block(node))
+    || commented_block(node)
+}
+
 /// The file formatted; the input itself when it cannot be formatted safely.
 pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> String {
+  let _memo = crate::format::expr::RewriteMemo::open();
   let (bom, rest) = match source.strip_prefix('\u{feff}') {
     Some(rest) => ("\u{feff}", rest),
     None => ("", source),
@@ -213,6 +221,61 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
   format!("{}{}", bom, body)
 }
 
+/// A braced macro call's arguments as the standard formatter's `trim_left_preserve_layout`
+/// writes them: the first line as written, without trailing whitespace; each later line
+/// trimmed and indented from `indent` by as much as it was past the least indented of them
+/// (tabs counting `tab_spaces`); a blank line empty.
+pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfig) -> String {
+  let tab = config.tab_spaces.max(1);
+  let mut lines = snippet.split('\n');
+  let first = lines.next().unwrap_or("").trim_end();
+  let rest: Vec<&str> = lines.collect();
+  let leading = |line: &str| {
+    line
+      .chars()
+      .take_while(|c| *c == ' ' || *c == '\t')
+      .map(|c| if c == '\t' { tab } else { 1 })
+      .sum::<usize>()
+  };
+  let least = rest
+    .iter()
+    .filter(|l| !l.trim().is_empty())
+    .map(|l| leading(l))
+    .min()
+    .unwrap_or(0);
+  let mut out = first.to_string();
+  for line in rest {
+    out.push('\n');
+    if !line.trim().is_empty() {
+      out.push_str(&" ".repeat(indent + leading(line) - least));
+      out.push_str(line.trim());
+    }
+  }
+  out
+}
+
+/// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names: left
+/// exactly as written.
+pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
+  let Some(path) = call.children_iter().find(|c| c.kind() == SyntaxKind::Path) else {
+    return false;
+  };
+  let name = path.text().to_string();
+  let name = name.rsplit("::").next().unwrap_or("").trim().to_string();
+  call.ancestors_iter().any(|owner| {
+    owner
+      .children_iter()
+      .filter(|c| c.kind() == SyntaxKind::Attr)
+      .any(|attr| {
+        let text: String = attr.text().to_string().split_whitespace().collect();
+        text
+          .split_once("rustfmt::skip::macros(")
+          .and_then(|(_, rest)| rest.split_once(')'))
+          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
+      })
+  })
+}
+
 /// Whether a node is a macro call with braces (`m! { .. }`), or a statement of one.
 fn braced_macro(node: &SyntaxNode) -> bool {
   let mut node = node.clone();
@@ -228,6 +291,19 @@ fn braced_macro(node: &SyntaxNode) -> bool {
           .first_token()
           .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
     })
+}
+
+/// Whether a block of one expression holds a comment: the standard formatter writes it on
+/// lines, as it neither joins it onto one line nor unwraps a closure's or an arm's body.
+fn commented_block(node: &SyntaxNode) -> bool {
+  node.kind() == SyntaxKind::BlockExpr
+    && !crate::format::expr::joins(node)
+    && !crate::format::expr::one_line_if_block(node)
+    && node.children_iter().any(|c| c.kind() != SyntaxKind::Label)
+    && node
+      .descendants_where(|kind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment))
+      .next()
+      .is_some()
 }
 
 /// Where a container's child (of `kind`, at `range`, a node or not) starts, if it is
@@ -501,8 +577,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
         .parent()
         .is_some_and(|p| matches!(p.kind(), SyntaxKind::Struct | SyntaxKind::Union));
     // A function's body with anything in it is one of lines too (`fn_single_line` off).
-    let block =
-      node.kind() == SyntaxKind::BlockExpr && (lines_block(&node) || control_block(&node));
+    let block = block_of_lines(&node);
     if !items && !block {
       continue;
     }
@@ -569,8 +644,10 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
           {
             mark(t.text_range().start as usize, false);
           }
+          // After an attribute or a doc comment (a `/** .. */` one does not end its line),
+          // the code starts a line.
           other => {
-            mark(other.text_range().start as usize, after_attr);
+            mark(other.text_range().start as usize, after_attr || after_doc);
             if (after_attr || after_doc) && combined {
               joined.push(other.text_range().start as usize);
             }
@@ -704,39 +781,6 @@ fn overflowing(
     at = line_end + 1;
   }
   found
-}
-
-/// A braced macro call's arguments as the standard formatter's `trim_left_preserve_layout`
-/// writes them: the first line as written, without trailing whitespace; each later line
-/// trimmed and indented from `indent` by as much as it was past the least indented of them
-/// (tabs counting `tab_spaces`); a blank line empty.
-fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfig) -> String {
-  let tab = config.tab_spaces.max(1);
-  let mut lines = snippet.split('\n');
-  let first = lines.next().unwrap_or("").trim_end();
-  let rest: Vec<&str> = lines.collect();
-  let leading = |line: &str| {
-    line
-      .chars()
-      .take_while(|c| *c == ' ' || *c == '\t')
-      .map(|c| if c == '\t' { tab } else { 1 })
-      .sum::<usize>()
-  };
-  let least = rest
-    .iter()
-    .filter(|l| !l.trim().is_empty())
-    .map(|l| leading(l))
-    .min()
-    .unwrap_or(0);
-  let mut out = first.to_string();
-  for line in rest {
-    out.push('\n');
-    if !line.trim().is_empty() {
-      out.push_str(&" ".repeat(indent + leading(line) - least));
-      out.push_str(line.trim());
-    }
-  }
-  out
 }
 
 fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConfig) -> String {
@@ -1044,6 +1088,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             crate::format::items::rewrite_field(node, indent, config)
           }
           // Not an item given up on whole.
+          // A macro call standing as an item, in parentheses or brackets.
+          SyntaxKind::MacroCall if !covered(node) => {
+            whole(crate::format::items::rewrite_macro_item(node, indent, config))
+          }
           kind if is_item(kind) => {
             if covered(node) {
               None
@@ -1228,8 +1276,26 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           if braced_macro(node) {
             braced_macros.push((range.start as usize, range.end as usize));
           }
+          // An item with a body is never given up on whole: the standard formatter lays out
+          // its header (given up on when too long) and visits its body, whose statements are
+          // measured on their own.
+          let body = node.children_iter().find(|c| {
+            matches!(
+              c.kind(),
+              SyntaxKind::BlockExpr
+                | SyntaxKind::ItemList
+                | SyntaxKind::AssocItemList
+                | SyntaxKind::RecordFieldList
+                | SyntaxKind::VariantList
+                | SyntaxKind::ExternItemList
+            )
+          });
+          let end = match &body {
+            Some(body) if is_item(node.kind()) => body.text_range().start as usize,
+            _ => range.end as usize,
+          };
           if !in_expression() {
-            statements.push((range.start as usize, range.end as usize));
+            statements.push((range.start as usize, end));
           }
           // A `use` from its visibility or `use` on, and an item's header, after their
           // attributes.
@@ -1237,7 +1303,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             && let Some(start) = crate::format::imports::body_start(node)
           {
             roles.layable.insert(start, node.clone());
-          } else if is_item(node.kind())
+          } else if (is_item(node.kind())
+            || node.kind() == SyntaxKind::MacroCall && !braced_macro(node))
             && let Some(start) = crate::format::items::header_start(node)
           {
             roles.layable.insert(start, node.clone());
@@ -1282,6 +1349,34 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 .spaced
                 .insert(elements[after].text_range().start as usize);
             }
+          }
+        }
+        // A block's `{` after its `unsafe`, `async`, `move`, `const` or label, one space
+        // apart, on their line.
+        if node.kind() == SyntaxKind::BlockExpr {
+          let elements: Vec<SyntaxElement> = node.children_with_tokens_iter().collect();
+          let prefixed = elements
+            .iter()
+            .find(|e| e.kind() != SyntaxKind::Whitespace)
+            .is_some_and(|e| {
+              matches!(
+                e.kind(),
+                SyntaxKind::UnsafeKw
+                  | SyntaxKind::AsyncKw
+                  | SyntaxKind::ConstKw
+                  | SyntaxKind::Label
+              )
+            });
+          // Whitespace alone between the last prefix and `{`.
+          if prefixed
+            && let Some(open) = elements.iter().position(|e| e.kind() == SyntaxKind::LBrace)
+            && open >= 2
+            && elements[open - 1].kind() == SyntaxKind::Whitespace
+            && !elements[open - 2].kind().is_trivia()
+          {
+            roles
+              .spaced
+              .insert(elements[open].text_range().start as usize);
           }
         }
         // A macro call's name and its arguments: `name! {` one space apart, `name!(` and
@@ -1507,28 +1602,6 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   roles.verbatim = merged;
   roles
-}
-
-/// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names: left
-/// exactly as written.
-fn skipped_macro(call: &SyntaxNode) -> bool {
-  let Some(path) = call.children_iter().find(|c| c.kind() == SyntaxKind::Path) else {
-    return false;
-  };
-  let name = path.text().to_string();
-  let name = name.rsplit("::").next().unwrap_or("").trim().to_string();
-  call.ancestors_iter().any(|owner| {
-    owner
-      .children_iter()
-      .filter(|c| c.kind() == SyntaxKind::Attr)
-      .any(|attr| {
-        let text: String = attr.text().to_string().split_whitespace().collect();
-        text
-          .split_once("rustfmt::skip::macros(")
-          .and_then(|(_, rest)| rest.split_once(')'))
-          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
-      })
-  })
 }
 
 /// A file with `#![rustfmt::skip]` is left alone.

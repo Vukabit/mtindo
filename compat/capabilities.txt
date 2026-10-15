@@ -74,7 +74,7 @@ option  required_version                                 missing
 option  short_array_element_width_threshold              partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  show_parse_errors                                missing
 option  single_line_if_else_max_width                    partial      # with format = true, for an `if` with one-expression branches as a value or a block's tail (src/format/stmt/tests.rs); not yet in match arms
-option  single_line_let_else_max_width                   missing
+option  single_line_let_else_max_width                   partial      # with format = true, a `let ... else` block of one expression on the `let`'s line (src/format/stmt/tests.rs)
 option  skip_children                                    missing
 option  skip_macro_invocations                           missing
 option  space_after_colon                                supported    # with format = true (src/format/space/tests.rs)
@@ -87,7 +87,7 @@ option  struct_variant_width                             supported    # with for
 option  style_edition                                    partial      # resolved as rustfmt resolves it and decides the defaults (src/config/tests.rs); import order follows it from N3
 option  tab_spaces                                       partial      # with format = true, the width of one indentation level (src/format/file/tests.rs)
 option  trailing_comma                                   partial      # with format = true, for struct fields and enum variants; Never leaves a last one written with a comma as written (src/format/items/tests.rs)
-option  trailing_semicolon                               missing
+option  trailing_semicolon                               partial      # with format = true, a `;` after a block's last `return`, `break` or `continue` (src/format/stmt/tests.rs)
 option  type_punctuation_density                         partial      # with format = true, a bound's + and a type parameter's = (src/format/space/tests.rs)
 option  unstable_features                                missing
 option  use_field_init_shorthand                         missing

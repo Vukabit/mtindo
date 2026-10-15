@@ -1,0 +1,216 @@
+---
+paper: "meaning"
+title: "Meaning and stability"
+status: "measured"
+generated: "2026-10-15T23:16:14.867Z"
+commit: "44f55b3-dirty.85382068"
+command: "cargo xtask diff"
+sources:
+  - compat/meaning-exceptions.txt
+  - compat/compatibility.txt
+toolchain:
+  reference_formatter: "1.9.0-stable (88d9e12ae1 2026-08-18)"
+corpus_fingerprint: "sha256:0bfa13269439c574"
+seed: "FNV-1a of each file's text (scrambled set only)"
+metrics:
+  meaning.exceptions.tests: 5
+  meaning.exceptions.tests-with-settings: 22
+  meaning.exceptions.corpus: 35
+  meaning.exceptions.corpus-unformatted: 45
+  meaning.exceptions.total: 107
+  meaning.exceptions.unmodelled: 28
+  meaning.exceptions.other: 79
+---
+
+# Meaning and stability
+
+## Abstract
+
+<!-- generated: abstract -->
+Every output of mto that `cargo xtask diff` scores must keep the input's meaning
+and must not change when formatted again, or the run fails. The same meaning
+check, run on the standard formatter's own outputs, flags 107 files, each listed
+with its reason: 28 are rewrites the check does not model yet, and 79 are the
+formatter changing meaning, writing invalid code, or test inputs that differ
+from their expected files beyond formatting.
+<!-- end generated -->
+
+## 1 Question
+
+Does formatting with mto ever change what a program means, and does
+formatting its output again ever change it further? A formatter may only
+move whitespace and make rewrites that provably keep the program's meaning,
+and its output should be a fixed point: a second run changes nothing. Both
+must hold for every input, so the measure here is a count of failures, and
+the target is zero.
+
+## 2 Method
+
+**The meaning check** compares an input with a formatted output. Both texts
+are parsed and walked into canonical token streams: whitespace and comments
+are dropped, doc comments are kept (they are attributes) with each line
+trimmed, and every allowed rewrite is resolved to one form, so that a
+rewrite in either direction compares equal. The streams must be equal.
+Comments are compared on their own, as a multiset with each comment's lines
+trimmed, since formatting may re-indent a block comment or move a comment
+across a comma; every comment must survive. Adding or removing a byte-order
+mark also fails the check. The allowed rewrites are declared one by one in
+the meaning check's source, each with the reason it keeps the meaning (an
+optional trailing comma, braces around a closure body holding one
+expression, and so on).
+
+**Stability** is checked by formatting mto's output a second time with the
+same settings: the result must equal the output.
+
+Both run inside `cargo xtask diff` (see the compatibility paper for its
+input sets) on every scored input:
+
+- mto's output must pass the meaning check against the input and be
+  stable. Any input that fails either fails the run, and is filed as a
+  `meaning` or `unstable` incident with the input kept for replay; a panic
+  is filed as a `panic` incident. Open incidents of these kinds fail the
+  `incidents` gate of `cargo xtask test`.
+- The same meaning check runs on the standard formatter's own output. This
+  tests the check itself: a flag there is either a rewrite the check does
+  not model yet, or a real fault of the standard formatter. Each flagged
+  file must be listed in compat/meaning-exceptions.txt with its reason, or
+  the run fails; a listed file no longer flagged is reported for removal.
+
+This paper counts the listed exceptions, which are tracked, and classifies
+each by its reason: a reason saying the rewrite is `equivalent` or `not
+modelled` counts as a gap in the check, any other as the formatter's fault
+or a test input that differs from its expected file beyond formatting.
+mto's own failures are not recorded in a tracked file: a run with any
+fails, and they live as incidents on the machine that ran it.
+
+## 3 Results
+
+Exceptions listed for the standard formatter's output, by set:
+
+<!-- generated: results -->
+| set | listed | not modelled | other |
+|---|---:|---:|---:|
+| tests | 5 | 0 | 5 |
+| tests-with-settings | 22 | 11 | 11 |
+| corpus | 35 | 7 | 28 |
+| corpus-scrambled | 45 | 10 | 35 |
+
+The reasons given, with how many files give each:
+
+- the formatter writes invalid code when a comment sits before a comma
+  (scrambled input) (9)
+- the formatter drops attributes on parameters (8)
+- a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent,
+  not modelled (7)
+- the formatter adds parentheses that change what a closure covers (7)
+- an attributed match arm body wrapped in a block: equivalent, not modelled (6)
+- the formatter drops a `for` without a binder list (invalid input) (6)
+- `format_code_in_doc_comments` changes code in docs beyond whitespace (4)
+- the formatter rewrites a float range pattern (4)
+- the formatter writes invalid code (range spacing) (4)
+- `wrap_comments` reflows a markdown blockquote: not modelled (3)
+- test input splits `::` into `: :`; the formatter joins it (3)
+- the formatter drops `pub` from a const block (3)
+- the formatter drops `pub` from an impl item (3)
+- the formatter drops the leading `::` of `pub(in ::path)` (3)
+- the formatter removes a `;` from a macro transcriber, which changes its
+  expansion (3)
+- `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not
+  modelled (2)
+- `wrap_comments` splits words: not modelled (2)
+- a comma after a block arm inside a macro dropped: equivalent, not modelled (2)
+- a turbofish in an associated type bound, dropped: equivalent, in a shape the
+  check does not model (2)
+- the expected file differs from its input beyond formatting (2)
+- the formatter drops `default` (2)
+- the formatter drops `use self` (invalid input) (2)
+- the formatter drops an inner attribute inside an impl (2)
+- the formatter loses comments (2)
+- the formatter mangles `$r#struct` (2)
+- the formatter reorders imports inside a macro body: equivalent, not modelled
+  (2)
+- the formatter writes invalid code (`use std::::*`) (2)
+- the formatter writes invalid code (a comment swallows a parameter) (2)
+- the formatter writes invalid code (a where clause it fails to format) (2)
+- the formatter writes invalid code (parentheses dropped around `?Sized`) (2)
+- `cfg_select!` arm bodies unwrapped: macro-specific, not modelled (1)
+- `imports_granularity = "One"` with renames: not modelled (1)
+- `trailing_semicolon` adds `;` after a macro call ending a loop body (1)
+- converting CRLF line endings changes a multi-line raw string's contents (1)
+<!-- end generated -->
+
+### History
+
+The listed exceptions at every commit that changed the list, newest first.
+The first row is the list as it stands; a commit whose list equals it is not
+repeated.
+
+<!-- generated: history -->
+| date | commit | listed | not modelled | other |
+|---|---|---:|---:|---:|
+| current |  | 107 | 28 | 79 |
+<!-- end generated -->
+
+### Incidents on the generating machine
+
+mto's own meaning and stability failures, as the incident records of the
+machine that generated the page keep them. They are not tracked, so the
+staleness gate does not check this part.
+
+<!-- generated: incidents -->
+Incidents filed on the machine that generated this page (`cargo xtask
+incidents`), each failure counted once however often it was seen, by kind and
+status:
+
+| kind | open | flaky | fixed | wont-fix |
+|---|---:|---:|---:|---:|
+| `meaning` | 0 | 0 | 69 | 0 |
+| `unstable` | 0 | 0 | 258 | 0 |
+| `panic` | 0 | 0 | 0 | 0 |
+<!-- end generated -->
+
+## 4 Threats to validity
+
+- **The check is only as strict as its model.** It compares tokens after
+  resolving the allowed rewrites. A rewrite allowed by mistake would hide a
+  real change of meaning in both mto's output and the standard formatter's.
+  Each rewrite has its own test, and running the check on the standard
+  formatter's output, which is expected to keep meaning, is what keeps the
+  rewrites honest: a rewrite it needs and the check lacks shows as a flag.
+- **Tokens are not semantics.** Equal token streams mean an equal program
+  for the parser, but the check does not expand macros. A rewrite inside a
+  macro's input that changes what the macro does would pass if the tokens
+  resolved equal. The few rewrites that reach into macro syntax (the
+  delimiters of `vec!`, the arms of `macro_rules!`) each state in their
+  reason why the expansion stays the same.
+- **Refused inputs are not checked.** An input the standard formatter
+  refuses is skipped before mto formats it, so mto's meaning and stability
+  are not checked on it by this run. The fuzz targets cover mto on arbitrary
+  input (see the fuzzing paper).
+- **Zero failures is a fact of one run.** A run that finds a failure exits
+  with an error, but `--update` still writes the compatibility record, so
+  the record alone does not prove a clean run. The incidents gate and the
+  local incident table are the evidence.
+- **The classification of exceptions is by wording.** A reason is counted as
+  a gap in the check by the words `equivalent` or `not modelled`. A reason
+  worded otherwise is counted as the formatter's fault.
+- **Stability is checked once.** A second run must change nothing; a third
+  is not run, since a stable second run makes every later one stable too.
+
+## 5 Reproduction
+
+```bash
+# Score every set; fails on any of mto's outputs that changes meaning or is
+# not stable, and on any flag of the standard formatter's output that
+# compat/meaning-exceptions.txt does not list
+cargo xtask diff
+# mto's failures, filed once each, with their inputs
+cargo xtask incidents list --kind meaning --kind unstable --kind panic
+# Regenerate this page
+cargo xtask docs metrics
+```
+
+## 6 Changelog
+
+- 2026-10-15: first version, generated from the exception list and its
+  history.

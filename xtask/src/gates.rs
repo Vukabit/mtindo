@@ -31,6 +31,11 @@ pub const GATES: &[Gate] = &[
     check_layering,
   ),
   (
+    "metrics-docs",
+    "the metrics papers in docs/metrics/ match the tracked records they are generated from",
+    crate::papers::check,
+  ),
+  (
     "naming",
     "the reference formatter is named only where the name does work",
     check_naming,
@@ -330,6 +335,39 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   }
 }
 
+/// The lines of `text` that name the reference formatter outside the allowed spellings (and,
+/// in the README, outside the allowed sections).
+pub(crate) fn stray_names(file: &str, text: &str) -> Vec<String> {
+  let readme = file == "README.md";
+  let mut allowed_section = false;
+  let mut problems = Vec::new();
+  for (idx, line) in text.lines().enumerate() {
+    if readme && line.starts_with("## ") {
+      allowed_section = NAMING_README_SECTIONS.contains(&line.trim_end());
+    }
+    if allowed_section {
+      continue;
+    }
+    // Longest first, so a spelling inside a longer one cannot leave part of it behind.
+    let mut spellings = NAMING_ALLOWED_SPELLINGS.to_vec();
+    spellings.sort_by_key(|s| std::cmp::Reverse(s.len()));
+    let mut rest = line.to_string();
+    for spelling in spellings {
+      rest = rest.replace(spelling, "");
+    }
+    if rest.to_ascii_lowercase().contains("rustfmt") {
+      problems.push(format!(
+        "{}:{}: names the reference formatter; say \"the Rust style\" or \"the \
+                 standard formatter\" (S3-9): {}",
+        file,
+        idx + 1,
+        line.trim()
+      ));
+    }
+  }
+  problems
+}
+
 fn collect_rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
   let entries = match fs::read_dir(dir) {
     Ok(entries) => entries,
@@ -507,39 +545,6 @@ fn runtime_dependencies(manifest: &str) -> Vec<String> {
     }
   }
   entries
-}
-
-/// The lines of `text` that name the reference formatter outside the allowed spellings (and,
-/// in the README, outside the allowed sections).
-fn stray_names(file: &str, text: &str) -> Vec<String> {
-  let readme = file == "README.md";
-  let mut allowed_section = false;
-  let mut problems = Vec::new();
-  for (idx, line) in text.lines().enumerate() {
-    if readme && line.starts_with("## ") {
-      allowed_section = NAMING_README_SECTIONS.contains(&line.trim_end());
-    }
-    if allowed_section {
-      continue;
-    }
-    // Longest first, so a spelling inside a longer one cannot leave part of it behind.
-    let mut spellings = NAMING_ALLOWED_SPELLINGS.to_vec();
-    spellings.sort_by_key(|s| std::cmp::Reverse(s.len()));
-    let mut rest = line.to_string();
-    for spelling in spellings {
-      rest = rest.replace(spelling, "");
-    }
-    if rest.to_ascii_lowercase().contains("rustfmt") {
-      problems.push(format!(
-        "{}:{}: names the reference formatter; say \"the Rust style\" or \"the \
-                 standard formatter\" (S3-9): {}",
-        file,
-        idx + 1,
-        line.trim()
-      ));
-    }
-  }
-  problems
 }
 
 /// The top-level module a file under `src/` belongs to, e.g. `syntax` for

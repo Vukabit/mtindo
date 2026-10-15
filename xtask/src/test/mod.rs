@@ -19,6 +19,7 @@
 //! is wall-clock time, so sleep would cut the fuzzing short while still passing.
 
 mod manual;
+mod reference;
 pub mod tasks;
 
 use std::collections::HashMap;

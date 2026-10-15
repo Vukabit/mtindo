@@ -197,6 +197,7 @@ pub fn tree() -> Command {
     capabilities(),
     corpus(),
     diff(),
+    docs(),
     doctor(),
     fuzz(),
     gates_command(),
@@ -206,6 +207,7 @@ pub fn tree() -> Command {
     lexdiff(),
     memst(),
     metrics(),
+    pairs(),
     parsecheck(),
     race(),
     runs(),
@@ -379,6 +381,22 @@ fn diff() -> Command {
       "Record the numbers in compat/compatibility.txt",
     ))
     .arg(flag("markdown", "As Markdown tables"))
+}
+
+fn docs() -> Command {
+  Command::new("docs")
+    .about("Regenerate the generated documentation")
+    .subcommand_required(true)
+    .subcommand(
+      Command::new("config")
+        .about("Regenerate docs/config/, the settings reference and mto.toml's JSON Schema, from the settings table")
+        .arg(flag("check", "Only compare")),
+    )
+    .subcommand(
+      Command::new("metrics")
+        .about("The metrics papers in docs/metrics/ from the recorded data (compat/, its history, .dev/ when present); runs no suite")
+        .arg(flag("check", "Only compare with the tracked records; fails when a page is out of date")),
+    )
 }
 
 fn doctor() -> Command {
@@ -717,6 +735,26 @@ fn metrics() -> Command {
 
 fn option(name: &'static str, value: &'static str, help: &'static str) -> Arg {
   Arg::new(name).long(name).value_name(value).help(help)
+}
+
+fn pairs() -> Command {
+  Command::new("pairs")
+    .about("The scrambled-pair suite: corpus files drawn by a fresh seed, items shuffled and whitespace scrambled (checked token for token), formatted by mto and by the standard formatter; scored by files and lines matching, and the crates that compile offline built scrambled, after mto and after the standard formatter; kept as pairs.* metrics; exits 1 on an mto compile break, an mto panic or a scrambler bug")
+    .arg(
+      option("seed", "N", "Draw and scramble from this seed, to replay a run (default: a new one, printed)")
+        .value_parser(value_parser!(u64)),
+    )
+    .arg(
+      option("crates", "NAME,...", "The corpus crates (default: six drawn by the seed, three of them crates that compile offline)")
+        .value_delimiter(','),
+    )
+    .arg(
+      option("files", "N", "Files drawn per crate; 0 for every file")
+        .value_parser(value_parser!(u32))
+        .default_value("20"),
+    )
+    .arg(flag("no-compile", "Score likeness only; build no copies"))
+    .arg(option("keep", "DIR", "Keep the scrambled files and the built copies in DIR (outside this repository) instead of a temporary folder that is deleted"))
 }
 
 fn parsecheck() -> Command {

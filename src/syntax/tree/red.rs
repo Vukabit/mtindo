@@ -413,6 +413,11 @@ impl SyntaxNode {
     None
   }
 
+  /// This very node, among every node alive (see [`GreenNode::identity`]).
+  pub fn identity(&self) -> (usize, u32) {
+    self.0.green.identity()
+  }
+
   pub fn green(&self) -> &GreenNode {
     &self.0.green
   }

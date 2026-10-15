@@ -21,6 +21,8 @@ mod incidents;
 mod io;
 mod memst;
 mod metrics;
+mod pairs;
+mod papers;
 mod perf;
 mod race;
 mod runs;
@@ -51,6 +53,18 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "capabilities" => capabilities::run(root, m),
     "corpus" => corpus::run(root, m),
     "diff" => diff::run(root, m),
+    // docs/config/ is written by xtask-tools from the settings table; the metrics papers
+    // here, from the recorded data.
+    "docs" if m.subcommand_name() == Some("metrics") => papers::run(root, m),
+    "docs" => {
+      let check = m.subcommand().is_some_and(|(_, sub)| cli::on(sub, "check"));
+      let args = if check {
+        vec!["--check".to_string()]
+      } else {
+        Vec::new()
+      };
+      forward(root, "docs-config", args)
+    }
     "doctor" => doctor::run(root, m),
     "fuzz" => fuzz::run(root, m),
     "gates" => gates::run(root, m),
@@ -67,6 +81,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     }
     "memst" => memst::run(root, m),
     "metrics" => metrics::run(root, m),
+    "pairs" => pairs::run(root, m),
     "parsecheck" => forward(root, "parsecheck", cli::texts(m, "paths")),
     "race" => race::run(root, m),
     "runs" => runs::run(root, m),

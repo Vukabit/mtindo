@@ -184,6 +184,12 @@ impl GreenNode {
     Rc::ptr_eq(&self.arena, &other.arena)
   }
 
+  /// This very node, among every node alive: its tree's and its place in it, for a cache to
+  /// key on while it keeps the tree alive.
+  pub fn identity(&self) -> (usize, u32) {
+    (Rc::as_ptr(&self.arena) as usize, self.element.at)
+  }
+
   /// Whether `other` is this very node (a clone of it), not just an equal one.
   pub fn ptr_eq(&self, other: &GreenNode) -> bool {
     Rc::ptr_eq(&self.arena, &other.arena) && self.element.at == other.element.at

@@ -76,8 +76,12 @@ pub struct FormatConfig {
   /// `single_line_if_else_max_width`: the widest `if ... { .. } else { .. }` kept on one
   /// line.
   pub single_line_if_else_max_width: usize,
+  /// `single_line_let_else_max_width`: the widest `let ... else { .. }` kept on one line.
+  pub single_line_let_else_max_width: usize,
   /// `trailing_comma = "Never"`: no comma is added after the last field or variant.
   pub trailing_comma_never: bool,
+  /// `trailing_semicolon`: a `;` after a block's last `return`, `break` or `continue`.
+  pub trailing_semicolon: bool,
 }
 
 impl Default for FormatConfig {
@@ -110,7 +114,9 @@ impl Default for FormatConfig {
       brace_next_line: false,
       struct_variant_width: 35,
       single_line_if_else_max_width: 50,
+      single_line_let_else_max_width: 50,
       trailing_comma_never: false,
+      trailing_semicolon: true,
     }
   }
 }

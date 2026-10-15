@@ -62,8 +62,10 @@ fn test_comments_kept_where_the_standard_formatter_keeps_them() {
 fn test_contents_follow_the_line_their_owner_starts_on() {
   // A closure whose parameters span lines: its body follows the closure's first line.
   assert_eq!(
-    formatted("fn f() {\n    let g = |a: u8,\n             b: u8| {\n  a\n    };\n}\n"),
-    "fn f() {\n    let g = |a: u8,\n             b: u8| {\n        a\n    };\n}\n"
+    formatted(
+      "fn f() {\n    let g = |S { aaaaaaaa, bbbbbbbbbbbb }: S,\n             b: u8| {\n  a\n    };\n}\n"
+    ),
+    "fn f() {\n    let g = |S { aaaaaaaa, bbbbbbbbbbbb }: S,\n             b: u8| {\n        a\n    };\n}\n"
   );
   // A method call's arguments follow the line of its `.` (the comment keeps the
   // statement's lines as written).

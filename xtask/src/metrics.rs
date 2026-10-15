@@ -173,9 +173,8 @@ pub fn names(root: &Path) -> Vec<String> {
   names
 }
 
-/// The ratchet: the machine it was recorded on, and its limits.
-pub fn read_record(root: &Path) -> (String, Vec<Limit>) {
-  let text = fs::read_to_string(root.join(RECORD)).unwrap_or_default();
+/// [`read_record`] on the ratchet's text, as any commit kept it.
+pub fn parse_record(text: &str) -> (String, Vec<Limit>) {
   let mut machine = String::new();
   let mut limits = Vec::new();
   for line in text.lines() {
@@ -200,6 +199,11 @@ pub fn read_record(root: &Path) -> (String, Vec<Limit>) {
     }
   }
   (machine, limits)
+}
+
+/// The ratchet: the machine it was recorded on, and its limits.
+pub fn read_record(root: &Path) -> (String, Vec<Limit>) {
+  parse_record(&fs::read_to_string(root.join(RECORD)).unwrap_or_default())
 }
 
 /// Appends a measurement to series `name`. Never fails the command: a figure that cannot

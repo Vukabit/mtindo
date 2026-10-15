@@ -24,7 +24,7 @@ pub const ENV_VARS: &[(&str, &str)] = &[(
 pub const GROUPS: &[(&str, &str)] = &[
   (
     "gates",
-    "Repository rules: clippy, dependencies, layering, docs, naming, planning ids, capabilities, rustfmt, mto on itself, help text",
+    "Repository rules: clippy, dependencies, layering, docs, metrics papers, naming, planning ids, capabilities, rustfmt, mto on itself, help text, the manual and the settings reference",
   ),
   (
     "tests",
@@ -239,6 +239,12 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     Action::Check(gate("docs")),
   ));
   tasks.push(Task::new(
+    "metrics-docs",
+    "The metrics papers match the tracked records they are generated from",
+    "gates",
+    Action::Check(gate("metrics-docs")),
+  ));
+  tasks.push(Task::new(
     "naming",
     "The reference formatter is named only where the name does work",
     "gates",
@@ -320,6 +326,12 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     "mto --man documents every key, value, flag and command, and nothing else",
     "gates",
     Action::Check(super::manual::check_manual),
+  ));
+  tasks.push(Task::new(
+    "config-docs",
+    "docs/config/, the settings reference, matches the settings table (cargo xtask docs config)",
+    "gates",
+    Action::Check(super::reference::check_reference),
   ));
 
   // Every test target of the library and binaries at once, in parallel, as the tasks below

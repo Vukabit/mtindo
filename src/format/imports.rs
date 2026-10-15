@@ -74,9 +74,20 @@ fn list_text(
   width: usize,
   config: &FormatConfig,
 ) -> Option<String> {
-  let items = items(list);
+  let mut items = items(list);
   if items.len() < 2 {
     return None;
+  }
+  // In the order the standard formatter sorts a nested list in (`UseTree::normalize`).
+  if config.reorder_imports {
+    let version = config.style_edition >= 2024;
+    let trees: Vec<crate::order::UseTree> = items
+      .iter()
+      .map(|item| crate::order::UseTree::from_syntax(item, true, version))
+      .collect();
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by(|&a, &b| trees[a].compare(&trees[b], version));
+    items = order.into_iter().map(|i| items[i].clone()).collect();
   }
   let inner_indent = indent + config.tab_spaces;
   // 1 = `,`
@@ -134,7 +145,8 @@ fn list_text(
   Some(format!("{{\n{}{}\n{}}}", pad, out, " ".repeat(indent)))
 }
 
-/// Whether `text` holds the tokens of `body`, commas aside.
+/// Whether `text` holds the tokens of `body`, commas aside, in any order (a nested list is
+/// sorted).
 fn same_tokens(body: &[SyntaxElement], text: &str) -> bool {
   let code = |&(kind, _): &(SyntaxKind, &str)| !kind.is_trivia() && kind != K::Comma;
   let mut theirs: Vec<(SyntaxKind, &str)> = Vec::new();
@@ -144,14 +156,22 @@ fn same_tokens(body: &[SyntaxElement], text: &str) -> bool {
       SyntaxElement::Token(t) => theirs.push((t.kind(), t.text())),
     }
   }
-  let theirs = theirs.into_iter().filter(code).map(|(_, text)| text);
+  let mut theirs: Vec<&str> = theirs
+    .into_iter()
+    .filter(code)
+    .map(|(_, text)| text)
+    .collect();
   let wrapped = format!("{}\nfn f() {{}}", text);
-  let ours = parse_tokens(&wrapped, Edition::E2021)
+  let mut ours: Vec<&str> = parse_tokens(&wrapped, Edition::E2021)
     .into_iter()
     .take_while(|&(kind, _)| kind != K::FnKw)
     .filter(code)
-    .map(|(_, text)| text);
-  theirs.eq(ours)
+    .map(|(_, text)| text)
+    .collect();
+  // As a multiset: a nested list is sorted.
+  theirs.sort_unstable();
+  ours.sort_unstable();
+  theirs == ours
 }
 
 /// A tree's text, its path up to the last segment within `width`: a list after it laid out

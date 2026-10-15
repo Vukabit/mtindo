@@ -3,11 +3,9 @@
 
 use crate::options::{self, Channels, File, Kind, Setting, Stability};
 
-/// The widest a manual line is wrapped to.
-pub const WIDTH: usize = 80;
-
 /// How configuration is found and merged; kept beside the code in `config` that does it.
-const LOOKUP: &str = "\
+/// The settings reference in docs/config/ reads it too.
+pub const LOOKUP: &str = "\
 mto reads the settings for each folder it formats from, lowest precedence first:
 
 1. The defaults below, for the style edition in effect.
@@ -36,13 +34,16 @@ of the wrong type, or outside the legal values, is an error (exit code 2) naming
 the file, line and column. Values are matched without regard to case, as the \
 standard formatter matches them.";
 
-/// The per-user file.
-const USER: &str = "\
+/// The per-user file; the settings reference reads it too.
+pub const USER: &str = "\
 The user configuration holds how mto behaves for you, never layout or \
 formatting. It is `$MTINDO_CONFIG` when set (the file must exist), else \
 `$XDG_CONFIG_HOME/mtindo/config.toml`, else `~/.config/mtindo/config.toml` on \
 macOS and Linux and `%APPDATA%\\mtindo\\config.toml` on Windows. Project files \
 cannot set user settings, and the user configuration cannot set project ones.";
+
+/// The widest a manual line is wrapped to.
+pub const WIDTH: usize = 80;
 
 /// The configuration chapter of the manual, in the manual's Markdown.
 pub fn configuration() -> String {
@@ -125,6 +126,27 @@ pub fn wrap(text: &str, lead: &str) -> String {
   }
   out.push_str(line.trim_end());
   out.push('\n');
+  out
+}
+
+/// A paragraph, or a numbered list item, wrapped and followed by its line break.
+pub fn wrap_block(paragraph: &str) -> String {
+  let mut out = String::new();
+  for item in paragraph.split('\n') {
+    match item.split_once(". ") {
+      Some((number, rest)) if number.chars().all(|c| c.is_ascii_digit()) => {
+        let lead = format!("{}. ", number);
+        let indent = " ".repeat(lead.len());
+        let wrapped = wrap(rest, &indent);
+        out.push_str(&lead);
+        out.push_str(&wrapped[indent.len()..]);
+      }
+      _ => match item.strip_prefix("- ") {
+        Some(rest) => out.push_str(&wrap(rest, "*   ")),
+        None => out.push_str(&wrap(item, "")),
+      },
+    }
+  }
   out
 }
 
@@ -235,27 +257,6 @@ fn unbreakable_words(text: &str) -> Vec<String> {
     idx += 1;
   }
   words
-}
-
-/// A paragraph, or a numbered list item, wrapped and followed by its line break.
-fn wrap_block(paragraph: &str) -> String {
-  let mut out = String::new();
-  for item in paragraph.split('\n') {
-    match item.split_once(". ") {
-      Some((number, rest)) if number.chars().all(|c| c.is_ascii_digit()) => {
-        let lead = format!("{}. ", number);
-        let indent = " ".repeat(lead.len());
-        let wrapped = wrap(rest, &indent);
-        out.push_str(&lead);
-        out.push_str(&wrapped[indent.len()..]);
-      }
-      _ => match item.strip_prefix("- ") {
-        Some(rest) => out.push_str(&wrap(rest, "*   ")),
-        None => out.push_str(&wrap(item, "")),
-      },
-    }
-  }
-  out
 }
 
 #[cfg(test)]

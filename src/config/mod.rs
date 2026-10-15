@@ -278,6 +278,7 @@ impl Config {
     config.array_width = width("array_width", 60);
     config.attr_fn_like_width = width("attr_fn_like_width", 70);
     config.single_line_if_else_max_width = width("single_line_if_else_max_width", 50);
+    config.single_line_let_else_max_width = width("single_line_let_else_max_width", 50);
     config.style_edition = self.style_edition();
     config.reorder_imports = flag("reorder_imports", true);
     config.reorder_modules = flag("reorder_modules", true);
@@ -288,6 +289,7 @@ impl Config {
       config.short_array_element_width_threshold,
     );
     config.match_arm_indent = flag("match_arm_indent", true);
+    config.trailing_semicolon = flag("trailing_semicolon", true);
     config.format_generated_files = flag("format_generated_files", true);
     config.generated_marker_line_search_limit = number(
       "generated_marker_line_search_limit",

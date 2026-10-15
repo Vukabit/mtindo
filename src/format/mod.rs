@@ -6,6 +6,7 @@
 
 pub mod arms;
 pub mod attrs;
+pub mod block;
 pub mod expr;
 pub mod file;
 pub mod imports;

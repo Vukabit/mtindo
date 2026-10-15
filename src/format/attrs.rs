@@ -93,18 +93,10 @@ fn call(
   // it may reach it (found by measuring the standard formatter).
   let limits = Limits {
     max_width: config.max_width.checked_sub(1)?,
-    tab: config.tab_spaces,
     fn_call: config.attr_fn_like_width,
-    chain: config.chain_width,
-    struct_lit: config.struct_lit_width,
-    array: config.array_width,
-    short_item: config.short_array_element_width_threshold,
-    spacing: Spacing::of(config),
     attribute: true,
     comma_as_written: true,
-    style_2024: config.style_edition >= 2024,
-    one_line_chains: false,
-    single_line_if_else: config.single_line_if_else_max_width,
+    ..Limits::of(config)
   };
   // 1 = `]`
   let width = config

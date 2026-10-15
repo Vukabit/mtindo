@@ -180,16 +180,15 @@ pub fn rewrite_control_head(
   } else {
     text.push(' ');
   }
-  // The same tokens, as the lexer splits them, commas aside (a list laid out vertically
-  // gains a trailing one).
+  // The same tokens, as the lexer splits them, but for those [`compared`] passes over.
   let written: Vec<&str> = head
     .iter()
-    .filter(|t| !t.kind().is_trivia() && t.kind() != K::Comma)
+    .filter(|t| compared(t.kind()))
     .map(|t| t.text())
     .collect();
   let ours: Vec<String> = crate::syntax::parse_tokens(&text, Edition::E2021)
     .into_iter()
-    .filter(|(kind, _)| !kind.is_trivia() && *kind != K::Comma)
+    .filter(|(kind, _)| compared(*kind))
     .map(|(_, t)| t.to_string())
     .collect();
   if written.concat() != ours.concat() {
@@ -465,100 +464,79 @@ pub fn rewrite_statement(
   indent: usize,
   config: &FormatConfig,
 ) -> Option<String> {
-  if !clean(node, config) {
+  let text = statement(node, indent, config)?;
+  // A block's last `return`, `break` or `continue` gains a `;` where the block is on lines
+  // (laid out in an expression, the block's layout adds it).
+  let ends = is_tail(node)
+    && matches!(node.kind(), K::ReturnExpr | K::BreakExpr | K::ContinueExpr)
+    && node
+      .parent()
+      .is_some_and(|block| super::file::block_of_lines(&block));
+  Some(if ends && config.trailing_semicolon {
+    format!("{};", text)
+  } else {
+    text
+  })
+}
+
+/// An assignment's left side, operator (`=`, `+=` and the rest) and right side.
+pub(super) fn assignment(expression: &SyntaxNode) -> Option<(SyntaxNode, String, SyntaxNode)> {
+  if expression.kind() != K::BinExpr {
     return None;
   }
-  if !takes(node) {
-    return on_one_line(node, indent, config);
-  }
-  // Types are printed flat for now: a statement whose generic arguments would have to
-  // break is left as written. Those [`super::expr`] breaks (a path's in an expression, of
-  // plain names) aside; a `let`'s type only needs the head to fit.
-  let spacing = Spacing::of(config);
-  let wide = indent + str_width(&flat_code(node, spacing)) > config.max_width;
-  let let_type = (node.kind() == K::LetStmt)
-    .then(|| {
-      let before_value: Vec<SyntaxNode> = node
-        .children_with_tokens_iter()
-        .take_while(|e| e.kind() != K::Eq)
-        .filter_map(|e| match e {
-          SyntaxElement::Node(n) if n.kind() != K::Attr => Some(n),
-          _ => None,
-        })
-        .collect();
-      before_value.into_iter().nth(1)
-    })
-    .flatten();
-  // A `let`'s type is printed flat: its head must fit, and every list in it within
-  // `fn_call_width`, past which the standard formatter breaks it.
-  let head_wide = || {
-    let lists_wide = let_type.as_ref().is_some_and(|t| {
-      t.descendant_nodes_where(|kind| matches!(kind, K::GenericArgList | K::TupleType))
-        .any(|list| str_width(&flat(&list, spacing)).saturating_sub(2) > config.fn_call_width)
-    });
-    lists_wide
-      || expression_of(node)
-        .and_then(|value| flat_before(node, &value, spacing))
-        .is_none_or(|head| indent + str_width(&head) + 2 > config.max_width)
-  };
-  let unbreakable = node
-    .descendant_nodes_where(|kind| kind == K::GenericArgList)
-    .any(|g| {
-      // A method's are never broken: only plain names among them.
-      let method = g.parent().is_some_and(|p| p.kind() == K::MethodCallExpr)
-        && g
-          .children_iter()
-          .all(|arg| !flat(&arg, spacing).contains('<'));
-      let path = g.ancestors_iter().any(|a| a.kind() == K::PathExpr);
-      if (method || path) && super::expr::breakable_generics(&g) {
-        false
-      } else if let_type
-        .as_ref()
-        .is_some_and(|t| g.ancestors_iter().any(|a| &a == t))
-      {
-        head_wide()
-      } else {
-        wide
-      }
-    });
-  if unbreakable {
-    return None;
-  }
-  let text = laid_out(node, indent, config)?;
-  same_tokens(node, &text).then_some(text)
+  let mut nodes = expression.children_iter();
+  let (left, right) = (nodes.next()?, nodes.next()?);
+  let operator = expression
+    .children_with_tokens_iter()
+    .find_map(|e| match e {
+      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
+      _ => None,
+    })?;
+  matches!(
+    operator.kind(),
+    K::Eq
+      | K::PlusEq
+      | K::MinusEq
+      | K::StarEq
+      | K::SlashEq
+      | K::PercentEq
+      | K::CaretEq
+      | K::AmpEq
+      | K::PipeEq
+      | K::ShlEq
+      | K::ShrEq
+  )
+  .then(|| (left, operator.text().to_string(), right))
 }
 
 /// Whether an expression (or a pattern) holds nothing laying it out would lose or misplace:
 /// a comment, a block not laid out on one line, a `match`'s arms, a macro in braces, an
 /// attribute, a string spanning lines, a tuple field written `x.0 .0`.
 pub(super) fn clean_expression(node: &SyntaxNode) -> bool {
-  // `x.0 .0`: the standard formatter keeps the space a chain layout would drop.
-  let tokens: Vec<SyntaxKind> = node.token_texts().map(|(kind, _, _)| kind).collect();
-  if tokens
-    .windows(4)
-    .any(|w| w == [K::IntNumber, K::Whitespace, K::Dot, K::IntNumber])
-  {
+  if spaced_field(node) {
     return false;
   }
-  // Every kind `safe` can turn down: the walk makes nothing else.
-  let suspect = |kind: SyntaxKind| {
-    kind.is_literal()
-      || matches!(
-        kind,
-        K::LineComment
-          | K::BlockComment
-          | K::OuterLineDoc
-          | K::InnerLineDoc
-          | K::OuterBlockDoc
-          | K::InnerBlockDoc
-          | K::BlockExpr
-          | K::MatchArmList
-          | K::Attr
-          | K::LetElse
-          | K::MacroCall
-      )
-  };
-  safe(&SyntaxElement::Node(node.clone())) && node.descendants_where(suspect).all(|d| safe(&d))
+  laid_on_lines(node) || safe(&SyntaxElement::Node(node.clone())) && clean_inside(node)
+}
+
+/// Whether a token counts when comparing a layout's tokens with the written ones: not
+/// trivia, a comma (a list laid out vertically gains a trailing one, one laid out on a line
+/// loses it), a `;` (one follows a block's last `return`) or a brace (a closure's body gains
+/// or loses its block).
+pub(super) fn compared(kind: SyntaxKind) -> bool {
+  !kind.is_trivia() && !matches!(kind, K::Comma | K::Semi | K::LBrace | K::RBrace)
+}
+
+/// Whether a node is laid out on lines of its own whatever its width, its insides checked
+/// as they are laid out: a block of lines, a `match`'s arms, a macro call in braces (kept
+/// as written, re-indented).
+pub(super) fn laid_on_lines(node: &SyntaxNode) -> bool {
+  match node.kind() {
+    K::MatchArmList => true,
+    K::BlockExpr => !super::expr::joins(node) && !super::expr::one_line_if_block(node),
+    K::MacroCall => braced(node),
+    _ => false,
+  }
 }
 
 /// Whether every call, chain, struct literal, array, tuple and pattern in `node` stays on
@@ -598,8 +576,7 @@ pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig
     .all(|n| rewrite(&n, shape).is_some_and(|t| !t.contains('\n')))
 }
 
-/// Whether `text` holds the statement's code tokens, commas aside (a list laid out
-/// vertically gains a trailing comma, one laid out on a line loses it).
+/// Whether `text` holds the statement's code tokens, but for those [`compared`] passes over.
 pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
   // As `code_tokens` picks them, read straight from the tree.
   let start = header_start(node).unwrap_or(node.text_range().start as usize);
@@ -608,9 +585,7 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
   }
   let theirs = node
     .token_texts()
-    .filter(|&(kind, _, range)| {
-      !kind.is_trivia() && range.start as usize >= start && kind != K::Comma
-    })
+    .filter(|&(kind, _, range)| compared(kind) && range.start as usize >= start)
     .map(|(_, text, _)| text);
   // Inside a function body, where the statement stands, so that tokens split as they do
   // there (`>>` closing two generic lists).
@@ -619,31 +594,14 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
     .into_iter()
     .skip_while(|&(kind, _)| kind != K::LBrace)
     .skip(1)
-    .filter(|&(kind, _)| !kind.is_trivia() && kind != K::Comma)
+    .filter(|&(kind, _)| compared(kind))
     .map(|(_, text)| text);
-  // The function's closing brace ends what was parsed.
-  let mut ours: Vec<&str> = ours.collect();
-  ours.pop();
   theirs.eq(ours)
 }
 
 /// The shape a statement starting at column `indent` is laid out into.
 pub(super) fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
-  let limits = Limits {
-    max_width: config.max_width,
-    tab: config.tab_spaces,
-    fn_call: config.fn_call_width,
-    chain: config.chain_width,
-    struct_lit: config.struct_lit_width,
-    array: config.array_width,
-    short_item: config.short_array_element_width_threshold,
-    spacing: Spacing::of(config),
-    attribute: false,
-    comma_as_written: false,
-    style_2024: config.style_edition >= 2024,
-    one_line_chains: false,
-    single_line_if_else: config.single_line_if_else_max_width,
-  };
+  let limits = Limits::of(config);
   Some(Shape {
     indent,
     offset: 0,
@@ -667,36 +625,6 @@ pub(super) fn written_as(node: &SyntaxNode, from: usize, text: &str) -> bool {
       None => false,
     });
   same && rest.is_empty()
-}
-
-/// An assignment's left side, operator (`=`, `+=` and the rest) and right side.
-fn assignment(expression: &SyntaxNode) -> Option<(SyntaxNode, String, SyntaxNode)> {
-  if expression.kind() != K::BinExpr {
-    return None;
-  }
-  let mut nodes = expression.children_iter();
-  let (left, right) = (nodes.next()?, nodes.next()?);
-  let operator = expression
-    .children_with_tokens_iter()
-    .find_map(|e| match e {
-      SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
-      _ => None,
-    })?;
-  matches!(
-    operator.kind(),
-    K::Eq
-      | K::PlusEq
-      | K::MinusEq
-      | K::StarEq
-      | K::SlashEq
-      | K::PercentEq
-      | K::CaretEq
-      | K::AmpEq
-      | K::PipeEq
-      | K::ShlEq
-      | K::ShrEq
-  )
-  .then(|| (left, operator.text().to_string(), right))
 }
 
 /// Whether a macro call's arguments are in braces: they are left as written, and so is a
@@ -724,6 +652,9 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
   let Some(start) = header_start(node) else {
     return false;
   };
+  if spaced_field(node) {
+    return false;
+  }
   // A tail that is a block itself (`unsafe { .. }`) only as one the layout code joins.
   (matches!(node.kind(), K::ExprStmt | K::LetStmt)
     || is_tail(node) && (node.kind() != K::BlockExpr || super::expr::joins(node)))
@@ -734,6 +665,19 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
         SyntaxElement::Node(n) => clean_expression(n),
         token => safe(token),
       })
+}
+
+/// Whether nothing inside `node` is one [`safe`] turns down, but for the blocks laid out on
+/// lines and the arms of a `match`: their insides are checked as [`super::block`] lays them
+/// out.
+fn clean_inside(node: &SyntaxNode) -> bool {
+  node
+    .children_with_tokens_iter()
+    .all(|element| match &element {
+      SyntaxElement::Node(n) if laid_on_lines(n) => true,
+      SyntaxElement::Node(n) => safe(&element) && clean_inside(n),
+      SyntaxElement::Token(_) => safe(&element),
+    })
 }
 
 /// The statement's code tokens, from after its attributes and the comments before it, which
@@ -778,11 +722,12 @@ fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
 
 /// The statement's tokens before `expression`, flat.
 fn flat_before(node: &SyntaxNode, expression: &SyntaxNode, spacing: Spacing) -> Option<String> {
-  let whole = flat_code(node, spacing);
-  let rest = format!("{};", flat(expression, spacing));
-  whole
-    .strip_suffix(&rest)
-    .map(|head| head.trim_end().to_string())
+  let start = expression.text_range().start;
+  let head: Vec<SyntaxToken> = code_tokens(node)
+    .into_iter()
+    .filter(|t| t.text_range().start < start)
+    .collect();
+  (!head.is_empty()).then(|| flat_tokens(&head, spacing).trim_end().to_string())
 }
 
 /// The statement's code on one line.
@@ -791,21 +736,7 @@ fn flat_code(node: &SyntaxNode, spacing: Spacing) -> String {
 }
 
 fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
-  let limits = Limits {
-    max_width: config.max_width,
-    tab: config.tab_spaces,
-    fn_call: config.fn_call_width,
-    chain: config.chain_width,
-    struct_lit: config.struct_lit_width,
-    array: config.array_width,
-    short_item: config.short_array_element_width_threshold,
-    spacing: Spacing::of(config),
-    attribute: false,
-    comma_as_written: false,
-    style_2024: config.style_edition >= 2024,
-    one_line_chains: false,
-    single_line_if_else: config.single_line_if_else_max_width,
-  };
+  let limits = Limits::of(config);
   let shape = Shape {
     indent,
     offset: 0,
@@ -836,9 +767,21 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
     K::LetStmt => {
       let expression = expression_of(node)?;
       let head = let_head(node, &expression, shape)?;
-      right_side(&head, &expression, indent, shape, tab)
+      match node.children_iter().find(|c| c.kind() == K::LetElse) {
+        Some(otherwise) => let_else(&head, &expression, &otherwise, indent, shape),
+        None => right_side(&head, &expression, indent, shape, tab),
+      }
     }
-    _ if is_tail(node) => rewrite(node, shape),
+    _ if is_tail(node) => rewrite(
+      node,
+      Shape {
+        limits: Limits {
+          block_tail: true,
+          ..shape.limits
+        },
+        ..shape
+      },
+    ),
     _ => None,
   }
 }
@@ -850,6 +793,59 @@ fn last_line_used(text: &str, indent: usize) -> usize {
     Some((_, last)) => str_width(last).saturating_sub(indent),
     None => str_width(text),
   }
+}
+
+/// `let pattern = value else { .. };` as the standard formatter writes it: ` else {` on the
+/// value's line when it fits there (after a value spanning lines, only when its last line
+/// closes delimiters at the `let`'s indentation), else `else {` on a line of its own; the
+/// block on that line (`{ return }`) when it is one expression and all of it fits within
+/// `single_line_let_else_max_width`, else on lines.
+fn let_else(
+  head: &str,
+  value: &SyntaxNode,
+  otherwise: &SyntaxNode,
+  indent: usize,
+  shape: Shape,
+) -> Option<String> {
+  let block = otherwise
+    .children_iter()
+    .find(|c| c.kind() == K::BlockExpr)?;
+  let assigned = right_side(head, value, indent, shape, shape.limits.tab)?;
+  let assigned = assigned.strip_suffix(';')?;
+  let same_line = if assigned.contains('\n') {
+    let last = assigned.rsplit('\n').next().unwrap_or("");
+    let at = str_width(last) - str_width(last.trim_start());
+    at <= indent
+      && !last.trim().is_empty()
+      && last.trim().chars().all(|c| matches!(c, ')' | ']' | '}'))
+  } else {
+    // Measured in bytes, as the standard formatter measures it; 7 = ` else {`, 1 = `;`.
+    shape.width.saturating_sub(1).saturating_sub(assigned.len()) >= 7
+  };
+  let pattern_lines = head.contains('\n');
+  let newline = pattern_lines || !same_line;
+  let mut text = assigned.to_string();
+  if newline {
+    text.push('\n');
+    text.push_str(&" ".repeat(indent));
+    text.push_str("else ");
+  } else {
+    text.push_str(" else ");
+  }
+  let available = shape
+    .width
+    .min(shape.limits.single_line_let_else)
+    .saturating_sub(text.len());
+  let statements = block
+    .children_iter()
+    .filter(|c| c.kind() != K::Label && c.kind() != K::Attr)
+    .count();
+  let one_line = (!newline && available > 0 && !text.contains('\n') && statements <= 1)
+    .then(|| available.saturating_sub(1));
+  let block_shape = Shape { offset: 0, ..shape };
+  text.push_str(&super::block::else_block(&block, block_shape, one_line)?);
+  text.push(';');
+  Some(text)
 }
 
 /// `let pattern: Type =`, everything before the initializer: the pattern laid out as the
@@ -877,6 +873,13 @@ fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   if !matches!(node.kind(), K::ExprStmt | K::LetStmt) && !is_tail(node) {
     return None;
   }
+  // Blocks of lines, arms and a `let`'s `else` never go on one line.
+  if node
+    .descendants_iter()
+    .any(|d| d.kind() == K::LetElse || laid_on_lines(&d))
+  {
+    return None;
+  }
   let text = flat_code(node, Spacing::of(config));
   if indent + str_width(&text) > config.max_width {
     return None;
@@ -897,10 +900,15 @@ fn right_side(
   // `last_line_used` counts a later line's columns past `indent`, as a `let` pattern
   // spanning lines leaves them.
   let head_width = last_line_used(head, indent) + 1;
-  let same_line = shape
-    .offset_left(head_width)
-    .and_then(|s| s.sub_width(1))
-    .and_then(|s| rewrite(value, s));
+  let same_shape = shape.offset_left(head_width).and_then(|s| s.sub_width(1));
+  let same_line = same_shape.and_then(|s| rewrite(value, s));
+  // On one line where it is, when it fits there.
+  if let (Some(same), Some(s)) = (&same_line, same_shape)
+    && !same.contains('\n')
+    && str_width(same) <= s.width
+  {
+    return Some(format!("{} {};", head, same));
+  }
   let next_shape = shape.block_indent(tab).sub_width(1);
   let next_line = next_shape.and_then(|s| rewrite(value, s));
   let pad = " ".repeat(indent + tab);
@@ -912,7 +920,7 @@ fn right_side(
         && next
           .lines()
           .skip(1)
-          .all(|l| str_width(l) <= s.limits.max_width)
+          .all(|l| super::expr::code_width(l) <= s.limits.max_width)
     })
   };
   match (same_line, next_line) {
@@ -944,11 +952,92 @@ fn safe(element: &SyntaxElement) -> bool {
     SyntaxElement::Node(n) if n.kind() == K::BlockExpr => {
       super::expr::joins(n) || super::expr::one_line_if_block(n)
     }
-    SyntaxElement::Node(n) => {
-      !matches!(n.kind(), K::MatchArmList | K::Attr | K::LetElse)
-        && !(n.kind() == K::MacroCall && braced(n))
-    }
+    SyntaxElement::Node(n) => n.kind() != K::Attr,
   }
+}
+
+/// Whether `node` holds a tuple field written apart from the one before it (`x.0 .0`): the
+/// standard formatter keeps the space a chain layout would drop.
+fn spaced_field(node: &SyntaxNode) -> bool {
+  let tokens: Vec<SyntaxKind> = node.token_texts().map(|(kind, _, _)| kind).collect();
+  tokens
+    .windows(4)
+    .any(|w| w == [K::IntNumber, K::Whitespace, K::Dot, K::IntNumber])
+}
+
+fn statement(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
+  if !clean(node, config) {
+    return None;
+  }
+  if !takes(node) {
+    return on_one_line(node, indent, config);
+  }
+  // Types are printed flat for now: a `let` whose type's generic arguments would have to
+  // break is left as written; a generic list elsewhere that does not fit fails its own
+  // width check, and the statement is laid out another way.
+  let spacing = Spacing::of(config);
+  // Not those inside blocks laid out on lines, whose statements are checked as they are
+  // laid out.
+  let blocks: Vec<(u32, u32)> = node
+    .descendant_nodes_where(|kind| matches!(kind, K::BlockExpr | K::MatchArmList | K::MacroCall))
+    .filter(laid_on_lines)
+    .map(|n| (n.text_range().start, n.text_range().end))
+    .collect();
+  let inside_block = |at: u32| blocks.iter().any(|&(start, end)| start <= at && at < end);
+
+  let let_type = (node.kind() == K::LetStmt)
+    .then(|| {
+      let before_value: Vec<SyntaxNode> = node
+        .children_with_tokens_iter()
+        .take_while(|e| e.kind() != K::Eq)
+        .filter_map(|e| match e {
+          SyntaxElement::Node(n) if n.kind() != K::Attr => Some(n),
+          _ => None,
+        })
+        .collect();
+      before_value.into_iter().nth(1)
+    })
+    .flatten();
+  // A `let`'s type is printed flat: its head must fit, and every list in it within
+  // `fn_call_width`, past which the standard formatter breaks it.
+  let head_wide = || {
+    let lists_wide = let_type.as_ref().is_some_and(|t| {
+      t.descendant_nodes_where(|kind| matches!(kind, K::GenericArgList | K::TupleType))
+        .any(|list| str_width(&flat(&list, spacing)).saturating_sub(2) > config.fn_call_width)
+    });
+    lists_wide
+      || expression_of(node)
+        .and_then(|value| flat_before(node, &value, spacing))
+        .is_none_or(|head| indent + str_width(&head) + 2 > config.max_width)
+  };
+  let unbreakable = node
+    .descendant_nodes_where(|kind| kind == K::GenericArgList)
+    .filter(|g| !inside_block(g.text_range().start))
+    .any(|g| {
+      // A method's are never broken: only plain names among them.
+      let method = g.parent().is_some_and(|p| p.kind() == K::MethodCallExpr)
+        && g
+          .children_iter()
+          .all(|arg| !flat(&arg, spacing).contains('<'));
+      let path = g.ancestors_iter().any(|a| a.kind() == K::PathExpr);
+      if (method || path) && super::expr::breakable_generics(&g) {
+        false
+      } else if let_type
+        .as_ref()
+        .is_some_and(|t| g.ancestors_iter().any(|a| &a == t))
+      {
+        head_wide()
+      } else {
+        // Elsewhere one that does not fit fails its own width check, and the statement is
+        // laid out another way.
+        false
+      }
+    });
+  if unbreakable {
+    return None;
+  }
+  let text = laid_out(node, indent, config)?;
+  same_tokens(node, &text).then_some(text)
 }
 
 /// Whether the layout code takes the statement whole: a `let` with an initializer, an
@@ -975,6 +1064,9 @@ fn takes(node: &SyntaxNode) -> bool {
           | K::MacroExpr
           | K::BlockExpr
           | K::IfExpr
+          | K::MatchExpr
+          | K::LoopExpr
+          | K::ClosureExpr
       )
   };
   // An assignment, as a `let`: its two sides laid out as expressions are.
@@ -982,6 +1074,10 @@ fn takes(node: &SyntaxNode) -> bool {
     && let Some((left, _, right)) = expression_of(node).as_ref().and_then(assignment)
   {
     return laid(&left) || laid(&right);
+  }
+  // A `let` with an `else`, whatever its value.
+  if node.kind() == K::LetStmt && node.children_iter().any(|c| c.kind() == K::LetElse) {
+    return true;
   }
   (matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node))
     && expression_of(node).is_some_and(|expression| {
@@ -995,6 +1091,11 @@ fn takes(node: &SyntaxNode) -> bool {
           | K::MacroExpr
           | K::BlockExpr
           | K::IfExpr
+          | K::MatchExpr
+          | K::LoopExpr
+          | K::WhileExpr
+          | K::ForExpr
+          | K::ClosureExpr
         )
         // `return` with a value.
         || expression.kind() == K::ReturnExpr && !expression.children().is_empty()

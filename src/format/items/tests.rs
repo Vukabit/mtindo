@@ -128,6 +128,18 @@ fn test_no_blank_line_between_attributes() {
 }
 
 #[test]
+fn test_trait_bounds() {
+  // On the header's line when they fit there, else on the next line together or one per
+  // line led by `+`; then `{` on a line of its own; a `where` clause after them.
+  assert_eq!(
+    formatted(
+      "pub trait Extension: std::fmt::Debug + Clone + std::any::Any + Send + Sync + 'static {}\npub trait Parser: FromArgMatches + CommandFactory + Sized {\n    fn a();\n}\npub trait LongTraitNameXxxxxxx: std::fmt::Debug + Clone + std::any::Any + Send + Sync + 'static + Foo {}\npub trait LongTraitNameXxxxxxx: std::fmt::Debug + Clone + std::any::Any + Send + Sync + 'static + Foo + Barrrrrrrrrrrrrrrrrrrrrrrrr + Bazzzzzzzzzzzzzzz {\n    fn a();\n}\ntrait T<A>: Foo<A> where A: Bar {}\nmod m {\n    pub trait LongTraitNameXxxxxxx: std::fmt::Debug + Clone + std::any::Any + Send + Sync + 'static {\n        fn a();\n    }\n}\n"
+    ),
+    "pub trait Extension: std::fmt::Debug + Clone + std::any::Any + Send + Sync + 'static {}\npub trait Parser: FromArgMatches + CommandFactory + Sized {\n    fn a();\n}\npub trait LongTraitNameXxxxxxx:\n    std::fmt::Debug + Clone + std::any::Any + Send + Sync + 'static + Foo\n{\n}\npub trait LongTraitNameXxxxxxx:\n    std::fmt::Debug\n    + Clone\n    + std::any::Any\n    + Send\n    + Sync\n    + 'static\n    + Foo\n    + Barrrrrrrrrrrrrrrrrrrrrrrrr\n    + Bazzzzzzzzzzzzzzz\n{\n    fn a();\n}\ntrait T<A>: Foo<A>\nwhere\n    A: Bar,\n{\n}\nmod m {\n    pub trait LongTraitNameXxxxxxx:\n        std::fmt::Debug + Clone + std::any::Any + Send + Sync + 'static\n    {\n        fn a();\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_type_aliases_consts_and_statics_on_one_line() {
   assert_eq!(
     formatted(
@@ -139,14 +151,12 @@ fn test_type_aliases_consts_and_statics_on_one_line() {
 
 #[test]
 fn test_what_a_long_header_keeps() {
-  // A C variadic takes no comma; a trait with bounds keeps its header as written.
+  // A C variadic takes no comma.
   let long = format!(
     "extern \"C\" {{\n    pub fn sched_setscheduler(pid: crate::pid_t, policy: c_int, param: *const sched_param, {}: u8, ...) -> c_int;\n}}\n",
     "x".repeat(10)
   );
   assert!(formatted(&long).contains("        ...\n    ) -> c_int;"));
-  let kept = "pub trait Bound:\n    Copy + Clone\n{\n}\n";
-  assert_eq!(formatted(kept), kept);
 }
 
 #[test]

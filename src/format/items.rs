@@ -4,12 +4,15 @@
 //! static too) on one line, when it fits;
 //! else a declaration's return type on the next line when it is just one column over, else a
 //! function's parameters one per line, each with a comma, the body's `{` on a line of its own
-//! when it does not fit after them. The body itself is left to the whole-file rules. The
-//! widths were found by measuring the standard formatter.
+//! when it does not fit after them. A `where` clause follows on lines of its own, a
+//! predicate per line (an `impl` with one predicate and no items stays on one line when it
+//! fits). The body itself is left to the whole-file rules. The widths were found by
+//! measuring the standard formatter.
 //!
-//! Left as written: a header holding a comment, a `where` clause, a macro or an attribute
-//! (on a parameter), a tuple or pattern wider than its width, trait bounds that would break,
-//! generics that would break, and a header that does not fit even so.
+//! Left as written: a header holding a comment, a macro or an attribute (on a parameter), a
+//! tuple or pattern wider than its width, trait bounds or predicates that would break,
+//! generics that would break, a type alias's, const's or static's `where`, and a header
+//! that does not fit even so.
 
 use SyntaxKind as K;
 
@@ -235,7 +238,7 @@ pub fn rewrite_header(
       (t.kind().is_trivia() && t.kind() != K::Whitespace) || is_doc(t.kind())
     }
     SyntaxElement::Node(n) => {
-      matches!(n.kind(), K::WhereClause | K::MacroCall | K::Attr)
+      matches!(n.kind(), K::MacroCall | K::Attr)
         || n.subtree_has(|kind| kind == K::BlockExpr)
         || n.subtree_has(|kind| {
           (kind.is_trivia() && kind != K::Whitespace)
@@ -249,7 +252,100 @@ pub fn rewrite_header(
   }
   let spacing = Spacing::of(config);
   let tokens = code_tokens(&header);
+  // A `where` clause goes on lines of its own after the rest of the header: `where`, then
+  // a predicate per line one level in, each with a comma; then the body's `{` on a line of
+  // its own, or the item's `;` after the last predicate (in its comma's place), or a type
+  // alias's `= Type;` after them.
+  let where_clause = header.iter().find_map(|e| match e {
+    SyntaxElement::Node(n) if n.kind() == K::WhereClause => Some(n.clone()),
+    _ => None,
+  });
+  let mut where_block = None;
+  let mut tokens = tokens;
+  // A type alias's `where` (an associated type's, before or after its value), a const's and
+  // a static's have layouts of their own: left as written.
+  if where_clause.is_some() && matches!(node.kind(), K::TypeAlias | K::Const | K::Static) {
+    return None;
+  }
+  if let Some(clause) = &where_clause {
+    let (from, to) = (
+      clause.text_range().start as usize,
+      clause.text_range().end as usize,
+    );
+    let tail: Vec<SyntaxToken> = tokens
+      .iter()
+      .filter(|t| t.text_range().start as usize >= to)
+      .cloned()
+      .collect();
+    tokens.retain(|t| (t.text_range().start as usize) < from);
+    let predicates: Vec<String> = clause
+      .children_iter()
+      .filter(|c| c.kind() == K::WherePred)
+      .map(|p| flat_tokens(&code_tokens(&[SyntaxElement::Node(p)]), spacing))
+      .collect();
+    let inner = indent + config.tab_spaces;
+    if predicates.is_empty()
+      || predicates
+        .iter()
+        .any(|p| inner + str_width(p) + 1 > config.max_width)
+    {
+      return None;
+    }
+    let tail_text = flat_tokens(&tail, spacing);
+    let pad = " ".repeat(inner);
+    let mut block = format!("\n{}where", " ".repeat(indent));
+    for (i, predicate) in predicates.iter().enumerate() {
+      let last = i + 1 == predicates.len();
+      let comma = if last && tail_text == ";" { "" } else { "," };
+      block.push_str(&format!("\n{}{}{}", pad, predicate, comma));
+    }
+    match tail_text.as_str() {
+      "" => {}
+      ";" => block.push(';'),
+      _ => block.push_str(&format!("\n{}{}", " ".repeat(indent), tail_text)),
+    }
+    if body.is_some() {
+      block.push_str(&format!("\n{}", " ".repeat(indent)));
+    }
+    where_block = Some(block);
+  }
   let one_line = flat_tokens(&tokens, spacing);
+  // An `impl` with one `where` predicate and an empty body on one line when it fits
+  // (`impl<T> Send for X<T> where T: Send {}`).
+  if let (Some(clause), Some(body)) = (&where_clause, &body)
+    && node.kind() == K::Impl
+    && body
+      .children_with_tokens_iter()
+      .all(|e| matches!(e.kind(), K::LBrace | K::RBrace | K::Whitespace))
+  {
+    let predicates: Vec<String> = clause
+      .children_iter()
+      .filter(|c| c.kind() == K::WherePred)
+      .map(|p| flat_tokens(&code_tokens(&[SyntaxElement::Node(p)]), spacing))
+      .collect();
+    let whole = format!("{} where {} {{}}", one_line, predicates.join(", "));
+    // Measured without the indentation and the ` {}` (the standard formatter's
+    // `is_impl_single_line`).
+    if predicates.len() == 1 && str_width(&whole) - 3 <= config.max_width {
+      return Some((whole, body.text_range().end as usize));
+    }
+    // Too wide, `where` ends the header's line, the predicate on the next one level in with
+    // no comma, and the braces on lines of their own.
+    if predicates.len() == 1 && indent + str_width(&one_line) <= config.max_width {
+      let pad = " ".repeat(indent);
+      return Some((
+        format!(
+          "{} where\n{}{}\n{}{{\n{}}}",
+          one_line,
+          " ".repeat(indent + config.tab_spaces),
+          predicates[0],
+          pad,
+          pad
+        ),
+        body.text_range().end as usize,
+      ));
+    }
+  }
   // Lists and patterns held to their widths are not laid out here yet: a header holding
   // one too wide for its width is left as written.
   let listed = |kind| {
@@ -293,16 +389,20 @@ pub fn rewrite_header(
   // ` {` after a header followed by a body; a declaration with a return type keeps a column
   // free before its `;` (found by measuring the standard formatter).
   let has_ret = node.children_iter().any(|c| c.kind() == K::RetType);
-  let brace = if body.is_some() {
+  // Before a `where` clause the line needs no room after it.
+  let brace = if where_block.is_some() {
+    0
+  } else if body.is_some() {
     2
   } else {
     usize::from(has_ret)
   };
   // With `brace_style = "AlwaysNextLine"` the body's `{` starts the next line.
-  let suffix = match body {
-    Some(_) if config.brace_next_line => format!("\n{}", " ".repeat(indent)),
-    Some(_) => " ".to_string(),
-    None => String::new(),
+  let suffix = match (&where_block, body.is_some()) {
+    (Some(block), _) => block.clone(),
+    (None, true) if config.brace_next_line => format!("\n{}", " ".repeat(indent)),
+    (None, true) => " ".to_string(),
+    (None, false) => String::new(),
   };
   // When the standard formatter breaks a trait's bounds is not known yet: a trait with
   // bounds keeps its header as written.
@@ -321,6 +421,7 @@ pub fn rewrite_header(
   }
   // A declaration exactly that column over: its return type on the next line, one level in.
   if body.is_none()
+    && where_block.is_none()
     && has_ret
     && width == config.max_width + 1
     && let Some(ret) = node.children_iter().find(|c| c.kind() == K::RetType)
@@ -385,20 +486,49 @@ pub fn rewrite_header(
   // The body's `{` on a line of its own unless the closing line with it is within the line
   // width less the indentation: the standard formatter counts the indentation twice there
   // (found by measuring it).
-  let suffix = if body.is_some() && 2 * indent + str_width(&close) + 2 > config.max_width {
+  let suffix = if where_block.is_none()
+    && body.is_some()
+    && 2 * indent + str_width(&close) + 2 > config.max_width
+  {
     format!("\n{}", " ".repeat(indent))
   } else {
     suffix
   };
   let pad = " ".repeat(inner);
+  // A blank line written after a parameter's comma, before another, stays.
+  let mut blank_after = Vec::new();
+  let (mut seen, mut comma, mut blank) = (0, false, false);
+  for element in params.children_with_tokens_iter() {
+    match &element {
+      SyntaxElement::Token(t) if t.kind() == K::Comma => comma = true,
+      SyntaxElement::Token(t) if t.kind() == K::Whitespace => {
+        blank = comma && t.text().matches('\n').count() > 1;
+      }
+      SyntaxElement::Node(n) if matches!(n.kind(), K::Param | K::SelfParam) => {
+        if blank {
+          blank_after.push(seen);
+        }
+        seen += 1;
+        (comma, blank) = (false, false);
+      }
+      _ => {}
+    }
+  }
   // A C variadic `...` takes no comma after it.
   let lines: String = items
     .iter()
-    .map(|p| {
+    .enumerate()
+    .map(|(i, p)| {
       let comma = if p.ends_with("...") { "" } else { "," };
-      format!("\n{}{}{}", pad, p, comma)
+      let gap = if blank_after.contains(&i) { "\n" } else { "" };
+      format!("{}\n{}{}{}", gap, pad, p, comma)
     })
     .collect();
+  // A `where` clause after a bare `)` starts on its line (`) where`).
+  let suffix = match suffix.strip_prefix(&format!("\n{}where", " ".repeat(indent))) {
+    Some(rest) if close == ")" => format!(" where{}", rest),
+    _ => suffix,
+  };
   Some((
     format!(
       "{}{}\n{}{}{}",

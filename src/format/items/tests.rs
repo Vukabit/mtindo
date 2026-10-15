@@ -103,12 +103,9 @@ fn test_headers_join_onto_one_line() {
 
 #[test]
 fn test_headers_left_as_written() {
-  for kept in [
-    "fn f<T>()\nwhere\n    T: Clone,\n{\n}\n",
-    "fn f(\n    a: u8, // why\n) {\n}\n",
-  ] {
-    assert_eq!(formatted(kept), kept);
-  }
+  // A comment among the parameters.
+  let kept = "fn f(\n    a: u8, // why\n) {\n}\n";
+  assert_eq!(formatted(kept), kept);
 }
 
 #[test]
@@ -150,4 +147,19 @@ fn test_what_a_long_header_keeps() {
   assert!(formatted(&long).contains("        ...\n    ) -> c_int;"));
   let kept = "pub trait Bound:\n    Copy + Clone\n{\n}\n";
   assert_eq!(formatted(kept), kept);
+}
+
+#[test]
+fn test_where_clauses_and_empty_bodies() {
+  // `where` on a line of its own, a predicate per line; an `impl` with one predicate and no
+  // items on one line when it fits, else with `where` ending its line; `) where` after
+  // parameters one per line; blank lines between those kept; an empty body `{}` after a
+  // header on one line, `{` and `}` apart after one across lines or an `if` with an `else`;
+  // a comment after `{` on the next line.
+  assert_eq!(
+    formatted(
+      "pub fn spawn<F>(func: F) where F: FnOnce() + Send + 'static { a() }\nfn f<T>(x: T) where T: X;\nfn g<T>(x: T) -> u8 where T: X, T: Y;\nimpl<T> X for Y<T> where T: Z { fn a() {} }\nstruct S<T> where T: X { a: T }\nstruct U<T>(T) where T: X;\nenum E<T> where T: X { A(T) }\ntrait Tr<T> where T: X { fn a(); }\nunsafe impl<T> Send for RwLock<T> where T: ?Sized + Send {}\nimpl<T, A: Allocator> Send for RawTable<T, A> where T: Send, A: Send {}\nimpl<Lhs, Rhs, Tab> UndecoratedInsertRecord<Tab> for Option<Eq<Lhs, Rhs>> where Eq<Lhs, Rhs>: UndecoratedInsertRecord<Tab> {}\nfn bbbbbbbbbbbbbbbbbb<T>(aaaaaaaaaaaaaaa: u32, bbbbbbbbbbbbbbbbbbbb: u32, cccccccccccccccccccccc: u32) where T: X { a() }\nfn aaaaaaaaaaaaaaa<T>(aaaaaaaaaaaaaaa: u32, bbbbbbbbbbbbbbbbbbbb: u32, cccccccccccccccccccccc: u32) -> u8 where T: X { a() }\nfn k(\n    aaaaaaaaaaaaaaaaaaaa: u32,\n\n    bbbbbbbbbbbbbbbbbbbbbbbbbbbbb: u32, cccccccccccccccccccccccccccccccccccc: u32,\n) {\n}\nfn short(\n    a: u32,\n) {\n}\nfn m() { // a comment\n    a();\n}\nfn n() {\n    if x { // c\n        a();\n    }\n    if a {} else { b() }\n    if a {} else if c {} else {}\n    while a {\n    }\n    'label: loop {\n        // Just comments\n    }\n}\n"
+    ),
+    "pub fn spawn<F>(func: F)\nwhere\n    F: FnOnce() + Send + 'static,\n{\n    a()\n}\nfn f<T>(x: T)\nwhere\n    T: X;\nfn g<T>(x: T) -> u8\nwhere\n    T: X,\n    T: Y;\nimpl<T> X for Y<T>\nwhere\n    T: Z,\n{\n    fn a() {}\n}\nstruct S<T>\nwhere\n    T: X,\n{\n    a: T,\n}\nstruct U<T>(T)\nwhere\n    T: X;\nenum E<T>\nwhere\n    T: X,\n{\n    A(T),\n}\ntrait Tr<T>\nwhere\n    T: X,\n{\n    fn a();\n}\nunsafe impl<T> Send for RwLock<T> where T: ?Sized + Send {}\nimpl<T, A: Allocator> Send for RawTable<T, A>\nwhere\n    T: Send,\n    A: Send,\n{\n}\nimpl<Lhs, Rhs, Tab> UndecoratedInsertRecord<Tab> for Option<Eq<Lhs, Rhs>> where\n    Eq<Lhs, Rhs>: UndecoratedInsertRecord<Tab>\n{\n}\nfn bbbbbbbbbbbbbbbbbb<T>(\n    aaaaaaaaaaaaaaa: u32,\n    bbbbbbbbbbbbbbbbbbbb: u32,\n    cccccccccccccccccccccc: u32,\n) where\n    T: X,\n{\n    a()\n}\nfn aaaaaaaaaaaaaaa<T>(\n    aaaaaaaaaaaaaaa: u32,\n    bbbbbbbbbbbbbbbbbbbb: u32,\n    cccccccccccccccccccccc: u32,\n) -> u8\nwhere\n    T: X,\n{\n    a()\n}\nfn k(\n    aaaaaaaaaaaaaaaaaaaa: u32,\n\n    bbbbbbbbbbbbbbbbbbbbbbbbbbbbb: u32,\n    cccccccccccccccccccccccccccccccccccc: u32,\n) {\n}\nfn short(a: u32) {}\nfn m() {\n    // a comment\n    a();\n}\nfn n() {\n    if x {\n        // c\n        a();\n    }\n    if a {\n    } else {\n        b()\n    }\n    if a {\n    } else if c {\n    } else {\n    }\n    while a {}\n    'label: loop {\n        // Just comments\n    }\n}\n"
+  );
 }

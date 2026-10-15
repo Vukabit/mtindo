@@ -13,7 +13,7 @@ option  attr_fn_like_width                               supported    # with for
 option  binop_separator                                  missing
 option  blank_lines_lower_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); formatting does not add blank lines yet
 option  blank_lines_upper_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); with format = true, within blocks too (src/format/file/tests.rs)
-option  brace_style                                      partial      # with format = true, for item headers (where clauses are left as written) (src/format/items/tests.rs)
+option  brace_style                                      partial      # with format = true, for item headers and their where clauses (src/format/items/tests.rs)
 option  chain_width                                      partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  color                                            missing
 option  combine_control_expr                             missing

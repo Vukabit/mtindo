@@ -113,6 +113,9 @@ struct Roles {
   /// Where a token starts that follows the one before it on its line after one space: an
   /// `else` after its `if`'s block, and what follows the `else`.
   spaced: OffsetSet,
+  /// Where a `}` starts that closes braces holding nothing but whitespace: it follows the
+  /// `{` (`{}`).
+  tight: OffsetSet,
   /// Statements and items, by where they start: where they end.
   statements: Offsets<usize>,
   /// Where line comments and line doc comments start, in order.
@@ -269,6 +272,37 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
     _ => open,
   };
   roles.openers.insert(open, base);
+  // `{` and `}` with only whitespace between them close up: an item's body only after a
+  // header laid out on one line (marked as it is laid out).
+  let item_body = node.parent().is_some_and(|p| is_item(p.kind()));
+  // An `if`'s branch when it has an `else`, or is one, keeps its `}` on a line of its own.
+  let if_with_else = node.parent().is_some_and(|p| {
+    p.kind() == SyntaxKind::IfExpr
+      && (p.children_iter().count() == 3
+        || p.parent().is_some_and(|g| g.kind() == SyntaxKind::IfExpr))
+  });
+  // Empty, it is `{` and a `}` starting the next line.
+  if if_with_else
+    && let Some(open_at) = children
+      .iter()
+      .position(|&(kind, _, node)| !node && kind == SyntaxKind::LBrace)
+    && let Some(&(SyntaxKind::RBrace, close, false)) = children[open_at + 1..]
+      .iter()
+      .find(|&&(kind, _, _)| kind != SyntaxKind::Whitespace)
+  {
+    roles.breaks.insert(close.start as usize);
+  }
+  if !item_body
+    && !if_with_else
+    && let Some(open_at) = children
+      .iter()
+      .position(|&(kind, _, node)| !node && kind == SyntaxKind::LBrace)
+    && let Some(&(SyntaxKind::RBrace, close, false)) = children[open_at + 1..]
+      .iter()
+      .find(|&&(kind, _, _)| kind != SyntaxKind::Whitespace)
+  {
+    roles.tight.insert(close.start as usize);
+  }
   if matches!(
     node.kind(),
     SyntaxKind::ItemList | SyntaxKind::ExternItemList
@@ -282,8 +316,20 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
     roles.unindented.insert(open);
   }
   let comment = |kind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment);
-  // The comments between the last code and the closing delimiter.
-  if let Some(close_at) = children.iter().rposition(|&(kind, _, _)| is_close(kind)) {
+  // The comments between the last code and the closing delimiter, which keep their place
+  // from it; in a block holding nothing else they are indented as its contents would be.
+  let only_comments = matches!(
+    node.kind(),
+    SyntaxKind::BlockExpr
+      | SyntaxKind::ItemList
+      | SyntaxKind::AssocItemList
+      | SyntaxKind::MatchArmList
+  ) && children
+    .iter()
+    .all(|&(kind, _, is_node)| !is_node && (kind.is_trivia() || is_open(kind) || is_close(kind)));
+  if !only_comments
+    && let Some(close_at) = children.iter().rposition(|&(kind, _, _)| is_close(kind))
+  {
     for &(kind, range, node) in children[..close_at].iter().rev() {
       if !node && comment(kind) {
         roles.trailing.insert(range.start as usize, open);
@@ -336,6 +382,24 @@ fn control_block(node: &SyntaxNode) -> bool {
       SyntaxKind::ExprStmt | SyntaxKind::LetStmt | SyntaxKind::MatchArm
     ) || p.kind() == SyntaxKind::BlockExpr && lines_block(&p)
   })
+}
+
+/// Where the `}` of an item's body holding nothing but whitespace starts.
+fn empty_body_close(item: &SyntaxNode) -> Option<usize> {
+  let body = item
+    .children_iter()
+    .find(|c| is_container(c.kind()) && c.kind() != SyntaxKind::ParamList)?;
+  let tokens: Vec<(SyntaxKind, TextRange, bool)> = body.child_spans().collect();
+  let open = tokens
+    .iter()
+    .position(|&(kind, _, node)| !node && kind == SyntaxKind::LBrace)?;
+  match tokens[open + 1..]
+    .iter()
+    .find(|&&(kind, _, _)| kind != SyntaxKind::Whitespace)
+  {
+    Some(&(SyntaxKind::RBrace, range, false)) => Some(range.start as usize),
+    _ => None,
+  }
 }
 
 fn indentation(width: usize, config: &FormatConfig) -> String {
@@ -675,6 +739,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   let mut out_line_start = 0usize;
   let mut text_line_start = 0usize;
   let mut code_on_line = false;
+  // Where an item's body's `}` starts that closes up, its header laid out on one line.
+  let tight_items: std::cell::RefCell<HashSet<usize>> = Default::default();
+  // Where the `}` of an empty body starts that goes on a line of its own, its header laid
+  // out across lines (`{` and `}` apart even when written `{}`).
+  let split: std::cell::RefCell<HashSet<usize>> = Default::default();
   // The end of a statement written out whole; its tokens are passed over.
   let mut laid_out_to = 0usize;
   for (i, tok) in tokens.iter().enumerate() {
@@ -683,6 +752,16 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       || dropped.borrow().contains(&tok.start)
       || tok.kind == SyntaxKind::Whitespace
         && next.is_some_and(|n| glued.borrow().contains(&n.start))
+    {
+      continue;
+    }
+    if tok.kind == SyntaxKind::Whitespace
+      && !in_verbatim(tok.start)
+      && next.is_some_and(|n| {
+        (roles.tight.contains(&n.start) || tight_items.borrow().contains(&n.start))
+          && !split.borrow().contains(&n.start)
+          && !in_verbatim(n.start)
+      })
     {
       continue;
     }
@@ -861,6 +940,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           let line = &out[out_line_start..];
           let indent = width_of(&line[..line.len() - line.trim_start().len()], tab);
           let head = rewrite_control_head(node, indent, width_of(line, tab), config)?;
+          // A head on one line with its `{` on the next (past the line width) leaves an
+          // empty body's `}` on a line of its own; after a condition across lines `{}`
+          // closes up.
+          if head.text.matches('\n').count() == 1
+            && let Some(close) = empty_body_close(node)
+          {
+            split.borrow_mut().insert(close);
+          }
           Some((head.text, head.open))
         };
         match node.kind() {
@@ -883,7 +970,19 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             if covered(node) {
               None
             } else {
-              rewrite_header(node, indent, config)
+              let laid = rewrite_header(node, indent, config);
+              // An empty body after a header on one line closes up (`{}`); after one across
+              // lines its `}` goes on a line of its own.
+              if let Some((text, _)) = &laid
+                && let Some(close) = empty_body_close(node)
+              {
+                if text.contains('\n') {
+                  split.borrow_mut().insert(close);
+                } else {
+                  tight_items.borrow_mut().insert(close);
+                }
+              }
+              laid
             }
           }
           _ => whole(rewrite_statement(node, indent, config)).or_else(|| {
@@ -952,6 +1051,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       let written = width_of(&text[text_line_start..tok.start], tab);
       let output = width_of(&out[out_line_start..], tab);
       comment_column = Some((written, output));
+    }
+    // An empty body's `}` kept apart from its `{`, written touching.
+    if tok.kind == SyntaxKind::RBrace && split.borrow().contains(&tok.start) && out.ends_with('{') {
+      let line = &out[out_line_start..];
+      let indent = line[..line.len() - line.trim_start().len()].to_string();
+      out.push('\n');
+      out_line_start = out.len();
+      out.push_str(&indent);
     }
     // Doc comments keep their trailing whitespace, as the standard formatter leaves it.
     let trimmed = tok.kind == SyntaxKind::LineComment && !in_verbatim(tok.start);
@@ -1165,6 +1272,20 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           SyntaxKind::LineComment | SyntaxKind::OuterLineDoc | SyntaxKind::InnerLineDoc
         ) {
           line_comments.push(start);
+        }
+        // A line comment after an opening `{` on its line starts the next line, as the
+        // first thing inside.
+        if token.kind() == SyntaxKind::LineComment {
+          let mut before = token.prev_sibling_or_token();
+          while let Some(SyntaxElement::Token(t)) = &before
+            && t.kind() == SyntaxKind::Whitespace
+            && !t.text().contains('\n')
+          {
+            before = t.prev_sibling_or_token();
+          }
+          if before.is_some_and(|b| b.kind() == SyntaxKind::LBrace) {
+            roles.breaks.insert(start);
+          }
         }
         // A comment between a binary operator's operands is one the standard
         // formatter cannot place: it leaves the statement around it as written.

@@ -290,6 +290,7 @@ impl Config {
     );
     config.match_arm_indent = flag("match_arm_indent", true);
     config.trailing_semicolon = flag("trailing_semicolon", true);
+    config.combine_control_expr = flag("combine_control_expr", true);
     config.format_generated_files = flag("format_generated_files", true);
     config.generated_marker_line_search_limit = number(
       "generated_marker_line_search_limit",

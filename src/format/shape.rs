@@ -42,6 +42,8 @@ pub struct Limits {
   pub match_arm_indent: bool,
   /// `trailing_semicolon`.
   pub trailing_semicolon: bool,
+  /// `combine_control_expr`.
+  pub combine_control_expr: bool,
   /// Laying out a macro's arguments: a closure's body keeps or lacks its block as written.
   pub inside_macro: bool,
   /// Laying out a block's last expression as its statement: an expression from style
@@ -77,6 +79,7 @@ impl Limits {
       ),
       match_arm_indent: config.match_arm_indent,
       trailing_semicolon: config.trailing_semicolon,
+      combine_control_expr: config.combine_control_expr,
       inside_macro: false,
       block_tail: false,
     }
@@ -100,6 +103,7 @@ impl Limits {
       blank_lines_upper_bound: self.blank_lines.1,
       match_arm_indent: self.match_arm_indent,
       trailing_semicolon: self.trailing_semicolon,
+      combine_control_expr: self.combine_control_expr,
       ..self.spacing.config()
     }
   }
@@ -125,6 +129,7 @@ impl Default for Limits {
       blank_lines: (0, 1),
       match_arm_indent: true,
       trailing_semicolon: true,
+      combine_control_expr: true,
       inside_macro: false,
       block_tail: false,
     }

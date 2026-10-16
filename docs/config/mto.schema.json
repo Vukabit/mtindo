@@ -152,7 +152,7 @@
       "default": "Auto"
     },
     "combine_control_expr": {
-      "description": "Combine control expressions with function calls.\n\nIn mto: missing.",
+      "description": "Combine control expressions with function calls.\n\nIn mto: supported. With format = true, an if, for, loop or while alone in a call does not overflow when false.",
       "type": "boolean",
       "default": true
     },

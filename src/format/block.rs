@@ -8,7 +8,7 @@
 
 use SyntaxKind as K;
 
-use super::arms::{Arm, rewrite_arm};
+use super::arms::{Arm, rewrite_arm_in};
 use super::expr::{ends_with_semi, flat, joins, lone_expression, rewrite};
 use super::shape::Shape;
 use super::stmt::{is_tail, rewrite_control_head, rewrite_statement};
@@ -127,7 +127,7 @@ pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
     if arm.kind() != K::MatchArm || arm.children_iter().any(|c| c.kind() == K::Attr) {
       return None;
     }
-    match rewrite_arm(arm, inner.indent, &config)? {
+    match rewrite_arm_in(arm, inner.indent, &config, shape.limits.inside_macro)? {
       Arm::Whole(text) => Some(text),
       Arm::Head(head) => {
         let body = arm

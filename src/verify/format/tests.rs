@@ -322,7 +322,20 @@ fn test_each_allowed_rewrite() {
     )
     .is_empty()
   );
-  assert_eq!(REWRITES.len(), 27);
+  same(
+    "fn f() { m!(match x { A => { a(); b(); }, _ => {} }); }\n",
+    "fn f() { m!(match x { A => { a(); b(); } _ => {} }); }\n",
+  );
+  // Tokens the parser would join are not joined in a macro's arguments.
+  assert!(
+    !verify_format(
+      "fn f() { m!(a: :b); }\n",
+      "fn f() { m!(a::b); }\n",
+      Edition::E2021
+    )
+    .is_empty()
+  );
+  assert_eq!(REWRITES.len(), 28);
 }
 
 #[test]

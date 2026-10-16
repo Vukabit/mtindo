@@ -82,6 +82,9 @@ pub struct FormatConfig {
   pub trailing_comma_never: bool,
   /// `trailing_semicolon`: a `;` after a block's last `return`, `break` or `continue`.
   pub trailing_semicolon: bool,
+  /// `combine_control_expr`: an `if`, `for`, `loop` or `while` alone in a call's arguments
+  /// may overflow onto the call's line.
+  pub combine_control_expr: bool,
 }
 
 impl Default for FormatConfig {
@@ -117,6 +120,7 @@ impl Default for FormatConfig {
       single_line_let_else_max_width: 50,
       trailing_comma_never: false,
       trailing_semicolon: true,
+      combine_control_expr: true,
     }
   }
 }

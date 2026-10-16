@@ -551,7 +551,22 @@ fn emit_node<'a>(
         p.kind() == SyntaxKind::MacroCall && words(&p, "").starts_with("vec!")
       }) =>
     {
+      if let Some(tokens) = macro_arguments(node, lines, true) {
+        out.extend(tokens);
+        return;
+      }
       return emit_tree(node, "[", "]", lines, out, notes);
+    }
+    // macro-arguments: a macro call's arguments in parentheses or brackets that read as
+    // expressions, as those expressions.
+    SyntaxKind::TokenTree
+      if node
+        .parent()
+        .is_some_and(|p| p.kind() == SyntaxKind::MacroCall)
+        && let Some(tokens) = macro_arguments(node, lines, false) =>
+    {
+      out.extend(tokens);
+      return;
     }
     // macro-rules-arms: each arm's matcher and transcriber in any delimiters, and the
     // `;` between arms.
@@ -921,6 +936,54 @@ fn kind_of(element: &SyntaxElement) -> SyntaxKind {
     SyntaxElement::Token(t) => t.kind(),
     SyntaxElement::Node(n) => n.kind(),
   }
+}
+
+/// A macro call's arguments' canonical tokens when, in parentheses or brackets (any
+/// delimiters for `vec!`, as an array), they read as expressions; `None` otherwise.
+fn macro_arguments<'a>(
+  tree: &SyntaxNode,
+  lines: &LineIndex<'_>,
+  array: bool,
+) -> Option<Vec<Token<'a>>> {
+  let whole = tree.text().to_string();
+  let open = whole.chars().next()?;
+  let inner = whole.get(1..whole.len().checked_sub(1)?)?;
+  let (text, kind) = match open {
+    _ if array => (
+      format!("fn main() {{\n[{}];\n}}", inner),
+      SyntaxKind::ArrayExpr,
+    ),
+    '(' => (
+      format!("fn main() {{\n__mto_macro({});\n}}", inner),
+      SyntaxKind::ArgList,
+    ),
+    '[' => (
+      format!("fn main() {{\n[{}];\n}}", inner),
+      SyntaxKind::ArrayExpr,
+    ),
+    _ => return None,
+  };
+  let parsed = crate::syntax::parse(&text, lines.edition);
+  if !parsed.errors().is_empty() {
+    return None;
+  }
+  let root = parsed.syntax_node();
+  let list = root.descendant_nodes_where(|k| k == kind).next()?;
+  let inner_lines = LineIndex::new(&text, lines.edition);
+  let mut tokens = Vec::new();
+  // Their comments are the file's, counted there.
+  let mut comments = Vec::new();
+  emit_node(&list, &inner_lines, &mut tokens, &mut comments);
+  let line = lines.line(tree.text_range().start as usize);
+  Some(
+    tokens
+      .into_iter()
+      .map(|t| Token {
+        text: Cow::Owned(t.text.into_owned()),
+        line,
+      })
+      .collect(),
+  )
 }
 
 /// merge-derives: the first of consecutive `#[derive(...)]` attributes stands for all of

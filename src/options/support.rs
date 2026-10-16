@@ -13,7 +13,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("brace_style", "partial"),
   ("chain_width", "partial"),
   ("color", "missing"),
-  ("combine_control_expr", "missing"),
+  ("combine_control_expr", "supported"),
   ("comment_width", "missing"),
   ("condense_wildcard_suffixes", "missing"),
   ("control_brace_style", "missing"),

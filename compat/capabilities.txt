@@ -16,7 +16,7 @@ option  blank_lines_upper_bound                          partial      # layout k
 option  brace_style                                      partial      # with format = true, for item headers and their where clauses (src/format/items/tests.rs)
 option  chain_width                                      partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  color                                            missing
-option  combine_control_expr                             missing
+option  combine_control_expr                             supported    # with format = true, an if, for, loop or while alone in a call does not overflow when false (src/format/stmt/tests.rs)
 option  comment_width                                    missing
 option  condense_wildcard_suffixes                       missing
 option  control_brace_style                              missing

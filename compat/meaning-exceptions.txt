@@ -37,10 +37,8 @@ rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call
 rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
 rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
 rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus]  the formatter writes invalid code (`use std::::*`)
-rust-analyzer/crates/parser/test_data/parser/ok/0035_weird_exprs.rs [corpus]  test input splits `::` into `: :`; the formatter joins it
 rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus]  the formatter drops attributes on parameters
 rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus]  the formatter drops `default`
-url/url/fuzz/fuzz_targets/fuzz-url.rs [corpus]  a comma after a block arm inside a macro dropped: equivalent, not modelled
 rustfmt/tests/source/attrib.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
 rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus]  the formatter rewrites a float range pattern
 rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus]  the formatter rewrites a float range pattern
@@ -70,10 +68,8 @@ rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call
 rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus-unformatted]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
 rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus-unformatted]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
 rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus-unformatted]  the formatter writes invalid code (`use std::::*`)
-rust-analyzer/crates/parser/test_data/parser/ok/0035_weird_exprs.rs [corpus-unformatted]  test input splits `::` into `: :`; the formatter joins it
 rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus-unformatted]  the formatter drops attributes on parameters
 rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus-unformatted]  the formatter drops `default`
-url/url/fuzz/fuzz_targets/fuzz-url.rs [corpus-unformatted]  a comma after a block arm inside a macro dropped: equivalent, not modelled
 rustfmt/tests/source/attrib.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
 rustfmt/tests/source/closure.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
 rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus-unformatted]  the formatter rewrites a float range pattern

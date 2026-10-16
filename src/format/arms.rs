@@ -30,6 +30,19 @@ pub enum Arm {
 /// The arm starting at column `indent` on a line of its own, laid out; `None` for one left
 /// as written.
 pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Arm> {
+  rewrite_arm_in(node, indent, config, false)
+}
+
+/// An arm as [`rewrite_arm`] lays it out; inside a macro's arguments (`inside_macro`) its
+/// body keeps or lacks its block as written, and one that does not fit on the arm's line
+/// goes on the next with no block around it, as the standard formatter will not add or
+/// remove braces there.
+pub fn rewrite_arm_in(
+  node: &SyntaxNode,
+  indent: usize,
+  config: &FormatConfig,
+  inside_macro: bool,
+) -> Option<Arm> {
   if node.kind() != K::MatchArm || config.hard_tabs || config.tab_spaces == 0 {
     return None;
   }
@@ -58,7 +71,8 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   if condition.as_ref().is_some_and(|c| !clean_expression(c)) {
     return None;
   }
-  let shape = statement_shape(indent, config)?;
+  let mut shape = statement_shape(indent, config)?;
+  shape.limits.inside_macro = inside_macro;
   let tab = config.tab_spaces;
   // 5 = ` => {`
   let pattern_text = rewrite(pattern, shape.sub_width(5)?)?;
@@ -88,7 +102,8 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   // would span lines.
   let written_body = body.clone();
   let mut body = body.clone();
-  while body.kind() == K::BlockExpr
+  while !inside_macro
+    && body.kind() == K::BlockExpr
     && plain_block(&body)
     && !lone_macro(&body)
     && let Some(inner) = lone_expression(&body)
@@ -202,6 +217,9 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
             " {".to_string()
           };
           let next_line = |next: String| {
+            if inside_macro {
+              return Arm::Whole(format!("{} =>\n{}{},", lhs, " ".repeat(indent + tab), next));
+            }
             Arm::Whole(format!(
               "{} =>{}\n{}{}\n{}}}",
               lhs,

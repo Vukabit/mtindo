@@ -153,6 +153,21 @@ fn test_closures_with_a_struct_literal_body() {
 }
 
 #[test]
+fn test_combine_control_expr() {
+  let source =
+    "fn f() {\n    foo!(if x {\n        foo();\n    } else {\n        bar();\n    });\n}\n";
+  assert_eq!(formatted(source), source);
+  let config = FormatConfig {
+    combine_control_expr: false,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(source, &config),
+    "fn f() {\n    foo!(\n        if x {\n            foo();\n        } else {\n            bar();\n        }\n    );\n}\n"
+  );
+}
+
+#[test]
 fn test_control_flow() {
   // Heads laid out (`if`, `else if`, `while`, `for`, `loop`, `match`), branches on lines as
   // statements; a condition that breaks puts `{` on its own line unless it ends closing

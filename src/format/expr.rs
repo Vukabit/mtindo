@@ -206,22 +206,21 @@ pub fn breakable_generics(list: &SyntaxNode) -> bool {
 }
 
 /// Whether the last of `count` arguments may overflow: a closure or block always; a call,
-/// struct literal, array or tuple when it is the only argument.
-pub fn can_overflow(node: &SyntaxNode, count: usize) -> bool {
+/// struct literal, array or tuple when it is the only argument; an `if`, `for`, `loop` or
+/// `while` then too, with `combine_control_expr` (`control`).
+pub fn can_overflow(node: &SyntaxNode, count: usize, control: bool) -> bool {
   match node.kind() {
     SyntaxKind::ClosureExpr | SyntaxKind::BlockExpr => true,
+    SyntaxKind::IfExpr | SyntaxKind::ForExpr | SyntaxKind::LoopExpr | SyntaxKind::WhileExpr => {
+      control && count == 1
+    }
     SyntaxKind::RecordExpr
     | SyntaxKind::ArrayExpr
     | SyntaxKind::CallExpr
     | SyntaxKind::MethodCallExpr
     | SyntaxKind::TupleExpr
     | SyntaxKind::MacroExpr
-    // `combine_control_expr`.
-    | SyntaxKind::IfExpr
     | SyntaxKind::MatchExpr
-    | SyntaxKind::ForExpr
-    | SyntaxKind::LoopExpr
-    | SyntaxKind::WhileExpr
     // Patterns, as the standard formatter's `can_be_overflowed_pat`.
     | SyntaxKind::RecordPat
     | SyntaxKind::TuplePat
@@ -230,11 +229,11 @@ pub fn can_overflow(node: &SyntaxNode, count: usize) -> bool {
     SyntaxKind::RefPat | SyntaxKind::BoxPat => node
       .children()
       .first()
-      .is_some_and(|c| can_overflow(c, count)),
+      .is_some_and(|c| can_overflow(c, count, control)),
     SyntaxKind::RefExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr => node
       .children()
       .first()
-      .is_some_and(|c| can_overflow(c, count)),
+      .is_some_and(|c| can_overflow(c, count, control)),
     _ => false,
   }
 }
@@ -1944,7 +1943,9 @@ fn rewrite_list(
       .iter()
       .filter(|i| i.kind() == SyntaxKind::ClosureExpr)
       .count();
-    let overflow = !slice && closures < 2 && (combine || can_overflow(&items[last], items.len()));
+    let overflow = !slice
+      && closures < 2
+      && (combine || can_overflow(&items[last], items.len(), shape.limits.combine_control_expr));
     // A method chain overflowing a list it is not combined with keeps its links on one
     // line, though its last call's arguments may break (the standard formatter's
     // `force_one_line_chain`).
@@ -2252,17 +2253,16 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
   if commas + 1 != items.len() && commas != items.len() {
     return None;
   }
-  // An attribute among the arguments is not an argument of its own; blocks, `match` arms,
-  // `let else` and macros in braces are not laid out yet: left as written, as a statement
-  // holding them is.
-  if list.descendants().iter().any(|d| {
-    matches!(
-      d.kind(),
-      SyntaxKind::Attr | SyntaxKind::BlockExpr | SyntaxKind::MatchArmList | SyntaxKind::LetElse
+  // An attribute among the arguments is not an argument of its own, and `let else` is not
+  // laid out yet: left as written, as a statement holding them is.
+  if list
+    .descendants()
+    .iter()
+    .any(|d| matches!(d.kind(), SyntaxKind::Attr | SyntaxKind::LetElse))
+    || list.descendants_with_tokens().iter().any(
+      |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_literal() && t.text().contains('\n')),
     )
-  }) || list.descendants_with_tokens().iter().any(
-    |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_literal() && t.text().contains('\n')),
-  ) {
+  {
     return None;
   }
   let shape = Shape {
@@ -2422,7 +2422,19 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       rewrite_if_one_line(node, shape).or_else(|| rewrite_if_lines(node, shape, false))
     }
     SyntaxKind::LetExpr => rewrite_let_condition(node, shape),
-    SyntaxKind::BlockExpr if joins(node) => rewrite_block(node, shape),
+    // A closure's block inside a macro's arguments stays, on one line when it fits there
+    // (the standard formatter's `rewrite_single_line_block`).
+    SyntaxKind::BlockExpr
+      if joins(node)
+        || shape.limits.inside_macro
+          && lone_expression(node).is_some()
+          && node
+            .parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::ClosureExpr)
+          && !node.children().iter().any(|c| c.kind() == SyntaxKind::Attr) =>
+    {
+      rewrite_block(node, shape)
+    }
     SyntaxKind::BlockExpr => super::block::rewrite_lines(node, shape),
     SyntaxKind::MatchExpr => super::block::rewrite_match(node, shape),
     SyntaxKind::ForExpr | SyntaxKind::WhileExpr | SyntaxKind::LoopExpr => {

@@ -1081,25 +1081,10 @@ fn takes(node: &SyntaxNode) -> bool {
   }
   (matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node))
     && expression_of(node).is_some_and(|expression| {
-      is_chain(&expression)
-        || matches!(
-          expression.kind(),
-          K::CallExpr
-          | K::RecordExpr
-          | K::ArrayExpr
-          | K::TupleExpr
-          | K::MacroExpr
-          | K::BlockExpr
-          | K::IfExpr
-          | K::MatchExpr
-          | K::LoopExpr
-          | K::WhileExpr
-          | K::ForExpr
-          | K::ClosureExpr
-        )
+      laid(&expression)
+        || matches!(expression.kind(), K::WhileExpr | K::ForExpr)
         // `return` with a value.
         || expression.kind() == K::ReturnExpr && !expression.children().is_empty()
-        || super::expr::binary_operator(&expression).is_some()
     })
 }
 

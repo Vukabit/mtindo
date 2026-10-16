@@ -135,6 +135,12 @@ pub const REWRITES: &[Rewrite] = &[
     reason: "`vec!(..)` and `vec!{..}` build the same vector as `vec![..]`.",
   },
   Rewrite {
+    name: "macro-arguments",
+    reason: "A macro call's arguments in parentheses or brackets that read as expressions \
+                 are compared as those expressions, by these same rules: the standard \
+                 formatter formats them as such.",
+  },
+  Rewrite {
     name: "macro-rules-arms",
     reason: "A `macro_rules!` arm's matcher and transcriber mean the same in any \
                  delimiters, and the `;` between arms (or after the last) is a separator.",

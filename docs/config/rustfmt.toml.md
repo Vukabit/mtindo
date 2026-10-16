@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 11
+  supported: 12
   partial: 26
-  missing: 50
+  missing: 49
   not_planned: 3
 ---
 
@@ -142,7 +142,8 @@ Combine control expressions with function calls.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true, an if, for, loop or while alone in a
+    call does not overflow when false.
 
 ### `comment_width`
 

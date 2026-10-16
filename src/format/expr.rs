@@ -233,10 +233,12 @@ pub fn can_overflow(node: &SyntaxNode, count: usize, control: bool) -> bool {
       .children()
       .first()
       .is_some_and(|c| can_overflow(c, count, control)),
-    SyntaxKind::RefExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr => node
-      .children()
-      .first()
-      .is_some_and(|c| can_overflow(c, count, control)),
+    SyntaxKind::RefExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr | SyntaxKind::CastExpr => {
+      node
+        .children()
+        .first()
+        .is_some_and(|c| can_overflow(c, count, control))
+    }
     _ => false,
   }
 }
@@ -1018,6 +1020,7 @@ fn braced_macro(node: &SyntaxNode, name: &str, shape: Shape) -> Option<String> {
     matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment)
       && (range.start < from || range.start >= to)
   });
+  // A string across lines inside: left to the whole-file pass, which keeps its lines.
   if comment_outside
     || super::file::skipped_macro(&call)
     || tree
@@ -1389,11 +1392,13 @@ fn macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments
   {
     return Err(Unread::Braced(name));
   }
-  if tree
-    .descendants_with_tokens()
-    .iter()
-    .any(|e| e.kind().is_trivia() && e.kind() != SyntaxKind::Whitespace)
-  {
+  // Comments only between the arguments, where the list layout places them.
+  if tree.descendants_with_tokens().iter().any(|e| match e {
+    SyntaxElement::Token(t) if t.kind().is_trivia() && t.kind() != SyntaxKind::Whitespace => {
+      t.parent() != tree || t.kind() == SyntaxKind::BlockComment && t.text().contains('\n')
+    }
+    _ => false,
+  }) {
     return Err(Declined);
   }
   let inner = tree.text().to_string();
@@ -1594,11 +1599,6 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
   ) && parent.children().len() == 1
 }
 
-/// A binary expression as the standard formatter's `rewrite_all_pairs` lays it out: the
-/// operands joined by the same operator taken as a list (`a && b && c`), on one line when
-/// it fits, else each operand after the first on a line of its own one level in, its
-/// operator first; a first operand no wider than the indentation keeps the next on its
-/// line. Failing that, the two sides as `rewrite_pair` places them.
 fn rewrite_binary(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let operator = binary_operator(node)?;
   // The operands, leftmost first, flattened through left operands with the same operator.
@@ -1692,6 +1692,54 @@ fn rewrite_block(node: &SyntaxNode, shape: Shape) -> Option<String> {
     semi,
     " ".repeat(shape.indent)
   ))
+}
+
+/// A binary expression as the standard formatter's `rewrite_all_pairs` lays it out: the
+/// operands joined by the same operator taken as a list (`a && b && c`), on one line when
+/// it fits, else each operand after the first on a line of its own one level in, its
+/// operator first; a first operand no wider than the indentation keeps the next on its
+/// line. Failing that, the two sides as `rewrite_pair` places them.
+/// `expr as Type` as the standard formatter's `rewrite_pair` writes it: the expression laid
+/// out with the line's budget, then ` as Type` on its last line when it fits there; else left
+/// to the caller.
+fn rewrite_cast(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let children = node.children();
+  let [expression, ty] = children.as_slice() else {
+    return None;
+  };
+  let ty = flat(ty, shape.limits.spacing);
+  let whole = flat(node, shape.limits.spacing);
+  if !whole.contains('\n')
+    && whole.width() <= shape.width
+    && let Some(text) = rewrite(expression, shape)
+    && !text.contains('\n')
+  {
+    let text = format!("{} as {}", text, ty);
+    if text.width() <= shape.width {
+      return Some(text);
+    }
+  }
+  let used = shape.indent + shape.offset;
+  let lhs_shape = Shape {
+    width: shape.limits.max_width.saturating_sub(used),
+    ..shape
+  };
+  let lhs = rewrite(expression, lhs_shape)?;
+  // The last line's width counted from the line's start once the expression spans lines,
+  // against the shape's width all the same (the standard formatter's `rewrite_pair`).
+  let last = if lhs.contains('\n') {
+    last_line_width(&lhs)
+  } else {
+    lhs.width()
+  };
+  let fits = last + 4 + ty.width() <= shape.width;
+  if fits {
+    return Some(format!("{} as {}", lhs, ty));
+  }
+  // Else `as Type` on the next line, one level in.
+  let inner = shape.indent + shape.limits.tab;
+  (inner + 3 + ty.width() <= shape.limits.max_width)
+    .then(|| format!("{}\n{}as {}", lhs, " ".repeat(inner), ty))
 }
 
 /// A chain, as the standard formatter's block-indented chain formatter lays it out.
@@ -2009,8 +2057,93 @@ fn rewrite_list(
     }
   };
   let mut texts: Vec<String> = Vec::with_capacity(items.len());
-  for item in items {
+  for item in &items[..items.len().saturating_sub(1)] {
     texts.push(rewrite(item, nested)?);
+  }
+  // The last item laid out on a line of its own is needed only when it does not overflow
+  // (the standard formatter's items are rewritten lazily).
+  let mut last_failed = false;
+  if let Some(last) = items.last() {
+    match rewrite(last, nested) {
+      Some(text) => texts.push(text),
+      // A closure's block is laid out from the shape it is given: one that fails on its own
+      // line fails the list.
+      None if last.kind() == SyntaxKind::ClosureExpr => return None,
+      None => {
+        last_failed = true;
+        texts.push(String::new());
+      }
+    }
+  }
+  // Comments among the items: one per line, the comments placed around them.
+  if let Some(parent) = items.first().and_then(|i| i.parent())
+    && let Some(comments) = super::lists::list_comments(&parent, items)
+  {
+    if last_failed {
+      return None;
+    }
+    // Block comments only: on the line when it all fits there (`definitive_tactic` breaks
+    // the list for line comments).
+    let line_comment =
+      |c: &Option<String>| c.as_ref().is_some_and(|c| c.trim_start().starts_with("//"));
+    if !comments
+      .iter()
+      .any(|c| line_comment(&c.pre) || line_comment(&c.post))
+      && texts.iter().all(|t| !t.contains('\n'))
+    {
+      let joined: Vec<String> = texts
+        .iter()
+        .zip(&comments)
+        .map(|(t, c)| {
+          let mut item = String::new();
+          if let Some(pre) = &c.pre {
+            item.push_str(pre.trim());
+            item.push(' ');
+          }
+          item.push_str(t);
+          if let Some(post) = &c.post {
+            item.push(' ');
+            item.push_str(post.trim());
+          }
+          item
+        })
+        .collect();
+      let joined = joined.join(", ");
+      // Each comment counted with six columns around it, one of them its space here
+      // (`total_item_width`).
+      let counted = comments
+        .iter()
+        .map(|c| usize::from(c.pre.is_some()) + usize::from(c.post.is_some()))
+        .sum::<usize>()
+        * 5;
+      if joined.width() + counted <= max_width.min(one_line_width) {
+        return wrap_str(format!("{}{}{}{}", ident, open, joined, close), shape);
+      }
+    }
+    let trailing = !shape.limits.comma_as_written || items.last().is_some_and(comma_after);
+    // Short simple items packed, as without comments.
+    let mixed = items.len() > 1
+      && items.iter().all(is_simple)
+      && texts.iter().all(|t| t.width() <= shape.limits.short_item)
+      && special_macro(ident, shape.limits.style_2024).is_none();
+    let body = super::lists::write_vertical(
+      &texts,
+      &comments,
+      nested.indent,
+      nested.width,
+      shape.limits.max_width,
+      trailing,
+      mixed,
+    )?;
+    return Some(format!(
+      "{}{}\n{}{}\n{}{}",
+      ident,
+      open,
+      " ".repeat(nested.indent),
+      body,
+      " ".repeat(shape.indent),
+      close
+    ));
   }
   let mut tactic = Tactic::Vertical;
   if !items.is_empty() {
@@ -2079,11 +2212,17 @@ fn rewrite_list(
     if overflow && placeholder.is_none() && repeat_macro(&items[last]) {
       return None;
     }
+    if last_failed && placeholder.is_none() {
+      return None;
+    }
     let mut probe = texts.clone();
     if let Some(over) = &placeholder {
       probe[last] = over.lines().next().unwrap_or("").to_string();
     }
     tactic = definitive(&probe, max_width.min(one_line_width));
+    if last_failed && !(overflow && tactic == Tactic::Horizontal) {
+      return None;
+    }
     match (overflow, tactic, placeholder) {
       (true, Tactic::Horizontal, Some(over)) if items.len() == 1 => {
         if over.matches('\n').count() == 1 {
@@ -2350,9 +2489,6 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .descendants()
     .iter()
     .any(|d| matches!(d.kind(), SyntaxKind::Attr | SyntaxKind::LetElse))
-    || list.descendants_with_tokens().iter().any(
-      |e| matches!(e, SyntaxElement::Token(t) if t.kind().is_literal() && t.text().contains('\n')),
-    )
   {
     return None;
   }
@@ -2499,6 +2635,7 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       Some(format!("{}{}", prefix, text))
     }
     SyntaxKind::BinExpr if binary_operator(node).is_some() => rewrite_binary(node, shape),
+    SyntaxKind::CastExpr => rewrite_cast(node, shape),
     // An attribute's `name = literal`, the literal whatever its width
     // (`MetaItemKind::NameValue`).
     SyntaxKind::BinExpr

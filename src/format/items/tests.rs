@@ -126,6 +126,23 @@ fn test_headers_with_parameter_attributes_and_trailing_comments() {
 }
 
 #[test]
+fn test_impl_headers_and_where_clauses() {
+  // Too wide: `for Type` on the next line one level in, the `{` on a line of its own.
+  assert_eq!(
+    formatted(
+      "impl QueryFragment<Pg, crate::pg::backend::PgOnConflictClause> for ConflictTarget<OnConstraint<'_>> {\n    fn f() {}\n}\n"
+    ),
+    "impl QueryFragment<Pg, crate::pg::backend::PgOnConflictClause>\n    for ConflictTarget<OnConstraint<'_>>\n{\n    fn f() {}\n}\n"
+  );
+  // Indented, its line may run past the width by the indentation.
+  let indented = "mod m {\n    impl<T: UnwindSafe, F: UnwindSafe + RefUnwindSafe> UnwindSafe for Pool<T, Fxxxxxxxxxx> {}\n}\n";
+  assert_eq!(formatted(indented), indented);
+  // A blank line between predicates stays before style edition 2024.
+  let blank = "fn f<T, U>(x: T) -> u8\nwhere\n    T: Clone,\n\n    U: Copy,\n{\n    1\n}\n";
+  assert_eq!(formatted(blank), blank);
+}
+
+#[test]
 fn test_long_parameter_lists_take_a_line_each() {
   assert_eq!(
     formatted(
@@ -141,6 +158,22 @@ fn test_no_blank_line_between_attributes() {
   assert_eq!(
     formatted("#[a]\n\n#[b]\n\nfn f() {}\n\n/// doc\n\nfn g() {}\n"),
     "#[a]\n#[b]\n\nfn f() {}\n\n/// doc\n\nfn g() {}\n"
+  );
+}
+
+#[test]
+fn test_parameters_with_comments_and_long_names() {
+  assert_eq!(
+    formatted(
+      "async fn\n        users_create(State(state): State<AppState>,\t// Make sure\n  // second\n AppJson(params): AppJson<Params>, x: u8) -> u8 {\n    1\n}\n"
+    ),
+    "async fn users_create(\n    State(state): State<AppState>, // Make sure\n    // second\n    AppJson(params): AppJson<Params>,\n    x: u8,\n) -> u8 {\n    1\n}\n"
+  );
+  assert_eq!(
+    formatted(
+      "extern \"C\" {\n    pub  fn  init_storage_event_with_can_bubble_and_cancelable_and_key_and_old_value_and_new_value_and_url(\n    this: &StorageEvent, type_arg: &str);\n}\n"
+    ),
+    "extern \"C\" {\n    pub fn init_storage_event_with_can_bubble_and_cancelable_and_key_and_old_value_and_new_value_and_url(\n        this: &StorageEvent,\n        type_arg: &str,\n    );\n}\n"
   );
 }
 

@@ -120,6 +120,22 @@ pub fn reorder(
   Some(out)
 }
 
+/// A `use`, or a `mod name;`, with no `#[macro_use]` and not skipped.
+pub(super) fn sortable(node: &SyntaxNode) -> bool {
+  let declaration = match node.kind() {
+    K::Use => true,
+    K::Module => node
+      .children_with_tokens_iter()
+      .any(|e| e.kind() == K::Semi),
+    _ => false,
+  };
+  declaration
+    && !node
+      .children_iter()
+      .filter_map(Attr::cast)
+      .any(|a| a.is_rustfmt_skip() || a.path() == "macro_use")
+}
+
 /// Where an item's code ends: before the comments it carries after it.
 fn code_end(item: &SyntaxNode) -> usize {
   item
@@ -243,22 +259,6 @@ fn runs(container: &SyntaxNode, blank_ends_run: bool) -> Vec<Vec<SyntaxNode>> {
   runs.push(current);
   runs.retain(|r| !r.is_empty());
   runs
-}
-
-/// A `use`, or a `mod name;`, with no `#[macro_use]` and not skipped.
-fn sortable(node: &SyntaxNode) -> bool {
-  let declaration = match node.kind() {
-    K::Use => true,
-    K::Module => node
-      .children_with_tokens_iter()
-      .any(|e| e.kind() == K::Semi),
-    _ => false,
-  };
-  declaration
-    && !node
-      .children_iter()
-      .filter_map(Attr::cast)
-      .any(|a| a.is_rustfmt_skip() || a.path() == "macro_use")
 }
 
 #[cfg(test)]

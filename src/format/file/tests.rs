@@ -20,6 +20,18 @@ fn formatted_with(source: &str, config: &FormatConfig) -> String {
 }
 
 #[test]
+fn test_arm_comments_aligned() {
+  // Comments after arms aligned in their group, an arm's comma counted in its width; one
+  // after a block's `}` one space after it.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    match x {\n        A => {\n            a();\n        }\t// Pop\n        EMPTY => return,  // w\n        NOTIFIED => return, // u\n        PARKED => {}   // g\n        _ => panic!(),\n    }\n}\n"
+    ),
+    "fn f() {\n    match x {\n        A => {\n            a();\n        } // Pop\n        EMPTY => return,    // w\n        NOTIFIED => return, // u\n        PARKED => {}        // g\n        _ => panic!(),\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_attribute_arguments_and_doc_comments() {
   // Keywords are names among an attribute's arguments, `true` a value; a doc comment after
   // an attribute starts its own line.
@@ -54,6 +66,18 @@ fn test_blank_lines_and_trailing_whitespace() {
   assert_eq!(
     formatted("\n\nfn a() {   \n\n\n    x();  \n\n}\n\n\n\nfn b() {} // note   \n\n\n"),
     "fn a() {\n    x();\n}\n\nfn b() {} // note\n"
+  );
+}
+
+#[test]
+fn test_braced_macros_holding_strings_across_lines() {
+  // Re-indented around the string: a line continuing it after `\` moves, one starting
+  // inside it otherwise is the string's own and stays.
+  assert_eq!(
+    formatted(
+      "cfg_if!\n\t{\n\tif #[cfg(x)] {\n            compile_error!(\n                \"one \\\n            two\"  );\n}\n}\nfn g() {\n  m! {\n     let s = \"a\n  b\";\n        x\n  }\n}\n"
+    ),
+    "cfg_if! {\n    if #[cfg(x)] {\n            compile_error!(\n                \"one \\\n            two\"  );\n}\n}\nfn g() {\n    m! {\n       let s = \"a\n  b\";\n          x\n    }\n}\n"
   );
 }
 
@@ -109,11 +133,10 @@ fn test_contents_follow_the_line_their_owner_starts_on() {
     ),
     "fn f() {\n    let g = |S { aaaaaaaa, bbbbbbbbbbbb }: S,\n             b: u8| {\n        a\n    };\n}\n"
   );
-  // A method call's arguments follow the line of its `.` (the comment keeps the
-  // statement's lines as written).
+  // A comment after an argument: the arguments one per line, the comment after its item.
   assert_eq!(
     formatted("fn f() {\n    x\n        .g(\n  1, // c\n  );\n}\n"),
-    "fn f() {\n    x\n        .g(\n            1, // c\n        );\n}\n"
+    "fn f() {\n    x.g(\n        1, // c\n    );\n}\n"
   );
   // A comment between links is the chain layout's.
   assert_eq!(
@@ -133,10 +156,10 @@ fn test_continuation_lines_move_with_their_construct() {
     formatted("fn f() {\n  let x = foo // c\n      .bar()\n      .baz();\n}\n"),
     "fn f() {\n    let x = foo // c\n        .bar()\n        .baz();\n}\n"
   );
-  // Arguments on their own lines are one level past the call's line.
+  // A comment after `(` goes above the first argument; short ones are packed.
   assert_eq!(
     formatted("fn f() {\n    g( // c\n  a,\n          b,\n  );\n}\n"),
-    "fn f() {\n    g( // c\n        a,\n        b,\n    );\n}\n"
+    "fn f() {\n    g(\n        // c\n        a, b,\n    );\n}\n"
   );
 }
 
@@ -163,6 +186,18 @@ fn test_doc_comments_consts_and_macro_bodies() {
       "/// doc\n\nstruct S {\n    /// a\n\n    a: u8,\n}\nenum E {\n    /// b\n\n    B,\n}\n/// f\n\nfn f() {\n    /// c\n\n    let x = 1;\n}\n/// u\n\nuse a;\ntrait T: Clone + Send {}\npub trait OsStrExt: private::Sealed {}\nconst A_BILLION: i64 = 1_000_000_000; // Maximum\npub const TLS_1_2_VERSION_LONG_NAME_XXXXXXXXXXXXXXXXXXXXX: __u16 = TLS_VERSION_NUMBER_LONG(TLS_1_2_VERSION_MAJOR);\nmod m {\n    bitflags! {\n            pub struct Flags: u32 {\n        \tconst A = 1;\n\n                    const B = 2;\n            }\n    }\n}\n#[rustfmt::skip::macros(html)]\nfn main() {\n    let x = html! { <div>\nthis stays</div>\n    };\n}\n"
     ),
     "/// doc\n\nstruct S {\n    /// a\n    a: u8,\n}\nenum E {\n    /// b\n    B,\n}\n/// f\n\nfn f() {\n    /// c\n    let x = 1;\n}\n/// u\nuse a;\ntrait T: Clone + Send {}\npub trait OsStrExt: private::Sealed {}\nconst A_BILLION: i64 = 1_000_000_000; // Maximum\npub const TLS_1_2_VERSION_LONG_NAME_XXXXXXXXXXXXXXXXXXXXX: __u16 =\n    TLS_VERSION_NUMBER_LONG(TLS_1_2_VERSION_MAJOR);\nmod m {\n    bitflags! {\n            pub struct Flags: u32 {\n            const A = 1;\n\n                    const B = 2;\n            }\n    }\n}\n#[rustfmt::skip::macros(html)]\nfn main() {\n    let x = html! { <div>\nthis stays</div>\n    };\n}\n"
+  );
+}
+
+#[test]
+fn test_field_comments_aligned_and_joined() {
+  // Comments after fields aligned in groups a blank line ends; a comment above a field
+  // joins it; one after a statement's `;` one space after it.
+  assert_eq!(
+    formatted(
+      "struct S {\n    aliases: Vec<(Str, bool)>,\t// (name, visible)\n    a: u8,  // x\n\n    c: u8,   // z\n        // Hash buckets\n\nentries: u8,\n}\nconst A: u8 = 1;  /* one */\n"
+    ),
+    "struct S {\n    aliases: Vec<(Str, bool)>, // (name, visible)\n    a: u8,                     // x\n\n    c: u8, // z\n    // Hash buckets\n    entries: u8,\n}\nconst A: u8 = 1; /* one */\n"
   );
 }
 

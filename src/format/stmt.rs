@@ -30,6 +30,10 @@ pub struct Head {
   /// Whether a comma in the tail stays (after a match arm's body); else it goes, as the
   /// arguments it closed are on one line.
   pub keep_comma: bool,
+  /// Where each link of a chain after the block's `})` starts (its `.`): each on a line of
+  /// its own at the statement's indentation, as the standard formatter writes a chain whose
+  /// root ends in a block.
+  pub links: Vec<usize>,
 }
 
 /// Whether `node` is a block's tail: the expression ending it, with no `;`, laid out as a
@@ -199,6 +203,7 @@ pub fn rewrite_control_head(
     open: open as usize,
     tail: Vec::new(),
     keep_comma: false,
+    links: Vec::new(),
   })
 }
 
@@ -235,6 +240,8 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
   let parent = value.parent()?;
   let mut arguments_from = None;
   let mut method = false;
+  // The chain links after the call holding the block, when that call is the chain's root.
+  let mut links: Vec<SyntaxNode> = Vec::new();
   match parent.kind() {
     K::LetStmt => {}
     K::ArgList => {
@@ -253,6 +260,20 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
       method = call.kind() == K::MethodCallExpr;
       while let Some(up) = call.parent().filter(|p| p.kind() == K::TryExpr) {
         call = up;
+      }
+      // A plain call holding the block may root a chain: its links follow on lines.
+      if call.kind() != K::MethodCallExpr {
+        while let Some(up) = call.parent().filter(|p| {
+          matches!(
+            p.kind(),
+            K::MethodCallExpr | K::FieldExpr | K::AwaitExpr | K::TryExpr
+          ) && p.children_iter().next().as_ref() == Some(&call)
+        }) {
+          if up.kind() != K::TryExpr {
+            links.push(up.clone());
+          }
+          call = up;
+        }
       }
       if !matches!(call.parent()?.kind(), K::ExprStmt | K::LetStmt) {
         return None;
@@ -284,7 +305,12 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
     .count();
   // A block of one expression and nothing else the standard formatter writes on one line
   // when it fits (`unsafe { f() }`), a closure's without its braces.
-  if statements == 0 {
+  if statements == 0
+    && (super::expr::lone_expression(&block).is_some()
+      || !inside
+        .iter()
+        .any(|k| matches!(k, K::Use | K::MacroCall | K::MacroRules) || k.is_trivia()))
+  {
     return None;
   }
   // The head: nothing in it the layout code declines.
@@ -314,10 +340,67 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
     return None;
   }
   let code: Vec<SyntaxToken> = head.into_iter().filter(|t| !t.kind().is_trivia()).collect();
-  // The tail: closing delimiters, `?`, `,` and `;` only.
+  // The links' `.`s, and from the first to the last link's end what they hold: laid out
+  // by the whole-file pass, on one line each.
+  let dots: Vec<usize> = links
+    .iter()
+    .filter_map(|link| {
+      link
+        .children_with_tokens_iter()
+        .find(|e| e.kind() == K::Dot)
+        .map(|e| e.text_range().start as usize)
+    })
+    .rev()
+    .collect();
+  let links_range = match (dots.first(), links.first()) {
+    (Some(&from), Some(outer)) => Some((from, outer.text_range().end as usize)),
+    _ => None,
+  };
+  if let Some((from, to)) = links_range {
+    let inner: Vec<SyntaxToken> = node
+      .descendants_where(|kind| !kind.is_node())
+      .filter_map(|e| match e {
+        SyntaxElement::Token(t) => Some(t),
+        SyntaxElement::Node(_) => None,
+      })
+      .filter(|t| (from..to).contains(&(t.text_range().start as usize)))
+      .collect();
+    if inner.iter().any(|t| {
+      (t.kind().is_trivia() && t.kind() != K::Whitespace)
+        || t.kind().is_literal() && t.text().contains('\n')
+    }) || links.iter().any(|l| {
+      l.children_iter()
+        .skip(1)
+        .any(|c| c.subtree_has(|kind| matches!(kind, K::BlockExpr | K::ClosureExpr)))
+    }) {
+      return None;
+    }
+    // Each link on a line of its own must fit there, the last with what follows it.
+    let spacing = Spacing::of(config);
+    let mut bounds: Vec<usize> = dots.clone();
+    bounds.push(to);
+    for (i, pair) in bounds.windows(2).enumerate() {
+      let part: Vec<SyntaxToken> = inner
+        .iter()
+        .filter(|t| {
+          let at = t.text_range().start as usize;
+          at >= pair[0] && at < pair[1] && !t.kind().is_trivia()
+        })
+        .cloned()
+        .collect();
+      let after = if i + 2 == bounds.len() { 1 } else { 0 };
+      if indent + str_width(&flat_tokens(&part, spacing)) + after > config.max_width {
+        return None;
+      }
+    }
+  }
+  let in_links = |at: usize| links_range.is_some_and(|(from, to)| at >= from && at < to);
+  // The tail: closing delimiters, `?`, `,` and `;` only (the links aside).
   let tail: Vec<(SyntaxKind, &str, usize)> = node
     .token_texts()
-    .filter(|&(kind, _, range)| range.start >= close.end && !kind.is_trivia())
+    .filter(|&(kind, _, range)| {
+      range.start >= close.end && !kind.is_trivia() && !in_links(range.start as usize)
+    })
     .map(|(kind, text, range)| (kind, text, range.start as usize))
     .collect();
   let mut i = 0;
@@ -386,9 +469,11 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
   let text = format!("{}{}", flat, space);
   // `{` must fit with room for the tail after `}` (`);`), a closure's with one more column,
   // and a method call's with its `?`s counted twice (the standard formatter does).
+  // Up to the links, which start lines of their own.
+  let first_link = links_range.map_or(usize::MAX, |(from, _)| from);
   let written: Vec<&str> = tail
     .iter()
-    .filter(|t| t.0 != K::Comma)
+    .filter(|t| t.0 != K::Comma && t.2 < first_link)
     .map(|t| t.1)
     .collect();
   let closing = 1 + str_width(&written.concat());
@@ -400,11 +485,17 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
   if indent + str_width(&text) + closing + usize::from(closure) + tries > config.max_width {
     return None;
   }
+  // The tail after the links (`;`) follows the last link.
   Some(Head {
     text,
     open: open.start as usize,
-    tail: tail.iter().map(|t| (t.2, t.0)).collect(),
+    tail: tail
+      .iter()
+      .filter(|t| t.2 < first_link)
+      .map(|t| (t.2, t.0))
+      .collect(),
     keep_comma: false,
+    links: dots,
   })
 }
 
@@ -454,6 +545,7 @@ pub fn rewrite_let_control(
     open: same.open,
     tail: Vec::new(),
     keep_comma: false,
+    links: Vec::new(),
   })
 }
 
@@ -590,13 +682,31 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
   // Inside a function body, where the statement stands, so that tokens split as they do
   // there (`>>` closing two generic lists).
   let wrapped = format!("fn f() {{\n{}\n}}", text);
-  let ours = parse_tokens(&wrapped, Edition::E2021)
-    .into_iter()
-    .skip_while(|&(kind, _)| kind != K::LBrace)
+  let tokens = parse_tokens(&wrapped, Edition::E2021);
+  let ours = tokens
+    .iter()
+    .skip_while(|&&(kind, _)| kind != K::LBrace)
     .skip(1)
-    .filter(|&(kind, _)| compared(kind))
-    .map(|(_, text)| text);
-  theirs.eq(ours)
+    .filter(|&&(kind, _)| compared(kind))
+    .map(|&(_, text)| text);
+  if !theirs.eq(ours) {
+    return false;
+  }
+  // Every comment kept, each once.
+  let comment = |kind: SyntaxKind| matches!(kind, K::LineComment | K::BlockComment);
+  let mut theirs: Vec<&str> = node
+    .token_texts()
+    .filter(|&(kind, _, range)| comment(kind) && range.start as usize >= start)
+    .map(|(_, text, _)| text.trim_end())
+    .collect();
+  let mut ours: Vec<&str> = tokens
+    .iter()
+    .filter(|&&(kind, _)| comment(kind))
+    .map(|&(_, text)| text.trim_end())
+    .collect();
+  theirs.sort_unstable();
+  ours.sort_unstable();
+  theirs == ours
 }
 
 /// The shape a statement starting at column `indent` is laid out into.
@@ -625,6 +735,29 @@ pub(super) fn written_as(node: &SyntaxNode, from: usize, text: &str) -> bool {
       None => false,
     });
   same && rest.is_empty()
+}
+
+/// Whether a string spanning lines is a call's argument: kept as written, its arguments laid
+/// out around it as the standard formatter does.
+fn argument_string(token: &SyntaxToken) -> bool {
+  let literal = token.parent();
+  // In a macro call's arguments, laid out as the call's are.
+  if literal.kind() == K::TokenTree
+    && literal
+      .ancestors_iter()
+      .any(|a| a.kind() == K::MacroCall && !braced(&a))
+  {
+    return true;
+  }
+  literal.kind() == K::Literal
+    && literal.parent().is_some_and(|p| {
+      // The value of a `let`, `const` or `static`.
+      matches!(p.kind(), K::LetStmt | K::Const | K::Static)
+        || p.kind() == K::ArgList
+          && p
+            .parent()
+            .is_some_and(|call| matches!(call.kind(), K::CallExpr | K::MethodCallExpr))
+    })
 }
 
 /// Whether a macro call's arguments are in braces: they are left as written, and so is a
@@ -937,11 +1070,18 @@ fn right_side(
 /// Whether one token or node is one [`clean_expression`] lets through.
 fn safe(element: &SyntaxElement) -> bool {
   match element {
-    // A comment between a chain's links, on a line of its own: the chain layout places it.
+    // A comment between a chain's links, on a line of its own: the chain layout places it;
+    // one among a call's arguments, which the list layout places.
     SyntaxElement::Token(t)
       if matches!(t.kind(), K::LineComment | K::BlockComment)
         && !t.text().contains('\n')
-        && super::expr::in_chain_gap(t) =>
+        && (super::expr::in_chain_gap(t)
+          || matches!(t.parent().kind(), K::ArgList | K::ArrayExpr | K::TupleExpr)
+          || t.parent().kind() == K::TokenTree
+            && t
+              .parent()
+              .parent()
+              .is_some_and(|p| p.kind() == K::MacroCall && !braced(&p))) =>
     {
       true
     }
@@ -954,7 +1094,7 @@ fn safe(element: &SyntaxElement) -> bool {
           | K::InnerLineDoc
           | K::OuterBlockDoc
           | K::InnerBlockDoc
-      ) && !(t.kind().is_literal() && t.text().contains('\n'))
+      ) && !(t.kind().is_literal() && t.text().contains('\n') && !argument_string(t))
     }
     // A block of one expression the layout code puts on one line.
     SyntaxElement::Node(n) if n.kind() == K::BlockExpr => {

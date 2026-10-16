@@ -304,7 +304,13 @@ fn lines(
       },
       SyntaxElement::Node(node) => {
         trailing = None;
-        blank(&mut lines, newlines);
+        // An arm follows the comment above it, its pre-comment, with no blank line.
+        let after_comment = lines
+          .last()
+          .is_some_and(|l| l.trim_start().starts_with("//") || l.trim_start().starts_with("/*"));
+        if !(container.kind() == K::MatchArmList && after_comment) {
+          blank(&mut lines, newlines);
+        }
         let text = entry(node)?;
         lines.push(format!("{}{}", pad, text));
         newlines = 0;

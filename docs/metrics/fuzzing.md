@@ -2,8 +2,8 @@
 paper: "fuzzing"
 title: "Fuzzing"
 status: "measured"
-generated: "2026-10-16T02:33:38.634Z"
-commit: "4e21107-dirty.6d24caf0"
+generated: "2026-10-16T05:18:56.883Z"
+commit: "66bdbe6-dirty.685fa90f"
 command: "cargo xtask fuzz run TARGET"
 sources:
   - fuzz/fuzz_targets/
@@ -11,7 +11,7 @@ sources:
 seed: "chosen by libFuzzer for each run; not recorded"
 metrics:
   fuzz.targets: 8
-  fuzz.regressions: 9
+  fuzz.regressions: 11
 ---
 
 # Fuzzing
@@ -20,7 +20,7 @@ metrics:
 
 <!-- generated: abstract -->
 8 fuzz targets drive mto's lexer, parser, layout, formatting, meaning check and
-TOML reader with generated inputs. 9 inputs that once failed are kept as
+TOML reader with generated inputs. 11 inputs that once failed are kept as
 regression tests, from 3 of the targets; each still passes its target's checks
 in every test run.
 <!-- end generated -->
@@ -87,8 +87,8 @@ Inputs kept as regression tests, by target:
 | target | kept inputs |
 |---|---:|
 | `comments` | 0 |
-| `format` | 6 |
-| `generated` | 2 |
+| `format` | 7 |
+| `generated` | 3 |
 | `layout` | 1 |
 | `lexer` | 0 |
 | `parser` | 0 |
@@ -105,7 +105,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | kept inputs |
 |---|---|---:|
-| current |  | 9 |
+| current |  | 11 |
+| 2026-10-15 | a8c8d39 | 9 |
 | 2026-10-13 | 031a9ac | 7 |
 <!-- end generated -->
 
@@ -122,7 +123,7 @@ status:
 
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
-| `fuzz-crash` | 0 | 0 | 6 | 0 |
+| `fuzz-crash` | 0 | 0 | 8 | 0 |
 | `fuzz-oom` | 0 | 0 | 1 | 0 |
 | `fuzz-timeout` | 0 | 0 | 0 | 0 |
 | `fuzz-slow` | 0 | 0 | 1 | 2 |
@@ -138,13 +139,13 @@ sanitizer), and the share of src/ lines its corpus reaches.
 | target | inputs/s | peak MB | lines reached % |
 |---|---:|---:|---:|
 | `comments` | 214 | 2355 | 31.03 |
-| `format` | 345 | 492 | 43.90 |
-| `generated` | 274 | 653 | 47.85 |
-| `layout` | 1840 | 424 | 20.17 |
-| `lexer` | 73005 | 185 | 2.55 |
-| `parser` | 1400 | 372 | 15.60 |
-| `toml` | 66507 | 184 | 4.39 |
-| `verify` | 2402 | 245 | 19.63 |
+| `format` | 613 | 681 | 43.90 |
+| `generated` | 261 | 615 | 47.85 |
+| `layout` | 1962 | 409 | 20.17 |
+| `lexer` | 43884 | 172 | 2.55 |
+| `parser` | 1359 | 352 | 15.60 |
+| `toml` | 54087 | 167 | 4.39 |
+| `verify` | 2569 | 253 | 19.63 |
 
 Also: every corpus together reaches 63.65% of the lines of src/ (2026-10-12); in
 the last differential run, mto and the standard formatter agreed on 16.67% of

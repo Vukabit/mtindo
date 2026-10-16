@@ -11,6 +11,7 @@ pub mod expr;
 pub mod file;
 pub mod imports;
 pub mod items;
+pub mod lists;
 pub mod macros;
 pub mod reorder;
 pub mod shape;

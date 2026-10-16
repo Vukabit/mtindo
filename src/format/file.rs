@@ -118,6 +118,9 @@ struct Roles {
   preserved: Offsets<usize>,
   /// Statements left as written whole, from their first token, by where they start.
   kept_whole: OffsetSet,
+  /// Item headers with a written line wider than the line width, by where their own text
+  /// starts: where they end. Left as written when they cannot be laid out.
+  wide_headers: Offsets<usize>,
   /// `macro_rules!` definitions, by where their `macro_rules` starts: written anew when
   /// their rules format, else left as written from there.
   macro_rules: Offsets<SyntaxNode>,
@@ -227,15 +230,89 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
   format!("{}{}", bom, body)
 }
 
+/// Whether an attribute's arguments are what the standard formatter can format: names and
+/// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
+/// else (a closure, a path as a value) is left as written.
+pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
+  // Inside an argument list a path's `::` is two colons, written touching.
+  let colons: Vec<(usize, usize)> = attr
+    .descendants_with_tokens_iter()
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) if t.kind() == SyntaxKind::Colon => {
+        Some((t.text_range().start as usize, t.text_range().end as usize))
+      }
+      _ => None,
+    })
+    .collect();
+  let in_path = |start: usize, end: usize| colons.iter().any(|&(s, e)| e == start || s == end);
+  let mut previous: Option<SyntaxKind> = None;
+  for element in attr.descendants_with_tokens_iter() {
+    let SyntaxElement::Token(token) = element else {
+      if previous == Some(SyntaxKind::Eq) && element.kind() != SyntaxKind::Literal {
+        return false;
+      }
+      continue;
+    };
+    let kind = token.kind();
+    if kind.is_trivia() {
+      continue;
+    }
+    let allowed = kind.is_literal()
+      || kind.name().ends_with("_KW")
+      || matches!(
+        kind,
+        SyntaxKind::Ident
+          | SyntaxKind::RawIdent
+          | SyntaxKind::Colon2
+          | SyntaxKind::Comma
+          | SyntaxKind::Eq
+          | SyntaxKind::LParen
+          | SyntaxKind::RParen
+          | SyntaxKind::LBrack
+          | SyntaxKind::RBrack
+          | SyntaxKind::Pound
+          | SyntaxKind::Bang
+      );
+    // A `!` only as an inner attribute's own: a macro call among the arguments is not a
+    // name or a value.
+    let allowed =
+      allowed && (kind != SyntaxKind::Bang || token.parent().kind() == SyntaxKind::Attr);
+    let allowed = allowed
+      || kind == SyntaxKind::Colon
+        && in_path(
+          token.text_range().start as usize,
+          token.text_range().end as usize,
+        );
+    let value = kind.is_literal()
+      || matches!(kind, SyntaxKind::TrueKw | SyntaxKind::FalseKw)
+      || matches!(token.text(), "true" | "false");
+    if !allowed || (previous == Some(SyntaxKind::Eq) && !value) {
+      return false;
+    }
+    previous = Some(kind);
+  }
+  true
+}
+
 /// A braced macro call's arguments as the standard formatter's `trim_left_preserve_layout`
 /// writes them: the first line as written, without trailing whitespace; each later line
 /// trimmed and indented from `indent` by as much as it was past the least indented of them
-/// (tabs counting `tab_spaces`); a blank line empty.
+/// (tabs counting `tab_spaces`); a blank line empty. A line starting inside a string is kept
+/// as written, and counts toward no indentation (nor does the one after it, while the
+/// string goes on).
 pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfig) -> String {
   let tab = config.tab_spaces.max(1);
-  let mut lines = snippet.split('\n');
-  let first = lines.next().unwrap_or("").trim_end();
-  let rest: Vec<&str> = lines.collect();
+  // Where each line break inside a string literal is.
+  let mut in_string: HashSet<usize> = HashSet::new();
+  let mut at = 0;
+  for (kind, text) in crate::syntax::parse_tokens(snippet, Edition::E2021) {
+    if kind.is_literal() {
+      for (i, _) in text.match_indices('\n') {
+        in_string.insert(at + i);
+      }
+    }
+    at += text.len();
+  }
   let leading = |line: &str| {
     line
       .chars()
@@ -243,18 +320,63 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
       .map(|c| if c == '\t' { tab } else { 1 })
       .sum::<usize>()
   };
-  let least = rest
-    .iter()
-    .filter(|l| !l.trim().is_empty())
-    .map(|l| leading(l))
-    .min()
-    .unwrap_or(0);
+  // Each line after the first: its text, whether it starts inside a string, whether it
+  // ends inside one.
+  let mut lines: Vec<(&str, bool, bool)> = Vec::new();
+  let mut offset = snippet.find('\n').map_or(snippet.len(), |n| n + 1);
+  let first = snippet[..offset].trim_end();
+  while offset <= snippet.len()
+    && offset > 0
+    && offset - 1 < snippet.len()
+    && snippet.as_bytes()[offset - 1] == b'\n'
+  {
+    let starts_in = in_string.contains(&(offset - 1));
+    let end = snippet[offset..]
+      .find('\n')
+      .map_or(snippet.len(), |n| offset + n);
+    let ends_in = in_string.contains(&end);
+    lines.push((&snippet[offset..end], starts_in, ends_in));
+    if end >= snippet.len() {
+      break;
+    }
+    offset = end + 1;
+  }
+  // `InString`: starting and ending inside a string, kept as written unless it continues
+  // with `\`; the lines inside strings count toward no minimum.
+  let mut veto = false;
+  let mut kept: Vec<bool> = Vec::with_capacity(lines.len());
+  let mut least: Option<usize> = None;
+  // Whether the line before ends with `\` (a string continued past its line break, whose
+  // leading whitespace is not the string's).
+  let mut continued = first.ends_with('\\');
+  for &(line, starts_in, ends_in) in &lines {
+    let new_veto = starts_in && ends_in && !line.ends_with('\\');
+    // A line starting inside a string not continued with `\` starts with the string's own
+    // whitespace: kept, where the standard formatter would re-indent it.
+    kept.push(veto || new_veto || starts_in && !continued);
+    veto = new_veto;
+    continued = line.ends_with('\\');
+    if !line.trim().is_empty() && !starts_in {
+      least = Some(least.map_or(leading(line), |l| l.min(leading(line))));
+    }
+  }
+  // No line to measure (all inside a string): as written (`.min()?`).
+  let Some(least) = least else {
+    return snippet.to_string();
+  };
   let mut out = first.to_string();
-  for line in rest {
+  for (&(line, _, ends_in), keep) in lines.iter().zip(kept) {
     out.push('\n');
-    if !line.trim().is_empty() {
-      out.push_str(&" ".repeat(indent + leading(line) - least));
-      out.push_str(line.trim());
+    if keep {
+      out.push_str(line);
+    } else if !line.trim().is_empty() {
+      out.push_str(&" ".repeat(indent + leading(line).saturating_sub(least)));
+      // A line ending inside a string keeps its end, which is the string's.
+      out.push_str(if ends_in {
+        line.trim_start()
+      } else {
+        line.trim()
+      });
     }
   }
   out
@@ -280,6 +402,40 @@ pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
           .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
       })
   })
+}
+
+/// For a struct's fields, an enum's variants or a match's arms laid out one per line from
+/// column `indent`, the spaces before each item's comment after it on its line, as a list's
+/// are aligned (`write_list`); `None` where there is none.
+fn align_list_comments(
+  list: &SyntaxNode,
+  indent: usize,
+  config: &FormatConfig,
+) -> Option<Vec<Option<usize>>> {
+  let items = list_items_of(list);
+  let comments = crate::format::lists::list_comments(list, &items)?;
+  let spacing = crate::format::shape::Spacing::of(config);
+  // An item spanning lines starts a group of its own: marked with a line break.
+  let texts: Vec<String> = items
+    .iter()
+    .map(|item| match item.kind() {
+      SyntaxKind::MatchArm => match rewrite_arm(item, indent, config) {
+        Some(Arm::Whole(text)) if !text.contains('\n') => text,
+        _ => "\n".to_string(),
+      },
+      _ => match crate::format::items::rewrite_field(item, indent, config) {
+        Some((text, _)) => text.trim_end_matches(',').to_string(),
+        None => crate::format::expr::flat(item, spacing),
+      },
+    })
+    .collect();
+  Some(crate::format::lists::post_comment_spaces(
+    &texts,
+    &comments,
+    indent,
+    config.max_width,
+    list.kind() != SyntaxKind::MatchArmList,
+  ))
 }
 
 /// Whether a node is a macro call with braces (`m! { .. }`), or a statement of one.
@@ -590,11 +746,80 @@ fn is_generated(text: &str, config: &FormatConfig) -> bool {
     })
 }
 
+/// The list and the index of the item a token ends (a field's or variant's comma, an arm's
+/// comma or last `}`), for a comment after it.
+fn item_before(token: &SyntaxToken) -> Option<(SyntaxNode, usize)> {
+  let end = token.text_range().end as usize;
+  let (list, item) = match token.kind() {
+    SyntaxKind::Comma if token.parent().kind() == SyntaxKind::MatchArm => {
+      let arm = token.parent();
+      (arm.parent()?, arm)
+    }
+    SyntaxKind::Comma
+      if matches!(
+        token.parent().kind(),
+        SyntaxKind::RecordFieldList | SyntaxKind::VariantList
+      ) && token.parent().parent().is_some_and(|p| {
+        matches!(
+          p.kind(),
+          SyntaxKind::Struct | SyntaxKind::Union | SyntaxKind::Enum
+        )
+      }) =>
+    {
+      let list = token.parent();
+      let item = list
+        .children_iter()
+        .rfind(|c| c.text_range().end as usize <= token.text_range().start as usize)?;
+      (list, item)
+    }
+    SyntaxKind::RBrace
+      if token
+        .parent()
+        .ancestors_iter()
+        .find(|a| a.kind() == SyntaxKind::MatchArm)
+        .is_some_and(|arm| crate::format::imports::code_end(&arm) == end) =>
+    {
+      let arm = token
+        .parent()
+        .ancestors_iter()
+        .find(|a| a.kind() == SyntaxKind::MatchArm)?;
+      (arm.parent()?, arm)
+    }
+    // A field's or variant's last token, no comma written after it (the layout adds one).
+    _ => {
+      let item = token.parent().ancestors_iter().find(|a| {
+        matches!(a.kind(), SyntaxKind::RecordField | SyntaxKind::Variant)
+          && crate::format::imports::code_end(a) == end
+      })?;
+      let list = item.parent()?;
+      if !list.parent().is_some_and(|p| {
+        matches!(
+          p.kind(),
+          SyntaxKind::Struct | SyntaxKind::Union | SyntaxKind::Enum
+        )
+      }) {
+        return None;
+      }
+      (list, item)
+    }
+  };
+  if list.kind() != SyntaxKind::MatchArmList
+    && !matches!(
+      list.kind(),
+      SyntaxKind::RecordFieldList | SyntaxKind::VariantList
+    )
+  {
+    return None;
+  }
+  let index = list_items_of(&list).iter().position(|i| i == &item)?;
+  Some((list, index))
+}
+
 /// What the Rust style starts a line with wherever it is written: the items and attributes
 /// of a file or a body, an item's or a statement's first token after its attributes, and in
 /// a block holding a statement, or a function's body holding anything, each statement, the
 /// tail and the closing brace. Each takes its container's indentation.
-fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
+fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
   // Only these kinds can hold lines: the walk makes no handles for the rest.
   let lines = |kind| {
     matches!(
@@ -629,6 +854,40 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
     if !items && !block {
       continue;
     }
+    // A comment above a match arm is its pre-comment (`itemize_list`): the arm follows it
+    // with no blank line.
+    if matches!(
+      node.kind(),
+      SyntaxKind::MatchArmList | SyntaxKind::RecordFieldList | SyntaxKind::VariantList
+    ) {
+      let mut after_comment = false;
+      // Whether the last whitespace broke the line: a comment on a line of its own.
+      let mut line_start = true;
+      for element in node.children_with_tokens_iter() {
+        match element.kind() {
+          SyntaxKind::LineComment | SyntaxKind::BlockComment => {
+            after_comment = line_start;
+            line_start = false;
+          }
+          SyntaxKind::Whitespace => {
+            if matches!(&element, SyntaxElement::Token(t) if t.text().contains('\n')) {
+              line_start = true;
+            }
+          }
+          // A comment after `{` goes to a line of its own.
+          SyntaxKind::LBrace => line_start = true,
+          SyntaxKind::MatchArm | SyntaxKind::RecordField | SyntaxKind::Variant if after_comment => {
+            roles.joined.insert(element.text_range().start as usize);
+            after_comment = false;
+            line_start = false;
+          }
+          _ => {
+            after_comment = false;
+            line_start = false;
+          }
+        }
+      }
+    }
     let mut any = false;
     // Doc comments of the file or module itself (`//!`), which are attributes: each starts
     // a line.
@@ -661,6 +920,8 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
       let mut after_attr = false;
       // After a doc comment, which joins like an attribute.
       let mut after_doc = false;
+      // After a comment: a match arm's joins it (its pre-comment, `itemize_list`).
+      let mut after_comment = false;
       // A statement's, field's, variant's, match arm's, foreign item's, `use`'s and
       // `extern crate`'s attributes and doc comments join it with no blank line, as the
       // standard formatter combines them; another item's in a file or module keep one.
@@ -674,7 +935,11 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
             | SyntaxKind::MatchArm
             | SyntaxKind::Use
             | SyntaxKind::ExternCrate
-        );
+        )
+        // A `mod name;` is formatted with the declarations that are sorted, when it is one.
+        || child.kind() == SyntaxKind::Module
+          && config.reorder_modules
+          && crate::format::reorder::sortable(&child);
       let mut joined = Vec::new();
       for element in child.children_with_tokens_iter() {
         match &element {
@@ -686,6 +951,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
             }
             after_attr = true;
             after_doc = false;
+            after_comment = false;
           }
           SyntaxElement::Token(t)
             if crate::format::items::is_doc(t.kind())
@@ -696,6 +962,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
             mark(t.text_range().start as usize, doc);
             after_attr = false;
             after_doc = doc;
+            after_comment = !doc;
           }
           SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {}
           SyntaxElement::Token(t)
@@ -707,7 +974,13 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
           // the code starts a line.
           other => {
             mark(other.text_range().start as usize, after_attr || after_doc);
-            if (after_attr || after_doc) && combined {
+            if (after_attr || after_doc) && combined
+              || after_comment
+                && matches!(
+                  child.kind(),
+                  SyntaxKind::MatchArm | SyntaxKind::RecordField | SyntaxKind::Variant
+                )
+            {
               joined.push(other.text_range().start as usize);
             }
             break;
@@ -726,68 +999,17 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
   }
 }
 
-/// Whether an attribute's arguments are what the standard formatter can format: names and
-/// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
-/// else (a closure, a path as a value) is left as written.
-fn meta_like(attr: &SyntaxNode) -> bool {
-  // Inside an argument list a path's `::` is two colons, written touching.
-  let colons: Vec<(usize, usize)> = attr
-    .descendants_with_tokens_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if t.kind() == SyntaxKind::Colon => {
-        Some((t.text_range().start as usize, t.text_range().end as usize))
-      }
-      _ => None,
+/// The items of a struct's field list, an enum's variant list or a match's arm list.
+fn list_items_of(list: &SyntaxNode) -> Vec<SyntaxNode> {
+  list
+    .children_iter()
+    .filter(|c| {
+      matches!(
+        c.kind(),
+        SyntaxKind::RecordField | SyntaxKind::Variant | SyntaxKind::MatchArm
+      )
     })
-    .collect();
-  let in_path = |start: usize, end: usize| colons.iter().any(|&(s, e)| e == start || s == end);
-  let mut previous: Option<SyntaxKind> = None;
-  for element in attr.descendants_with_tokens_iter() {
-    let SyntaxElement::Token(token) = element else {
-      if previous == Some(SyntaxKind::Eq) && element.kind() != SyntaxKind::Literal {
-        return false;
-      }
-      continue;
-    };
-    let kind = token.kind();
-    if kind.is_trivia() {
-      continue;
-    }
-    let allowed = kind.is_literal()
-      || kind.name().ends_with("_KW")
-      || matches!(
-        kind,
-        SyntaxKind::Ident
-          | SyntaxKind::RawIdent
-          | SyntaxKind::Colon2
-          | SyntaxKind::Comma
-          | SyntaxKind::Eq
-          | SyntaxKind::LParen
-          | SyntaxKind::RParen
-          | SyntaxKind::LBrack
-          | SyntaxKind::RBrack
-          | SyntaxKind::Pound
-          | SyntaxKind::Bang
-      );
-    // A `!` only as an inner attribute's own: a macro call among the arguments is not a
-    // name or a value.
-    let allowed =
-      allowed && (kind != SyntaxKind::Bang || token.parent().kind() == SyntaxKind::Attr);
-    let allowed = allowed
-      || kind == SyntaxKind::Colon
-        && in_path(
-          token.text_range().start as usize,
-          token.text_range().end as usize,
-        );
-    let value = kind.is_literal()
-      || matches!(kind, SyntaxKind::TrueKw | SyntaxKind::FalseKw)
-      || matches!(token.text(), "true" | "false");
-    if !allowed || (previous == Some(SyntaxKind::Eq) && !value) {
-      return false;
-    }
-    previous = Some(kind);
-  }
-  true
+    .collect()
 }
 
 /// The statements (`statements` in tree order) with a line of their own code wider than
@@ -854,6 +1076,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   // before it on its line, as the head was laid out to have it; a trailing comma among
   // them goes, as the arguments are on one line.
   let glued: std::cell::RefCell<HashSet<usize>> = Default::default();
+  // The spaces before a struct's field's or an enum's variant's comment after its comma,
+  // by where the comment starts: aligned as a list's are (`write_list`), found for a whole
+  // list when the pass first needs one.
+  let comment_spaces: std::cell::RefCell<HashMap<usize, Option<Vec<Option<usize>>>>> =
+    Default::default();
+  // Chain links after a head's block, by where their `.` starts: each starts a line at the
+  // statement's indentation.
+  let link_lines: std::cell::RefCell<HashMap<usize, usize>> = Default::default();
   let dropped: std::cell::RefCell<HashSet<usize>> = Default::default();
   let in_verbatim = |at: usize| {
     let idx = roles.verbatim.partition_point(|&(start, _)| start < at);
@@ -924,6 +1154,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         && next.is_some_and(|n| glued.borrow().contains(&n.start))
     {
       continue;
+    }
+    if let Some(&at) = link_lines.borrow().get(&tok.start) {
+      out.push('\n');
+      out_line_start = out.len();
+      out.push_str(&indentation(at, config));
     }
     if tok.kind == SyntaxKind::Whitespace
       && !in_verbatim(tok.start)
@@ -1064,8 +1299,33 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         SyntaxKind::RBrack => before.parent().kind() == SyntaxKind::Attr,
         _ => false,
       };
+      if next.is_some_and(|n| matches!(n.kind, SyntaxKind::LineComment | SyntaxKind::BlockComment))
+        && let Some((list, index)) = item_before(before)
+      {
+        let key = list.text_range().start as usize;
+        if !comment_spaces.borrow().contains_key(&key) {
+          let line = &out[out_line_start..];
+          let indent = width_of(&line[..line.len() - line.trim_start().len()], tab);
+          let spaces = align_list_comments(&list, indent, config);
+          comment_spaces.borrow_mut().insert(key, spaces);
+        }
+        if let Some(Some(Some(count))) = comment_spaces
+          .borrow()
+          .get(&key)
+          .map(|spaces| spaces.as_ref().and_then(|s| s.get(index).copied()))
+        {
+          out.push_str(&" ".repeat(count));
+          continue;
+        }
+      }
       let spaced = match next {
         Some(n) if n.kind == SyntaxKind::LineComment && ends => Some(true),
+        // A block comment after a statement's end too (not after `{`).
+        Some(n)
+          if n.kind == SyntaxKind::BlockComment && ends && before.kind() != SyntaxKind::LBrace =>
+        {
+          Some(true)
+        }
         _ => next.and_then(|n| spacing(before, &n.token, edition, config)),
       };
       match spaced {
@@ -1140,6 +1400,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         let whole = |text: Option<String>| text.map(|t| (t, node.text_range().end as usize));
         // A head laid out: its tail follows the block's `}` on its line.
         let take_head = |head: crate::format::stmt::Head| {
+          for &at in &head.links {
+            glued.borrow_mut().insert(at);
+            link_lines.borrow_mut().insert(at, indent);
+          }
           for (at, kind) in head.tail {
             glued.borrow_mut().insert(at);
             if kind == SyntaxKind::Comma && !head.keep_comma {
@@ -1189,6 +1453,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
               None
             } else {
               let laid = rewrite_header(node, indent, config);
+              if laid.is_none()
+                && let Some(&end) = roles.wide_headers.get(&tok.start)
+              {
+                gave_up.borrow_mut().push((tok.start, end));
+              }
               // An empty body after a header on one line closes up (`{}`); after one across
               // lines its `}` goes on a line of its own.
               if let Some((text, _)) = &laid
@@ -1283,7 +1552,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             .ancestors_iter()
             .find(|a| is_statement(a.kind()) || crate::format::stmt::is_tail(a))
             .is_some_and(|statement| {
-              statement.text_range().end == t.token.text_range().end
+              crate::format::imports::code_end(&statement) == t.token.text_range().end as usize
                 && statement.parent().is_some_and(|p| {
                   matches!(
                     p.kind(),
@@ -1368,6 +1637,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   let mut region: Option<usize> = None;
   let mut statements = Vec::new();
+  // Items' headers, by their range, with where their own text starts.
+  let mut headers: HashMap<(usize, usize), usize> = HashMap::new();
   let mut attrs = Vec::new();
   let mut stranded = Vec::new();
   let mut braced_macros: Vec<(usize, usize)> = Vec::new();
@@ -1439,7 +1710,18 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             _ => range.end as usize,
           };
           if !in_expression() {
-            statements.push((range.start as usize, end));
+            // An item's header from after its attributes: its first line is indented anew,
+            // and is not measured.
+            match is_item(node.kind())
+              .then(|| crate::format::items::header_start(node))
+              .flatten()
+            {
+              Some(start) => {
+                statements.push((start, end));
+                headers.insert((start, end), start);
+              }
+              None => statements.push((range.start as usize, end)),
+            }
           }
           // A `use` from its visibility or `use` on, and an item's header, after their
           // attributes.
@@ -1623,9 +1905,6 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             .first_token()
             .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
           && !config.hard_tabs
-          && !node
-            .token_texts()
-            .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
         {
           roles
             .preserved
@@ -1718,11 +1997,19 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   if let Some(from) = region {
     roles.verbatim.push((from, text.len()));
   }
-  roles.verbatim.extend(
-    overflowing(&statements, &attrs, &line_comments, text, config)
-      .into_iter()
-      .filter(|range| !braced_macros.contains(range)),
-  );
+  // An item's header with a line too wide is laid out when it can be, else left as written
+  // (decided as the pass reaches it).
+  for range in overflowing(&statements, &attrs, &line_comments, text, config) {
+    if braced_macros.contains(&range) {
+      continue;
+    }
+    match headers.get(&range) {
+      Some(&start) => {
+        roles.wide_headers.insert(start, range.1);
+      }
+      None => roles.verbatim.push(range),
+    }
+  }
   // The innermost statement around each stranded comment.
   for comment in stranded {
     if let Some(&around) = statements
@@ -1747,7 +2034,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   roles.statements = statements.iter().copied().collect();
   roles.line_comments = line_comments;
-  line_starts(root, &mut roles);
+  line_starts(root, &mut roles, config);
   // Sorted and merged, for looking up by binary search.
   roles.verbatim.sort_unstable();
   let mut merged: Vec<(usize, usize)> = Vec::with_capacity(roles.verbatim.len());

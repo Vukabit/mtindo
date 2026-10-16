@@ -184,6 +184,28 @@ fn test_combine_control_expr() {
 }
 
 #[test]
+fn test_comments_among_arguments() {
+  // A line comment puts the arguments one per line: one before an item above it, one
+  // after an item's comma after it, aligned with the comments of the items around it.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    headers.insert(\t// a header\n        PROXY, \"Basic\".parse().unwrap(),);\n    g(a, // one\n      bbbb, // two\n      c);\n}\n"
+    ),
+    "fn f() {\n    headers.insert(\n        // a header\n        PROXY,\n        \"Basic\".parse().unwrap(),\n    );\n    g(\n        a,    // one\n        bbbb, // two\n        c,\n    );\n}\n"
+  );
+  // Block comments only: on the line when they fit.
+  assert_eq!(
+    formatted("fn f() {\n    h(x, /* y */ z);\n}\n"),
+    "fn f() {\n    h(x, /* y */ z);\n}\n"
+  );
+  // Packed short items: a comment above one is the comment after the one before.
+  assert_eq!(
+    formatted("const B: [u8; 3] = [\n    55,\n// a\n52, // b\n    103,\n];\n"),
+    "const B: [u8; 3] = [\n    55, // a\n    52, // b\n    103,\n];\n"
+  );
+}
+
+#[test]
 fn test_comments_between_chain_links() {
   // A comment on a link's line stays after it; one on a line of its own takes one, at the
   // links' indentation; any puts the links on lines.

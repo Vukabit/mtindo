@@ -165,6 +165,7 @@ pub fn rewrite_arm_in(
             open,
             tail,
             keep_comma: prefixed,
+            links: Vec::new(),
           })
         }
       }
@@ -182,6 +183,7 @@ pub fn rewrite_arm_in(
         open: head.open,
         tail: vec![(comma.text_range().start as usize, K::Comma)],
         keep_comma: true,
+        links: Vec::new(),
       })
     }
     _ => {

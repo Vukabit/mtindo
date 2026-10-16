@@ -4,15 +4,17 @@
 //! static too) on one line, when it fits;
 //! else a declaration's return type on the next line when it is just one column over, else a
 //! function's parameters one per line, each with a comma, the body's `{` on a line of its own
-//! when it does not fit after them. A `where` clause follows on lines of its own, a
-//! predicate per line (an `impl` with one predicate and no items stays on one line when it
-//! fits). The body itself is left to the whole-file rules. The widths were found by
+//! when it does not fit after them, with any line comments among them placed as a list's.
+//! A trait `impl` too wide for its line puts `for Type` on the next line. A tuple struct's
+//! fields go one per line when they do not fit. A `where` clause follows on lines of its
+//! own, a predicate per line (an `impl` with one predicate and no items stays on one line
+//! when it fits). The body itself is left to the whole-file rules. The widths were found by
 //! measuring the standard formatter.
 //!
-//! Left as written: a header holding a comment, a macro or an attribute (on a parameter), a
-//! tuple or pattern wider than its width, trait bounds or predicates that would break,
-//! generics that would break, a type alias's, const's or static's `where`, and a header
-//! that does not fit even so.
+//! Left as written: a header holding a comment (but line comments among a function's
+//! parameters), a macro, a parameter with more than one attribute, a tuple or pattern wider
+//! than its width, trait bounds or predicates that would break, generics that would break,
+//! a type alias's, const's or static's `where`, and a header that does not fit even so.
 
 use SyntaxKind as K;
 
@@ -215,7 +217,7 @@ pub fn rewrite_header(
   if matches!(node.kind(), K::Const | K::Static)
     && let Some(text) = const_value(node, start, indent, config)
   {
-    return Some((text, node.text_range().end as usize));
+    return Some((text, super::imports::code_end(node)));
   }
   let body = node.children_iter().find(|c| {
     matches!(
@@ -251,15 +253,43 @@ pub fn rewrite_header(
     let attributes: Vec<SyntaxNode> = n.descendant_nodes_where(|kind| kind == K::Attr).collect();
     attributes.iter().all(|a| {
       a.parent().is_some_and(|p| {
-        p.kind() == K::Param && p.children_iter().filter(|c| c.kind() == K::Attr).count() == 1
+        matches!(p.kind(), K::Param | K::TupleField)
+          && p.children_iter().filter(|c| c.kind() == K::Attr).count() == 1
       }) && !a
         .token_texts()
         .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+        // One the standard formatter leaves as written keeps its lines.
+        && (super::file::meta_like(a) || !a.text().to_string().contains('\n'))
+    })
+  };
+  // A comment among a function's parameters, placed by the list layout.
+  let parameter_comment = |t: &SyntaxToken| {
+    matches!(t.kind(), K::LineComment | K::BlockComment)
+      && !t.text().contains('\n')
+      && t.parent().kind() == K::ParamList
+  };
+  let commented = |n: &SyntaxNode| {
+    n.descendants_with_tokens_iter().any(|e| match e {
+      SyntaxElement::Token(t) => {
+        (t.kind().is_trivia() && t.kind() != K::Whitespace && !parameter_comment(&t))
+          || is_doc(t.kind())
+      }
+      SyntaxElement::Node(_) => false,
     })
   };
   let unwanted = |e: &SyntaxElement| match e {
     SyntaxElement::Token(t) => {
       (t.kind().is_trivia() && t.kind() != K::Whitespace) || is_doc(t.kind())
+    }
+    SyntaxElement::Node(n) if n.kind() == K::ParamList => {
+      commented(n)
+        || n.subtree_has(|kind| {
+          matches!(
+            kind,
+            K::BlockExpr | K::MatchArmList | K::MacroCall | K::MacroType | K::MacroExpr
+          )
+        })
+        || n.subtree_has(|kind| kind == K::Attr) && !parameter_attributes(n)
     }
     SyntaxElement::Node(n) => {
       matches!(n.kind(), K::MacroCall | K::Attr)
@@ -318,10 +348,33 @@ pub fn rewrite_header(
     }
     let tail_text = flat_tokens(&tail, spacing);
     let pad = " ".repeat(inner);
+    // A blank line written after a predicate's comma, before another, stays (`new_lines`),
+    // before style edition 2024.
+    let mut blank_before = Vec::new();
+    let (mut seen, mut comma, mut blank) = (0, false, false);
+    for element in clause.children_with_tokens_iter() {
+      match &element {
+        SyntaxElement::Token(t) if t.kind() == K::Comma => comma = true,
+        SyntaxElement::Token(t) if t.kind() == K::Whitespace => {
+          blank = comma && t.text().matches('\n').count() > 1;
+        }
+        SyntaxElement::Node(n) if n.kind() == K::WherePred => {
+          if blank {
+            blank_before.push(seen);
+          }
+          seen += 1;
+          (comma, blank) = (false, false);
+        }
+        _ => {}
+      }
+    }
     let mut block = format!("\n{}where", " ".repeat(indent));
     for (i, predicate) in predicates.iter().enumerate() {
       let last = i + 1 == predicates.len();
       let comma = if last && tail_text == ";" { "" } else { "," };
+      if blank_before.contains(&i) && config.style_edition < 2024 {
+        block.push('\n');
+      }
       block.push_str(&format!("\n{}{}{}", pad, predicate, comma));
     }
     match tail_text.as_str() {
@@ -370,6 +423,48 @@ pub fn rewrite_header(
         body.text_range().end as usize,
       ));
     }
+  }
+  // A tuple struct's fields as a call's arguments (`rewrite_with_parens`): on the line
+  // within `fn_call_width`, else one per line.
+  if node.kind() == K::Struct
+    && where_block.is_none()
+    && let Some(fields) = node.children_iter().find(|c| c.kind() == K::TupleFieldList)
+  {
+    let texts: Vec<String> = fields
+      .children_iter()
+      .filter(|c| c.kind() == K::TupleField)
+      .map(|f| flat_tokens(&code_tokens(&[SyntaxElement::Node(f)]), spacing))
+      .collect();
+    let from = fields.text_range().start;
+    let before: Vec<SyntaxToken> = tokens
+      .iter()
+      .filter(|t| t.text_range().start < from)
+      .cloned()
+      .collect();
+    let lead = flat_tokens(&before, spacing);
+    let joined = texts.join(", ");
+    // 3 = `(`, `)` and `;`
+    // One field only needs to fit the line.
+    if (texts.len() == 1 || str_width(&joined) <= config.fn_call_width)
+      && indent + str_width(&lead) + str_width(&joined) + 3 <= config.max_width
+    {
+      return Some((format!("{}({});", lead, joined), end));
+    }
+    let inner = indent + config.tab_spaces;
+    if texts.is_empty()
+      || indent + str_width(&lead) + 1 > config.max_width
+      || texts
+        .iter()
+        .any(|t| inner + str_width(t) + 1 > config.max_width)
+    {
+      return None;
+    }
+    let pad = " ".repeat(inner);
+    let lines: Vec<String> = texts.iter().map(|t| format!("{}{},", pad, t)).collect();
+    return Some((
+      format!("{}(\n{}\n{});", lead, lines.join("\n"), " ".repeat(indent)),
+      end,
+    ));
   }
   // Lists and patterns held to their widths are not laid out here yet: a header holding
   // one too wide for its width is left as written.
@@ -438,6 +533,26 @@ pub fn rewrite_header(
       .map(|text| (text, end));
   }
   let width = indent + str_width(&one_line) + brace;
+  // Comments among a function's parameters: line comments put them one per line; block
+  // comments only are not laid out here (the line would lose them).
+  let param_list = node.children_iter().find(|c| c.kind() == K::ParamList);
+  let param_comments = param_list.as_ref().and_then(|list| {
+    let params: Vec<SyntaxNode> = list.children_iter().collect();
+    super::lists::list_comments(list, &params)
+  });
+  if param_list.as_ref().is_some_and(|list| {
+    list
+      .children_with_tokens_iter()
+      .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+  }) {
+    let line = |c: &Option<String>| c.as_ref().is_some_and(|c| c.trim_start().starts_with("//"));
+    if !param_comments
+      .as_ref()
+      .is_some_and(|cs| cs.iter().any(|c| line(&c.pre) || line(&c.post)))
+    {
+      return None;
+    }
+  }
   // A type alias, const or static: on one line, its calls and lists each within their
   // widths, or left as written.
   if matches!(node.kind(), K::TypeAlias | K::Const | K::Static) {
@@ -448,8 +563,7 @@ pub fn rewrite_header(
     // one line (as a `let`'s moves).
     let eq = node
       .children_with_tokens_iter()
-      .find(|e| e.kind() == K::Eq)
-      .filter(|_| node.kind() != K::TypeAlias)?;
+      .find(|e| e.kind() == K::Eq)?;
     // A value holding a block, which has a layout of its own, is left as written.
     if node.subtree_has(|kind| matches!(kind, K::BlockExpr | K::MatchArmList)) {
       return None;
@@ -468,11 +582,12 @@ pub fn rewrite_header(
       && super::stmt::nested_fit(node, inner, config))
     .then(|| (format!("{}\n{}{}", head, " ".repeat(inner), value), end));
   }
-  if width <= config.max_width {
+  if width <= config.max_width && param_comments.is_none() {
     return Some((format!("{}{}", one_line, suffix), end));
   }
   // A declaration exactly that column over: its return type on the next line, one level in.
-  if body.is_none()
+  if param_comments.is_none()
+    && body.is_none()
     && where_block.is_none()
     && has_ret
     && width == config.max_width + 1
@@ -495,6 +610,38 @@ pub fn rewrite_header(
         }),
         flat_tokens(&tail, spacing)
       ),
+      end,
+    ));
+  }
+  // A trait `impl` too wide for its line: `for Type` on the next one level in, the body's
+  // `{` on a line of its own (the standard formatter's `format_impl_ref_and_type`).
+  // The standard formatter's budget for an `impl`'s one line leaves the indentation out
+  // (`context.budget`).
+  if node.kind() == K::Impl && str_width(&one_line) + brace <= config.max_width {
+    return Some((format!("{}{}", one_line, suffix), end));
+  }
+  if node.kind() == K::Impl
+    && let Some(for_at) = tokens
+      .iter()
+      .find(|t| t.kind() == K::ForKw && t.parent().kind() == K::Impl)
+      .map(|t| t.text_range().start)
+  {
+    let (head, rest): (Vec<SyntaxToken>, Vec<SyntaxToken>) = tokens
+      .iter()
+      .cloned()
+      .partition(|t| t.text_range().start < for_at);
+    let (head, rest) = (flat_tokens(&head, spacing), flat_tokens(&rest, spacing));
+    let inner = indent + config.tab_spaces;
+    if indent + str_width(&head) > config.max_width || inner + str_width(&rest) > config.max_width {
+      return None;
+    }
+    let suffix = match (&where_block, body.is_some()) {
+      (Some(block), _) => block.clone(),
+      (None, true) => format!("\n{}", " ".repeat(indent)),
+      (None, false) => String::new(),
+    };
+    return Some((
+      format!("{}\n{}{}{}", head, " ".repeat(inner), rest, suffix),
       end,
     ));
   }
@@ -527,7 +674,8 @@ pub fn rewrite_header(
   let inner = indent + config.tab_spaces;
   // 1 = `,`; an opening line reaching the width would have its generics broken, which is not
   // done here.
-  let fits = indent + str_width(&open) < config.max_width
+  // Without generics the opening line is written whatever its width.
+  let fits = (indent + str_width(&open) < config.max_width || !open.contains('<'))
     && items
       .iter()
       .all(|p| inner + str_width(p) < config.max_width)
@@ -565,6 +713,38 @@ pub fn rewrite_header(
       }
       _ => {}
     }
+  }
+  // With comments: one per line, the comments placed as a list's.
+  if let Some(comments) = &param_comments {
+    // One parameter with a comment the standard formatter writes oddly: left as written.
+    if !blank_after.is_empty() || items.len() < 2 || items.iter().any(|p| p.ends_with("...")) {
+      return None;
+    }
+    let body_text = super::lists::write_vertical(
+      &items,
+      comments,
+      inner,
+      config.max_width.saturating_sub(inner),
+      config.max_width,
+      true,
+      false,
+    )?;
+    let suffix = match suffix.strip_prefix(&format!("\n{}where", " ".repeat(indent))) {
+      Some(rest) if close == ")" => format!(" where{}", rest),
+      _ => suffix,
+    };
+    return Some((
+      format!(
+        "{}\n{}{}\n{}{}{}",
+        open,
+        pad,
+        body_text,
+        " ".repeat(indent),
+        close,
+        suffix
+      ),
+      end,
+    ));
   }
   // A C variadic `...` takes no comma after it.
   let lines: String = items
@@ -669,9 +849,12 @@ fn const_value(
   // A comment outside the value (after `=`, after `;`) would be lost; the value's own are
   // checked as it is laid out.
   let inside = value.text_range();
+  // A comment after the `;` is not the item's.
+  let end = super::imports::code_end(node);
   let commented = node.token_texts().any(|(kind, _, range)| {
     (kind.is_trivia() && kind != K::Whitespace)
       && range.start as usize >= start
+      && (range.start as usize) < end
       && !(inside.start <= range.start && range.start < inside.end)
   });
   if commented

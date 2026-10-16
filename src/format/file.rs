@@ -105,6 +105,9 @@ struct Roles {
   /// Containers whose contents are not indented past them (match arms, with
   /// `match_arm_indent = false`), by their opening offset.
   unindented: OffsetSet,
+  /// Comments before the `}` of an `if`'s block that an `else` follows: at the `}`'s
+  /// indentation, not the block's contents', by where they start.
+  outdented: OffsetSet,
   /// Containers whose blank lines before the closing delimiter stay (extern bodies), by
   /// their opening offset.
   keeps_trailing_blank: OffsetSet,
@@ -318,7 +321,7 @@ fn construct_start((kind, range, node): (SyntaxKind, TextRange, bool)) -> Option
   starts.then_some(range.start as usize)
 }
 
-fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
+fn container(node: &SyntaxNode, text: &str, roles: &mut Roles, config: &FormatConfig) {
   let children: Vec<(SyntaxKind, TextRange, bool)> = node.child_spans().collect();
   let is_open = |k: SyntaxKind| {
     matches!(
@@ -431,8 +434,50 @@ fn container(node: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
   if !only_comments
     && let Some(close_at) = children.iter().rposition(|&(kind, _, _)| is_close(kind))
   {
+    // In a block or a list of items they are indented as its contents are (the standard
+    // formatter's `missed_spans`), elsewhere they keep their place.
+    let block = matches!(
+      node.kind(),
+      SyntaxKind::BlockExpr
+        | SyntaxKind::ItemList
+        | SyntaxKind::AssocItemList
+        | SyntaxKind::ExternItemList
+    );
+    // Above an `else`, they go out to the `}`'s indentation, unless the first was written
+    // further right than the `}` (the standard formatter's `unindent_comment_on_closing_brace`).
+    let column = |at: usize| {
+      let line = text[..at].rfind('\n').map_or(0, |n| n + 1);
+      width_of(&text[line..at], config.tab_spaces.max(1))
+    };
+    let trailing: Vec<usize> = children[..close_at]
+      .iter()
+      .rev()
+      .take_while(|&&(kind, _, node)| !node && (comment(kind) || kind == SyntaxKind::Whitespace))
+      .filter(|&&(kind, _, _)| comment(kind))
+      .map(|&(_, range, _)| range.start as usize)
+      .collect();
+    let has_statements = children
+      .iter()
+      .any(|&(kind, _, node)| node && kind != SyntaxKind::Attr);
+    let above_else = node.kind() == SyntaxKind::BlockExpr
+      && has_statements
+      && node.parent().is_some_and(|p| {
+        p.kind() == SyntaxKind::IfExpr
+          && p
+            .children_with_tokens_iter()
+            .skip_while(|e| e.text_range() != node.text_range())
+            .any(|e| e.kind() == SyntaxKind::ElseKw)
+      })
+      && trailing
+        .last()
+        .is_some_and(|&first| column(first) <= column(children[close_at].1.start as usize));
     for &(kind, range, node) in children[..close_at].iter().rev() {
-      if !node && comment(kind) {
+      if !node && comment(kind) && block {
+        roles.starts.insert(range.start as usize, Some(open));
+        if above_else {
+          roles.outdented.insert(range.start as usize);
+        }
+      } else if !node && comment(kind) {
         roles.trailing.insert(range.start as usize, open);
       } else if kind != SyntaxKind::Whitespace {
         break;
@@ -844,7 +889,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   let mut open_indent: Offsets<(usize, usize)> = Offsets::default();
   let mut previous_significant: Option<usize> = None;
   // A line comment that ended a line of code: its column as written and as output.
-  let mut comment_column: Option<(usize, usize)> = None;
+  // A line comment after code: the column it was written at, the one it is written at,
+  // whether it follows a statement's end, and the indentation of its line.
+  let mut comment_column: Option<(usize, usize, bool, usize)> = None;
   let mut out_line_start = 0usize;
   let mut text_line_start = 0usize;
   let mut code_on_line = false;
@@ -939,12 +986,12 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         }
         None => newlines.min(max_newlines),
       };
-      let aligned = comment_column.filter(|&(column, _)| {
-        newlines == 1 && next.kind == SyntaxKind::LineComment && written == column
+      let aligned = comment_column.filter(|&(column, _, after_statement, _)| {
+        newlines == 1
+          && next.kind == SyntaxKind::LineComment
+          && (written == column || after_statement)
       });
-      let indent = if let Some((_, column)) = aligned {
-        column
-      } else if let Some(open) = roles.closers.get(&next.start) {
+      let indent = if let Some(open) = roles.closers.get(&next.start) {
         let new = open_indent.get(open).map_or(0, |&(_, new)| new);
         delta = new as isize - written as isize;
         new
@@ -954,7 +1001,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       } else if let Some(open) = roles.starts.get(&next.start) {
         let new = match open {
           Some(open) => {
-            let step = if roles.unindented.contains(open) {
+            let step = if roles.unindented.contains(open) || roles.outdented.contains(&next.start) {
               0
             } else {
               tab
@@ -968,14 +1015,21 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       } else {
         (written as isize + delta).max(0) as usize
       };
-      if aligned.is_none() {
-        comment_column = None;
-      }
+      // A comment aligned under the one before it; what follows it (an item it starts) is
+      // indented as the comment would have been.
+      let shown = match aligned {
+        Some((_, _, true, block)) if config.style_edition >= 2024 => block,
+        Some((_, column, _, _)) => column,
+        None => {
+          comment_column = None;
+          indent
+        }
+      };
       for _ in 0..newlines {
         out.push('\n');
       }
       out_line_start = out.len();
-      out.push_str(&indentation(indent, config));
+      out.push_str(&indentation(shown, config));
       lines.push((next_start, written, indent));
       continue;
     }
@@ -1199,7 +1253,63 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     if tok.kind == SyntaxKind::LineComment && code_on_line {
       let written = width_of(&text[text_line_start..tok.start], tab);
       let output = width_of(&out[out_line_start..], tab);
-      comment_column = Some((written, output));
+      // After a statement's end, the comments below it are the standard formatter's
+      // `missed_spans` comment: before the 2024 style, aligned under this one.
+      let after_statement = tokens[..i]
+        .iter()
+        .rev()
+        .find(|t| !t.kind.is_trivia())
+        .is_some_and(|t| match t.kind {
+          // Not after the declarations that are sorted, whose comments go with them.
+          SyntaxKind::Semi => !t.token.parent().ancestors_iter().any(|a| {
+            matches!(
+              a.kind(),
+              SyntaxKind::Use | SyntaxKind::ExternCrate | SyntaxKind::Module
+            )
+          }),
+          // The `}` ending a statement or item (`if x { .. }`, `fn f() { .. }`).
+          SyntaxKind::RBrace => t
+            .token
+            .parent()
+            .ancestors_iter()
+            .find(|a| is_statement(a.kind()) || crate::format::stmt::is_tail(a))
+            .is_some_and(|statement| {
+              statement.text_range().end == t.token.text_range().end
+                && statement.parent().is_some_and(|p| {
+                  matches!(
+                    p.kind(),
+                    SyntaxKind::BlockExpr
+                      | SyntaxKind::SourceFile
+                      | SyntaxKind::ItemList
+                      | SyntaxKind::AssocItemList
+                  )
+                })
+            }),
+          _ => false,
+        });
+      // The indentation of the line the statement before it starts on.
+      let statement_start = tokens[..i]
+        .iter()
+        .rev()
+        .find(|t| !t.kind.is_trivia())
+        .and_then(|t| {
+          t.token
+            .parent()
+            .ancestors_iter()
+            .find(|a| is_statement(a.kind()) || crate::format::stmt::is_tail(a))
+        })
+        .and_then(|statement| crate::format::items::header_start(&statement));
+      let block = match statement_start {
+        Some(start) => {
+          let idx = lines.partition_point(|&(line_start, _, _)| line_start <= start);
+          lines.get(idx.wrapping_sub(1)).map_or(0, |&(_, _, new)| new)
+        }
+        None => {
+          let line = &out[out_line_start..];
+          width_of(&line[..line.len() - line.trim_start().len()], tab)
+        }
+      };
+      comment_column = Some((written, output, after_statement, block));
     }
     // An empty body's `}` kept apart from its `{`, written touching.
     if tok.kind == SyntaxKind::RBrace && split.borrow().contains(&tok.start) && out.ends_with('{') {
@@ -1521,7 +1631,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           roles.verbatim.push((start, range.end as usize));
         }
         if is_container(node.kind()) {
-          container(node, &mut roles, config);
+          container(node, text, &mut roles, config);
         }
         // An inline `const` block a chain starts with the standard formatter leaves as
         // written, and the statement around it.

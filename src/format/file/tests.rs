@@ -2,7 +2,11 @@ use super::*;
 use crate::verify::format::verify_format;
 
 fn formatted(source: &str) -> String {
-  let config = FormatConfig::default();
+  formatted_with(source, &FormatConfig::default())
+}
+
+fn formatted_with(source: &str, config: &FormatConfig) -> String {
+  let config = config.clone();
   let once = format_file(source, Edition::E2021, &config);
   // Every output keeps the program's meaning and is stable.
   let found = verify_format(source, &once, Edition::E2021);
@@ -34,6 +38,28 @@ fn test_blank_lines_and_trailing_whitespace() {
   assert_eq!(
     formatted("\n\nfn a() {   \n\n\n    x();  \n\n}\n\n\n\nfn b() {} // note   \n\n\n"),
     "fn a() {\n    x();\n}\n\nfn b() {} // note\n"
+  );
+}
+
+#[test]
+fn test_comments_after_a_trailing_comment_and_before_a_brace() {
+  // Comment lines after a statement's trailing comment align under it, before the 2024
+  // style; from it, they take the statement's indentation.
+  let messy = "fn f() {\n    let b = g(); // one\n// two\n    if x {\n        y();\n// three\n    } else {\n        z();\n    }\n}\n";
+  let tidy = "fn f() {\n    let b = g(); // one\n                 // two\n    if x {\n        y();\n    // three\n    } else {\n        z();\n    }\n}\n";
+  assert_eq!(formatted(messy), tidy);
+  let config = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(messy, &config),
+    "fn f() {\n    let b = g(); // one\n    // two\n    if x {\n        y();\n    // three\n    } else {\n        z();\n    }\n}\n"
+  );
+  // At the end of a block, a comment takes the block's indentation.
+  assert_eq!(
+    formatted("fn f() {\n    g();\n// end\n}\n"),
+    "fn f() {\n    g();\n    // end\n}\n"
   );
 }
 

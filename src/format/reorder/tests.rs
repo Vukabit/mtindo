@@ -17,6 +17,18 @@ fn formatted(source: &str, config: &FormatConfig) -> String {
 }
 
 #[test]
+fn test_a_comment_after_the_last_import_stays_last() {
+  let config = FormatConfig::default();
+  assert_eq!(
+    formatted(
+      "use syntax::{AstNode, SmolStr};\nuse crate::{AssistContext,\n    AssistId}; // Assist: reorder\n// more\n\nfn f() {}\n",
+      &config
+    ),
+    "use crate::{AssistContext, AssistId};\nuse syntax::{AstNode, SmolStr}; // Assist: reorder\n                                // more\n\nfn f() {}\n"
+  );
+}
+
+#[test]
 fn test_module_declarations_are_sorted() {
   assert_eq!(
     formatted("mod b;\nmod a;\nmod c {}\n", &FormatConfig::default()),

@@ -6,7 +6,8 @@
 //! `#[macro_use]` or skipped ends a run and stays where it is. Imports sort by their use
 //! trees ([`crate::order::UseTree`]), visibility and attributes aside; modules by
 //! name. A run holding a comment is left in its order, since the standard formatter moves
-//! such comments in ways that depend on more than the order; so is a run in a `// mto: off`
+//! such comments in ways that depend on more than the order, but for comments after the
+//! last declaration's code, which stay after the run; so is a run in a `// mto: off`
 //! region. The meaning check compares each run of imports as a set (`use-trees`) and
 //! modules by their names (`import-and-module-order`).
 
@@ -86,11 +87,20 @@ pub fn reorder(
           run[i].text_range().start as usize
         }
       };
+      // The last item's comments after its code stay in the last slot, after the run.
+      let last = run.len() - 1;
+      let end_of = |i: usize| {
+        if i == last {
+          code_end(&run[last])
+        } else {
+          run[i].text_range().end as usize
+        }
+      };
       for (slot, &from) in order.iter().enumerate() {
         moves.push((
           start_of(slot),
-          run[slot].text_range().end as usize,
-          text[start_of(from)..run[from].text_range().end as usize].to_string(),
+          end_of(slot),
+          text[start_of(from)..end_of(from)].to_string(),
         ));
       }
     }
@@ -110,6 +120,16 @@ pub fn reorder(
   Some(out)
 }
 
+/// Where an item's code ends: before the comments it carries after it.
+fn code_end(item: &SyntaxNode) -> usize {
+  item
+    .children_with_tokens_iter()
+    .rfind(|e| !e.kind().is_trivia())
+    .map_or(item.text_range().end as usize, |e| {
+      e.text_range().end as usize
+    })
+}
+
 /// Where an item's code starts, its attributes included: after the comments it carries
 /// before it.
 fn code_start(item: &SyntaxNode) -> usize {
@@ -123,36 +143,48 @@ fn code_start(item: &SyntaxNode) -> usize {
 
 /// Whether a run holds a comment, in a declaration or between two, doc comments aside.
 /// The comments the run's first item carries before it stay where they are: they come
-/// before the run, which the standard formatter sorts without them.
+/// before the run, which the standard formatter sorts without them; so do those its last
+/// carries after its code, which come after it.
 fn has_comment(run: &[SyntaxNode]) -> bool {
   let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment));
-  let commented = |item: &SyntaxNode, from: usize| {
+  let commented = |item: &SyntaxNode, from: usize, to: usize| {
     item.token_texts().any(|(kind, _, range)| {
-      range.start as usize >= from && matches!(kind, K::LineComment | K::BlockComment)
+      range.start as usize >= from
+        && (range.start as usize) < to
+        && matches!(kind, K::LineComment | K::BlockComment)
     })
   };
-  commented(&run[0], code_start(&run[0]))
-    || run[1..]
-      .iter()
-      .any(|item| item.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment)))
-    || run.windows(2).any(|pair| {
-      let mut next = pair[0].next_sibling_or_token();
-      while let Some(element) = next {
-        if let SyntaxElement::Node(n) = &element
-          && n == &pair[1]
-        {
-          return false;
-        }
-        if comment(&element) {
-          return true;
-        }
-        next = match element {
-          SyntaxElement::Token(t) => t.next_sibling_or_token(),
-          SyntaxElement::Node(n) => n.next_sibling_or_token(),
-        };
+  let last = run.len() - 1;
+  run.iter().enumerate().any(|(i, item)| {
+    let from = if i == 0 {
+      code_start(item)
+    } else {
+      item.text_range().start as usize
+    };
+    let to = if i == last {
+      code_end(item)
+    } else {
+      item.text_range().end as usize
+    };
+    commented(item, from, to)
+  }) || run.windows(2).any(|pair| {
+    let mut next = pair[0].next_sibling_or_token();
+    while let Some(element) = next {
+      if let SyntaxElement::Node(n) = &element
+        && n == &pair[1]
+      {
+        return false;
       }
-      false
-    })
+      if comment(&element) {
+        return true;
+      }
+      next = match element {
+        SyntaxElement::Token(t) => t.next_sibling_or_token(),
+        SyntaxElement::Node(n) => n.next_sibling_or_token(),
+      };
+    }
+    false
+  })
 }
 
 fn module_name(node: &SyntaxNode) -> Option<String> {

@@ -24,6 +24,16 @@ pub fn body_start(node: &SyntaxNode) -> Option<usize> {
     .map(|e| e.text_range().start as usize)
 }
 
+/// Where a declaration's code ends: before a comment after its `;`, which is not its own.
+pub fn code_end(node: &SyntaxNode) -> usize {
+  node
+    .children_with_tokens_iter()
+    .rfind(|e| !e.kind().is_trivia())
+    .map_or(node.text_range().end as usize, |e| {
+      e.text_range().end as usize
+    })
+}
+
 /// The declaration laid out, starting at column `indent` on a line of its own, its later
 /// lines indented in full; `None` when it is not one this module takes.
 pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
@@ -33,9 +43,13 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   // From the visibility or `use` on; the attributes and comments before are laid out on
   // their own.
   let start = body_start(node)?;
+  let end = code_end(node);
   let body: Vec<SyntaxElement> = node
     .children_with_tokens_iter()
-    .filter(|e| e.text_range().start as usize >= start)
+    .filter(|e| {
+      let at = e.text_range().start as usize;
+      at >= start && at < end
+    })
     .collect();
   let comment = |e: &SyntaxElement| match e {
     SyntaxElement::Token(t) => t.kind().is_trivia() && t.kind() != K::Whitespace,

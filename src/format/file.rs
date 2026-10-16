@@ -1158,7 +1158,8 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           SyntaxKind::IfExpr if node.parent().is_some_and(|p| p.kind() == SyntaxKind::IfExpr) => {
             control(node)
           }
-          SyntaxKind::Use => whole(rewrite_use(node, indent, config)),
+          SyntaxKind::Use => rewrite_use(node, indent, config)
+            .map(|text| (text, crate::format::imports::code_end(node))),
           SyntaxKind::MatchArm => match rewrite_arm(node, indent, config) {
             Some(Arm::Whole(text)) => Some((text, node.text_range().end as usize)),
             Some(Arm::Head(head)) => Some(take_head(head)),
@@ -1265,13 +1266,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         .rev()
         .find(|t| !t.kind.is_trivia())
         .is_some_and(|t| match t.kind {
-          // Not after the declarations that are sorted, whose comments go with them.
-          SyntaxKind::Semi => !t.token.parent().ancestors_iter().any(|a| {
-            matches!(
-              a.kind(),
-              SyntaxKind::Use | SyntaxKind::ExternCrate | SyntaxKind::Module
-            )
-          }),
+          SyntaxKind::Semi => true,
           // The `}` ending a statement or item (`if x { .. }`, `fn f() { .. }`).
           SyntaxKind::RBrace => t
             .token
@@ -1430,6 +1425,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           });
           let end = match &body {
             Some(body) if is_item(node.kind()) => body.text_range().start as usize,
+            // A `use`'s comment after its `;` is not its own.
+            _ if node.kind() == SyntaxKind::Use => crate::format::imports::code_end(node),
             _ => range.end as usize,
           };
           if !in_expression() {

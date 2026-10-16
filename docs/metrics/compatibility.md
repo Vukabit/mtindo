@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-16T01:40:32.713Z"
-commit: "1ee0fd5-dirty.ddff65e0"
+generated: "2026-10-16T01:55:49.891Z"
+commit: "0623726-dirty.bace9561"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -34,11 +34,11 @@ metrics:
   compat.corpus.lines_matched: 2648781
   compat.corpus.lines_total: 2653974
   compat.corpus.skipped: 260
-  compat.corpus-unformatted.files: 67.24
-  compat.corpus-unformatted.files_matched: 7004
+  compat.corpus-unformatted.files: 67.97
+  compat.corpus-unformatted.files_matched: 7080
   compat.corpus-unformatted.files_scored: 10416
-  compat.corpus-unformatted.lines: 94.99
-  compat.corpus-unformatted.lines_matched: 2633620
+  compat.corpus-unformatted.lines: 95.02
+  compat.corpus-unformatted.lines_matched: 2634279
   compat.corpus-unformatted.lines_total: 2772411
   compat.corpus-unformatted.skipped: 273
   compat.corpus.repositories: 44
@@ -52,7 +52,7 @@ metrics:
 Against the standard formatter 1.9.0-stable (88d9e12ae1 2026-08-18), mto's
 output equals the expected output for 329 of 462 test files (71.21%) and for
 9978 of 10436 corpus files (95.61%). On whitespace-scrambled corpus files it
-matches 7004 of 10416 files (67.24%) and keeps 94.99% of the expected lines.
+matches 7080 of 10416 files (67.97%) and keeps 95.02% of the expected lines.
 <!-- end generated -->
 
 ## 1 Question
@@ -124,7 +124,7 @@ The record as it stands (shares in percent):
 | tests | 329 of 462 | 71.21 | 9873 of 11227 | 87.94 | 0 |
 | tests-with-settings | 249 of 559 | 44.54 | 17782 of 22055 | 80.63 | 0 |
 | corpus | 9978 of 10436 | 95.61 | 2648781 of 2653974 | 99.80 | 260 |
-| corpus-scrambled | 7004 of 10416 | 67.24 | 2633620 of 2772411 | 94.99 | 273 |
+| corpus-scrambled | 7080 of 10416 | 67.97 | 2634279 of 2772411 | 95.02 | 273 |
 <!-- end generated -->
 
 ### History
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 87.94 | 80.63 | 99.80 | 94.99 | 67.24 |
+| current |  | 87.94 | 80.63 | 99.80 | 95.02 | 67.97 |
+| 2026-10-15 | 0623726 | 87.94 | 80.63 | 99.80 | 94.99 | 67.24 |
 | 2026-10-15 | 1ee0fd5 | 87.80 | 80.63 | 99.80 | 94.84 | 65.21 |
 | 2026-10-15 | 0cfb09d | 87.72 | 80.63 | 99.80 | 94.78 | 63.52 |
 | 2026-10-15 | acd6789 | 87.41 | 80.50 | 99.80 | 94.59 | 62.55 |
@@ -186,23 +187,23 @@ Scored files by the share of their expected lines mto's output keeps:
 | tests | 331 | 1 | 23 | 107 |
 | tests-with-settings | 257 | 0 | 46 | 256 |
 | corpus | 9986 | 43 | 119 | 288 |
-| corpus-scrambled | 7103 | 560 | 1682 | 1071 |
+| corpus-scrambled | 7181 | 544 | 1639 | 1052 |
 
 The syntax at the first line where a mismatching file differs, the ten most
 common over every set:
 
 | syntax kind | files |
 |---|---:|
-| `LetStmt` | 510 |
-| `Use` | 310 |
-| `TokenTree` | 285 |
-| `Fn` | 255 |
-| `MatchArm` | 192 |
-| `MethodCallExpr` | 190 |
-| `CallExpr` | 165 |
-| `BlockExpr` | 159 |
-| `Const` | 159 |
-| `MacroExpr` | 138 |
+| `LetStmt` | 524 |
+| `TokenTree` | 288 |
+| `Fn` | 259 |
+| `MatchArm` | 199 |
+| `MethodCallExpr` | 197 |
+| `CallExpr` | 196 |
+| `Const` | 161 |
+| `BlockExpr` | 156 |
+| `MacroExpr` | 140 |
+| `Attr` | 137 |
 <!-- end generated -->
 
 ## 4 Threats to validity

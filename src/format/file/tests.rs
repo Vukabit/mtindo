@@ -112,8 +112,13 @@ fn test_contents_follow_the_line_their_owner_starts_on() {
   // A method call's arguments follow the line of its `.` (the comment keeps the
   // statement's lines as written).
   assert_eq!(
+    formatted("fn f() {\n    x\n        .g(\n  1, // c\n  );\n}\n"),
+    "fn f() {\n    x\n        .g(\n            1, // c\n        );\n}\n"
+  );
+  // A comment between links is the chain layout's.
+  assert_eq!(
     formatted("fn f() {\n    x // c\n        .g(\n  1,\n  );\n}\n"),
-    "fn f() {\n    x // c\n        .g(\n            1,\n        );\n}\n"
+    "fn f() {\n    x // c\n        .g(1);\n}\n"
   );
   // A block standing as a statement owns itself.
   assert_eq!(

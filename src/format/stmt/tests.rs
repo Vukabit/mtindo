@@ -29,6 +29,22 @@ fn test_a_closure_last_keeps_its_list_on_one_line() {
 }
 
 #[test]
+fn test_any_let_value_may_go_on_the_next_line() {
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let variable = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA::BBBBBBBBBBBBBBBBBBBBBB::CCCCCCCCCCCCCCCCCCCCCC::EEEEEE;\n}\n"
+    ),
+    "fn f() {\n    let variable =\n        AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA::BBBBBBBBBBBBBBBBBBBBBB::CCCCCCCCCCCCCCCCCCCCCC::EEEEEE;\n}\n"
+  );
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let Self { element, aaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbb, ccccccccccccccccccc, .. } = self;\n}\n"
+    ),
+    "fn f() {\n    let Self {\n        element,\n        aaaaaaaaaaaaaaaaaaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbbbb,\n        ccccccccccccccccccc,\n        ..\n    } = self;\n}\n"
+  );
+}
+
+#[test]
 fn test_binary_expressions() {
   // Operands joined by one operator on a line when they fit, else one per line after the
   // first, the operator first, one level in; mixed operators nest; an operand spanning lines
@@ -164,6 +180,18 @@ fn test_combine_control_expr() {
   assert_eq!(
     formatted_with(source, &config),
     "fn f() {\n    foo!(\n        if x {\n            foo();\n        } else {\n            bar();\n        }\n    );\n}\n"
+  );
+}
+
+#[test]
+fn test_comments_between_chain_links() {
+  // A comment on a link's line stays after it; one on a line of its own takes one, at the
+  // links' indentation; any puts the links on lines.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let m = c!() // a\n        // b\n        .arg(1)\n        /* c */ .get();\n}\n"
+    ),
+    "fn f() {\n    let m = c!() // a\n        // b\n        .arg(1)\n        /* c */\n        .get();\n}\n"
   );
 }
 

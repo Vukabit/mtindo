@@ -71,6 +71,9 @@ pub struct Link {
   /// The arguments of a method call.
   pub args: Option<Vec<SyntaxNode>>,
   pub tries: usize,
+  /// The comments before it, after the code before it, each with whether it starts on
+  /// that code's line.
+  pub comments: Vec<(String, bool)>,
 }
 
 /// A macro call whose arguments read as a call's or an array's, laid out as one under the
@@ -280,6 +283,7 @@ pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Lin
           head,
           args,
           tries: pending_tries,
+          comments: chain_comments(&current, &receiver),
         });
         pending_tries = 0;
         current = receiver;
@@ -292,6 +296,42 @@ pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Lin
   }
   links.reverse();
   (current, root_tries, links)
+}
+
+/// The comments between a chain link's receiver's code and the link's `.`, each with
+/// whether it starts on the receiver's last line.
+pub fn chain_comments(link: &SyntaxNode, receiver: &SyntaxNode) -> Vec<(String, bool)> {
+  let Some(from) = receiver
+    .descendants_with_tokens()
+    .iter()
+    .rev()
+    .find(|e| matches!(e, SyntaxElement::Token(t) if !t.kind().is_trivia()))
+    .map(|e| e.text_range().end)
+  else {
+    return Vec::new();
+  };
+  let Some(to) = link
+    .children_with_tokens_iter()
+    .find(|e| matches!(e.kind(), SyntaxKind::Dot))
+    .map(|e| e.text_range().start)
+  else {
+    return Vec::new();
+  };
+  let mut comments = Vec::new();
+  let mut same_line = true;
+  for (kind, text, range) in link.token_texts() {
+    if range.start < from || range.start >= to {
+      continue;
+    }
+    match kind {
+      SyntaxKind::Whitespace if text.contains('\n') => same_line = false,
+      SyntaxKind::LineComment | SyntaxKind::BlockComment => {
+        comments.push((text.trim_end().to_string(), same_line));
+      }
+      _ => {}
+    }
+  }
+  comments
 }
 
 /// The width of a text's first line.
@@ -369,6 +409,30 @@ pub fn if_parts(node: &SyntaxNode) -> Option<(SyntaxNode, SyntaxNode, SyntaxNode
     }
     _ => None,
   }
+}
+
+/// Whether a comment sits between a chain link's receiver and its `.`, where the chain
+/// layout places it.
+pub fn in_chain_gap(token: &crate::syntax::SyntaxToken) -> bool {
+  let at = token.text_range().start;
+  token.parent().ancestors_iter().any(|link| {
+    matches!(
+      link.kind(),
+      SyntaxKind::MethodCallExpr | SyntaxKind::FieldExpr | SyntaxKind::AwaitExpr
+    ) && link.children_iter().next().is_some_and(|receiver| {
+      let code_end = receiver
+        .descendants_with_tokens()
+        .iter()
+        .rev()
+        .find(|e| matches!(e, SyntaxElement::Token(t) if !t.kind().is_trivia()))
+        .map(|e| e.text_range().end);
+      let dot = link
+        .children_with_tokens_iter()
+        .find(|e| e.kind() == SyntaxKind::Dot)
+        .map(|e| e.text_range().start);
+      matches!((code_end, dot), (Some(from), Some(to)) if from <= at && at < to)
+    })
+  })
 }
 
 /// Whether `node` is a chain: a method call, field access, `?` or `.await` with a receiver.
@@ -1639,7 +1703,12 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
   // A short root takes the first links onto its line.
   let tab_width = shape.limits.tab.saturating_sub(shape.offset);
   let mut joined = false;
-  while root_text.width() <= tab_width && !root_text.contains('\n') && !links.is_empty() {
+  let commented = links.iter().any(|l| !l.comments.is_empty());
+  while root_text.width() <= tab_width
+    && !root_text.contains('\n')
+    && !links.is_empty()
+    && links[0].comments.is_empty()
+  {
     let s = shape.offset_left(root_text.width())?;
     match rewrite_link(&links[0], s) {
       Some(text) => {
@@ -1686,7 +1755,9 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     shape.width.min(shape.limits.chain)
   }
   .saturating_sub(almost_total);
-  let all_in_one_line = rewrites.iter().all(|r| !r.contains('\n')) && one_line_budget > 0;
+  // Comments between the links put each on a line of its own.
+  let all_in_one_line =
+    !commented && rewrites.iter().all(|r| !r.contains('\n')) && one_line_budget > 0;
   let mut fits_single_line = false;
   // The last link's `?`s are taken off its shape here and again when it is printed, as the
   // standard formatter's `format_last_child` does.
@@ -1753,9 +1824,20 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     format!("\n{}", " ".repeat(child_shape.indent))
   };
   let mut result = rewrites[0].clone();
-  for r in &rewrites[1..] {
+  for (r, link) in rewrites[1..].iter().zip(links) {
+    for (comment, same_line) in &link.comments {
+      if *same_line {
+        result.push(' ');
+      } else {
+        result.push_str(&connector);
+      }
+      result.push_str(comment);
+    }
     result.push_str(&connector);
     result.push_str(r);
+  }
+  if commented {
+    return Some(result);
   }
   wrap_str(result, shape)
 }

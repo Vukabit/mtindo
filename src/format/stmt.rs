@@ -937,6 +937,14 @@ fn right_side(
 /// Whether one token or node is one [`clean_expression`] lets through.
 fn safe(element: &SyntaxElement) -> bool {
   match element {
+    // A comment between a chain's links, on a line of its own: the chain layout places it.
+    SyntaxElement::Token(t)
+      if matches!(t.kind(), K::LineComment | K::BlockComment)
+        && !t.text().contains('\n')
+        && super::expr::in_chain_gap(t) =>
+    {
+      true
+    }
     SyntaxElement::Token(t) => {
       !matches!(
         t.kind(),
@@ -1075,8 +1083,9 @@ fn takes(node: &SyntaxNode) -> bool {
   {
     return laid(&left) || laid(&right);
   }
-  // A `let` with an `else`, whatever its value.
-  if node.kind() == K::LetStmt && node.children_iter().any(|c| c.kind() == K::LetElse) {
+  // A `let` with a value, whatever it is: its pattern may break, and its value go on the
+  // next line.
+  if node.kind() == K::LetStmt && expression_of(node).is_some() {
     return true;
   }
   (matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node))

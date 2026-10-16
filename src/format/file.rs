@@ -682,9 +682,11 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
             if crate::format::items::is_doc(t.kind())
               || matches!(t.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment) =>
           {
-            mark(t.text_range().start as usize, false);
+            // A doc comment is an attribute: it starts a line.
+            let doc = crate::format::items::is_doc(t.kind());
+            mark(t.text_range().start as usize, doc);
             after_attr = false;
-            after_doc = crate::format::items::is_doc(t.kind());
+            after_doc = doc;
           }
           SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {}
           SyntaxElement::Token(t)
@@ -768,7 +770,10 @@ fn meta_like(attr: &SyntaxNode) -> bool {
           token.text_range().start as usize,
           token.text_range().end as usize,
         );
-    if !allowed || (previous == Some(SyntaxKind::Eq) && !kind.is_literal()) {
+    let value = kind.is_literal()
+      || matches!(kind, SyntaxKind::TrueKw | SyntaxKind::FalseKw)
+      || matches!(token.text(), "true" | "false");
+    if !allowed || (previous == Some(SyntaxKind::Eq) && !value) {
       return false;
     }
     previous = Some(kind);
@@ -1576,7 +1581,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         {
           roles.layable.insert(start, node.clone());
         }
-        let unparsed_attr = node.kind() == SyntaxKind::Attr && !meta_like(node);
+        let unparsed_attr =
+          node.kind() == SyntaxKind::Attr && (!meta_like(node) || skipped_attribute(node));
         // Attributes of files, bodies, items, statements, fields and variants; those among
         // match arms or in expressions the standard formatter leaves as written.
         let attr_owner = node.parent().is_some_and(|p| {
@@ -1741,6 +1747,31 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   roles.verbatim = merged;
   roles
+}
+
+/// Whether an attribute is one a `#[rustfmt::skip::attributes(..)]` around it (or a file's
+/// `#![..]`) names: left exactly as written.
+fn skipped_attribute(attr: &SyntaxNode) -> bool {
+  let Some(path) = attr
+    .descendant_nodes_where(|kind| kind == SyntaxKind::Path)
+    .next()
+  else {
+    return false;
+  };
+  let name = path.text().to_string();
+  let name = name.split("::").next().unwrap_or("").trim().to_string();
+  attr.ancestors_iter().skip(1).any(|owner| {
+    owner
+      .children_iter()
+      .filter(|c| c.kind() == SyntaxKind::Attr && c != attr)
+      .any(|other| {
+        let text: String = other.text().to_string().split_whitespace().collect();
+        text
+          .split_once("rustfmt::skip::attributes(")
+          .and_then(|(_, rest)| rest.split_once(')'))
+          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
+      })
+  })
 }
 
 /// A file with `#![rustfmt::skip]` is left alone.

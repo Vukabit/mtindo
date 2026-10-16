@@ -109,6 +109,23 @@ fn test_headers_left_as_written() {
 }
 
 #[test]
+fn test_headers_with_parameter_attributes_and_trailing_comments() {
+  // One attribute on a parameter stays on its line; a comment after a declaration's `;` is
+  // not part of its header.
+  assert_eq!(
+    formatted("fn\nf(#[case]\n\n value: T, #[case] tokens: &[Token]) {}\n"),
+    "fn f(#[case] value: T, #[case] tokens: &[Token]) {}\n"
+  );
+  assert_eq!(
+    formatted("trait T {\n    fn\n m(self) ->\n Self::Mask; // note\n}\n"),
+    "trait T {\n    fn m(self) -> Self::Mask; // note\n}\n"
+  );
+  // Two attributes on a parameter are left as written.
+  let two = "fn h(#[a]\n#[b] x: u8) {}\n";
+  assert_eq!(formatted(two), two);
+}
+
+#[test]
 fn test_long_parameter_lists_take_a_line_each() {
   assert_eq!(
     formatted(

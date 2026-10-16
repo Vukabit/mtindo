@@ -20,6 +20,22 @@ fn formatted_with(source: &str, config: &FormatConfig) -> String {
 }
 
 #[test]
+fn test_attribute_arguments_and_doc_comments() {
+  // Keywords are names among an attribute's arguments, `true` a value; a doc comment after
+  // an attribute starts its own line.
+  assert_eq!(
+    formatted(
+      "#[salsa::tracked(lru\n\n=\t512,\treturns(ref))]\n#[t(a\n=\ntrue)] /// Doc.\nfn f() {}\n"
+    ),
+    "#[salsa::tracked(lru = 512, returns(ref))]\n#[t(a = true)]\n/// Doc.\nfn f() {}\n"
+  );
+  // Attributes a `rustfmt::skip::attributes` names are left as written.
+  let skipped =
+    "#[rustfmt::skip::attributes(other)]\nfn main() {\n    #[other(a,\nb)]\n    struct S {}\n}\n";
+  assert_eq!(formatted(skipped), skipped);
+}
+
+#[test]
 fn test_attributes_extern_crates_and_macro_calls() {
   // Inner attributes in a row with no blank line between; a `use`'s and an `extern crate`'s
   // attributes joined to it, another item's keeping a blank line; `extern crate` on one

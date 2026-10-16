@@ -75,7 +75,33 @@ fn call(
   narrower: usize,
   config: &FormatConfig,
 ) -> Option<String> {
-  let source = format!("fn f() {{\n{}{};\n}}", path, tree.text());
+  // Keywords are names in an attribute's arguments (`returns(ref)`), which do not read as
+  // an expression: each stands in as the same word capitalized, put back after.
+  let mut keywords: Vec<(String, String)> = Vec::new();
+  let mut arguments = String::new();
+  for (kind, text, _) in tree.token_texts() {
+    // In a token tree a keyword may be an identifier still.
+    let stands_in = (kind.name().ends_with("_KW") || kind == K::Ident)
+      && crate::syntax::parser::is_keyword_in(text, Edition::E2021)
+      && !matches!(text, "true" | "false" | "self" | "Self" | "super" | "crate");
+    if stands_in {
+      let mut word = text.to_string();
+      word[..1].make_ascii_uppercase();
+      if !keywords.iter().any(|(w, _)| *w == word) {
+        keywords.push((word.clone(), text.to_string()));
+      }
+      arguments.push_str(&word);
+    } else {
+      arguments.push_str(text);
+    }
+  }
+  if keywords
+    .iter()
+    .any(|(word, _)| tree.token_texts().any(|(_, text, _)| text == word))
+  {
+    return None;
+  }
+  let source = format!("fn f() {{\n{}{};\n}}", path, arguments);
   let parsed = parse(&source, Edition::E2021);
   if !parsed.errors().is_empty() {
     return None;
@@ -108,7 +134,21 @@ fn call(
     width,
     limits,
   };
-  Some(format!("{}{}]", open, rewrite(&call, shape)?))
+  let text = rewrite(&call, shape)?;
+  let text = if keywords.is_empty() {
+    text
+  } else {
+    crate::syntax::parse_tokens(&text, Edition::E2021)
+      .into_iter()
+      .map(|(_, piece)| {
+        keywords
+          .iter()
+          .find(|(word, _)| word == piece)
+          .map_or(piece, |(_, keyword)| keyword.as_str())
+      })
+      .collect()
+  };
+  Some(format!("{}{}]", open, text))
 }
 
 /// `#[derive(...)]`: one line when it ends four columns short of the line width, else the

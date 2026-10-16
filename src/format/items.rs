@@ -228,9 +228,15 @@ pub fn rewrite_header(
         | K::ItemList
     )
   });
+  // Without a body, up to its last code token: a comment after its `;` is not its own.
   let end = match &body {
     Some(body) => body.text_range().start as usize,
-    None => node.text_range().end as usize,
+    None => node
+      .children_with_tokens_iter()
+      .rfind(|e| !e.kind().is_trivia())
+      .map_or(node.text_range().end as usize, |e| {
+        e.text_range().end as usize
+      }),
   };
   let header: Vec<SyntaxElement> = node
     .children_with_tokens_iter()
@@ -239,6 +245,18 @@ pub fn rewrite_header(
       start <= at && at < end
     })
     .collect();
+  // A parameter may have one attribute, on its line (`#[case] value: T`); more go on lines
+  // of their own, not laid out here.
+  let parameter_attributes = |n: &SyntaxNode| {
+    let attributes: Vec<SyntaxNode> = n.descendant_nodes_where(|kind| kind == K::Attr).collect();
+    attributes.iter().all(|a| {
+      a.parent().is_some_and(|p| {
+        p.kind() == K::Param && p.children_iter().filter(|c| c.kind() == K::Attr).count() == 1
+      }) && !a
+        .token_texts()
+        .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+    })
+  };
   let unwanted = |e: &SyntaxElement| match e {
     SyntaxElement::Token(t) => {
       (t.kind().is_trivia() && t.kind() != K::Whitespace) || is_doc(t.kind())
@@ -249,8 +267,9 @@ pub fn rewrite_header(
         || n.subtree_has(|kind| {
           (kind.is_trivia() && kind != K::Whitespace)
             || is_doc(kind)
-            || matches!(kind, K::Attr | K::MacroCall | K::MacroType | K::MacroExpr)
+            || matches!(kind, K::MacroCall | K::MacroType | K::MacroExpr)
         })
+        || n.subtree_has(|kind| kind == K::Attr) && !parameter_attributes(n)
     }
   };
   if header.iter().any(unwanted) {

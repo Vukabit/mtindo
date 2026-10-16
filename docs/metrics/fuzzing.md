@@ -2,8 +2,8 @@
 paper: "fuzzing"
 title: "Fuzzing"
 status: "measured"
-generated: "2026-10-16T02:10:05.133Z"
-commit: "47908a6-dirty.a6d8acad"
+generated: "2026-10-16T02:33:38.634Z"
+commit: "4e21107-dirty.6d24caf0"
 command: "cargo xtask fuzz run TARGET"
 sources:
   - fuzz/fuzz_targets/
@@ -137,9 +137,9 @@ sanitizer), and the share of src/ lines its corpus reaches.
 
 | target | inputs/s | peak MB | lines reached % |
 |---|---:|---:|---:|
-| `comments` | 251 | 206 | 31.03 |
-| `format` | 345 | 490 | 43.90 |
-| `generated` | 298 | 644 | 47.85 |
+| `comments` | 214 | 2355 | 31.03 |
+| `format` | 345 | 492 | 43.90 |
+| `generated` | 274 | 653 | 47.85 |
 | `layout` | 1840 | 424 | 20.17 |
 | `lexer` | 73005 | 185 | 2.55 |
 | `parser` | 1400 | 372 | 15.60 |

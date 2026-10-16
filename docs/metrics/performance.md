@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-15T22:22:55.624Z"
-commit: "44f55b3-dirty.fc7409b6"
+generated: "2026-10-16T02:33:38.634Z"
+commit: "4e21107-dirty.6d24caf0"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -163,11 +163,11 @@ timing taken while the machine was busy is not judged:
 
 | series | latest | within | date |
 |---|---:|---|---|
-| `speed.speedup.stable` | 31.39 | yes | 2026-10-13 |
-| `speed.speedup.nightly` | 32.08 | yes | 2026-10-13 |
-| `speed.mto.laid_out.mb_per_s` | 292.46 | yes | 2026-10-13 |
-| `speed.mto.as_fetched.mb_per_s` | 150.77 | yes | 2026-10-13 |
-| `speed.layout.one_thread.mb_per_s` | 75.48 | yes | 2026-10-13 |
+| `speed.speedup.stable` | 9.74 | no | 2026-10-16 |
+| `speed.speedup.nightly` | 10.94 | no | 2026-10-16 |
+| `speed.mto.laid_out.mb_per_s` | 79.70 | no | 2026-10-16 |
+| `speed.mto.as_fetched.mb_per_s` | 81.67 | no | 2026-10-16 |
+| `speed.layout.one_thread.mb_per_s` | 56.98 | no | 2026-10-16 |
 | `memst.serde.allocs` | 1.86M | yes | 2026-10-13 |
 | `memst.serde.bytes` | 420.47M | yes | 2026-10-13 |
 | `memst.serde.peak_live` | 36.05M | yes | 2026-10-13 |
@@ -176,15 +176,15 @@ timing taken while the machine was busy is not judged:
 | `doctor.narrow.n100.k1.checks` | 15.50 | yes | 2026-10-13 |
 | `doctor.narrow.n100.k3.checks` | 49.60 | yes | 2026-10-13 |
 | `doctor.narrow.found_rate` | 1 | yes | 2026-10-13 |
-| `io.write.batch.history.ms_per_file` | 0.74 | yes | 2026-10-13 |
-| `io.write.batch.plain.ms_per_file` | 0.28 | yes | 2026-10-13 |
-| `perf.scaling.one_thread.mb_per_s` | 9.70 | yes | 2026-10-13 |
-| `perf.latency.check.median_ms` | 2.10 | yes | 2026-10-13 |
-| `perf.growth.items.exponent` | 1.05 | yes | 2026-10-13 |
-| `perf.growth.nesting.exponent` | 1.18 | yes | 2026-10-13 |
-| `perf.growth.line.exponent` | 0.99 | yes | 2026-10-13 |
-| `perf.growth.chain.exponent` | 0.98 | yes | 2026-10-13 |
-| `perf.growth.match.exponent` | 1.02 | yes | 2026-10-13 |
+| `io.write.batch.history.ms_per_file` | 0.97 | yes | 2026-10-16 |
+| `io.write.batch.plain.ms_per_file` | 0.41 | yes | 2026-10-16 |
+| `perf.scaling.one_thread.mb_per_s` | 4.48 | no | 2026-10-16 |
+| `perf.latency.check.median_ms` | 2.23 | yes | 2026-10-16 |
+| `perf.growth.items.exponent` | 0.46 | yes | 2026-10-16 |
+| `perf.growth.nesting.exponent` | 1.58 | no | 2026-10-16 |
+| `perf.growth.line.exponent` | 0.89 | yes | 2026-10-16 |
+| `perf.growth.chain.exponent` | 1.87 | no | 2026-10-16 |
+| `perf.growth.match.exponent` | 1.01 | yes | 2026-10-16 |
 <!-- end generated -->
 
 ## 4 Threats to validity

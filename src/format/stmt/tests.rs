@@ -295,6 +295,22 @@ fn test_let_patterns_and_types() {
 }
 
 #[test]
+fn test_long_format_strings() {
+  // From style edition 2024 a format-like macro's string may run past the line on a line of
+  // its own; before it the call is left as written.
+  let source = "fn f() {\n    panic!(\n\"We explicitly do not provide canonicalization API, as that is almost always a wrong solution, see #14430\"  )\n}\n";
+  assert_eq!(formatted(source), source);
+  let config = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(source, &config),
+    "fn f() {\n    panic!(\n        \"We explicitly do not provide canonicalization API, as that is almost always a wrong solution, see #14430\"\n    )\n}\n"
+  );
+}
+
+#[test]
 fn test_macros_laid_out_as_calls_and_arrays() {
   assert_eq!(
     formatted(

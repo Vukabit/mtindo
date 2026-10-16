@@ -613,10 +613,6 @@ pub fn lone_expression(block: &SyntaxNode) -> Option<SyntaxNode> {
   quiet.then_some(inside)
 }
 
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
-}
-
 /// Whether a block is a branch of an `if` the layout code takes whole: every branch of the
 /// `if`, and of the `else if`s after it, holds one expression ([`rewrite_if_lines`]).
 pub fn one_line_if_block(block: &SyntaxNode) -> bool {
@@ -627,6 +623,10 @@ pub fn one_line_if_block(block: &SyntaxNode) -> bool {
     node = up;
   }
   lone_branches(&node)
+}
+
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
 }
 
 /// The standard formatter moves a right-hand side that does not fit on one line where it is
@@ -2105,10 +2105,7 @@ fn rewrite_list(
           tactic = Tactic::Horizontal;
         } else {
           tactic = definitive(&texts, max_width.min(one_line_width));
-          let special = SPECIAL_MACROS
-            .iter()
-            .find(|(name, _)| *name == ident)
-            .map(|&(_, before)| before);
+          let special = special_macro(ident, shape.limits.style_2024);
           if tactic == Tactic::Vertical {
             if let Some(before) = special {
               // The standard formatter's `maybe_get_args_offset`: the arguments around the
@@ -2220,13 +2217,25 @@ fn rewrite_list(
   // returned whatever its opening line's width, for the caller to weigh against laying it
   // out elsewhere, though no later line may pass the line width; one kept on a line must
   // fit.
-  if single {
+  // In an attribute a `name = literal` may run past it, as may a string alone on its line
+  // in a format-like macro's arguments from style edition 2024 (before it, or in another
+  // macro, the call fails and is left as written).
+  let string_line = |line: &str| {
+    let line = line.trim();
+    let line = line.strip_suffix(',').unwrap_or(line);
+    shape.limits.inside_macro
+      && shape.limits.style_2024
+      && special_macro(ident, true).is_some()
+      && (line.starts_with('"') || line.starts_with("r\"") || line.starts_with("r#"))
+      && line.ends_with(['"', '#'])
+  };
+  if single || shape.limits.attribute {
     Some(text)
   } else {
     text
       .lines()
       .skip(1)
-      .all(|l| code_width(l) <= shape.limits.max_width)
+      .all(|l| code_width(l) <= shape.limits.max_width || string_line(l))
       .then_some(text)
   }
 }
@@ -2490,6 +2499,17 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       Some(format!("{}{}", prefix, text))
     }
     SyntaxKind::BinExpr if binary_operator(node).is_some() => rewrite_binary(node, shape),
+    // An attribute's `name = literal`, the literal whatever its width
+    // (`MetaItemKind::NameValue`).
+    SyntaxKind::BinExpr
+      if shape.limits.attribute
+        && let Some((left, operator, right)) = super::stmt::assignment(node)
+        && operator == "="
+        && right.kind() == SyntaxKind::Literal =>
+    {
+      let left = flat(&left, shape.limits.spacing);
+      Some(format!("{} = {}", left, flat(&right, shape.limits.spacing)))
+    }
     // An assignment, as a statement's: the left side, then the right as a `let`'s value is
     // placed (an attribute's `name = value` is not one).
     SyntaxKind::BinExpr if !shape.limits.attribute => {
@@ -2863,6 +2883,16 @@ fn short_pattern(node: &SyntaxNode) -> bool {
     SyntaxKind::OrPat => node.children().iter().all(short_pattern),
     _ => false,
   }
+}
+
+/// The arguments before a format-like macro's format string (`SPECIAL_CASE_MACROS`), and
+/// from style edition 2024 `trace!`'s too.
+fn special_macro(name: &str, style_2024: bool) -> Option<usize> {
+  SPECIAL_MACROS
+    .iter()
+    .find(|(n, _)| *n == name)
+    .map(|&(_, before)| before)
+    .or_else(|| (style_2024 && name == "trace!").then_some(0))
 }
 
 /// Whether `text` fits: its first line in the shape's width, the rest within the line width.

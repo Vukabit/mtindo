@@ -243,6 +243,23 @@ fn test_lines_starting_constructs_follow_their_block() {
 }
 
 #[test]
+fn test_long_attribute_values_and_inner_docs() {
+  // An attribute's `name = "literal"` keeps the literal however long, its arguments on
+  // lines when they do not fit.
+  assert_eq!(
+    formatted(
+      "#[deprecated(\n\tnote\t=\n \"Use [std::iter::FromFn](https://doc.rust-lang.org/std/iter/struct.FromFn.html) instead\",  since = \"0.13.0\")]\nfn g() {}\n"
+    ),
+    "#[deprecated(\n    note = \"Use [std::iter::FromFn](https://doc.rust-lang.org/std/iter/struct.FromFn.html) instead\",\n    since = \"0.13.0\"\n)]\nfn g() {}\n"
+  );
+  // A file's doc comment after its attribute starts its own line.
+  assert_eq!(
+    formatted("#![allow(x)] //! Docs.\n\nfn f() {}\n"),
+    "#![allow(x)]\n//! Docs.\n\nfn f() {}\n"
+  );
+}
+
+#[test]
 fn test_match_arm_indent_off_keeps_arms_at_the_match() {
   let config = FormatConfig {
     match_arm_indent: false,

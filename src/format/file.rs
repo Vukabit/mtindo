@@ -630,6 +630,15 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles) {
       continue;
     }
     let mut any = false;
+    // Doc comments of the file or module itself (`//!`), which are attributes: each starts
+    // a line.
+    for token in node.children_with_tokens_iter() {
+      if let SyntaxElement::Token(t) = &token
+        && crate::format::items::is_doc(t.kind())
+      {
+        roles.breaks.insert(t.text_range().start as usize);
+      }
+    }
     for child in node.children_iter() {
       if child.kind() == SyntaxKind::Label {
         continue;
@@ -1631,7 +1640,13 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         }
         if kept || skipped || unparsed_attr {
           let start = rules_start.unwrap_or(range.start as usize);
-          roles.verbatim.push((start, range.end as usize));
+          // A definition's comment after its code is not part of it.
+          let end = if node.kind() == SyntaxKind::MacroRules && !skipped {
+            crate::format::imports::code_end(node)
+          } else {
+            range.end as usize
+          };
+          roles.verbatim.push((start, end));
         }
         if is_container(node.kind()) {
           container(node, text, &mut roles, config);

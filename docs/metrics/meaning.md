@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-15T23:16:14.867Z"
-commit: "44f55b3-dirty.85382068"
+generated: "2026-10-16T00:34:39.248Z"
+commit: "a8c8d39-dirty.3a843a1b"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -14,11 +14,11 @@ corpus_fingerprint: "sha256:0bfa13269439c574"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
   meaning.exceptions.tests: 5
-  meaning.exceptions.tests-with-settings: 22
-  meaning.exceptions.corpus: 35
-  meaning.exceptions.corpus-unformatted: 45
-  meaning.exceptions.total: 107
-  meaning.exceptions.unmodelled: 28
+  meaning.exceptions.tests-with-settings: 21
+  meaning.exceptions.corpus: 34
+  meaning.exceptions.corpus-unformatted: 41
+  meaning.exceptions.total: 101
+  meaning.exceptions.unmodelled: 22
   meaning.exceptions.other: 79
 ---
 
@@ -29,8 +29,8 @@ metrics:
 <!-- generated: abstract -->
 Every output of mto that `cargo xtask diff` scores must keep the input's meaning
 and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 107 files, each listed
-with its reason: 28 are rewrites the check does not model yet, and 79 are the
+check, run on the standard formatter's own outputs, flags 101 files, each listed
+with its reason: 22 are rewrites the check does not model yet, and 79 are the
 formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
@@ -91,17 +91,15 @@ Exceptions listed for the standard formatter's output, by set:
 | set | listed | not modelled | other |
 |---|---:|---:|---:|
 | tests | 5 | 0 | 5 |
-| tests-with-settings | 22 | 11 | 11 |
-| corpus | 35 | 7 | 28 |
-| corpus-scrambled | 45 | 10 | 35 |
+| tests-with-settings | 21 | 10 | 11 |
+| corpus | 34 | 6 | 28 |
+| corpus-scrambled | 41 | 6 | 35 |
 
 The reasons given, with how many files give each:
 
 - the formatter writes invalid code when a comment sits before a comma
   (scrambled input) (9)
 - the formatter drops attributes on parameters (8)
-- a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent,
-  not modelled (7)
 - the formatter adds parentheses that change what a closure covers (7)
 - an attributed match arm body wrapped in a block: equivalent, not modelled (6)
 - the formatter drops a `for` without a binder list (invalid input) (6)
@@ -109,6 +107,8 @@ The reasons given, with how many files give each:
 - the formatter rewrites a float range pattern (4)
 - the formatter writes invalid code (range spacing) (4)
 - `wrap_comments` reflows a markdown blockquote: not modelled (3)
+- a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent,
+  not modelled (3)
 - test input splits `::` into `: :`; the formatter joins it (3)
 - the formatter drops `pub` from a const block (3)
 - the formatter drops `pub` from an impl item (3)
@@ -127,8 +127,6 @@ The reasons given, with how many files give each:
 - the formatter drops an inner attribute inside an impl (2)
 - the formatter loses comments (2)
 - the formatter mangles `$r#struct` (2)
-- the formatter reorders imports inside a macro body: equivalent, not modelled
-  (2)
 - the formatter writes invalid code (`use std::::*`) (2)
 - the formatter writes invalid code (a comment swallows a parameter) (2)
 - the formatter writes invalid code (a where clause it fails to format) (2)
@@ -148,7 +146,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
-| current |  | 107 | 28 | 79 |
+| current |  | 101 | 22 | 79 |
+| 2026-10-10 | 4b2e95f | 107 | 28 | 79 |
 <!-- end generated -->
 
 ### Incidents on the generating machine
@@ -164,8 +163,8 @@ status:
 
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
-| `meaning` | 0 | 0 | 69 | 0 |
-| `unstable` | 0 | 0 | 258 | 0 |
+| `meaning` | 0 | 0 | 81 | 0 |
+| `unstable` | 0 | 0 | 294 | 0 |
 | `panic` | 0 | 0 | 0 | 0 |
 <!-- end generated -->
 

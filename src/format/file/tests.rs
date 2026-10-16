@@ -240,7 +240,8 @@ fn test_what_f5b_leaves_as_the_standard_formatter_does() {
 
 #[test]
 fn test_what_is_left_as_written() {
-  let source = "macro_rules! m {\n  () => {\n        1\n  };\n}\n#[rustfmt::skip]\nfn  f() {\n  x( );\n}\n// mto: off\nfn   g() {\n x();\n}\n// mto: on\n";
+  // A macro definition whose transcriber repeats (`$(..)`).
+  let source = "macro_rules! m {\n  ($($a:expr),*) => {\n        $($a)*\n  };\n}\n#[rustfmt::skip]\nfn  f() {\n  x( );\n}\n// mto: off\nfn   g() {\n x();\n}\n// mto: on\n";
   assert_eq!(formatted(source), source);
   let skipped = "#![rustfmt::skip]\nfn  f() {\n  x();\n}\n";
   assert_eq!(formatted(skipped), skipped);

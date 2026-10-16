@@ -115,6 +115,9 @@ struct Roles {
   preserved: Offsets<usize>,
   /// Statements left as written whole, from their first token, by where they start.
   kept_whole: OffsetSet,
+  /// `macro_rules!` definitions, by where their `macro_rules` starts: written anew when
+  /// their rules format, else left as written from there.
+  macro_rules: Offsets<SyntaxNode>,
   /// Where a token starts that follows the one before it on its line after one space: an
   /// `else` after its `if`'s block, and what follows the `else`.
   spaced: OffsetSet,
@@ -1019,6 +1022,26 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         .chain(gave_up.borrow().iter())
         .any(|&(s, e)| s <= start && end <= e)
     };
+    // A `macro_rules!` definition starting its line, its rules formatted.
+    if let Some(node) = roles.macro_rules.get(&tok.start)
+      && !in_verbatim(tok.start)
+      && out[out_line_start..].trim().is_empty()
+    {
+      let line = &out[out_line_start..];
+      if let Some(laid) =
+        crate::format::macros::rewrite_macro_rules(node, width_of(line, tab), edition, config)
+      {
+        out.push_str(&laid);
+        if let Some(at) = out.rfind('\n') {
+          out_line_start = at + 1;
+        }
+        laid_out_to = node.text_range().end as usize;
+        previous_significant = None;
+        code_on_line = true;
+        comment_column = None;
+        continue;
+      }
+    }
     // A braced macro call's arguments, re-indented from the line they start on.
     if let Some(&end) = roles.preserved.get(&tok.start)
       && !in_verbatim(tok.start)
@@ -1486,10 +1509,16 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             .preserved
             .insert(range.start as usize, range.end as usize);
         }
+        // A `macro_rules!` definition from after its attributes, which are laid out.
+        let rules_start = (node.kind() == SyntaxKind::MacroRules && !skipped)
+          .then(|| crate::format::items::header_start(node))
+          .flatten();
+        if let Some(start) = rules_start {
+          roles.macro_rules.insert(start, node.clone());
+        }
         if kept || skipped || unparsed_attr {
-          roles
-            .verbatim
-            .push((range.start as usize, range.end as usize));
+          let start = rules_start.unwrap_or(range.start as usize);
+          roles.verbatim.push((start, range.end as usize));
         }
         if is_container(node.kind()) {
           container(node, &mut roles, config);

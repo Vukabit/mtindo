@@ -21,13 +21,18 @@ const USE_ENTRY: &str = "\u{0}use";
 struct LineIndex<'a> {
   starts: Vec<usize>,
   text: &'a str,
+  edition: Edition,
 }
 
 impl<'a> LineIndex<'a> {
-  fn new(text: &'a str) -> LineIndex<'a> {
+  fn new(text: &'a str, edition: Edition) -> LineIndex<'a> {
     let mut starts = vec![0];
     starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
-    LineIndex { starts, text }
+    LineIndex {
+      starts,
+      text,
+      edition,
+    }
   }
 
   fn line(&self, offset: usize) -> usize {
@@ -69,8 +74,8 @@ pub fn verify_format(input: &str, output: &str, edition: Edition) -> Vec<Violati
     });
     return violations;
   }
-  let (old_tokens, old_comments) = canonical(&old_tree, input);
-  let (new_tokens, new_comments) = canonical(&new_tree, output);
+  let (old_tokens, old_comments) = canonical(&old_tree, input, edition);
+  let (new_tokens, new_comments) = canonical(&new_tree, output, edition);
   if let Some(detail) = first_difference(&old_tokens, &new_tokens) {
     violations.push(Violation {
       rule: Rule::MeaningChanged,
@@ -106,8 +111,12 @@ fn by_text(a: &[Token], b: &[Token]) -> std::cmp::Ordering {
 }
 
 /// The canonical token stream of a file, and its comments.
-fn canonical<'a>(root: &SyntaxNode, text: &'a str) -> (Vec<Token<'a>>, Vec<String>) {
-  let lines = LineIndex::new(text);
+fn canonical<'a>(
+  root: &SyntaxNode,
+  text: &'a str,
+  edition: Edition,
+) -> (Vec<Token<'a>>, Vec<String>) {
+  let lines = LineIndex::new(text, edition);
   let mut tokens = Vec::new();
   let mut comments = Vec::new();
   emit_node(root, &lines, &mut tokens, &mut comments);
@@ -560,6 +569,7 @@ fn emit_node<'a>(
         text: "{".into(),
         line,
       });
+      let mut matcher = true;
       for element in children
         .iter()
         .skip(1)
@@ -567,7 +577,23 @@ fn emit_node<'a>(
       {
         match element {
           SyntaxElement::Node(arm) if arm.kind() == SyntaxKind::TokenTree => {
-            emit_tree(arm, "{", "}", lines, out, notes);
+            // macro-rules-transcribers: a transcriber that reads as code, as that code.
+            let code = (!matcher).then(|| transcriber(arm, lines)).flatten();
+            match code {
+              Some(tokens) => {
+                out.push(Token {
+                  text: "{".into(),
+                  line,
+                });
+                out.extend(tokens);
+                out.push(Token {
+                  text: "}".into(),
+                  line,
+                });
+              }
+              None => emit_tree(arm, "{", "}", lines, out, notes),
+            }
+            matcher = !matcher;
           }
           SyntaxElement::Token(t) if t.kind() == SyntaxKind::Semi => {}
           other => emit_element(node, other, lines, out, notes),
@@ -1133,6 +1159,63 @@ fn token_text<'a>(parent: &SyntaxNode, kind: SyntaxKind, text: &'a str) -> Cow<'
     SyntaxKind::Str | SyntaxKind::ByteStr | SyntaxKind::CStr => continued(text).into(),
     _ => Cow::Borrowed(text),
   }
+}
+
+/// A `macro_rules!` transcriber's canonical tokens when it reads as items, or else as
+/// statements in a function, once its metavariables are renamed; `None` when it reads as
+/// neither (or holds a repetition).
+fn transcriber<'a>(arm: &SyntaxNode, lines: &LineIndex<'_>) -> Option<Vec<Token<'a>>> {
+  let whole = arm.text().to_string();
+  let body = whole.get(1..whole.len().checked_sub(1)?)?;
+  let (renamed, _) = crate::syntax::metavariables::replace_names(body.trim(), lines.edition)?;
+  let as_items = crate::syntax::parse(&renamed, lines.edition);
+  let (text, wrapped) = if as_items.errors().is_empty() {
+    (renamed, false)
+  } else {
+    (format!("fn main() {{\n{}\n}}", renamed), true)
+  };
+  let parsed = crate::syntax::parse(&text, lines.edition);
+  if !parsed.errors().is_empty() {
+    return None;
+  }
+  // A `;` standing alone in the transcriber itself is part of what it expands to, unlike
+  // one inside a block of it (stray-semicolon): compared as written.
+  let root = parsed.syntax_node();
+  let top = if wrapped {
+    root
+      .descendant_nodes_where(|kind| kind == SyntaxKind::BlockExpr)
+      .next()?
+  } else {
+    root.clone()
+  };
+  if top
+    .children_with_tokens_iter()
+    .any(|e| e.kind() == SyntaxKind::Semi)
+  {
+    return None;
+  }
+  let inner = LineIndex::new(&text, lines.edition);
+  let mut tokens = Vec::new();
+  // Its comments are the file's, counted there.
+  let mut comments = Vec::new();
+  emit_node(&root, &inner, &mut tokens, &mut comments);
+  // `fn main ( ) {` and the closing `}` are not the transcriber's.
+  let tokens = if wrapped {
+    let end = tokens.len().checked_sub(1)?;
+    tokens.get(5..end)?.to_vec()
+  } else {
+    tokens
+  };
+  let line = lines.line(arm.text_range().start as usize);
+  Some(
+    tokens
+      .into_iter()
+      .map(|t| Token {
+        text: Cow::Owned(t.text.into_owned()),
+        line,
+      })
+      .collect(),
+  )
 }
 
 fn tree(text: &str, edition: Edition) -> (SyntaxNode, usize) {

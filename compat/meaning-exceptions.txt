@@ -25,7 +25,6 @@ tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `
 tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
 tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
 tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
-tests/macro_rules.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 tests/pub-restricted.rs [tests]  the formatter drops the leading `::` of `pub(in ::path)`
 tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
@@ -62,12 +61,8 @@ rustfmt/tests/source/issue-6985.rs [corpus]  the formatter loses comments
 rustfmt/tests/source/issue-7056.rs [corpus]  the formatter mangles `$r#struct`
 rustfmt/tests/source/issue_5027.rs [corpus]  the formatter drops `pub` from an impl item
 rustfmt/tests/source/issue_5730.rs [corpus]  the formatter removes a `;` from a macro transcriber, which changes its expansion
-rustfmt/tests/source/macro_rules.rs [corpus]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 rustfmt/tests/source/macros.rs [corpus]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 rustfmt/tests/source/pub-restricted.rs [corpus]  the formatter drops the leading `::` of `pub(in ::path)`
-serde/serde/src/lib.rs [corpus-unformatted]  the formatter reorders imports inside a macro body: equivalent, not modelled
-serde/serde_core/src/crate_root.rs [corpus-unformatted]  the formatter reorders imports inside a macro body: equivalent, not modelled
-libc/src/macros.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus-unformatted]  the formatter writes invalid code (parentheses dropped around `?Sized`)
 rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus-unformatted]  the formatter drops an inner attribute inside an impl
 rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
@@ -104,7 +99,6 @@ rustfmt/tests/source/issue-6985.rs [corpus-unformatted]  the formatter loses com
 rustfmt/tests/source/issue-7056.rs [corpus-unformatted]  the formatter mangles `$r#struct`
 rustfmt/tests/source/issue_5027.rs [corpus-unformatted]  the formatter drops `pub` from an impl item
 rustfmt/tests/source/issue_5730.rs [corpus-unformatted]  the formatter removes a `;` from a macro transcriber, which changes its expansion
-rustfmt/tests/source/macro_rules.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 rustfmt/tests/source/macros.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 rustfmt/tests/source/pub-restricted.rs [corpus-unformatted]  the formatter drops the leading `::` of `pub(in ::path)`
 rustfmt/tests/source/struct_lits_visual.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)

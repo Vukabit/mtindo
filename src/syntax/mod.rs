@@ -5,6 +5,7 @@ pub mod ast;
 pub mod edition;
 pub mod kind;
 pub mod lexer;
+pub mod metavariables;
 pub mod parser;
 pub mod tree;
 

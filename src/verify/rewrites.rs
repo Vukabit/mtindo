@@ -140,6 +140,12 @@ pub const REWRITES: &[Rewrite] = &[
                  delimiters, and the `;` between arms (or after the last) is a separator.",
   },
   Rewrite {
+    name: "macro-rules-transcribers",
+    reason: "A `macro_rules!` transcriber that reads as items, or as statements, once its \
+                 metavariables are renamed (`$x` to `zx`) is compared as that code, by these \
+                 same rules: formatting it as code keeps what it expands to.",
+  },
+  Rewrite {
     name: "try-shorthand",
     reason: "`try!(e)` is `e?` (`use_try_shorthand`).",
   },

@@ -28,8 +28,8 @@ The headline figure of each paper:
 <!-- generated: index -->
 | paper | headline |
 |---|---|
-| [compatibility](compatibility.md) | 94.12% of scrambled-corpus lines match |
-| [meaning](meaning.md) | 107 exceptions listed, 28 not modelled yet |
+| [compatibility](compatibility.md) | 94.59% of scrambled-corpus lines match |
+| [meaning](meaning.md) | 101 exceptions listed, 22 not modelled yet |
 | [fuzzing](fuzzing.md) | 8 targets, 9 kept regression inputs |
 | [performance](performance.md) | 9.702 MB/s formatting on one thread |
 | [scrambled-pairs](scrambled-pairs.md) | no data recorded yet |

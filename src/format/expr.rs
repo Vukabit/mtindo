@@ -2152,6 +2152,14 @@ fn rewrite_list(
 /// when the standard formatter reads its arguments as such; one it cannot read is left as
 /// written, on one line where it fits.
 fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let laid = rewrite_macro_call(node, shape);
+  if laid.is_none() {
+    super::macros::macro_failed();
+  }
+  laid
+}
+
+fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let MacroArguments {
     name,
     list,
@@ -2168,6 +2176,7 @@ fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
     // later lines re-indented keeping their layout when its last line only closes
     // delimiters, else where they were.
     Err(Unread::AsWritten) => {
+      super::macros::macro_failed();
       // From its name to its arguments' closing delimiter: the comments an item carries
       // before it and its `;` are not the call's.
       let whole = node.text();

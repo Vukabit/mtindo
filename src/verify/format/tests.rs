@@ -309,7 +309,20 @@ fn test_each_allowed_rewrite() {
     "#[doc = \"say \\\"hi\\\"\"]\nfn f() {}\n",
     "/// say \"hi\"\nfn f() {}\n",
   );
-  assert_eq!(REWRITES.len(), 26);
+  same(
+    "macro_rules! m { ($a:expr) => { S { a: $a } } }\n",
+    "macro_rules! m { ($a:expr) => { S { a: $a, } }; }\n",
+  );
+  // A `;` standing alone in a transcriber is part of its expansion.
+  assert!(
+    !verify_format(
+      "macro_rules! m { () => {;}; }\n",
+      "macro_rules! m { () => {}; }\n",
+      Edition::E2021
+    )
+    .is_empty()
+  );
+  assert_eq!(REWRITES.len(), 27);
 }
 
 #[test]

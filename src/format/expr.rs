@@ -70,6 +70,9 @@ pub struct Link {
   pub head: String,
   /// The arguments of a method call.
   pub args: Option<Vec<SyntaxNode>>,
+  /// A method call's generic arguments (`::<T>`), each laid out in the link's shape, and
+  /// the head before them.
+  pub generics: Option<(String, SyntaxNode)>,
   pub tries: usize,
   /// The comments before it, after the code before it, each with whether it starts on
   /// that code's line.
@@ -198,16 +201,6 @@ pub fn binary_operator(node: &SyntaxNode) -> Option<String> {
   (!operator.is_empty() && !assigns).then_some(operator)
 }
 
-/// Whether generic arguments are ones [`rewrite_path`] breaks: paths (with generic
-/// arguments of their own), lifetimes and constants, no tuple or array (the standard
-/// formatter breaks those inside too).
-pub fn breakable_generics(list: &SyntaxNode) -> bool {
-  list.children().iter().all(|arg| {
-    let text = flat(arg, Spacing::default());
-    !text.contains(['(', '['])
-  })
-}
-
 /// Whether the last of `count` arguments may overflow: a closure or block always; a call,
 /// struct literal, array or tuple when it is the only argument; an `if`, `for`, `loop` or
 /// `while` then too, with `combine_control_expr` (`control`).
@@ -261,6 +254,7 @@ pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Lin
         let receiver = children[0].clone();
         let mut head = String::new();
         let mut args = None;
+        let mut generics = None;
         let mut after_receiver = false;
         for element in current.children_with_tokens() {
           if let SyntaxElement::Node(n) = &element
@@ -276,6 +270,10 @@ pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Lin
             SyntaxElement::Node(n) if n.kind() == SyntaxKind::ArgList => {
               args = Some(list_items(n));
             }
+            SyntaxElement::Node(n) if n.kind() == SyntaxKind::GenericArgList => {
+              generics = Some((head.clone(), n.clone()));
+              head.push_str(&flat(n, spacing));
+            }
             SyntaxElement::Node(n) => head.push_str(&flat(n, spacing)),
             SyntaxElement::Token(t) if !t.kind().is_trivia() => head.push_str(t.text()),
             _ => {}
@@ -284,6 +282,7 @@ pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Lin
         links.push(Link {
           head,
           args,
+          generics,
           tries: pending_tries,
           comments: chain_comments(&current, &receiver),
         });
@@ -713,6 +712,7 @@ pub(super) fn if_single_line(node: &SyntaxNode, shape: Shape) -> Option<String> 
   let fixed = 2 + 16;
   let width = shape.width.checked_sub(condition.width() + fixed)?;
   let flat_shape = |width| Shape {
+    align: 0,
     indent: 0,
     offset: 0,
     width,
@@ -859,6 +859,379 @@ pub(super) fn rewrite_if_lines(node: &SyntaxNode, shape: Shape, nested: bool) ->
     }
   }
   Some(text)
+}
+
+/// `ident(items)`: calls, arrays and tuples, with the standard formatter's tactics: on one
+/// line within `max_width`, the last item overflowing, packed when every item is short and
+/// simple, else one per line.
+pub(super) fn rewrite_list(
+  ident: &str,
+  items: &[SyntaxNode],
+  shape: Shape,
+  max_width: usize,
+  open: &str,
+  close: &str,
+) -> Option<String> {
+  // With nothing in it, on the line when it fits there; else (a callee past its shape) the
+  // closing delimiter on the next line, as the standard formatter's `wrap_items` leaves it
+  // for the list holding the call to lay out again.
+  if items.is_empty() {
+    let text = format!("{}{}{}", ident, open, close);
+    if wrap_str(text.clone(), shape).is_some() || open != "(" {
+      return wrap_str(text, shape);
+    }
+    if last_line_width(ident) > shape.indent + shape.offset + shape.width || ident.contains('\n') {
+      return None;
+    }
+    return Some(format!("{}(\n{})", ident, " ".repeat(shape.indent)));
+  }
+  // A type's list inside a macro's arguments (generic arguments) takes its trailing comma
+  // as any does; the macro's own list of types keeps it as written.
+  let comma_as_written = shape.limits.comma_as_written
+    && (ident.ends_with('!') || !super::types::is_type(items[0].kind()));
+  let used = last_line_width(ident);
+  let one_line_width = shape.width.saturating_sub(used + 2);
+  let one_line_shape = shape
+    .offset_left(used + 1)
+    .and_then(|s| s.sub_width(1))
+    .unwrap_or(Shape { width: 0, ..shape });
+  let nested = {
+    let s = shape.block_indent(shape.limits.tab);
+    Shape {
+      width: s.width.saturating_sub(1),
+      ..s
+    }
+  };
+  let mut texts: Vec<String> = Vec::with_capacity(items.len());
+  for item in &items[..items.len().saturating_sub(1)] {
+    texts.push(rewrite(item, nested)?);
+  }
+  // The last item laid out on a line of its own is needed only when it does not overflow
+  // (the standard formatter's items are rewritten lazily).
+  let mut last_failed = false;
+  if let Some(last) = items.last() {
+    match rewrite(last, nested) {
+      Some(text) => texts.push(text),
+      // A closure's block is laid out from the shape it is given: one that fails on its own
+      // line fails the list.
+      None if last.kind() == SyntaxKind::ClosureExpr => return None,
+      None => {
+        last_failed = true;
+        texts.push(String::new());
+      }
+    }
+  }
+  // Comments among the items: one per line, the comments placed around them.
+  if let Some(parent) = items.first().and_then(|i| i.parent())
+    && let Some(comments) = super::lists::list_comments(&parent, items)
+  {
+    if last_failed {
+      return None;
+    }
+    // Block comments only: on the line when it all fits there (`definitive_tactic` breaks
+    // the list for line comments).
+    let line_comment =
+      |c: &Option<String>| c.as_ref().is_some_and(|c| c.trim_start().starts_with("//"));
+    if !comments
+      .iter()
+      .any(|c| line_comment(&c.pre) || line_comment(&c.post))
+      && texts.iter().all(|t| !t.contains('\n'))
+    {
+      let joined: Vec<String> = texts
+        .iter()
+        .zip(&comments)
+        .map(|(t, c)| {
+          let mut item = String::new();
+          if let Some(pre) = &c.pre {
+            item.push_str(pre.trim());
+            item.push(' ');
+          }
+          item.push_str(t);
+          if let Some(post) = &c.post {
+            item.push(' ');
+            item.push_str(post.trim());
+          }
+          item
+        })
+        .collect();
+      let joined = joined.join(", ");
+      // Each comment counted with six columns around it, one of them its space here
+      // (`total_item_width`).
+      let counted = comments
+        .iter()
+        .map(|c| usize::from(c.pre.is_some()) + usize::from(c.post.is_some()))
+        .sum::<usize>()
+        * 5;
+      if joined.width() + counted <= max_width.min(one_line_width) {
+        return wrap_str(format!("{}{}{}{}", ident, open, joined, close), shape);
+      }
+    }
+    let trailing = !comma_as_written || items.last().is_some_and(comma_after);
+    // Short simple items packed, as without comments.
+    let mixed = items.len() > 1
+      && items.iter().all(is_simple)
+      && texts.iter().all(|t| t.width() <= shape.limits.short_item)
+      && special_macro(ident, shape.limits.style_2024).is_none();
+    let body = super::lists::write_vertical(
+      &texts,
+      &comments,
+      nested.indent,
+      nested.width,
+      shape.limits.max_width,
+      trailing,
+      mixed,
+    )?;
+    return Some(format!(
+      "{}{}\n{}{}\n{}{}",
+      ident,
+      open,
+      " ".repeat(nested.indent),
+      body,
+      " ".repeat(shape.indent),
+      close
+    ));
+  }
+  let mut tactic = Tactic::Vertical;
+  if !items.is_empty() {
+    let last = items.len() - 1;
+    // A type is not an expression, which alone is combined with its callee.
+    let combine =
+      items.len() == 1 && used < shape.limits.tab && !super::types::is_type(items[0].kind());
+    // A slice pattern's last element does not overflow; among several closures the last
+    // does not either (`args_have_many_closure`).
+    let slice = items[0]
+      .parent()
+      .is_some_and(|p| p.kind() == SyntaxKind::SlicePat);
+    let closures = items
+      .iter()
+      .filter(|i| i.kind() == SyntaxKind::ClosureExpr)
+      .count();
+    let overflow = !slice
+      && closures < 2
+      && (combine
+        || if super::types::is_type(items[last].kind()) {
+          super::types::can_overflow_type(&items[last], items.len())
+        } else {
+          can_overflow(&items[last], items.len(), shape.limits.combine_control_expr)
+        });
+    // A method chain overflowing a list it is not combined with keeps its links on one
+    // line, though its last call's arguments may break (the standard formatter's
+    // `force_one_line_chain`).
+    // For a macro's arguments only from style edition 2024, as the standard formatter has it.
+    let one_line_chain = !combine
+      && is_method_call(&items[last])
+      && (!ident.ends_with('!') || shape.limits.style_2024);
+    let placeholder = if overflow {
+      // An attribute's nested list overflowing its parent stops a column short, as the
+      // standard formatter writes it (found by measuring it).
+      let overflow_shape = if shape.limits.attribute {
+        one_line_shape.sub_width(1).unwrap_or(Shape {
+          width: 0,
+          ..one_line_shape
+        })
+      } else {
+        one_line_shape
+      };
+      let overflow_shape = Shape {
+        limits: Limits {
+          one_line_chains: shape.limits.one_line_chains || one_line_chain,
+          ..overflow_shape.limits
+        },
+        ..overflow_shape
+      };
+      last_item_shape(items, &texts, overflow_shape, max_width).and_then(|s| {
+        match items[last].kind() {
+          SyntaxKind::ClosureExpr => rewrite_last_closure(&items[last], s),
+          // A control expression overflows unless its condition spans lines.
+          _ if multi_line_condition(&items[last], s) => None,
+          _ => rewrite(&items[last], s),
+        }
+      })
+    } else {
+      None
+    };
+    // `vec![x; n]` the standard formatter overflows across lines when it does not fit on
+    // the line, which is not done here: the list fails.
+    let repeat_macro = |item: &SyntaxNode| {
+      matches!(item.kind(), SyntaxKind::MacroExpr | SyntaxKind::MacroCall)
+        && macro_arguments(item, shape.limits.spacing).is_ok_and(|arguments| {
+          arguments
+            .list
+            .children_with_tokens()
+            .iter()
+            .any(|e| e.kind() == SyntaxKind::Semi)
+        })
+    };
+    if overflow && placeholder.is_none() && repeat_macro(&items[last]) {
+      return None;
+    }
+    if last_failed && placeholder.is_none() {
+      return None;
+    }
+    let mut probe = texts.clone();
+    if let Some(over) = &placeholder {
+      probe[last] = over.lines().next().unwrap_or("").to_string();
+    }
+    tactic = definitive(&probe, max_width.min(one_line_width));
+    if last_failed && !(overflow && tactic == Tactic::Horizontal) {
+      return None;
+    }
+    match (overflow, tactic, placeholder) {
+      (true, Tactic::Horizontal, Some(over)) if items.len() == 1 => {
+        if over.matches('\n').count() == 1 {
+          match rewrite(&items[last], nested) {
+            Some(again) if !again.contains('\n') => texts[last] = again,
+            _ => texts[last] = over,
+          }
+        } else {
+          texts[last] = over;
+        }
+      }
+      (true, Tactic::Horizontal, Some(over)) => texts[last] = over,
+      _ => {
+        if items.len() == 1
+          && one_line_width != 0
+          && !texts[0].contains('\n')
+          && texts[0].width() <= one_line_width
+        {
+          tactic = Tactic::Horizontal;
+        } else {
+          tactic = definitive(&texts, max_width.min(one_line_width));
+          let special = special_macro(ident, shape.limits.style_2024);
+          if tactic == Tactic::Vertical {
+            if let Some(before) = special {
+              // The standard formatter's `maybe_get_args_offset`: the arguments around the
+              // format string are simple, and each group fits on a line.
+              let fits = |texts: &[String]| definitive(texts, nested.width) == Tactic::Horizontal;
+              if items.len() > before
+                && items[..before].iter().all(is_simple)
+                && items[before + 1..].iter().all(is_simple)
+                && fits(&texts[..before])
+                && fits(&texts[before + 1..])
+              {
+                tactic = Tactic::Special(before);
+              }
+            } else if items.iter().all(is_simple)
+              && texts.iter().all(|t| t.width() <= shape.limits.short_item)
+            {
+              tactic = Tactic::Mixed;
+            }
+          }
+        }
+      }
+    }
+  }
+  let trailing = if !comma_as_written || items.last().is_some_and(comma_after) {
+    ","
+  } else {
+    ""
+  };
+  let body = match tactic {
+    // Attribute and macro arguments keep a written trailing comma on one line too.
+    Tactic::Horizontal if comma_as_written => {
+      format!("{}{}", texts.join(", "), trailing)
+    }
+    Tactic::Horizontal => texts.join(", "),
+    Tactic::Vertical => {
+      let sep = format!(",\n{}", " ".repeat(nested.indent));
+      format!("{}{}", texts.join(&sep), trailing)
+    }
+    Tactic::Mixed => {
+      let mut lines: Vec<String> = Vec::new();
+      let mut line = String::new();
+      for text in &texts {
+        // The item with its comma, and the space after the comma before it.
+        let added = if line.is_empty() {
+          text.width() + 1
+        } else {
+          text.width() + 3
+        };
+        if !line.is_empty() && line.width() + added > nested.width {
+          lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+          line.push_str(", ");
+        }
+        line.push_str(text);
+      }
+      lines.push(line);
+      let sep = format!(",\n{}", " ".repeat(nested.indent));
+      format!("{}{}", lines.join(&sep), trailing)
+    }
+    Tactic::Special(before) => {
+      let mut body = String::new();
+      for (i, text) in texts.iter().enumerate() {
+        if i > 0 {
+          body.push(',');
+          if i < before || i > before + 1 {
+            body.push(' ');
+          } else {
+            body.push('\n');
+            body.push_str(&" ".repeat(nested.indent));
+          }
+        }
+        body.push_str(text);
+      }
+      format!("{}{}", body, trailing)
+    }
+  };
+  // wrap_items: on the opening line when it is horizontal and its first line fits.
+  let available = shape.width.saturating_sub(used);
+  let extend = if body.is_empty() {
+    2
+  } else {
+    first_line_width(&body) + 1
+  };
+  // Inside a macro's arguments, before style edition 2024, a list whose items went on one line
+  // stays there when it fits, whatever its tactic (the standard formatter's `wrap_items`).
+  let single = tactic == Tactic::Horizontal && extend <= available
+    || shape.limits.inside_macro
+      && !shape.limits.style_2024
+      && !body.is_empty()
+      && !body.contains('\n')
+      && body.width() + 2 <= available;
+  let text = if single {
+    format!("{}{}{}{}", ident, open, body, close)
+  } else if body.is_empty() {
+    format!("{}{}{}", ident, open, close)
+  } else {
+    format!(
+      "{}{}\n{}{}\n{}{}",
+      ident,
+      open,
+      " ".repeat(nested.indent),
+      body,
+      " ".repeat(shape.indent),
+      close
+    )
+  };
+  // As the standard formatter's `rewrite_with_parens`: a list broken over lines is
+  // returned whatever its opening line's width, for the caller to weigh against laying it
+  // out elsewhere, though no later line may pass the line width; one kept on a line must
+  // fit.
+  // In an attribute a `name = literal` may run past it, as may a string alone on its line
+  // in a format-like macro's arguments from style edition 2024 (before it, or in another
+  // macro, the call fails and is left as written).
+  let string_line = |line: &str| {
+    let line = line.trim();
+    let line = line.strip_suffix(',').unwrap_or(line);
+    shape.limits.inside_macro
+      && shape.limits.style_2024
+      && special_macro(ident, true).is_some()
+      && (line.starts_with('"') || line.starts_with("r\"") || line.starts_with("r#"))
+      && line.ends_with(['"', '#'])
+  };
+  // A type's list is returned whatever its lines' widths (the standard formatter's callers
+  // do not check them).
+  if single || shape.limits.attribute || super::types::is_type(items[0].kind()) {
+    Some(text)
+  } else {
+    text
+      .lines()
+      .skip(1)
+      .all(|l| code_width(l) <= shape.limits.max_width || string_line(l))
+      .then_some(text)
+  }
 }
 
 /// The shape a closure's body starts in after its `|parameters|` and a space. With the
@@ -1090,6 +1463,38 @@ fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
   }
   let whole = flat(node, shape.limits.spacing);
   let prefix = whole.strip_suffix(&flat(body, shape.limits.spacing))?;
+  // A parameter whose type breaks over lines: the parameters one per line, lined up after
+  // the `|` (each laid out in the standard formatter's visually indented `param_shape`).
+  let params: Vec<SyntaxNode> = node
+    .children()
+    .into_iter()
+    .filter(|c| c.kind() == SyntaxKind::ParamList)
+    .flat_map(|list| list.children())
+    .collect();
+  let opening = prefix.find('|')?;
+  // 4 = `|| {`
+  let param_shape = shape
+    .offset_left(prefix[..opening].width() + 1)
+    .and_then(|s| s.sub_width(4));
+  if !params.is_empty()
+    && let Some(param_shape) = param_shape
+    && !node
+      .children()
+      .iter()
+      .any(|c| c.kind() == SyntaxKind::RetType)
+  {
+    let texts: Option<Vec<String>> = params
+      .iter()
+      .map(|p| super::types::rewrite_param(p, param_shape))
+      .collect();
+    if let Some(texts) = texts
+      && texts.iter().any(|t| t.contains('\n'))
+    {
+      let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
+      let sep = format!(",\n{}", " ".repeat(column));
+      return Some(format!("{}{}|", &prefix[..=opening], texts.join(&sep)));
+    }
+  }
   if block_fits(node, body, shape) {
     return Some(prefix.trim_end().to_string());
   }
@@ -1707,18 +2112,6 @@ fn rewrite_cast(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let [expression, ty] = children.as_slice() else {
     return None;
   };
-  let ty = flat(ty, shape.limits.spacing);
-  let whole = flat(node, shape.limits.spacing);
-  if !whole.contains('\n')
-    && whole.width() <= shape.width
-    && let Some(text) = rewrite(expression, shape)
-    && !text.contains('\n')
-  {
-    let text = format!("{} as {}", text, ty);
-    if text.width() <= shape.width {
-      return Some(text);
-    }
-  }
   let used = shape.indent + shape.offset;
   let lhs_shape = Shape {
     width: shape.limits.max_width.saturating_sub(used),
@@ -1732,14 +2125,22 @@ fn rewrite_cast(node: &SyntaxNode, shape: Shape) -> Option<String> {
   } else {
     lhs.width()
   };
-  let fits = last + 4 + ty.width() <= shape.width;
-  if fits {
-    return Some(format!("{} as {}", lhs, ty));
+  // 4 = ` as `
+  if let Some(text) = shape.offset_left(last + 4).and_then(|s| rewrite(ty, s)) {
+    let same_line = lhs.width() <= shape.limits.tab
+      || text.lines().next().is_some_and(|l| l.trim().ends_with('{'));
+    if (!text.contains('\n') || same_line) && last + 4 + first_line_width(&text) <= shape.width {
+      return Some(format!("{} as {}", lhs, text));
+    }
   }
   // Else `as Type` on the next line, one level in.
-  let inner = shape.indent + shape.limits.tab;
-  (inner + 3 + ty.width() <= shape.limits.max_width)
-    .then(|| format!("{}\n{}as {}", lhs, " ".repeat(inner), ty))
+  let nested = shape.block_indent(shape.limits.tab);
+  let rhs_shape = Shape {
+    width: nested.width.checked_sub(shape.rhs_overhead())?,
+    ..nested
+  };
+  let text = rewrite(ty, rhs_shape.offset_left(3)?)?;
+  Some(format!("{}\n{}as {}", lhs, " ".repeat(nested.indent), text))
 }
 
 /// A chain, as the standard formatter's block-indented chain formatter lays it out.
@@ -2020,363 +2421,26 @@ fn rewrite_let_condition(node: &SyntaxNode, shape: Shape) -> Option<String> {
 fn rewrite_link(link: &Link, shape: Shape) -> Option<String> {
   let tries = "?".repeat(link.tries);
   let shape = shape.sub_width(link.tries)?;
+  // `::<A, B>`: each generic argument laid out in the link's shape, joined on the line (the
+  // standard formatter's `rewrite_method_call`).
+  let head = match &link.generics {
+    Some((name, list)) => {
+      let texts: Vec<String> = list
+        .children()
+        .iter()
+        .map(|arg| rewrite(arg, shape))
+        .collect::<Option<_>>()?;
+      format!("{}::<{}>", name, texts.join(", "))
+    }
+    _ => link.head.clone(),
+  };
   let text = match &link.args {
-    Some(args) => rewrite_list(&link.head, args, shape, shape.limits.fn_call, "(", ")")?,
+    Some(args) => rewrite_list(&head, args, shape, shape.limits.fn_call, "(", ")")?,
     // A field or `.await` is printed without a width check, as the standard formatter
     // prints it; whether the chain fits is decided around it.
-    None => link.head.clone(),
+    None => head,
   };
   Some(format!("{}{}", text, tries))
-}
-
-/// `ident(items)`: calls, arrays and tuples, with the standard formatter's tactics: on one
-/// line within `max_width`, the last item overflowing, packed when every item is short and
-/// simple, else one per line.
-fn rewrite_list(
-  ident: &str,
-  items: &[SyntaxNode],
-  shape: Shape,
-  max_width: usize,
-  open: &str,
-  close: &str,
-) -> Option<String> {
-  if items.is_empty() {
-    return wrap_str(format!("{}{}{}", ident, open, close), shape);
-  }
-  let used = last_line_width(ident);
-  let one_line_width = shape.width.saturating_sub(used + 2);
-  let one_line_shape = shape
-    .offset_left(used + 1)
-    .and_then(|s| s.sub_width(1))
-    .unwrap_or(Shape { width: 0, ..shape });
-  let nested = {
-    let s = shape.block_indent(shape.limits.tab);
-    Shape {
-      width: s.width.saturating_sub(1),
-      ..s
-    }
-  };
-  let mut texts: Vec<String> = Vec::with_capacity(items.len());
-  for item in &items[..items.len().saturating_sub(1)] {
-    texts.push(rewrite(item, nested)?);
-  }
-  // The last item laid out on a line of its own is needed only when it does not overflow
-  // (the standard formatter's items are rewritten lazily).
-  let mut last_failed = false;
-  if let Some(last) = items.last() {
-    match rewrite(last, nested) {
-      Some(text) => texts.push(text),
-      // A closure's block is laid out from the shape it is given: one that fails on its own
-      // line fails the list.
-      None if last.kind() == SyntaxKind::ClosureExpr => return None,
-      None => {
-        last_failed = true;
-        texts.push(String::new());
-      }
-    }
-  }
-  // Comments among the items: one per line, the comments placed around them.
-  if let Some(parent) = items.first().and_then(|i| i.parent())
-    && let Some(comments) = super::lists::list_comments(&parent, items)
-  {
-    if last_failed {
-      return None;
-    }
-    // Block comments only: on the line when it all fits there (`definitive_tactic` breaks
-    // the list for line comments).
-    let line_comment =
-      |c: &Option<String>| c.as_ref().is_some_and(|c| c.trim_start().starts_with("//"));
-    if !comments
-      .iter()
-      .any(|c| line_comment(&c.pre) || line_comment(&c.post))
-      && texts.iter().all(|t| !t.contains('\n'))
-    {
-      let joined: Vec<String> = texts
-        .iter()
-        .zip(&comments)
-        .map(|(t, c)| {
-          let mut item = String::new();
-          if let Some(pre) = &c.pre {
-            item.push_str(pre.trim());
-            item.push(' ');
-          }
-          item.push_str(t);
-          if let Some(post) = &c.post {
-            item.push(' ');
-            item.push_str(post.trim());
-          }
-          item
-        })
-        .collect();
-      let joined = joined.join(", ");
-      // Each comment counted with six columns around it, one of them its space here
-      // (`total_item_width`).
-      let counted = comments
-        .iter()
-        .map(|c| usize::from(c.pre.is_some()) + usize::from(c.post.is_some()))
-        .sum::<usize>()
-        * 5;
-      if joined.width() + counted <= max_width.min(one_line_width) {
-        return wrap_str(format!("{}{}{}{}", ident, open, joined, close), shape);
-      }
-    }
-    let trailing = !shape.limits.comma_as_written || items.last().is_some_and(comma_after);
-    // Short simple items packed, as without comments.
-    let mixed = items.len() > 1
-      && items.iter().all(is_simple)
-      && texts.iter().all(|t| t.width() <= shape.limits.short_item)
-      && special_macro(ident, shape.limits.style_2024).is_none();
-    let body = super::lists::write_vertical(
-      &texts,
-      &comments,
-      nested.indent,
-      nested.width,
-      shape.limits.max_width,
-      trailing,
-      mixed,
-    )?;
-    return Some(format!(
-      "{}{}\n{}{}\n{}{}",
-      ident,
-      open,
-      " ".repeat(nested.indent),
-      body,
-      " ".repeat(shape.indent),
-      close
-    ));
-  }
-  let mut tactic = Tactic::Vertical;
-  if !items.is_empty() {
-    let last = items.len() - 1;
-    let combine = items.len() == 1 && used < shape.limits.tab;
-    // A slice pattern's last element does not overflow; among several closures the last
-    // does not either (`args_have_many_closure`).
-    let slice = items[0]
-      .parent()
-      .is_some_and(|p| p.kind() == SyntaxKind::SlicePat);
-    let closures = items
-      .iter()
-      .filter(|i| i.kind() == SyntaxKind::ClosureExpr)
-      .count();
-    let overflow = !slice
-      && closures < 2
-      && (combine || can_overflow(&items[last], items.len(), shape.limits.combine_control_expr));
-    // A method chain overflowing a list it is not combined with keeps its links on one
-    // line, though its last call's arguments may break (the standard formatter's
-    // `force_one_line_chain`).
-    // For a macro's arguments only from style edition 2024, as the standard formatter has it.
-    let one_line_chain = !combine
-      && is_method_call(&items[last])
-      && (!ident.ends_with('!') || shape.limits.style_2024);
-    let placeholder = if overflow {
-      // An attribute's nested list overflowing its parent stops a column short, as the
-      // standard formatter writes it (found by measuring it).
-      let overflow_shape = if shape.limits.attribute {
-        one_line_shape.sub_width(1).unwrap_or(Shape {
-          width: 0,
-          ..one_line_shape
-        })
-      } else {
-        one_line_shape
-      };
-      let overflow_shape = Shape {
-        limits: Limits {
-          one_line_chains: shape.limits.one_line_chains || one_line_chain,
-          ..overflow_shape.limits
-        },
-        ..overflow_shape
-      };
-      last_item_shape(items, &texts, overflow_shape, max_width).and_then(|s| {
-        match items[last].kind() {
-          SyntaxKind::ClosureExpr => rewrite_last_closure(&items[last], s),
-          // A control expression overflows unless its condition spans lines.
-          _ if multi_line_condition(&items[last], s) => None,
-          _ => rewrite(&items[last], s),
-        }
-      })
-    } else {
-      None
-    };
-    // `vec![x; n]` the standard formatter overflows across lines when it does not fit on
-    // the line, which is not done here: the list fails.
-    let repeat_macro = |item: &SyntaxNode| {
-      matches!(item.kind(), SyntaxKind::MacroExpr | SyntaxKind::MacroCall)
-        && macro_arguments(item, shape.limits.spacing).is_ok_and(|arguments| {
-          arguments
-            .list
-            .children_with_tokens()
-            .iter()
-            .any(|e| e.kind() == SyntaxKind::Semi)
-        })
-    };
-    if overflow && placeholder.is_none() && repeat_macro(&items[last]) {
-      return None;
-    }
-    if last_failed && placeholder.is_none() {
-      return None;
-    }
-    let mut probe = texts.clone();
-    if let Some(over) = &placeholder {
-      probe[last] = over.lines().next().unwrap_or("").to_string();
-    }
-    tactic = definitive(&probe, max_width.min(one_line_width));
-    if last_failed && !(overflow && tactic == Tactic::Horizontal) {
-      return None;
-    }
-    match (overflow, tactic, placeholder) {
-      (true, Tactic::Horizontal, Some(over)) if items.len() == 1 => {
-        if over.matches('\n').count() == 1 {
-          match rewrite(&items[last], nested) {
-            Some(again) if !again.contains('\n') => texts[last] = again,
-            _ => texts[last] = over,
-          }
-        } else {
-          texts[last] = over;
-        }
-      }
-      (true, Tactic::Horizontal, Some(over)) => texts[last] = over,
-      _ => {
-        if items.len() == 1
-          && one_line_width != 0
-          && !texts[0].contains('\n')
-          && texts[0].width() <= one_line_width
-        {
-          tactic = Tactic::Horizontal;
-        } else {
-          tactic = definitive(&texts, max_width.min(one_line_width));
-          let special = special_macro(ident, shape.limits.style_2024);
-          if tactic == Tactic::Vertical {
-            if let Some(before) = special {
-              // The standard formatter's `maybe_get_args_offset`: the arguments around the
-              // format string are simple, and each group fits on a line.
-              let fits = |texts: &[String]| definitive(texts, nested.width) == Tactic::Horizontal;
-              if items.len() > before
-                && items[..before].iter().all(is_simple)
-                && items[before + 1..].iter().all(is_simple)
-                && fits(&texts[..before])
-                && fits(&texts[before + 1..])
-              {
-                tactic = Tactic::Special(before);
-              }
-            } else if items.iter().all(is_simple)
-              && texts.iter().all(|t| t.width() <= shape.limits.short_item)
-            {
-              tactic = Tactic::Mixed;
-            }
-          }
-        }
-      }
-    }
-  }
-  let trailing = if !shape.limits.comma_as_written || items.last().is_some_and(comma_after) {
-    ","
-  } else {
-    ""
-  };
-  let body = match tactic {
-    // Attribute and macro arguments keep a written trailing comma on one line too.
-    Tactic::Horizontal if shape.limits.comma_as_written => {
-      format!("{}{}", texts.join(", "), trailing)
-    }
-    Tactic::Horizontal => texts.join(", "),
-    Tactic::Vertical => {
-      let sep = format!(",\n{}", " ".repeat(nested.indent));
-      format!("{}{}", texts.join(&sep), trailing)
-    }
-    Tactic::Mixed => {
-      let mut lines: Vec<String> = Vec::new();
-      let mut line = String::new();
-      for text in &texts {
-        // The item with its comma, and the space after the comma before it.
-        let added = if line.is_empty() {
-          text.width() + 1
-        } else {
-          text.width() + 3
-        };
-        if !line.is_empty() && line.width() + added > nested.width {
-          lines.push(std::mem::take(&mut line));
-        }
-        if !line.is_empty() {
-          line.push_str(", ");
-        }
-        line.push_str(text);
-      }
-      lines.push(line);
-      let sep = format!(",\n{}", " ".repeat(nested.indent));
-      format!("{}{}", lines.join(&sep), trailing)
-    }
-    Tactic::Special(before) => {
-      let mut body = String::new();
-      for (i, text) in texts.iter().enumerate() {
-        if i > 0 {
-          body.push(',');
-          if i < before || i > before + 1 {
-            body.push(' ');
-          } else {
-            body.push('\n');
-            body.push_str(&" ".repeat(nested.indent));
-          }
-        }
-        body.push_str(text);
-      }
-      format!("{}{}", body, trailing)
-    }
-  };
-  // wrap_items: on the opening line when it is horizontal and its first line fits.
-  let available = shape.width.saturating_sub(used);
-  let extend = if body.is_empty() {
-    2
-  } else {
-    first_line_width(&body) + 1
-  };
-  // Inside a macro's arguments, before style edition 2024, a list whose items went on one line
-  // stays there when it fits, whatever its tactic (the standard formatter's `wrap_items`).
-  let single = tactic == Tactic::Horizontal && extend <= available
-    || shape.limits.inside_macro
-      && !shape.limits.style_2024
-      && !body.is_empty()
-      && !body.contains('\n')
-      && body.width() + 2 <= available;
-  let text = if single {
-    format!("{}{}{}{}", ident, open, body, close)
-  } else if body.is_empty() {
-    format!("{}{}{}", ident, open, close)
-  } else {
-    format!(
-      "{}{}\n{}{}\n{}{}",
-      ident,
-      open,
-      " ".repeat(nested.indent),
-      body,
-      " ".repeat(shape.indent),
-      close
-    )
-  };
-  // As the standard formatter's `rewrite_with_parens`: a list broken over lines is
-  // returned whatever its opening line's width, for the caller to weigh against laying it
-  // out elsewhere, though no later line may pass the line width; one kept on a line must
-  // fit.
-  // In an attribute a `name = literal` may run past it, as may a string alone on its line
-  // in a format-like macro's arguments from style edition 2024 (before it, or in another
-  // macro, the call fails and is left as written).
-  let string_line = |line: &str| {
-    let line = line.trim();
-    let line = line.strip_suffix(',').unwrap_or(line);
-    shape.limits.inside_macro
-      && shape.limits.style_2024
-      && special_macro(ident, true).is_some()
-      && (line.starts_with('"') || line.starts_with("r\"") || line.starts_with("r#"))
-      && line.ends_with(['"', '#'])
-  };
-  if single || shape.limits.attribute {
-    Some(text)
-  } else {
-    text
-      .lines()
-      .skip(1)
-      .all(|l| code_width(l) <= shape.limits.max_width || string_line(l))
-      .then_some(text)
-  }
 }
 
 /// A macro call laid out as a call (its arguments in parentheses) or an array (in brackets),
@@ -2463,18 +2527,6 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
     return (text.width() <= shape.width).then_some(text);
   }
   let items = list_items(&list);
-  // Generic arguments that would have to break are not laid out yet (as in statements): an
-  // argument holding them must fit on its own line with its comma when the list breaks.
-  let own_line = shape.block_indent(shape.limits.tab).width.saturating_sub(1);
-  if items.iter().any(|item| {
-    item
-      .descendants()
-      .iter()
-      .any(|d| d.kind() == SyntaxKind::GenericArgList)
-      && flat(item, shape.limits.spacing).width() > own_line
-  }) {
-    return None;
-  }
   let commas = list
     .children_with_tokens()
     .iter()
@@ -2618,6 +2670,7 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       }
     }
     SyntaxKind::PathExpr => rewrite_path(node, shape),
+    kind if super::types::is_type(kind) => super::types::rewrite_type(node, shape),
     SyntaxKind::OrPat => rewrite_or_pattern(node, shape),
     // `name @ pattern`: the pattern laid out after the binding.
     SyntaxKind::IdentPat
@@ -2775,42 +2828,15 @@ fn rewrite_pair(
   ))
 }
 
-/// A path on one line; one ending in generic arguments that the standard formatter finds
-/// too wide (its `::<` and what follows, less the `<>`, past the shape) with its arguments
-/// one per line, one level in, and `>` back at the path's indentation.
+/// A path, its generic arguments laid out as a type's are (the standard formatter's
+/// `rewrite_path` in an expression): each segment's name must fit, but generic arguments
+/// kept on the line may run past the shape, for what holds the path to weigh.
 fn rewrite_path(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let spacing = shape.limits.spacing;
-  let text = flat(node, spacing);
-  let generics = node
-    .descendants()
+  let path = node
+    .children()
     .into_iter()
-    .filter(|d| d.kind() == SyntaxKind::GenericArgList)
-    .find(|d| d.text_range().end == node.text_range().end);
-  let Some(generics) =
-    generics.filter(|g| text.width().saturating_sub(2) > shape.width && breakable_generics(g))
-  else {
-    return (text.width() <= shape.width && !breaks_inside(node, shape.limits)).then_some(text);
-  };
-  // The list holds its `::` too: the head runs to its `<`.
-  let inside = flat(&generics, spacing);
-  let head = format!(
-    "{}{}",
-    text.strip_suffix(&inside)?,
-    &inside[..inside.find('<')? + 1]
-  );
-  let nested = shape.block_indent(shape.limits.tab);
-  let pad = " ".repeat(nested.indent);
-  let mut out = head.clone();
-  for arg in generics.children() {
-    let arg = flat(&arg, spacing);
-    // 1 = `,`
-    if arg.width() + 1 > nested.width {
-      return None;
-    }
-    out.push_str(&format!("\n{}{},", pad, arg));
-  }
-  out.push_str(&format!("\n{}>", " ".repeat(shape.indent)));
-  (head.width() < shape.width).then_some(out)
+    .find(|c| c.kind() == SyntaxKind::Path)?;
+  super::types::rewrite_path(&path, shape, true)
 }
 
 /// A struct literal or pattern: on one line within `struct_lit_width`, else one field per
@@ -3065,6 +3091,7 @@ mod tests {
     rewrite(
       &node,
       Shape {
+        align: 0,
         indent: 4,
         offset: column - 4,
         width: 100 - column - 1,

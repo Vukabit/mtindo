@@ -546,6 +546,165 @@ fn test_trailing_semicolons() {
 }
 
 #[test]
+fn test_types_broken_in_expressions() {
+  // Types in `let`s, casts, closure parameters and turbofish paths broken as the standard formatter breaks them.
+  assert_eq!(
+    formatted(
+      r#"fn f() {
+    b.iter(|| {
+        conn.exec_foreach(&stmt, (&"black",), |row: (i32, String, Option<String>, Option<i32>, Option<i32>, Option<String>, Option<String>)| {
+            let user = 1;
+        });
+    });
+    let b = Box::new(users::name.eq("John")) as Box<dyn BoxableExpression<users::table, self::multi_connection_impl::MultiBackend, SqlType = _>>;
+}
+struct S {
+    field: HashMap<Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb>,
+    pub other: (Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb),
+}
+"#
+    ),
+    r#"fn f() {
+    b.iter(|| {
+        conn.exec_foreach(
+            &stmt,
+            (&"black",),
+            |row: (
+                i32,
+                String,
+                Option<String>,
+                Option<i32>,
+                Option<i32>,
+                Option<String>,
+                Option<String>,
+            )| {
+                let user = 1;
+            },
+        );
+    });
+    let b = Box::new(users::name.eq("John"))
+        as Box<
+            dyn BoxableExpression<
+                users::table,
+                self::multi_connection_impl::MultiBackend,
+                SqlType = _,
+            >,
+        >;
+}
+struct S {
+    field: HashMap<
+        Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+        Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,
+    >,
+    pub other: (
+        Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+        Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,
+    ),
+}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"fn f() {
+    let x = Some(TypeId::of::<TypeParamBorrowedForALifetimeAaaaaaaaaaaaaaaaaaaaaaaaaaaaa<'static, MarkerA>>());
+    fooooooooooooooooooooooooooooo(query_id_of(&value), Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()));
+    assert_eq!(query_id_of(&value), Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()));
+    assert_eq!(query_id_of(&value), Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()), "aaaaaaaa");
+    fooooooooooooooooooooooooooooo(query_id_of(&value), Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()), "aaaaaa");
+}
+"#
+    ),
+    r#"fn f() {
+    let x = Some(TypeId::of::<
+        TypeParamBorrowedForALifetimeAaaaaaaaaaaaaaaaaaaaaaaaaaaaa<'static, MarkerA>,
+    >());
+    fooooooooooooooooooooooooooooo(
+        query_id_of(&value),
+        Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()),
+    );
+    assert_eq!(
+        query_id_of(&value),
+        Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>())
+    );
+    assert_eq!(
+        query_id_of(&value),
+        Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()),
+        "aaaaaaaa"
+    );
+    fooooooooooooooooooooooooooooo(
+        query_id_of(&value),
+        Some(TypeId::of::<TypeParamBorrowedForALifetime<'static, MarkerA>>()),
+        "aaaaaa",
+    );
+}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"fn f() {
+    {
+        {
+            &*(records as *const _ as *const SqliteBatchInsertWrapper<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>)
+        }
+    }
+    assert_eq!(
+        Ok(None),
+        <crate::connection::AnsiTransactionManager as crate::connection::TransactionManager<SqliteConnection>>::transaction_manager_status_mut(conn).transaction_depth()
+    );
+    let x = y.into_iter().map(|(_, users_with_post_and_comment)| users_with_post_and_comment).collect::<Vec<(for_load::Users, Vec<(for_load::Posts, Vec<for_load::Comments>)>)>>();
+}
+"#
+    ),
+    r#"fn f() {
+    {
+        {
+            &*(records as *const _
+                as *const SqliteBatchInsertWrapper<
+                    Vec<ValuesClause<V, T>>,
+                    T,
+                    QId,
+                    STATIC_QUERY_ID,
+                >)
+        }
+    }
+    assert_eq!(
+        Ok(None),
+        <crate::connection::AnsiTransactionManager as crate::connection::TransactionManager<
+            SqliteConnection,
+        >>::transaction_manager_status_mut(conn)
+        .transaction_depth()
+    );
+    let x = y
+        .into_iter()
+        .map(|(_, users_with_post_and_comment)| users_with_post_and_comment)
+        .collect::<Vec<(
+            for_load::Users,
+            Vec<(for_load::Posts, Vec<for_load::Comments>)>,
+        )>>();
+}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"fn f() {
+    let x = y.into_iter().map(|(_, users_with_post_and_comment)| users_with_post_and_comment).collect::<Vec<(for_load::Users, Vec<(for_load::Posts, Vec<for_load::Comments>)>)>>();
+}
+"#
+    ),
+    r#"fn f() {
+    let x = y
+        .into_iter()
+        .map(|(_, users_with_post_and_comment)| users_with_post_and_comment)
+        .collect::<Vec<(
+            for_load::Users,
+            Vec<(for_load::Posts, Vec<for_load::Comments>)>,
+        )>>();
+}
+"#
+  );
+}
+
+#[test]
 fn test_what_the_standard_formatter_leaves_as_written() {
   // Ranges chained in a macro (a pattern), a struct literal past struct_lit_width among
   // binary operands, a `const` block a chain starts with, and a binary field value it

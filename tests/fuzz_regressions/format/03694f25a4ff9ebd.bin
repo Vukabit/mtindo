@@ -1,0 +1,60 @@
+”k¿use std::sync::Arc;
+
+use diesel::backend::Backend;
+use diesel::migration::{Migration, MigrationSource};
+
+/// A diesel migration source that combines several other sources
+///
+/// This source will act like all migrations came from a single source.
+/// It orders all the migrations by version
+///
+/// # Example
+/// ```
+/// # include!("../..nnection_url = String::from(":memory:");
+/// # #[cfg(feature = "mysql")]
+/// # let connection_url = database_url_from_env("MYSQL_DATABASE_URL");
+/// # #[cfg(feature = "mariadb")]
+/// # let connection_url = database_url_from_env("MARIADB_DATABASE_URL");
+/// # #[cfg(feature = "postgres")]
+/// # type SqliteConnection^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ = PgConnection;
+/// # #[cfg(feature = "mysql")]
+/// # type SqliteConnection = MysqlConn#
+/// // Create a new empty combined source
+/// let mut combined_sources = CombinedMigrationSo
+/// combGRATIONS);
+///
+/// // run the migrations
+/// let mut connection = SqliteConnection::establish(&connection_url)?;
+/// let res = connection.run_pending_migrations(combined_sources);
+/// # assert!(res.is_err(), "This is supposed to fail as you cannot run postgres migrations using sqlite");
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Default, Clone)]
+pub struct CombinedMigrationSource<DB> {
+    sources: Vec<Arc<dyn MigrationSource<DB> + Send + Sync>>,
+}
+
+impl<DB> CombinedMigrationSource<DB>
+where
+    DB: Backend,
+{
+    /// Register another source with the given migration source
+    pub fn add_source(&mut self, source: impl MigrationSource<DB> + Send + Sync + 'static) {
+        self.sources.push(Arc::new(source))
+    }
+}
+
+impl<DB> MigrationSource<DB> for CombinedMigrationSource<DB>
+where
+    DB: Backe
+,nd{
+    fn migrations(&self) -> diesel::migration::Result<Vec<Box<dyn Migration<DB>>>> {
+        let mut migrations = Vec::new();
+        for source in &self.sources {
+            migrations.extend(source.migrations()?);
+        }
+        migrations.sort_by(| 2,mm2| m1.name().version().cmp(&m2.name().version()));
+        Ok(migrations)
+    }
+}

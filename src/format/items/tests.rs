@@ -200,6 +200,350 @@ fn test_type_aliases_consts_and_statics_on_one_line() {
 }
 
 #[test]
+fn test_type_and_trait_aliases_broken() {
+  // Aliases with const block arguments, trait aliases and associated types with a `where`
+  // clause after them, as the standard formatter writes them.
+  assert_eq!(
+    formatted(
+      r#"type A = B<{ N + 1 }>;
+type Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb<{ N + 1 }>;
+trait   Foo   =   Bar  +  Baz ;
+pub trait Fooooooooooooooooooooooooooooooo<T> = Aaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;
+"#
+    ),
+    r#"type A = B<{ N + 1 }>;
+type Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa =
+    Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb<{ N + 1 }>;
+trait Foo = Bar + Baz;
+pub trait Fooooooooooooooooooooooooooooooo<T> =
+    Aaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"impl<'a> Row<'a, Pg> for PgRow {
+    type Field<'f> = PgField<'f> where 'a: 'f, Self: 'f;
+}
+pub trait LoadQuery<'query, Conn, U, B = DefaultLoadingMode>: RunQueryDsl<Conn> {
+    type RowIter<'conn>: Iterator<Item = QueryResult<U>> where Conn: 'conn;
+    type Field<'f>: Field<'f, DB> where 'a: 'f, Self: 'f;
+}
+"#
+    ),
+    r#"impl<'a> Row<'a, Pg> for PgRow {
+    type Field<'f>
+        = PgField<'f>
+    where
+        'a: 'f,
+        Self: 'f;
+}
+pub trait LoadQuery<'query, Conn, U, B = DefaultLoadingMode>: RunQueryDsl<Conn> {
+    type RowIter<'conn>: Iterator<Item = QueryResult<U>>
+    where
+        Conn: 'conn;
+    type Field<'f>: Field<'f, DB>
+    where
+        'a: 'f,
+        Self: 'f;
+}
+"#
+  );
+}
+
+#[test]
+fn test_types_and_generics_broken_in_headers() {
+  // Generic parameters, return types, bounds and field types broken as the standard formatter breaks them.
+  assert_eq!(
+    formatted(
+      r#"fn maybe_grouped<GB>(something: bool) -> Box<dyn BoxableExpression<users::table, Pg, GB, <users::id as ValidGrouping<GB>>::IsAggregate, SqlType = Integer>> {}
+fn f() {
+    let b: Box<dyn BoxableExpression<users::table, self::multi_connection_impl::MultiBackend, SqlType = _>> = x;
+    let c: Box<impl BoxableExpression<users::table, self::multi_connection_impl::MultiBackend, SqlType = _>> = x;
+    let d: Box<&BoxableExpression<users::table, self::multi_connection_impl::MultiBackend, SqlType = _, A = B>> = x;
+}
+"#
+    ),
+    r#"fn maybe_grouped<GB>(
+    something: bool,
+) -> Box<
+    dyn BoxableExpression<
+        users::table,
+        Pg,
+        GB,
+        <users::id as ValidGrouping<GB>>::IsAggregate,
+        SqlType = Integer,
+    >,
+> {
+}
+fn f() {
+    let b: Box<
+        dyn BoxableExpression<users::table, self::multi_connection_impl::MultiBackend, SqlType = _>,
+    > = x;
+    let c: Box<
+        impl BoxableExpression<users::table, self::multi_connection_impl::MultiBackend, SqlType = _>,
+    > = x;
+    let d: Box<
+        &BoxableExpression<
+            users::table,
+            self::multi_connection_impl::MultiBackend,
+            SqlType = _,
+            A = B,
+        >,
+    > = x;
+}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"fn f() -> impl Fn(AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, BBBBBBBBBBBBBBBBBBBBBBBBBBB) -> CCCCCCCCCCCCCCCCCCCC + Send + 'static {}
+fn h<T: Fn(AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, BBBBBBBBBBBBBBBBBBBBBBBBBBB) -> CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC + Send>() {}
+pub type BasicClient = oauth2::basic::BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
+"#
+    ),
+    r#"fn f(
+) -> impl Fn(AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, BBBBBBBBBBBBBBBBBBBBBBBBBBB) -> CCCCCCCCCCCCCCCCCCCC
+       + Send
+       + 'static {
+}
+fn h<
+    T: Fn(
+            AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,
+            BBBBBBBBBBBBBBBBBBBBBBBBBBB,
+        ) -> CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+        + Send,
+>() {
+}
+pub type BasicClient = oauth2::basic::BasicClient<
+    EndpointSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointSet,
+>;
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"pub struct AggregateExpression<Fn, Prefix = NoPrefix, Order = NoOrder, Filter = NoFilter, Window = NoWindow> {
+    a: u8,
+}
+pub struct CombinationClause<Combinator, Rule, Source, Rhs, Order = NoOrderClause, LimitOffset = LimitOffsetClause<NoLimitClause, NoOffsetClause>> {}
+pub struct Unit<Combinator, Rule, Source, Rhs, Order = NoOrderClause, LimitOffset = LimitOffsetClauseXXXX>;
+enum E<Aaaaaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, Cccccccccccccccccccccccccc> where A: B { X }
+"#
+    ),
+    r#"pub struct AggregateExpression<
+    Fn,
+    Prefix = NoPrefix,
+    Order = NoOrder,
+    Filter = NoFilter,
+    Window = NoWindow,
+> {
+    a: u8,
+}
+pub struct CombinationClause<
+    Combinator,
+    Rule,
+    Source,
+    Rhs,
+    Order = NoOrderClause,
+    LimitOffset = LimitOffsetClause<NoLimitClause, NoOffsetClause>,
+> {}
+pub struct Unit<
+    Combinator,
+    Rule,
+    Source,
+    Rhs,
+    Order = NoOrderClause,
+    LimitOffset = LimitOffsetClauseXXXX,
+>;
+enum E<Aaaaaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, Cccccccccccccccccccccccccc>
+where
+    A: B,
+{
+    X,
+}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"struct Xxxxxxxxxxxxxxxxxxxxxx<T> where T: Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb {}
+enum E<T> where T: Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa {}
+"#
+    ),
+    r#"struct Xxxxxxxxxxxxxxxxxxxxxx<T>
+where
+    T: Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, {}
+enum E<T>
+where
+    T: Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, {}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"impl<Aaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, Cccccccccccccccccccccccccc, Ddddddddddddddd> Foo for Bar {}
+impl<T, V, QId, Op, Ret, const STATIC_QUERY_ID: bool> DebugQueryHelper<Yes> for DebugQuery<'_, InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op, Ret>, Sqlite> {
+    fn f() {}
+}
+impl<Expr, DB> QueryFragment<DB, crate::backend::sql_dialect::returning_clause::PgLikeReturningClause> for ReturningClause<Expr> {}
+mod m {
+    unsafe impl<Aaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, Cccccccccccccccccccccccccc, Ddddd> Foo for Bar {}
+}
+"#
+    ),
+    r#"impl<
+        Aaaaaaaaaaaaaaaaaaaaaa,
+        Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,
+        Cccccccccccccccccccccccccc,
+        Ddddddddddddddd,
+    > Foo for Bar
+{
+}
+impl<T, V, QId, Op, Ret, const STATIC_QUERY_ID: bool> DebugQueryHelper<Yes>
+    for DebugQuery<
+        '_,
+        InsertStatement<T, BatchInsert<Vec<ValuesClause<V, T>>, T, QId, STATIC_QUERY_ID>, Op, Ret>,
+        Sqlite,
+    >
+{
+    fn f() {}
+}
+impl<Expr, DB>
+    QueryFragment<DB, crate::backend::sql_dialect::returning_clause::PgLikeReturningClause>
+    for ReturningClause<Expr>
+{
+}
+mod m {
+    unsafe impl<
+            Aaaaaaaaaaaaaaaaaaaaaa,
+            Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,
+            Cccccccccccccccccccccccccc,
+            Ddddd,
+        > Foo for Bar
+    {
+    }
+}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"pub struct Foo(pub HashMap<Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb>);
+pub struct Bar(#[serde(skip)] u8, pub(crate) String);
+pub struct Baz(Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb);
+const X: HashMap<Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb> = HashMap::new();
+static CPU_HEAVY_THREAD_POOL: OnceLock<tokio::sync::mpsc::Sender<Pin<Box<dyn Future<Output = ()> + Send + 'static>>>> = OnceLock::new();
+"#
+    ),
+    r#"pub struct Foo(
+    pub  HashMap<
+        Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+        Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,
+    >,
+);
+pub struct Bar(#[serde(skip)] u8, pub(crate) String);
+pub struct Baz(
+    Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+    Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,
+);
+const X: HashMap<
+    Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+    Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,
+> = HashMap::new();
+static CPU_HEAVY_THREAD_POOL: OnceLock<
+    tokio::sync::mpsc::Sender<Pin<Box<dyn Future<Output = ()> + Send + 'static>>>,
+> = OnceLock::new();
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"mod m {
+    trait Very_______________________Long__________________Name_______________________________Trait {
+        fn method(&self) -> u64;
+    }
+}
+pub trait Something<A, B, C> {}
+pub trait Somethingggggggggggggggggggggggggggggggggggg<Aaaaaaaaaaaaaaaaaaaaaaa, Bbbbbbbbbbbbbbbbbbbbbbbbb, C> {
+    fn f();
+}
+"#
+    ),
+    r#"mod m {
+    trait Very_______________________Long__________________Name_______________________________Trait
+    {
+        fn method(&self) -> u64;
+    }
+}
+pub trait Something<A, B, C> {}
+pub trait Somethingggggggggggggggggggggggggggggggggggg<
+    Aaaaaaaaaaaaaaaaaaaaaaa,
+    Bbbbbbbbbbbbbbbbbbbbbbbbb,
+    C,
+>
+{
+    fn f();
+}
+"#
+  );
+  assert_eq!(
+    formatted(
+      r#"pub trait PrettyPrinter<'tcx>: Printer<'tcx, Error = fmt::Error, Path = Self, Region = Self, Type = Self, DynExistential = Self, Const = Self> {
+    //
+}
+pub trait PrettyPrinter<'tcx>: Printer<'tcx, Error = fmt::Error, Path = Self, Region = Self, Type = Self, DynExistential = Self, Const = Self> + fmt::Write {
+    //
+}
+pub trait Foo: Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb + Cccccccccccccccccccccccccc {}
+pub trait Foo: Sized + Send {}
+mod m {
+    pub trait Fooooooooooooooooooooooooo: Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb + Cccccc {
+        fn f();
+    }
+}
+"#
+    ),
+    r#"pub trait PrettyPrinter<'tcx>:
+    Printer<
+    'tcx,
+    Error = fmt::Error,
+    Path = Self,
+    Region = Self,
+    Type = Self,
+    DynExistential = Self,
+    Const = Self,
+>
+{
+    //
+}
+pub trait PrettyPrinter<'tcx>:
+    Printer<
+        'tcx,
+        Error = fmt::Error,
+        Path = Self,
+        Region = Self,
+        Type = Self,
+        DynExistential = Self,
+        Const = Self,
+    > + fmt::Write
+{
+    //
+}
+pub trait Foo:
+    Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb + Cccccccccccccccccccccccccc
+{
+}
+pub trait Foo: Sized + Send {}
+mod m {
+    pub trait Fooooooooooooooooooooooooo:
+        Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb + Cccccc
+    {
+        fn f();
+    }
+}
+"#
+  );
+}
+
+#[test]
 fn test_what_a_long_header_keeps() {
   // A C variadic takes no comma.
   let long = format!(

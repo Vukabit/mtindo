@@ -713,6 +713,7 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
 pub(super) fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Shape> {
   let limits = Limits::of(config);
   Some(Shape {
+    align: 0,
     indent,
     offset: 0,
     width: config.max_width.checked_sub(indent)?,
@@ -871,6 +872,7 @@ fn flat_code(node: &SyntaxNode, spacing: Spacing) -> String {
 fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
   let limits = Limits::of(config);
   let shape = Shape {
+    align: 0,
     indent,
     offset: 0,
     width: config.max_width.checked_sub(indent)?,
@@ -983,8 +985,8 @@ fn let_else(
 
 /// `let pattern: Type =`, everything before the initializer: the pattern laid out as the
 /// standard formatter lays it out (a struct pattern past `struct_lit_width` one field per
-/// line), the type on the pattern's last line; `None` when it does not fit, the type is
-/// flat for now.
+/// line), the type after it on the pattern's last line, laid out in what is left there
+/// less ` =` (the standard formatter's `rewrite_let`); `None` when it does not fit.
 fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<String> {
   let pattern = node.children_iter().find(|c| c.kind() != K::Attr)?;
   let flat_head = flat_before(node, expression, shape.limits.spacing)?;
@@ -995,7 +997,38 @@ fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<
     .strip_prefix(&flat_pattern)?;
   // 4 = `let `, 1 = `;`
   let pattern_text = rewrite(&pattern, shape.offset_left(4)?.sub_width(1)?)?;
-  let head = format!("let {}{}", pattern_text, after);
+  let ty = node
+    .children_iter()
+    .filter(|c| c.kind() != K::Attr)
+    .nth(1)
+    .filter(|t| t.text_range().end <= expression.text_range().start);
+  let head = match ty {
+    Some(ty) if after.ends_with(" =") || after.ends_with('=') => {
+      let spacing = shape.limits.spacing;
+      let colon = format!(
+        "{}:{}",
+        if spacing.space_before_colon { " " } else { "" },
+        if spacing.space_after_colon { " " } else { "" }
+      );
+      let result = format!("let {}{}", pattern_text, colon);
+      // A pattern across lines leaves the type the whole line after it.
+      let base = if pattern_text.contains('\n') {
+        Shape {
+          width: shape.limits.max_width.saturating_sub(shape.indent),
+          ..shape
+        }
+      } else {
+        shape
+      };
+      // 2 = ` =`
+      let ty_shape = base
+        .offset_left(last_line_used(&result, shape.indent))?
+        .sub_width(2)?;
+      let ty_text = rewrite(&ty, ty_shape)?;
+      format!("{}{} =", result, ty_text)
+    }
+    _ => format!("let {}{}", pattern_text, after),
+  };
   (last_line_used(&head, shape.indent) <= shape.width).then_some(head)
 }
 
@@ -1120,70 +1153,6 @@ fn statement(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<
   if !takes(node) {
     return on_one_line(node, indent, config);
   }
-  // Types are printed flat for now: a `let` whose type's generic arguments would have to
-  // break is left as written; a generic list elsewhere that does not fit fails its own
-  // width check, and the statement is laid out another way.
-  let spacing = Spacing::of(config);
-  // Not those inside blocks laid out on lines, whose statements are checked as they are
-  // laid out.
-  let blocks: Vec<(u32, u32)> = node
-    .descendant_nodes_where(|kind| matches!(kind, K::BlockExpr | K::MatchArmList | K::MacroCall))
-    .filter(laid_on_lines)
-    .map(|n| (n.text_range().start, n.text_range().end))
-    .collect();
-  let inside_block = |at: u32| blocks.iter().any(|&(start, end)| start <= at && at < end);
-
-  let let_type = (node.kind() == K::LetStmt)
-    .then(|| {
-      let before_value: Vec<SyntaxNode> = node
-        .children_with_tokens_iter()
-        .take_while(|e| e.kind() != K::Eq)
-        .filter_map(|e| match e {
-          SyntaxElement::Node(n) if n.kind() != K::Attr => Some(n),
-          _ => None,
-        })
-        .collect();
-      before_value.into_iter().nth(1)
-    })
-    .flatten();
-  // A `let`'s type is printed flat: its head must fit, and every list in it within
-  // `fn_call_width`, past which the standard formatter breaks it.
-  let head_wide = || {
-    let lists_wide = let_type.as_ref().is_some_and(|t| {
-      t.descendant_nodes_where(|kind| matches!(kind, K::GenericArgList | K::TupleType))
-        .any(|list| str_width(&flat(&list, spacing)).saturating_sub(2) > config.fn_call_width)
-    });
-    lists_wide
-      || expression_of(node)
-        .and_then(|value| flat_before(node, &value, spacing))
-        .is_none_or(|head| indent + str_width(&head) + 2 > config.max_width)
-  };
-  let unbreakable = node
-    .descendant_nodes_where(|kind| kind == K::GenericArgList)
-    .filter(|g| !inside_block(g.text_range().start))
-    .any(|g| {
-      // A method's are never broken: only plain names among them.
-      let method = g.parent().is_some_and(|p| p.kind() == K::MethodCallExpr)
-        && g
-          .children_iter()
-          .all(|arg| !flat(&arg, spacing).contains('<'));
-      let path = g.ancestors_iter().any(|a| a.kind() == K::PathExpr);
-      if (method || path) && super::expr::breakable_generics(&g) {
-        false
-      } else if let_type
-        .as_ref()
-        .is_some_and(|t| g.ancestors_iter().any(|a| &a == t))
-      {
-        head_wide()
-      } else {
-        // Elsewhere one that does not fit fails its own width check, and the statement is
-        // laid out another way.
-        false
-      }
-    });
-  if unbreakable {
-    return None;
-  }
   let text = laid_out(node, indent, config)?;
   same_tokens(node, &text).then_some(text)
 }
@@ -1215,6 +1184,8 @@ fn takes(node: &SyntaxNode) -> bool {
           | K::MatchExpr
           | K::LoopExpr
           | K::ClosureExpr
+          | K::CastExpr
+          | K::ParenExpr
       )
   };
   // An assignment, as a `let`: its two sides laid out as expressions are.

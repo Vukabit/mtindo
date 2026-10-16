@@ -1463,7 +1463,13 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
               if let Some((text, _)) = &laid
                 && let Some(close) = empty_body_close(node)
               {
-                if text.contains('\n') {
+                // A struct's, enum's or union's closes up whatever its header (`> {}`).
+                if text.contains('\n')
+                  && !matches!(
+                    node.kind(),
+                    SyntaxKind::Struct | SyntaxKind::Enum | SyntaxKind::Union
+                  )
+                {
                   split.borrow_mut().insert(close);
                 } else {
                   tight_items.borrow_mut().insert(close);
@@ -1591,8 +1597,16 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     }
     // An empty body's `}` kept apart from its `{`, written touching.
     if tok.kind == SyntaxKind::RBrace && split.borrow().contains(&tok.start) && out.ends_with('{') {
+      // At its item's indentation, not that of a header line it ends.
       let line = &out[out_line_start..];
-      let indent = line[..line.len() - line.trim_start().len()].to_string();
+      let indent = match roles
+        .closers
+        .get(&tok.start)
+        .and_then(|open| open_indent.get(open))
+      {
+        Some(&(_, new)) if !config.hard_tabs => " ".repeat(new),
+        _ => line[..line.len() - line.trim_start().len()].to_string(),
+      };
       out.push('\n');
       out_line_start = out.len();
       out.push_str(&indent);

@@ -3,7 +3,7 @@
 # (skipped). Matches may only go up, skipped only down; `cargo xtask diff --update`
 # records new numbers.
 reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
-set tests files 338 462 lines 10157 11227 skipped 0
-set tests-with-settings files 257 559 lines 17937 22055 skipped 0
-set corpus files 10036 10436 lines 2650001 2653974 skipped 260
-set corpus-unformatted files 8369 10416 lines 2699486 2772411 skipped 273
+set tests files 355 462 lines 10574 11227 skipped 0
+set tests-with-settings files 266 559 lines 18341 22055 skipped 0
+set corpus files 10090 10436 lines 2650951 2653974 skipped 260
+set corpus-unformatted files 8590 10416 lines 2707413 2772411 skipped 273

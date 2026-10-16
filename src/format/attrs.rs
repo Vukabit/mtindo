@@ -129,6 +129,7 @@ fn call(
     .max_width
     .checked_sub(indent + open.len() + 1 + narrower)?;
   let shape = Shape {
+    align: 0,
     indent,
     offset: open.len(),
     width,

@@ -141,6 +141,9 @@ impl Default for Limits {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Shape {
   pub indent: usize,
+  /// Columns past `indent` a type's later lines line up to (the standard formatter's
+  /// alignment): a list nested inside drops it, bounds broken over lines keep it.
+  pub align: usize,
   pub offset: usize,
   pub width: usize,
   pub limits: Limits,
@@ -151,6 +154,7 @@ impl Shape {
   pub fn block_indent(self, extra: usize) -> Shape {
     let indent = self.indent + extra;
     Shape {
+      align: 0,
       indent,
       offset: 0,
       width: self.limits.max_width.saturating_sub(indent),

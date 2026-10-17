@@ -1,0 +1,9 @@
+É™use a::{item /* comment */};
+use b::{
+    a,
+    // co0ment
+    item,
+};
+use c::item /* comment */;
+use td::f::{/* sa 'it comment! */ bar};
+use std::g::{bar /* and another */};

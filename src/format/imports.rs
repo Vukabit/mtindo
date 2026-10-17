@@ -51,9 +51,40 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
       at >= start && at < end
     })
     .collect();
+  // A block comment on its line between the tree and the `;` goes after the `;`
+  // (`use a::b; /* c */`).
+  let tree_end = node
+    .children_iter()
+    .find(|c| c.kind() == K::UseTree)
+    .map_or(0, |t| t.text_range().end as usize);
+  let moved: Vec<String> = body
+    .iter()
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t)
+        if t.kind() == K::BlockComment
+          && !t.text().contains('\n')
+          && t.text_range().start as usize >= tree_end =>
+      {
+        Some(t.text().to_string())
+      }
+      _ => None,
+    })
+    .collect();
+  // Comments only among a list's items, which move with them (placed by the list layout).
   let comment = |e: &SyntaxElement| match e {
-    SyntaxElement::Token(t) => t.kind().is_trivia() && t.kind() != K::Whitespace,
-    SyntaxElement::Node(n) => n.subtree_has(|kind| kind.is_trivia() && kind != K::Whitespace),
+    SyntaxElement::Token(t) => {
+      t.kind().is_trivia()
+        && t.kind() != K::Whitespace
+        && !(t.kind() == K::BlockComment
+          && !t.text().contains('\n')
+          && t.text_range().start as usize >= tree_end)
+    }
+    SyntaxElement::Node(n) => n.descendants_with_tokens_iter().any(|d| {
+      matches!(&d, SyntaxElement::Token(t)
+        if t.kind().is_trivia()
+          && t.kind() != K::Whitespace
+          && (t.parent().kind() != K::UseTreeList || t.text().contains('\n')))
+    }),
   };
   if body.iter().any(comment) {
     return None;
@@ -71,11 +102,14 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
           .first_token()
           .is_some_and(|first| first.kind() == K::Colon2)
     });
-  if config.reorder_imports && !nested_root {
+  // Read again from its text, a tree would lose its comments: one with them is not.
+  let commented = tree.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment));
+  if config.reorder_imports && !nested_root && !commented {
     let global = super::file::edition() >= Edition::E2018;
     let version = config.style_edition >= 2024;
     let written = crate::order::UseTree::from_syntax(&tree, global, version);
-    // One importing nothing, or `::{a}`, as written.
+    // One importing nothing, or `::{a}`, as written (the first goes before formatting:
+    // `reorder::empty_uses`).
     let text = written.text();
     if !written.is_empty() && !written.unbraced_root() && text != flat(&tree, Spacing::of(config)) {
       let source = format!("use {};", text);
@@ -100,7 +134,11 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   let width = config
     .max_width
     .checked_sub(indent + str_width(&head) + 1)?;
-  let text = format!("{}{};", head, tree_text(&tree, indent, width, config)?);
+  let mut text = format!("{}{};", head, tree_text(&tree, indent, width, config)?);
+  for comment in &moved {
+    text.push(' ');
+    text.push_str(comment);
+  }
   match normalized {
     // The tokens of the tree as normalized, the head's as written.
     Some(tree) => {
@@ -131,7 +169,11 @@ fn list_text(
   config: &FormatConfig,
 ) -> Option<String> {
   let mut items = items(list);
-  if items.len() < 2 {
+  // One item alone keeps its braces only with a comment (`{self // why}`).
+  let commented = list
+    .children_with_tokens_iter()
+    .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment));
+  if items.is_empty() || items.len() < 2 && !commented {
     return None;
   }
   // In the order the standard formatter sorts a nested list in (`UseTree::normalize`).
@@ -152,6 +194,61 @@ fn list_text(
     .iter()
     .map(|item| tree_text(item, inner_indent, inner_width, config))
     .collect::<Option<Vec<_>>>()?;
+  // With comments among the items: one per line, each item's comments moved with it.
+  if commented {
+    let written = self::items(list);
+    let comments = super::lists::list_comments(list, &written)?;
+    let comments: Vec<super::lists::ItemComments> = items
+      .iter()
+      .map(|item| {
+        let at = written.iter().position(|w| w == item)?;
+        Some(comments[at].clone())
+      })
+      .collect::<Option<_>>()?;
+    // Block comments on a line only: on one line when it fits there.
+    let line_comment = |c: &Option<String>| {
+      c.as_ref()
+        .is_some_and(|c| c.trim_start().starts_with("//") || c.contains('\n'))
+    };
+    if !comments
+      .iter()
+      .any(|c| line_comment(&c.pre) || line_comment(&c.post))
+      && texts.iter().all(|t| !t.contains('\n'))
+    {
+      let joined: Vec<String> = texts
+        .iter()
+        .zip(&comments)
+        .map(|(t, c)| {
+          let mut item = String::new();
+          if let Some(pre) = &c.pre {
+            item.push_str(pre.trim());
+            item.push(' ');
+          }
+          item.push_str(t);
+          if let Some(post) = &c.post {
+            item.push(' ');
+            item.push_str(post.trim());
+          }
+          item
+        })
+        .collect();
+      let one_line = format!("{{{}}}", joined.join(", "));
+      if str_width(&one_line) <= width {
+        return Some(one_line);
+      }
+    }
+    let body = super::lists::write_vertical(
+      &texts,
+      &comments,
+      inner_indent,
+      inner_width,
+      config.max_width,
+      true,
+      false,
+    )?;
+    let pad = " ".repeat(inner_indent);
+    return Some(format!("{{\n{}{}\n{}}}", pad, body, " ".repeat(indent)));
+  }
   // A list holding a list of two or more never stays on one line.
   let nested = items.iter().any(|item| {
     item

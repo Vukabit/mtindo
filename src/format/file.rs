@@ -748,12 +748,20 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     }
     None => (text, root),
   };
-  // Empty statements dropped first.
+  // Empty statements dropped first, and imports of nothing.
   let stripped = if strip {
     crate::format::reorder::strip_semicolons(&root, &text)
   } else {
     None
   };
+  let (text, root) = match stripped {
+    Some(stripped) => {
+      let root = parse(&stripped, edition).syntax_node();
+      (stripped, root)
+    }
+    None => (text, root),
+  };
+  let stripped = crate::format::reorder::empty_uses(&root, &text, edition, config);
   let (text, root) = match stripped {
     Some(stripped) => {
       let root = parse(&stripped, edition).syntax_node();
@@ -1132,6 +1140,20 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
         }
       }
       roles.joined.extend(joined);
+      // A `;` ending the item on a line of its own (after comments) is indented as the item.
+      if let Some(SyntaxElement::Token(semi)) = child.children_with_tokens_iter().next_back()
+        && semi.kind() == SyntaxKind::Semi
+        && matches!(
+          semi.prev_sibling_or_token(),
+          Some(SyntaxElement::Token(w)) if w.kind() == SyntaxKind::Whitespace && w.text().contains('\n')
+        )
+        && let Some(container) = container
+      {
+        roles
+          .starts
+          .entry(semi.text_range().start as usize)
+          .or_insert(container);
+      }
     }
     if any && node.kind() != SyntaxKind::SourceFile {
       for token in node.children_with_tokens_iter() {
@@ -2246,7 +2268,21 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             || p.kind() == SyntaxKind::BlockExpr
               && p.parent().is_some_and(|f| f.kind() == SyntaxKind::Fn)
         });
-        if node.kind() == SyntaxKind::Attr && !unparsed_attr && !skipped && attr_owner {
+        // Not one of a skipped item's, which keeps its attributes as written too.
+        let owner_skipped = node.kind() == SyntaxKind::Attr
+          && node.parent().is_some_and(|p| {
+            p.kind() != SyntaxKind::SourceFile
+              && p
+                .children_of_kind(SyntaxKind::Attr)
+                .filter_map(Attr::cast)
+                .any(|a| a.is_rustfmt_skip())
+          });
+        if node.kind() == SyntaxKind::Attr
+          && !unparsed_attr
+          && !skipped
+          && !owner_skipped
+          && attr_owner
+        {
           roles.layable.insert(range.start as usize, node.clone());
         }
         let kept = matches!(

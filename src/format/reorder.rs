@@ -19,6 +19,74 @@ use crate::order::{UseTree, version_sort};
 use crate::syntax::ast::Attr;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode};
 
+/// `text` without the `use` declarations of empty lists (`use a::{};`, `use a::{b::{}};`),
+/// each with its line when it stands alone there, which the standard formatter drops when it
+/// reorders imports; `None` when there are none. Kept: one with attributes or a comment, one
+/// from the root, one in a `// mto: off` region, and `use self;` (invalid, which the standard
+/// formatter drops too, but which is not nothing).
+pub fn empty_uses(
+  root: &SyntaxNode,
+  text: &str,
+  edition: Edition,
+  config: &FormatConfig,
+) -> Option<String> {
+  if !config.reorder_imports {
+    return None;
+  }
+  let global = edition >= Edition::E2018;
+  let version = config.style_edition >= 2024;
+  let mut cut: Vec<(usize, usize)> = Vec::new();
+  for node in root.descendant_nodes_where(|kind| kind == K::Use) {
+    let Some(tree) = node.children_iter().find(|c| c.kind() == K::UseTree) else {
+      continue;
+    };
+    // From its visibility or `use` on: the comments before it are not its own.
+    let Some(body) = crate::format::imports::body_start(&node) else {
+      continue;
+    };
+    let commented = node.token_texts().any(|(kind, _, range)| {
+      kind.is_trivia() && kind != K::Whitespace && range.start as usize >= body
+    });
+    if node.children_iter().any(|c| c.kind() == K::Attr)
+      || commented
+      || tree.first_token().is_none_or(|t| t.kind() == K::Colon2)
+      || !tree.subtree_has(|kind| kind == K::UseTreeList)
+      || !UseTree::from_syntax(&tree, global, version).is_empty()
+    {
+      continue;
+    }
+    let (mut start, mut end) = (body, node.text_range().end as usize);
+    // Its line too, when nothing else is on it.
+    let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    if text[line_start..start].trim().is_empty() && text[end..line_end].trim().is_empty() {
+      start = line_start;
+      end = (line_end + 1).min(text.len());
+    }
+    cut.push((start, end));
+  }
+  if cut.is_empty() {
+    return None;
+  }
+  let off = off_regions(root);
+  cut.retain(|&(start, end)| !off.iter().any(|&(s, e)| s < end && start < e));
+  if cut.is_empty() {
+    return None;
+  }
+  cut.sort_unstable();
+  let mut out = String::with_capacity(text.len());
+  let mut at = 0;
+  for (start, end) in cut {
+    if start < at {
+      continue;
+    }
+    out.push_str(&text[at..start]);
+    at = end;
+  }
+  out.push_str(&text[at..]);
+  Some(out)
+}
+
 /// `text` with `extern` written alone given its ABI, `extern "C"` (`force_explicit_abi`);
 /// `None` when there is none to give. Not `extern crate`, and not in a `// mto: off`
 /// region.
@@ -244,6 +312,14 @@ pub fn strip_semicolons(root: &SyntaxNode, text: &str) -> Option<String> {
   if stray.is_empty() {
     return None;
   }
+  // One alone on its line goes with the line.
+  for (start, end) in stray.iter_mut() {
+    let line_start = text[..*start].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = text[*end..].find('\n').map_or(text.len(), |i| *end + i);
+    if text[line_start..*start].trim().is_empty() && text[*end..line_end].trim().is_empty() {
+      (*start, *end) = (line_start, (line_end + 1).min(text.len()));
+    }
+  }
   stray.sort_unstable();
   let mut out = String::with_capacity(text.len());
   let mut at = 0;
@@ -300,11 +376,23 @@ fn code_start(item: &SyntaxNode) -> usize {
 /// one on a line of its own before it starts a run ([`runs`]).
 fn has_comment(run: &[SyntaxNode]) -> bool {
   let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment));
+  // One inside a `use`'s braces moves with it, and is laid out with its list; so does a block
+  // comment before its `;`, which goes after it.
   let commented = |item: &SyntaxNode, from: usize, to: usize| {
-    item.token_texts().any(|(kind, _, range)| {
-      range.start as usize >= from
-        && (range.start as usize) < to
-        && matches!(kind, K::LineComment | K::BlockComment)
+    item.descendants_with_tokens_iter().any(|e| {
+      matches!(&e, SyntaxElement::Token(t)
+        if matches!(t.kind(), K::LineComment | K::BlockComment)
+          && t.text_range().start as usize >= from
+          && (t.text_range().start as usize) < to
+          && !(item.kind() == K::Use
+            && (t.parent().kind() == K::UseTreeList
+              || t.kind() == K::BlockComment
+                && !t.text().contains('\n')
+                && &t.parent() == item
+                && item
+                  .children_iter()
+                  .find(|c| c.kind() == K::UseTree)
+                  .is_some_and(|tree| tree.text_range().end <= t.text_range().start))))
     })
   };
   run

@@ -221,6 +221,15 @@ pub fn can_overflow(node: &SyntaxNode, count: usize, control: bool) -> bool {
     SyntaxKind::IfExpr | SyntaxKind::ForExpr | SyntaxKind::LoopExpr | SyntaxKind::WhileExpr => {
       control && count == 1
     }
+    // `[x; n]` is not an array to the standard formatter (`ExprKind::Repeat`).
+    SyntaxKind::ArrayExpr
+      if node
+        .children_with_tokens()
+        .iter()
+        .any(|e| e.kind() == SyntaxKind::Semi) =>
+    {
+      false
+    }
     SyntaxKind::RecordExpr
     | SyntaxKind::ArrayExpr
     | SyntaxKind::CallExpr
@@ -354,6 +363,7 @@ pub fn dropped(token: &SyntaxToken, spacing: Spacing) -> bool {
     || root_of_visibility(token)
     || keyword_visibility_in(token)
     || empty_where(token)
+    || empty_generics(token)
   {
     return true;
   }
@@ -1018,6 +1028,10 @@ pub(super) fn rewrite_list(
   // closing delimiter on the next line, as the standard formatter's `wrap_items` leaves it
   // for the list holding the call to lay out again.
   if items.is_empty() {
+    // An empty generic list says nothing (`impl<> Foo<>`).
+    if open == "<" && !ident.ends_with("::") {
+      return wrap_str(ident.to_string(), shape);
+    }
     let text = format!("{}{}{}", ident, open, close);
     if wrap_str(text.clone(), shape).is_some() || open != "(" {
       return wrap_str(text, shape);
@@ -1826,6 +1840,29 @@ fn element_attributes(node: &SyntaxNode) -> Option<Vec<SyntaxNode>> {
   }
   attributes.reverse();
   Some(attributes)
+}
+
+/// A `<` or `>` of an empty generic list (`impl<> Foo<> for Bar<>`), which says nothing: an
+/// item's parameters or a path segment's arguments, not a binder's (`for<>` needs them).
+fn empty_generics(token: &SyntaxToken) -> bool {
+  let list = token.parent();
+  matches!(token.kind(), SyntaxKind::Lt | SyntaxKind::Gt)
+    && match list.kind() {
+      SyntaxKind::GenericParamList => list
+        .parent()
+        .is_some_and(|owner| super::items::is_item(owner.kind())),
+      SyntaxKind::GenericArgList => list
+        .parent()
+        .is_some_and(|owner| owner.kind() == SyntaxKind::PathSegment),
+      _ => false,
+    }
+    && token.parent().children_iter().next().is_none()
+    && !token.parent().children_with_tokens_iter().any(|e| {
+      matches!(
+        e.kind(),
+        SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::Colon2
+      )
+    })
 }
 
 /// Whether `node` is a macro called with nothing (`vec![]`, `f!()`), seen through `&`, `?`,
@@ -2766,8 +2803,19 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
       result.push_str(comment);
     }
     result.push_str(&connector);
-    // `|| .. .f()`: a link joined to a root ending in dots keeps its space.
-    if connector.is_empty() && result.ends_with('.') && r.starts_with('.') {
+    // `|| .. .f()`: a link joined to a root ending in dots keeps its space; before style
+    // edition 2024 so does a tuple field after a tuple field (`x.0 .0`).
+    let tuple_field = |t: &str| {
+      t.strip_prefix('.')
+        .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    let previous_field = result
+      .rfind('.')
+      .is_some_and(|at| tuple_field(&result[at..]));
+    if connector.is_empty()
+      && (result.ends_with('.') && r.starts_with('.')
+        || !shape.limits.style_2024 && previous_field && tuple_field(r))
+    {
       result.push(' ');
     }
     result.push_str(r);
@@ -2822,10 +2870,15 @@ fn rewrite_closure(node: &SyntaxNode, shape: Shape) -> Option<String> {
       })
       .flatten();
     return without.or_else(|| {
-      let block = if lone_expression(&body).is_some_and(|e| !is_macro(&e)) {
-        rewrite_block(&body, body_shape)?
-      } else {
-        super::block::rewrite_lines(&body, body_shape)?
+      let block = match lone_expression(&body).filter(|e| !is_macro(e)) {
+        // Its expression in a block of its own when no room is left on the line, as one
+        // written without its block is (`closure_with_block`).
+        Some(inside) => rewrite_block(&body, body_shape).or_else(|| {
+          plain_block(&body)
+            .then(|| super::block::wrapped(&inside, body_shape))
+            .flatten()
+        })?,
+        None => super::block::rewrite_lines(&body, body_shape)?,
       };
       Some(format!("{} {}", prefix, block))
     });
@@ -3079,15 +3132,52 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
     shape.limits.fn_call
   };
 
-  // `vec![x; n]`: on one line when it fits there; the standard formatter's layout across
-  // lines (`vec_with_semi`) is not followed here: left as written.
+  // `vec![x; n]` (`handle_vec_semi`): on one line when both fit there with 8 columns to
+  // spare, else each on a line of its own one level in, `;` after the value.
   if list
     .children_with_tokens()
     .iter()
     .any(|e| e.kind() == SyntaxKind::Semi)
   {
-    let text = format!("{}{}", name, flat(&list, shape.limits.spacing));
-    return (text.width() <= shape.width).then_some(text);
+    let parts = list.children();
+    let [value, count] = parts.as_slice() else {
+      return None;
+    };
+    // One level in from the call, as wide as what follows its name (`block_indent`).
+    let nested = Shape {
+      indent: shape.indent + shape.limits.tab,
+      offset: 0,
+      width: shape.width.checked_sub(name.width())?,
+      limits: Limits {
+        comma_as_written: true,
+        inside_macro: true,
+        ..shape.limits
+      },
+      ..shape
+    };
+    let value_text = rewrite(value, nested)?;
+    let count_text = rewrite(count, nested)?;
+    if !value_text.contains('\n')
+      && !count_text.contains('\n')
+      && value_text.width() + count_text.width() + 8 <= shape.width
+    {
+      return Some(format!(
+        "{}{}{}; {}{}",
+        name, open, value_text, count_text, close
+      ));
+    }
+    let pad = " ".repeat(nested.indent);
+    return Some(format!(
+      "{}{}\n{}{};\n{}{}\n{}{}",
+      name,
+      open,
+      pad,
+      value_text,
+      pad,
+      count_text,
+      " ".repeat(shape.indent),
+      close
+    ));
   }
   let items = list_items(&list);
   let commas = list
@@ -3143,7 +3233,16 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
         .any(|e| e.kind() == SyntaxKind::Semi) =>
     {
       let text = flat(node, shape.limits.spacing);
-      (text.width() <= shape.width).then_some(text)
+      if text.width() <= shape.width && !breaks_inside(node, shape.limits) {
+        return Some(text);
+      }
+      // As a pair inside the brackets (`rewrite_pair` with `[`, `; ` and `]`).
+      let children = node.children();
+      let [value, length] = children.as_slice() else {
+        return None;
+      };
+      let inner = rewrite_pair(value, length, "; ", shape.offset_left(1)?.sub_width(1)?)?;
+      Some(format!("[{}]", inner))
     }
     SyntaxKind::ArrayExpr | SyntaxKind::SlicePat => {
       rewrite_list("", &list_items(node), shape, shape.limits.array, "[", "]")
@@ -3404,8 +3503,23 @@ fn rewrite_pair(
       return Some(format!("{}{}{}", left_text, infix, right_text));
     }
   }
-  let infix = infix.trim_start();
   let nested = shape.block_indent(shape.limits.tab);
+  // A `;` (`[x; n]`) ends the line it follows (`SeparatorPlace::Back`); an operator starts
+  // the next.
+  if infix.trim() == ";" {
+    let right_shape = Shape {
+      width: nested.width.checked_sub(shape.rhs_overhead())?,
+      ..nested
+    };
+    let right_text = rewrite(right, right_shape)?;
+    return Some(format!(
+      "{};\n{}{}",
+      left_text,
+      " ".repeat(nested.indent),
+      right_text
+    ));
+  }
+  let infix = infix.trim_start();
   let right_shape = Shape {
     width: nested.width.checked_sub(shape.rhs_overhead())?,
     ..nested

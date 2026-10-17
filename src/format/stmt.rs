@@ -849,7 +849,8 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
   let Some(start) = header_start(node) else {
     return false;
   };
-  if spaced_field(node) {
+  // A tuple field written `x.0 .0` from style edition 2024 (chains keep the space before).
+  if config.style_edition >= 2024 && spaced_field(node) {
     return false;
   }
   // A tail that is a block itself (`unsafe { .. }`) only as one the layout code joins.
@@ -1054,12 +1055,17 @@ fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<
   let pattern = node.children_iter().find(|c| c.kind() != K::Attr)?;
   let flat_head = flat_before(node, expression, shape.limits.spacing)?;
   let flat_pattern = flat(&pattern, shape.limits.spacing);
-  // Only a plain `let`: `super let` and the like are left as written.
+  // A `let`, or a `super let`.
+  let keyword = if flat_head.starts_with("super let ") {
+    "super let "
+  } else {
+    "let "
+  };
   let after = flat_head
-    .strip_prefix("let ")?
+    .strip_prefix(keyword)?
     .strip_prefix(&flat_pattern)?;
-  // 4 = `let `, 1 = `;`
-  let pattern_text = rewrite(&pattern, shape.offset_left(4)?.sub_width(1)?)?;
+  // 1 = `;`
+  let pattern_text = rewrite(&pattern, shape.offset_left(keyword.len())?.sub_width(1)?)?;
   let ty = node
     .children_iter()
     .filter(|c| c.kind() != K::Attr)
@@ -1073,7 +1079,7 @@ fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<
         if spacing.space_before_colon { " " } else { "" },
         if spacing.space_after_colon { " " } else { "" }
       );
-      let result = format!("let {}{}", pattern_text, colon);
+      let result = format!("{}{}{}", keyword, pattern_text, colon);
       // A pattern across lines leaves the type the whole line after it.
       let base = if pattern_text.contains('\n') {
         Shape {
@@ -1090,7 +1096,7 @@ fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<
       let ty_text = rewrite(&ty, ty_shape)?;
       format!("{}{} =", result, ty_text)
     }
-    _ => format!("let {}{}", pattern_text, after),
+    _ => format!("{}{}{}", keyword, pattern_text, after),
   };
   (last_line_used(&head, shape.indent) <= shape.width).then_some(head)
 }

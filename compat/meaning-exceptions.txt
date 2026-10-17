@@ -2,6 +2,10 @@
 # Each is a bug of the formatter's (it changes meaning or writes invalid code), or an equivalent
 # rewrite the check does not model yet. `PATH [SET]`, then the reason. A file flagged that is not
 # listed fails the run; a listed file no longer flagged is reported, to be removed.
+#
+# Lines starting `excused ` are default-settings test pairs mto need not match, each with its
+# reason: the expected file is the standard formatter's bug. The v1.0 gate wants every other
+# pair matching; an excused pair mto matches anyway is reported, to be removed.
 
 tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
 tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
@@ -26,77 +30,12 @@ tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  
 tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
 tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
 tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
-tests/pub-restricted.rs [tests]  the formatter drops the leading `::` of `pub(in ::path)`
 tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
 tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
 rust-analyzer/crates/hir-def/src/nameres/tests/imports.rs [corpus]  converting CRLF line endings changes a multi-line raw string's contents
-rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus]  the formatter writes invalid code (parentheses dropped around `?Sized`)
-rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus]  the formatter drops an inner attribute inside an impl
-rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
-rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
-rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
-rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
-rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus]  the formatter writes invalid code (`use std::::*`)
-rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus]  the formatter drops attributes on parameters
-rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus]  the formatter drops `default`
-rustfmt/tests/source/attrib.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
-rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus]  the formatter rewrites a float range pattern
-rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus]  the formatter rewrites a float range pattern
-rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
-rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus]  the formatter writes invalid code (range spacing)
-rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus]  the formatter writes invalid code (range spacing)
-rustfmt/tests/source/const-block-items.rs [corpus]  the formatter drops `pub` from a const block
-rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus]  the formatter writes invalid code (a where clause it fails to format)
-rustfmt/tests/source/imports/imports.rs [corpus]  the formatter drops `use self` (invalid input)
-rustfmt/tests/source/issue-4689/one.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
-rustfmt/tests/source/issue-4689/two.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
-rustfmt/tests/source/issue-4808.rs [corpus]  the formatter adds parentheses that change what a closure covers
-rustfmt/tests/source/issue-6561/trait-fn.rs [corpus]  the formatter drops attributes on parameters
-rustfmt/tests/source/issue-6561/variadic.rs [corpus]  the formatter drops attributes on parameters
-rustfmt/tests/source/issue-6607/fn-type.rs [corpus]  the formatter drops attributes on parameters
-rustfmt/tests/source/issue-6825.rs [corpus]  the formatter writes invalid code (a comment swallows a parameter)
-rustfmt/tests/source/issue-6985.rs [corpus]  the formatter loses comments
-rustfmt/tests/source/issue-7056.rs [corpus]  the formatter mangles `$r#struct`
-rustfmt/tests/source/issue_5027.rs [corpus]  the formatter drops `pub` from an impl item
-rustfmt/tests/source/issue_5730.rs [corpus]  the formatter removes a `;` from a macro transcriber, which changes its expansion
-rustfmt/tests/source/macros.rs [corpus]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
-rustfmt/tests/source/pub-restricted.rs [corpus]  the formatter drops the leading `::` of `pub(in ::path)`
-rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus-unformatted]  the formatter writes invalid code (parentheses dropped around `?Sized`)
-rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus-unformatted]  the formatter drops an inner attribute inside an impl
-rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
-rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
-rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus-unformatted]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
-rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus-unformatted]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
-rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus-unformatted]  the formatter writes invalid code (`use std::::*`)
-rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus-unformatted]  the formatter drops attributes on parameters
-rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus-unformatted]  the formatter drops `default`
-rustfmt/tests/source/attrib.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
-rustfmt/tests/source/closure.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus-unformatted]  the formatter rewrites a float range pattern
-rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus-unformatted]  the formatter rewrites a float range pattern
-rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
-rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
-rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
-rustfmt/tests/source/configs/struct_field_align_threshold/20.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/const-block-items.rs [corpus-unformatted]  the formatter drops `pub` from a const block
-rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus-unformatted]  the formatter writes invalid code (a where clause it fails to format)
-rustfmt/tests/source/extern.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/fn-simple.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/hard-tabs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/imports/imports.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/issue-4689/one.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
-rustfmt/tests/source/issue-4689/two.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
-rustfmt/tests/source/issue-4808.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
-rustfmt/tests/source/issue-6561/trait-fn.rs [corpus-unformatted]  the formatter drops attributes on parameters
-rustfmt/tests/source/issue-6561/variadic.rs [corpus-unformatted]  the formatter drops attributes on parameters
-rustfmt/tests/source/issue-6607/fn-type.rs [corpus-unformatted]  the formatter drops attributes on parameters
-rustfmt/tests/source/issue-6825.rs [corpus-unformatted]  the formatter writes invalid code (a comment swallows a parameter)
-rustfmt/tests/source/issue-6985.rs [corpus-unformatted]  the formatter loses comments
-rustfmt/tests/source/issue-7056.rs [corpus-unformatted]  the formatter mangles `$r#struct`
-rustfmt/tests/source/issue_5027.rs [corpus-unformatted]  the formatter drops `pub` from an impl item
-rustfmt/tests/source/issue_5730.rs [corpus-unformatted]  the formatter removes a `;` from a macro transcriber, which changes its expansion
-rustfmt/tests/source/macros.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
-rustfmt/tests/source/pub-restricted.rs [corpus-unformatted]  the formatter drops the leading `::` of `pub(in ::path)`
-rustfmt/tests/source/struct_lits_visual.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/struct_lits_visual_multiline.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
-rustfmt/tests/source/structs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens

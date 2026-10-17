@@ -93,6 +93,26 @@ fn test_braced_macros_holding_strings_across_lines() {
 }
 
 #[test]
+fn test_closure_block_where_no_room_is_left() {
+  // A closure written with a block of one expression, with no room after it on its line,
+  // is laid out as one written without its block is: stable. (Found by the generated
+  // fuzz target.)
+  let config = FormatConfig {
+    max_width: 21,
+    tab_spaces: 1,
+    ..FormatConfig::default()
+  };
+  let once = formatted_with(
+    "fn f() {\n let x: HashMap<u8, char> = get()[|value| \"with {} braces\"];\n}\n",
+    &config,
+  );
+  assert_eq!(
+    once,
+    "fn f() {\n let x: HashMap<\n  u8,\n  char,\n > = get()[|value| {\n  \"with {} braces\"\n }];\n}\n"
+  );
+}
+
+#[test]
 fn test_comments_after_a_trailing_comment_and_before_a_brace() {
   // Comment lines after a statement's trailing comment align under it, before the 2024
   // style; from it, they take the statement's indentation.
@@ -293,6 +313,15 @@ fn test_empty_braced_macro() {
 }
 
 #[test]
+fn test_empty_generic_lists_dropped() {
+  // An empty `<>` says nothing.
+  assert_eq!(
+    formatted("impl<> Foo<> for Bar<> {}\nfn f(x: Foo<>) {}\n"),
+    "impl Foo for Bar {}\nfn f(x: Foo) {}\n"
+  );
+}
+
+#[test]
 fn test_empty_where_clauses() {
   // An empty `where` goes, but a function's.
   assert_eq!(
@@ -366,6 +395,15 @@ fn test_for_head_with_commented_array() {
       "fn f() {\n    for\n  f in [\n            // these drift without `float_roundtrip`\n            -0.20221894534048165,\n            6.178787134922198e305, // c\n        ] {\n        g(f);\n    }\n}\n"
     ),
     "fn f() {\n    for f in [\n        // these drift without `float_roundtrip`\n        -0.20221894534048165,\n        6.178787134922198e305, // c\n    ] {\n        g(f);\n    }\n}\n"
+  );
+}
+
+#[test]
+fn test_imports_of_nothing_dropped() {
+  // A `use` of an empty list goes, with its line.
+  assert_eq!(
+    formatted("use std::{};\nuse a::{b::{}};\nuse std::borrow::Cow;\n"),
+    "use std::borrow::Cow;\n"
   );
 }
 
@@ -473,6 +511,17 @@ fn test_lines_starting_constructs_follow_their_block() {
 }
 
 #[test]
+fn test_lone_semicolon_after_comments_indented() {
+  // A `;` ending an item on a line of its own is indented as the item.
+  assert_eq!(
+    formatted(
+      "trait Foo {\n    fn bar(&self)\n    // where\n    //     Self: Bar\n    ;\n}\n\ntrait Foo {\n    fn bar(&self)\n    // where\n    //     Self: Bar\n;\n}\n\ntrait Foo {\n    fn bar(&self)\n    // where\n    //     Self: Bar\n        ;\n}\n"
+    ),
+    "trait Foo {\n    fn bar(&self)\n    // where\n    //     Self: Bar\n    ;\n}\n\ntrait Foo {\n    fn bar(&self)\n    // where\n    //     Self: Bar\n    ;\n}\n\ntrait Foo {\n    fn bar(&self)\n    // where\n    //     Self: Bar\n    ;\n}\n"
+  );
+}
+
+#[test]
 fn test_long_attribute_values_and_inner_docs() {
   // An attribute's `name = "literal"` keeps the literal however long, its arguments on
   // lines when they do not fit.
@@ -527,6 +576,15 @@ fn test_nested_parentheses_kept_by_setting() {
 }
 
 #[test]
+fn test_nested_tuple_fields_spaced() {
+  // Before style edition 2024 a tuple field after a tuple field keeps a space.
+  assert_eq!(
+    formatted("fn f() {\n    foo(x.0 .0, y.1.2);\n}\n"),
+    "fn f() {\n    foo(x.0 .0, y.1 .2);\n}\n"
+  );
+}
+
+#[test]
 fn test_parameter_and_tuple_field_attributes() {
   // An attribute too long for the parameter's line goes on a line of its own; one
   // breaking across lines puts the field on the next.
@@ -563,6 +621,34 @@ fn test_raw_string_arguments() {
       "fn overloaded_binop() {\n    check_number(r#\"\n    const GOAL: bool = {\n        x == Yellow && y == Red && Red + Green == Yellow && Red + Red == Yellow && Yellow + Green == Yellow\n    };\n    \"#, 1);\n    check_number(r#\"\n    const GOAL: bool = {\n        x == Yellow\n    };\n    \"#, 1);\n}\n"
     ),
     "fn overloaded_binop() {\n    check_number(\n        r#\"\n    const GOAL: bool = {\n        x == Yellow && y == Red && Red + Green == Yellow && Red + Red == Yellow && Yellow + Green == Yellow\n    };\n    \"#,\n        1,\n    );\n    check_number(\n        r#\"\n    const GOAL: bool = {\n        x == Yellow\n    };\n    \"#,\n        1,\n    );\n}\n"
+  );
+}
+
+#[test]
+fn test_repeat_arrays_and_vec() {
+  // `[x; n]` breaks as a pair, `vec![x; n]` with each part on a line of its own.
+  assert_eq!(
+    formatted(
+      "fn issue1693() {\n    let pixel_data = vec![(f16::from_f32(0.82), f16::from_f32(1.78), f16::from_f32(0.21)); 256 * 256];\n}\n"
+    ),
+    "fn issue1693() {\n    let pixel_data = vec![\n        (\n            f16::from_f32(0.82),\n            f16::from_f32(1.78),\n            f16::from_f32(0.21)\n        );\n        256 * 256\n    ];\n}\n"
+  );
+  assert_eq!(
+    formatted(
+      "fn foo() {\n    let a = [(); const { let x = 1; x }];\n}\n\nfn foo() {\n    let x = [(); const { 1 }];\n}\n"
+    ),
+    "fn foo() {\n    let a = [(); const {\n        let x = 1;\n        x\n    }];\n}\n\nfn foo() {\n    let x = [(); const { 1 }];\n}\n"
+  );
+}
+
+#[test]
+fn test_skipped_item_keeps_its_attributes() {
+  // A skipped item's attributes stay as written.
+  assert_eq!(
+    formatted(
+      "#[link_section=\".vectors\"]\n#[rustfmt::skip]\npub static ISSUE_1284: [i32; 16] = [];\n"
+    ),
+    "#[link_section=\".vectors\"]\n#[rustfmt::skip]\npub static ISSUE_1284: [i32; 16] = [];\n"
   );
 }
 
@@ -605,6 +691,17 @@ fn test_statements_the_standard_formatter_gives_up_on() {
 }
 
 #[test]
+fn test_stray_semicolon_lines_dropped() {
+  // A `;` alone on its line goes with the line.
+  assert_eq!(
+    formatted(
+      "fn main() {\n    ;\n           /* extra comment */            ;\n}\n\nfn main() {\n    println!(\"\");\n    // comment 1\n    // comment 2\n    // comment 3\n    // comment 4\n    ;\n}\n"
+    ),
+    "fn main() {\n    /* extra comment */\n}\n\nfn main() {\n    println!(\"\");\n    // comment 1\n    // comment 2\n    // comment 3\n    // comment 4\n}\n"
+  );
+}
+
+#[test]
 fn test_string_receivers_spanning_lines() {
   // A string spanning lines as a method's receiver.
   assert_eq!(
@@ -612,6 +709,17 @@ fn test_string_receivers_spanning_lines() {
       "fn f() {\n        let mut deps\n        =\n        \"wasm-bindgen = { path = '{root}' }\\n\\\n             wasm-bindgen-futures = { path = '{root}/crates/futures' }\\n\"\n            .to_owned();\n}\n"
     ),
     "fn f() {\n    let mut deps = \"wasm-bindgen = { path = '{root}' }\\n\\\n             wasm-bindgen-futures = { path = '{root}/crates/futures' }\\n\"\n        .to_owned();\n}\n"
+  );
+}
+
+#[test]
+fn test_super_let() {
+  // A `super let` is laid out as a `let`.
+  assert_eq!(
+    formatted(
+      "#![feature(super_let)]\nfn main() {\n    super let x =(\n            &1,\n\n            ) else { 3};\n}\n"
+    ),
+    "#![feature(super_let)]\nfn main() {\n    super let x = (&1,) else { 3 };\n}\n"
   );
 }
 
@@ -667,6 +775,29 @@ fn test_type_alias_where_before_value() {
       "pub type Adder<F, T> where T: Clone, F: Copy = impl Fn(T) -> T;\ntype A<T> where T: Clone = Vec<T>;\ntype B<T> = Vec<T> where T: Clone;\ntrait X { type C<T> where T: Clone = Vec<T>; type D<'a> where Self: 'a; }\n"
     ),
     "pub type Adder<F, T>\nwhere\n    T: Clone,\n    F: Copy,\n= impl Fn(T) -> T;\ntype A<T>\nwhere\n    T: Clone,\n= Vec<T>;\ntype B<T>\n    = Vec<T>\nwhere\n    T: Clone;\ntrait X {\n    type C<T>\n    where\n        T: Clone,\n    = Vec<T>;\n    type D<'a>\n    where\n        Self: 'a;\n}\n"
+  );
+}
+
+#[test]
+fn test_use_comment_before_semicolon_moves_after_it() {
+  // A block comment between a use's tree and its `;` goes after the `;`.
+  assert_eq!(
+    formatted(
+      "use a::{item /* comment */};\nuse b::{\n    a,\n    // comment\n    item,\n};\nuse c::item /* comment */;\nuse d::item; // really long comment (with `use` exactly 100 characters) ____________________________\n\nuse std::e::{/* it's a comment! */ bar /* and another */};\nuse std::f::{/* it's a comment! */ bar};\nuse std::g::{bar /* and another */};\n"
+    ),
+    "use a::{item /* comment */};\nuse b::{\n    a,\n    // comment\n    item,\n};\nuse c::item; /* comment */\nuse d::item; // really long comment (with `use` exactly 100 characters) ____________________________\n\nuse std::e::{/* it's a comment! */ bar /* and another */};\nuse std::f::{/* it's a comment! */ bar};\nuse std::g::{bar /* and another */};\n"
+  );
+}
+
+#[test]
+fn test_use_lists_with_comments() {
+  // Comments in a use list move with their items when sorted; block comments alone stay
+  // on one line.
+  assert_eq!(
+    formatted(
+      "use super::{\n    C,\n    A,\n    // x1\n    B,\n};\nuse foo::{ self /* a */ };\nuse foo::{\n    self // this is important\n};\n"
+    ),
+    "use super::{\n    A,\n    // x1\n    B,\n    C,\n};\nuse foo::{self /* a */};\nuse foo::{\n    self, // this is important\n};\n"
   );
 }
 

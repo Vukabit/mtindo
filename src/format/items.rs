@@ -2158,8 +2158,16 @@ fn same_header_tokens(written: &str, laid: &str) -> bool {
       .collect::<Vec<String>>()
   };
   // Less the `::` (two `:` here) a visibility's path from the root drops (`pub(in ::a)`),
-  // and the `in` of `pub(in crate)`, and an empty `where`.
+  // and the `in` of `pub(in crate)`, an empty `where`, an empty `<>`.
   let rooted = |mut tokens: Vec<String>| {
+    let mut i = 0;
+    while i + 1 < tokens.len() {
+      if tokens[i] == "<" && tokens[i + 1] == ">" {
+        tokens.drain(i..i + 2);
+      } else {
+        i += 1;
+      }
+    }
     let mut i = 0;
     while i < tokens.len() {
       if tokens[i] == "where"

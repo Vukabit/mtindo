@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-17T00:22:25.091Z"
-commit: "4254797-dirty.3012a1c3"
+generated: "2026-10-17T03:01:20.168Z"
+commit: "dbce525-dirty.3e79d707"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -13,13 +13,13 @@ toolchain:
 corpus_fingerprint: "sha256:0bfa13269439c574"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
-  meaning.exceptions.tests: 5
+  meaning.exceptions.tests: 9
   meaning.exceptions.tests-with-settings: 21
-  meaning.exceptions.corpus: 32
-  meaning.exceptions.corpus-unformatted: 39
-  meaning.exceptions.total: 97
-  meaning.exceptions.unmodelled: 20
-  meaning.exceptions.other: 77
+  meaning.exceptions.corpus: 1
+  meaning.exceptions.corpus-unformatted: 0
+  meaning.exceptions.total: 31
+  meaning.exceptions.unmodelled: 10
+  meaning.exceptions.other: 21
 ---
 
 # Meaning and stability
@@ -29,8 +29,8 @@ metrics:
 <!-- generated: abstract -->
 Every output of mto that `cargo xtask diff` scores must keep the input's meaning
 and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 97 files, each listed
-with its reason: 20 are rewrites the check does not model yet, and 77 are the
+check, run on the standard formatter's own outputs, flags 31 files, each listed
+with its reason: 10 are rewrites the check does not model yet, and 21 are the
 formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
@@ -90,50 +90,42 @@ Exceptions listed for the standard formatter's output, by set:
 <!-- generated: results -->
 | set | listed | not modelled | other |
 |---|---:|---:|---:|
-| tests | 5 | 0 | 5 |
+| tests | 9 | 0 | 9 |
 | tests-with-settings | 21 | 10 | 11 |
-| corpus | 32 | 5 | 27 |
-| corpus-scrambled | 39 | 5 | 34 |
+| corpus | 1 | 0 | 1 |
+| corpus-scrambled | 0 | 0 | 0 |
 
 The reasons given, with how many files give each:
 
-- the formatter writes invalid code when a comment sits before a comma
-  (scrambled input) (9)
-- the formatter drops attributes on parameters (8)
-- the formatter adds parentheses that change what a closure covers (7)
-- an attributed match arm body wrapped in a block: equivalent, not modelled (6)
-- the formatter drops a `for` without a binder list (invalid input) (6)
 - `format_code_in_doc_comments` changes code in docs beyond whitespace (4)
-- the formatter rewrites a float range pattern (4)
-- the formatter writes invalid code (range spacing) (4)
 - `wrap_comments` reflows a markdown blockquote: not modelled (3)
-- a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent,
-  not modelled (3)
-- the formatter drops `pub` from a const block (3)
-- the formatter drops `pub` from an impl item (3)
-- the formatter drops the leading `::` of `pub(in ::path)` (3)
-- the formatter removes a `;` from a macro transcriber, which changes its
-  expansion (3)
-- `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not
-  modelled (2)
 - `wrap_comments` splits words: not modelled (2)
-- a turbofish in an associated type bound, dropped: equivalent, in a shape the
-  check does not model (2)
+- an attributed match arm body wrapped in a block: equivalent, not modelled (2)
 - the expected file differs from its input beyond formatting (2)
-- the formatter drops `default` (2)
-- the formatter drops `use self` (invalid input) (2)
-- the formatter drops an inner attribute inside an impl (2)
-- the formatter loses comments (2)
-- the formatter mangles `$r#struct` (2)
-- the formatter writes invalid code (`use std::::*`) (2)
-- the formatter writes invalid code (a comment swallows a parameter) (2)
-- the formatter writes invalid code (a where clause it fails to format) (2)
-- the formatter writes invalid code (parentheses dropped around `?Sized`) (2)
+- the formatter drops a `for` without a binder list (invalid input) (2)
 - `cfg_select!` arm bodies unwrapped: macro-specific, not modelled (1)
 - `imports_granularity = "One"` with renames: not modelled (1)
 - `trailing_semicolon` adds `;` after a macro call ending a loop body (1)
+- a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent,
+  not modelled (1)
 - converting CRLF line endings changes a multi-line raw string's contents (1)
 - test input splits `::` into `: :`; the formatter joins it (1)
+- the expected `(|| ..).method()` puts parentheses around a closure, which
+  changes what the closure covers (1)
+- the expected file drops `pub` from a const block item, which changes the
+  tokens (1)
+- the expected file drops `use self;` (invalid input), which changes the tokens;
+  mto keeps it (1)
+- the expected file drops a `;` from a `macro_rules!` transcriber, which changes
+  its expansion (1)
+- the expected file writes two spaces after a tuple field's visibility (`pub
+  u64`) after a comment (1)
+- the formatter adds parentheses that change what a closure covers (1)
+- the formatter drops `pub` from a const block (1)
+- the formatter drops `pub` from an impl item (1)
+- the formatter drops `use self` (invalid input) (1)
+- the formatter removes a `;` from a macro transcriber, which changes its
+  expansion (1)
 <!-- end generated -->
 
 ### History
@@ -145,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
-| current |  | 97 | 20 | 77 |
+| current |  | 31 | 10 | 21 |
+| 2026-10-15 | 0cfb09d | 97 | 20 | 77 |
 | 2026-10-15 | acd6789 | 101 | 22 | 79 |
 | 2026-10-10 | 4b2e95f | 107 | 28 | 79 |
 <!-- end generated -->
@@ -163,8 +156,8 @@ status:
 
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
-| `meaning` | 0 | 0 | 123 | 0 |
-| `unstable` | 0 | 0 | 332 | 0 |
+| `meaning` | 0 | 0 | 126 | 0 |
+| `unstable` | 0 | 0 | 334 | 0 |
 | `panic` | 0 | 0 | 5 | 0 |
 <!-- end generated -->
 

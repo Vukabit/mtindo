@@ -396,7 +396,7 @@ pub fn run(args: &[String]) -> ExitCode {
   let known = options
     .exceptions
     .as_ref()
-    .map(|path| exceptions(path))
+    .map(|path| exceptions(path, false))
     .unwrap_or_default();
   let keys: Vec<String> = flagged
     .iter()
@@ -418,6 +418,34 @@ pub fn run(args: &[String]) -> ExitCode {
   );
   for entry in &stale {
     println!("  listed but no longer flagged (remove it): {}", entry);
+  }
+  // The default-settings test pairs mto does not match, but those excused with a reason
+  // (the standard formatter's own bugs): the v1.0 gate wants none left.
+  let excused = options
+    .exceptions
+    .as_ref()
+    .map(|path| exceptions(path, true))
+    .unwrap_or_default();
+  let pairs: Vec<(String, bool)> = cases
+    .iter()
+    .zip(&scores)
+    .filter(|(case, score)| case.set == Set::Tests && !score.skipped)
+    .map(|(case, score)| (format!("{} [{}]", case.name, case.set.key()), score.matches))
+    .collect();
+  let open = pairs
+    .iter()
+    .filter(|(key, matches)| !matches && !excused.contains(key))
+    .count();
+  println!(
+    "default-settings test pairs not matching: {}, {} of them excused in \
+     compat/meaning-exceptions.txt",
+    pairs.iter().filter(|(_, matches)| !matches).count(),
+    pairs.iter().filter(|(_, matches)| !matches).count() - open,
+  );
+  for key in &excused {
+    if pairs.iter().any(|(k, matches)| k == key && *matches) {
+      println!("  excused but now matching (remove it): {}", key);
+    }
   }
   // Files the standard formatter leaves as written and mto changes: where a rule is wrong,
   // not missing. Each with the first line that differs and the syntax there.
@@ -970,8 +998,9 @@ fn drops(
   drops
 }
 
-/// The `PATH [SET]` keys listed in the exceptions file.
-fn exceptions(path: &Path) -> Vec<String> {
+/// The `PATH [SET]` keys listed in the exceptions file, the meaning check's (`excused`
+/// false) or the test pairs' mto need not match (`excused` true, lines starting `excused `).
+fn exceptions(path: &Path, excused: bool) -> Vec<String> {
   let Ok(text) = fs::read_to_string(path) else {
     return Vec::new();
   };
@@ -979,7 +1008,12 @@ fn exceptions(path: &Path) -> Vec<String> {
     .lines()
     .map(str::trim)
     .filter(|l| !l.is_empty() && !l.starts_with('#'))
-    .filter_map(|l| l.find(']').map(|end| l[..=end].to_string()))
+    .filter_map(|l| match l.strip_prefix("excused ") {
+      Some(rest) if excused => Some(rest),
+      None if !excused => Some(l),
+      _ => None,
+    })
+    .filter_map(|l| l.find(']').map(|end| l[..=end].trim().to_string()))
     .collect()
 }
 

@@ -190,6 +190,24 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
   if ka == K::RParen && pa == K::Visibility && (kb == K::Ident || is_keyword(kb)) {
     return Some(true);
   }
+  // A tuple field of a tuple field (`x.0 .0`): spaced before style edition 2024, as the
+  // standard formatter's chains write it; joined from it.
+  if ka == K::IntNumber
+    && pa == K::NameRef
+    && kb == K::Dot
+    && pb == K::FieldExpr
+    && matches!(
+      b.next_sibling_or_token(),
+      Some(SyntaxElement::Node(n))
+        if n.kind() == K::NameRef && n.first_token().is_some_and(|t| t.kind() == K::IntNumber)
+    )
+  {
+    return Some(config.style_edition < 2024);
+  }
+  // After a field's restriction, before its type: `mut(self) ()`, `mut(self) u8`.
+  if ka == K::RParen && pa == K::Restriction && !is_closer(kb) && kb != K::Comma {
+    return Some(true);
+  }
   // After an attribute: `#[a] x`.
   if ka == K::RBrack && pa == K::Attr {
     return Some(true);

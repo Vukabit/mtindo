@@ -17,9 +17,16 @@ use crate::config::{Resolver, user};
 use crate::history::sha256;
 use crate::report::{Entry, Store};
 
-/// The longest issue body put in a link; browsers and the site take links of about 8,000
-/// characters, and the body grows when encoded.
-const LINK_BODY: usize = 5000;
+/// What ends a body cut to fit a link. No path: the issue is public, and the path names the
+/// user's folders.
+const CUT_NOTE: &str = "\n\n…\n\n(Cut to fit a link: paste the rest of the report here.)\n";
+
+/// The longest link opened, as encoded: the site refuses links a little past 8,000
+/// characters (`414 URI Too Long`), and some browsers cut them.
+const MAX_LINK: usize = 8000;
+
+/// The longest title put in a link, as encoded.
+const MAX_TITLE: usize = 400;
 
 /// Where reports are kept: beside history, in mto's state folder.
 pub fn dir(resolver: &Resolver) -> Option<PathBuf> {
@@ -102,7 +109,7 @@ pub fn save(store: &Store, id: &str, file: &str, with_file: bool) -> Result<Stri
 }
 
 /// `mto report send ID`: opens a new issue on mto's repository in the browser, filled in
-/// with the report. A report too long for a link is cut, and the issue says where the
+/// with the report. A report too long for a link is cut, and the terminal says where the
 /// whole of it is, to paste.
 pub fn send(store: &Store, id: &str) -> Result<String, String> {
   let entry = store.find(id)?;
@@ -110,23 +117,7 @@ pub fn send(store: &Store, id: &str) -> Result<String, String> {
     .read()
     .map_err(|e| format!("cannot read report {}: {}", entry.id, e))?;
   let whole = entry.dir.join("report.md");
-  let (body, cut) = if text.len() > LINK_BODY {
-    let mut end = LINK_BODY;
-    while !text.is_char_boundary(end) {
-      end -= 1;
-    }
-    (
-      format!(
-        "{}\n\n…\n\n(The report is too long for a link: paste the rest from `{}`.)\n",
-        &text[..end],
-        whole.display()
-      ),
-      true,
-    )
-  } else {
-    (text, false)
-  };
-  let link = issue_link(&entry.title, &body);
+  let (link, cut) = issue_link(&entry.title, &text);
   let mut out = String::new();
   if cut {
     out.push_str(&format!(
@@ -179,14 +170,67 @@ fn encode(text: &str) -> String {
   out
 }
 
-/// A link to a new issue on mto's repository with `title` and `body` filled in.
-fn issue_link(title: &str, body: &str) -> String {
-  format!(
-    "{}/issues/new?title={}&body={}",
+/// How long `c` is once [`encode`]d.
+fn encoded_len(c: char) -> usize {
+  if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
+    1
+  } else {
+    3 * c.len_utf8()
+  }
+}
+
+/// The longest start of `text` that is at most `budget` characters once encoded, ending
+/// after a line when one fits, else at a character.
+fn fitting(text: &str, budget: usize) -> &str {
+  let mut used = 0;
+  let mut line_end = None;
+  for (at, c) in text.char_indices() {
+    used += encoded_len(c);
+    if used > budget {
+      return &text[..line_end.unwrap_or(at)];
+    }
+    if c == '\n' {
+      line_end = Some(at + 1);
+    }
+  }
+  text
+}
+
+/// A link to a new issue on mto's repository with `title` and `body` filled in, at most
+/// [`MAX_LINK`] characters long; and whether the body was cut to fit.
+fn issue_link(title: &str, body: &str) -> (String, bool) {
+  let head = format!(
+    "{}/issues/new?title={}&body=",
     env!("CARGO_PKG_REPOSITORY"),
-    encode(title),
-    encode(body)
-  )
+    encode(fitting(title, MAX_TITLE))
+  );
+  let (body, cut) = link_body(body, MAX_LINK.saturating_sub(head.len()));
+  (format!("{}{}", head, encode(&body)), cut)
+}
+
+/// The body put in a link `budget` characters are left for once encoded, and whether it
+/// was cut: all of `text` when it fits; else its start, a code block left open closed, and
+/// [`CUT_NOTE`].
+fn link_body(text: &str, budget: usize) -> (String, bool) {
+  if text.chars().map(encoded_len).sum::<usize>() <= budget {
+    return (text.to_string(), false);
+  }
+  let close = "\n```";
+  let reserved = CUT_NOTE
+    .chars()
+    .chain(close.chars())
+    .map(encoded_len)
+    .sum::<usize>();
+  let mut body = fitting(text, budget.saturating_sub(reserved)).to_string();
+  let fences = body
+    .lines()
+    .filter(|line| line.trim_start().starts_with("```"))
+    .count();
+  if fences % 2 == 1 {
+    body.push_str(close);
+  }
+  body.push_str(CUT_NOTE);
+  (body, true)
 }
 
 /// Opens `link` in the browser, as the system opens links; whether it could.
@@ -230,9 +274,34 @@ mod tests {
   use super::*;
 
   #[test]
+  fn test_a_body_is_cut_at_a_line_and_a_character() {
+    assert_eq!(fitting("ab\ncd\nef", 7), "ab\n");
+    assert_eq!(fitting("abcdef", 3), "abc");
+    assert_eq!(fitting("é", 5), "");
+    let (body, cut) = link_body("short", 100);
+    assert_eq!((body.as_str(), cut), ("short", false));
+  }
+
+  #[test]
+  fn test_a_long_report_link_fits_once_encoded() {
+    // Punctuation and spaces triple when encoded; non-ASCII grows ninefold.
+    let line = "    let x = (a, b) => { c[d] }; // é ü → ✓\n";
+    let text = format!("## Input\n\n```rust\n{}```\n", line.repeat(400));
+    let title = "panic: ".to_string() + &"ü".repeat(1000);
+    let (link, cut) = issue_link(&title, &text);
+    assert!(cut);
+    assert!(link.len() <= MAX_LINK, "{}", link.len());
+    let body = link.split("&body=").nth(1).unwrap();
+    // The open code block is closed before the note.
+    assert!(body.contains(&encode("\n```\n\n…")), "{}", body);
+    assert!(!body.contains(&encode("/Users/")));
+  }
+
+  #[test]
   fn test_an_issue_link_encodes_its_text() {
     assert_eq!(encode("a b&c=d\n`x`"), "a%20b%26c%3Dd%0A%60x%60");
-    let link = issue_link("panic: boom", "body");
+    let (link, cut) = issue_link("panic: boom", "body");
+    assert!(!cut);
     assert!(
       link.ends_with("/issues/new?title=panic%3A%20boom&body=body"),
       "{}",

@@ -26,8 +26,14 @@ use crate::version;
 /// Reports not seen again for this long go when another is saved.
 pub const KEEP_DAYS: u64 = 90;
 
+/// The most lines the smallest failing part may have to be shown open in a report.
+const OPEN_LINES: usize = 30;
+
 /// The most files a report remembers it was seen in.
 const SEEN_IN: usize = 10;
+
+/// The longest title, in characters.
+const TITLE: usize = 100;
 
 /// What mto found wrong with itself.
 #[derive(Clone, Debug)]
@@ -99,11 +105,7 @@ impl Bug {
         format!("verifier: {}", rules.join(", "))
       }
     };
-    let mut title: String = what.chars().take(100).collect();
-    if title.len() < what.len() {
-      title.push('…');
-    }
-    title
+    shorten(&what, TITLE)
   }
 
   /// The report as Markdown, ready to be an issue's body.
@@ -129,10 +131,20 @@ impl Bug {
       }
     }
     match &self.minimal {
-      Some(minimal) => out.push_str(&format!(
-        "The smallest part of the file that still fails:\n\n```rust\n{}\n```\n\n",
-        minimal.trim_end()
-      )),
+      // In a drop-down, as the backtrace is, to scroll past; open when short.
+      Some(minimal) => {
+        let minimal = minimal.trim_end();
+        let open = if minimal.lines().count() <= OPEN_LINES {
+          " open"
+        } else {
+          ""
+        };
+        out.push_str(&format!(
+          "<details{}><summary>The smallest part of the file that still fails</summary>\n\n\
+           ```rust\n{}\n```\n\n</details>\n\n",
+          open, minimal
+        ))
+      }
       None => out.push_str("No smaller part of the file was found that still fails.\n\n"),
     }
     out.push_str(&format!("Command:\n\n```text\n{}\n```\n\n", self.command));
@@ -339,6 +351,25 @@ fn read_entry(dir: &Path) -> Option<Entry> {
     }
   }
   Some(entry)
+}
+
+/// `what` in at most `limit` characters: its end as it is when it says where (a panic's
+/// ` (at src/x.rs:1)`), what comes before it cut, with `…`, to make room.
+fn shorten(what: &str, limit: usize) -> String {
+  if what.chars().count() <= limit {
+    return what.to_string();
+  }
+  let place = what
+    .rfind(" (at ")
+    .filter(|&at| what.ends_with(')') && what[at..].chars().count() < limit / 2)
+    .map_or("", |at| &what[at..]);
+  let keep = limit - 1 - place.chars().count();
+  let message = &what[..what.len() - place.len()];
+  let mut out: String = message.chars().take(keep).collect();
+  out.truncate(out.trim_end().len());
+  out.push('…');
+  out.push_str(place);
+  out
 }
 
 #[cfg(test)]

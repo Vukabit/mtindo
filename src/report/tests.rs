@@ -20,6 +20,29 @@ fn scratch(name: &str) -> PathBuf {
   dir
 }
 
+/// A long panic's title keeps where it panicked; the message before it is cut.
+#[test]
+fn test_a_long_title_keeps_the_place() {
+  let place = " (at src/format/expr.rs:740)";
+  let what = format!(
+    "panic: end byte index 80 is not a char boundary; it is inside '💡' (bytes 77..81 of \
+     string){}",
+    place
+  );
+  let title = shorten(&what, TITLE);
+  assert!(title.ends_with(&format!("…{}", place)), "{}", title);
+  assert!(title.chars().count() <= TITLE, "{}", title);
+  assert_eq!(
+    shorten("panic: short (at a.rs:1)", TITLE),
+    "panic: short (at a.rs:1)"
+  );
+  // No place: cut at the end.
+  let long = "x".repeat(150);
+  let cut = shorten(&long, TITLE);
+  assert_eq!(cut.chars().count(), TITLE);
+  assert!(cut.ends_with('…'));
+}
+
 /// The same bug seen again is counted, with each file it was seen in; another bug is
 /// another report; a prefix of an id finds it.
 #[test]
@@ -56,6 +79,24 @@ fn test_one_report_per_bug_counted() {
   assert_eq!(store.clear().unwrap(), 2);
   assert!(store.list().is_empty());
   let _ = fs::remove_dir_all(&dir);
+}
+
+/// The smallest failing part is in a drop-down, open only when it is short.
+#[test]
+fn test_the_smallest_part_is_a_drop_down() {
+  let short = bug("boom", "fn f() {}\n", "a.rs").markdown();
+  assert!(
+    short.contains("<details open><summary>The smallest part"),
+    "{}",
+    short
+  );
+  let long = bug("boom", &"fn f() {}\n".repeat(OPEN_LINES + 1), "a.rs").markdown();
+  assert!(
+    long.contains("<details><summary>The smallest part"),
+    "{}",
+    long
+  );
+  assert!(long.contains("```rust\nfn f() {}\n"), "{}", long);
 }
 
 /// A verifier stop is keyed by the rules broken, not their details; reports unseen for

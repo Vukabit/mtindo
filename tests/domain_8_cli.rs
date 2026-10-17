@@ -104,7 +104,7 @@ fn test_a_bug_failing_on_one_file_leaves_it_and_the_run_goes_on() {
     shown
   );
   assert!(
-    shown.contains("still fails:\n\n```rust\nfn inject_panic() {}\n```"),
+    shown.contains("still fails</summary>\n\n```rust\nfn inject_panic() {}\n```"),
     "{}",
     shown
   );

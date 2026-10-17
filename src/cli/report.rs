@@ -6,7 +6,8 @@
 //! - `mto report save ID FILE [--with-file]`: the report into FILE; `--with-file` adds the
 //!   whole file it was found in, which a report otherwise never holds.
 //! - `mto report send ID`: opens a new issue on mto's repository in the browser, filled in
-//!   with the report, to read over and submit. mto itself sends nothing.
+//!   with the report, to read over and submit; one too long for a link goes on the
+//!   clipboard instead, to paste. mto itself sends nothing.
 //! - `mto report prune`: removes every report.
 
 use std::fs;
@@ -17,9 +18,15 @@ use crate::config::{Resolver, user};
 use crate::history::sha256;
 use crate::report::{Entry, Store};
 
-/// What ends a body cut to fit a link. No path: the issue is public, and the path names the
-/// user's folders.
-const CUT_NOTE: &str = "\n\n…\n\n(Cut to fit a link: paste the rest of the report here.)\n";
+/// Where a report's backtrace starts (see `crate::report`): its last part, and the first
+/// left out of a link.
+const BACKTRACE: &str = "\n<details><summary>Backtrace</summary>";
+
+/// What ends a body cut to fit a link, for whoever files it. No path: the issue is public,
+/// and the path names the user's folders; `mto report send` prints it.
+const CUT_NOTE: &str = "\n\n---\n\n**This report was too long for a link and is cut short \
+                        here.** `mto report send` printed where the whole report is kept: \
+                        paste the missing part below this line before submitting.\n";
 
 /// The longest link opened, as encoded: the site refuses links a little past 8,000
 /// characters (`414 URI Too Long`), and some browsers cut them.
@@ -27,6 +34,15 @@ const MAX_LINK: usize = 8000;
 
 /// The longest title put in a link, as encoded.
 const MAX_TITLE: usize = 400;
+
+/// What stands in for a backtrace left out of a link.
+const NO_BACKTRACE: &str = "\n(The backtrace is left out to fit a link; it is in the whole \
+                            report.)\n";
+
+/// An issue's body when the whole report is on the clipboard.
+const PASTE_NOTE: &str = "**mto copied the whole report to your clipboard**: it is too long for a \
+                          link. Select this text and paste over it (Ctrl+V, or Cmd+V on a \
+                          Mac), then read it over before submitting.\n";
 
 /// Where reports are kept: beside history, in mto's state folder.
 pub fn dir(resolver: &Resolver) -> Option<PathBuf> {
@@ -109,17 +125,25 @@ pub fn save(store: &Store, id: &str, file: &str, with_file: bool) -> Result<Stri
 }
 
 /// `mto report send ID`: opens a new issue on mto's repository in the browser, filled in
-/// with the report. A report too long for a link is cut, and the terminal says where the
-/// whole of it is, to paste.
+/// with the report. A report too long for a link is copied to the clipboard, the issue
+/// saying to paste it; where that cannot be done, it is cut, and the terminal says where the
+/// whole of it is.
 pub fn send(store: &Store, id: &str) -> Result<String, String> {
   let entry = store.find(id)?;
   let text = entry
     .read()
     .map_err(|e| format!("cannot read report {}: {}", entry.id, e))?;
   let whole = entry.dir.join("report.md");
-  let (link, cut) = issue_link(&entry.title, &text);
+  let (mut link, cut) = issue_link(&entry.title, &text);
   let mut out = String::new();
-  if cut {
+  if cut && copy(&text) {
+    // The whole report on the clipboard, to paste over the issue's body.
+    link = issue_link(&entry.title, PASTE_NOTE).0;
+    out.push_str(
+      "the report is too long for a link: mto copied it to the clipboard; in the issue, \
+       select the body and paste over it\n",
+    );
+  } else if cut {
     out.push_str(&format!(
       "the report is too long for a link: the issue holds its start; paste the rest from {}\n",
       whole.display()
@@ -156,6 +180,47 @@ pub fn store(resolver: &Resolver) -> Option<Store> {
     .and_then(|v| v.as_bool())
     .unwrap_or(true);
   dir(resolver).filter(|_| save).map(Store::new)
+}
+
+/// Puts `text` on the clipboard with the system's own tool; whether it could.
+fn copy(text: &str) -> bool {
+  use std::io::Write;
+  let tools: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+    &[("pbcopy", &[])]
+  } else if cfg!(windows) {
+    // Read as UTF-8, which `clip` is not.
+    &[(
+      "powershell",
+      &[
+        "-NoProfile",
+        "-Command",
+        "[Console]::InputEncoding = [Text.Encoding]::UTF8; \
+         Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+      ],
+    )]
+  } else {
+    &[
+      ("wl-copy", &[]),
+      ("xclip", &["-selection", "clipboard"]),
+      ("xsel", &["--clipboard", "--input"]),
+    ]
+  };
+  tools.iter().any(|(tool, args)| {
+    let Ok(mut child) = Command::new(tool)
+      .args(*args)
+      .stdin(Stdio::piped())
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .spawn()
+    else {
+      return false;
+    };
+    let written = child
+      .stdin
+      .take()
+      .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+    child.wait().is_ok_and(|status| status.success()) && written
+  })
 }
 
 /// `text` with everything but unreserved characters percent-encoded, for a link.
@@ -209,11 +274,18 @@ fn issue_link(title: &str, body: &str) -> (String, bool) {
 }
 
 /// The body put in a link `budget` characters are left for once encoded, and whether it
-/// was cut: all of `text` when it fits; else its start, a code block left open closed, and
-/// [`CUT_NOTE`].
+/// was cut: all of `text` when it fits; else without its backtrace when that fits; else its
+/// start, a code block left open closed, and [`CUT_NOTE`].
 fn link_body(text: &str, budget: usize) -> (String, bool) {
-  if text.chars().map(encoded_len).sum::<usize>() <= budget {
+  let fits = |text: &str| text.chars().map(encoded_len).sum::<usize>() <= budget;
+  if fits(text) {
     return (text.to_string(), false);
+  }
+  if let Some(at) = text.find(BACKTRACE) {
+    let without = format!("{}{}", &text[..at], NO_BACKTRACE);
+    if fits(&without) {
+      return (without, true);
+    }
   }
   let close = "\n```";
   let reserved = CUT_NOTE
@@ -274,6 +346,20 @@ mod tests {
   use super::*;
 
   #[test]
+  fn test_a_backtrace_goes_before_the_report_is_cut() {
+    let text = format!(
+      "## panic: boom\n\nbody\n{}\n\n```text\n{}```\n\n</details>\n",
+      BACKTRACE,
+      "frame\n".repeat(2000)
+    );
+    let (body, cut) = link_body(&text, 1000);
+    assert!(cut);
+    assert!(body.starts_with("## panic: boom\n\nbody\n"), "{}", body);
+    assert!(body.ends_with(NO_BACKTRACE), "{}", body);
+    assert!(!body.contains("frame"));
+  }
+
+  #[test]
   fn test_a_body_is_cut_at_a_line_and_a_character() {
     assert_eq!(fitting("ab\ncd\nef", 7), "ab\n");
     assert_eq!(fitting("abcdef", 3), "abc");
@@ -293,7 +379,7 @@ mod tests {
     assert!(link.len() <= MAX_LINK, "{}", link.len());
     let body = link.split("&body=").nth(1).unwrap();
     // The open code block is closed before the note.
-    assert!(body.contains(&encode("\n```\n\n…")), "{}", body);
+    assert!(body.contains(&encode("\n```\n\n---")), "{}", body);
     assert!(!body.contains(&encode("/Users/")));
   }
 
@@ -307,5 +393,12 @@ mod tests {
       "{}",
       link
     );
+  }
+
+  #[test]
+  fn test_the_paste_note_fits_a_link_whole() {
+    let (link, cut) = issue_link(&"ü".repeat(1000), PASTE_NOTE);
+    assert!(!cut);
+    assert!(link.len() <= MAX_LINK);
   }
 }

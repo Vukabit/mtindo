@@ -426,8 +426,31 @@ fn lines(
           let last = last_entry > 0 && t.text_range().start >= last_entry;
           let placed = container.kind() == K::BlockExpr
             && container.parent().is_none_or(|p| p.kind() != K::IfExpr);
-          if text.contains('\n') || last && newlines > 0 && !placed {
+          if last && newlines > 0 && !placed {
             return None;
+          }
+          // One across lines on lines of its own, its later lines placed as the whole-file
+          // pass places them.
+          if text.contains('\n') {
+            if newlines == 0 && !lines.is_empty() {
+              return None;
+            }
+            let config = inner.limits.config();
+            blank(&mut lines, newlines);
+            lines.push(format!(
+              "{}{}",
+              pad,
+              super::file::reindent_block_comment(
+                text,
+                inner.indent,
+                config.tab_spaces,
+                &config,
+                false
+              )
+            ));
+            trailing = None;
+            newlines = 0;
+            continue;
           }
           if newlines == 0 && !lines.is_empty() {
             // After an entry, on its line; after an arm, aligned with those around it.

@@ -39,3 +39,4 @@ excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro
 excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
 excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
 excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+excused tests/issue-2917/minimal.rs [tests]  the expected file puts a block comment's `*/` under its `/*`, which the standard formatter moves a space in on a second run; mto writes what a second run keeps

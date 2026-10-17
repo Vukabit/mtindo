@@ -831,13 +831,26 @@ fn collect_cases(options: &Options) -> Vec<Case> {
         continue;
       };
       let relative = target.strip_prefix(&target_dir).unwrap_or(&target);
+      if never_formatted(relative) {
+        continue;
+      }
       let input = fs::read_to_string(source_dir.join(relative)).unwrap_or(expected.clone());
       let set = if input.lines().any(|l| l.starts_with("// rustfmt-")) {
         Set::TestsWithSettings
       } else {
         Set::Tests
       };
-      let format = header_settings(&input, &tests.join("config"));
+      let mut format = header_settings(&input, &tests.join("config"));
+      // A module beside a crate root is formatted as the root's run reaches it, with the
+      // macros and attributes the root's own attributes skip.
+      let folder = source_dir.join(relative).parent().map(Path::to_path_buf);
+      if let Some(root) = folder.map(|f| f.join("lib.rs"))
+        && root != source_dir.join(relative)
+        && let Ok(text) = fs::read_to_string(&root)
+      {
+        (format.crate_skipped_macros, format.crate_skipped_attributes) =
+          mtindo::cli::modules::crate_skips(&text);
+      }
       // The pairs are stored with `\n` endings whatever the header asks for; the
       // standard formatter's own test runner ignores endings.
       let edition = edition_for(&target, &input);
@@ -1086,6 +1099,18 @@ fn nearest_config(dir: &Path) -> String {
     current = here.parent();
   }
   String::new()
+}
+
+/// Whether a test pair, named relative to the suite's `target` folder, is a module its
+/// parent's run never formats, whose expected text is its source left alone: the standard
+/// formatter's own test runner leaves these out.
+fn never_formatted(relative: &Path) -> bool {
+  [
+    "configs/skip_children/foo/mod.rs",
+    "issue-3253/paths/excluded.rs",
+  ]
+  .iter()
+  .any(|child| relative == Path::new(child))
 }
 
 fn parse_args(args: &[String]) -> Result<Options, String> {

@@ -75,7 +75,7 @@ option  short_array_element_width_threshold              partial      # with for
 option  show_parse_errors                                missing
 option  single_line_if_else_max_width                    partial      # with format = true, for an `if` with one-expression branches as a value or a block's tail (src/format/stmt/tests.rs); not yet in match arms
 option  single_line_let_else_max_width                   partial      # with format = true, a `let ... else` block of one expression on the `let`'s line (src/format/stmt/tests.rs)
-option  skip_children                                    missing
+option  skip_children                                    supported    # the files a path's modules reach are left out, as --skip-children leaves them (tests/domain_8_cli.rs)
 option  skip_macro_invocations                           supported    # with format = true, the calls of the macros named, by their path as written, or of all for `*`, left as written (src/format/file/tests.rs)
 option  space_after_colon                                supported    # with format = true (src/format/space/tests.rs)
 option  space_before_colon                               supported    # with format = true (src/format/space/tests.rs)

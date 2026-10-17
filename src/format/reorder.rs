@@ -19,6 +19,106 @@ use crate::order::{UseTree, version_sort};
 use crate::syntax::ast::Attr;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode};
 
+/// `text` with the comments between a `loop`, `while`, `for` or `if` head and its block each
+/// on a line of its own at the head's indentation, the block's `{` on the line after them,
+/// as the standard formatter writes them. `None` when there are none. Not in a `// mto: off`
+/// region or a skipped item.
+pub fn control_comments(root: &SyntaxNode, text: &str) -> Option<String> {
+  let mut edits: Vec<(usize, usize, String)> = Vec::new();
+  let controls = root.descendant_nodes_where(|kind| {
+    matches!(kind, K::LoopExpr | K::WhileExpr | K::ForExpr | K::IfExpr)
+  });
+  for control in controls {
+    let elements: Vec<SyntaxElement> = control.children_with_tokens_iter().collect();
+    // An `if`'s first block, the others' last (the head may hold blocks too).
+    let block = |e: &SyntaxElement| matches!(e, SyntaxElement::Node(n) if n.kind() == K::BlockExpr);
+    let mut bodies = Vec::new();
+    if control.kind() == K::IfExpr {
+      bodies.extend(elements.iter().position(block));
+      // And the block after `else`, at the indentation of the line `else` is on.
+      if let Some(at) = elements.iter().position(|e| e.kind() == K::ElseKw)
+        && let Some(after) = (at + 1..elements.len()).find(|&i| !elements[i].kind().is_trivia())
+        && block(&elements[after])
+      {
+        bodies.push(after);
+      }
+    } else {
+      bodies.extend(elements.iter().rposition(block));
+    }
+    for body in bodies {
+      // The trivia just before the block.
+      let mut first = body;
+      while first > 0 && elements[first - 1].kind().is_trivia() {
+        first -= 1;
+      }
+      let between = &elements[first..body];
+      if first == 0
+      || !between
+        .iter()
+        .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+      || between
+        .iter()
+        .any(|e| matches!(e, SyntaxElement::Token(t) if t.kind() == K::BlockComment && t.text().contains('\n')))
+      || skipped_within(&control)
+    {
+      continue;
+    }
+      // The line of the head's first token, or of the `else`.
+      let start = match elements[..body].iter().rposition(|e| e.kind() == K::ElseKw) {
+        Some(at) => elements[at].text_range().start,
+        None => control.text_range().start,
+      } as usize;
+      let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+      let indent: String = text[line_start..]
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect();
+      let line = format!("\n{}", indent);
+      let mut at = between[0].text_range().start as usize;
+      for element in between {
+        let range = element.text_range();
+        if element.kind() == K::Whitespace {
+          continue;
+        }
+        // One already starting its line keeps it, so that a second run changes nothing.
+        if !text[at..range.start as usize].contains('\n') {
+          edits.push((at, range.start as usize, line.clone()));
+        }
+        at = range.end as usize;
+      }
+      let block_start = elements[body].text_range().start as usize;
+      if !text[at..block_start].contains('\n') {
+        edits.push((at, block_start, line));
+      }
+    }
+  }
+  if edits.is_empty() {
+    return None;
+  }
+  let off = off_regions(root);
+  edits.retain(|&(start, end, _)| {
+    !off
+      .iter()
+      .any(|&(s, e)| s < end.max(start + 1) && start < e)
+  });
+  if edits.is_empty() {
+    return None;
+  }
+  edits.sort_unstable_by_key(|e| e.0);
+  let mut out = String::with_capacity(text.len());
+  let mut at = 0;
+  for (start, end, replacement) in edits {
+    if start < at {
+      continue;
+    }
+    out.push_str(&text[at..start]);
+    out.push_str(&replacement);
+    at = end;
+  }
+  out.push_str(&text[at..]);
+  (out != text).then_some(out)
+}
+
 /// `text` without the `use` declarations of empty lists (`use a::{};`, `use a::{b::{}};`),
 /// each with its line when it stands alone there, which the standard formatter drops when it
 /// reorders imports; `None` when there are none. Kept: one with attributes or a comment, one
@@ -123,6 +223,93 @@ pub fn explicit_abi(root: &SyntaxNode, text: &str) -> Option<String> {
     from = end;
   }
   out.push_str(&text[from..]);
+  Some(out)
+}
+
+/// `text` with the comments on lines of their own after a `match`'s last arm, written
+/// without a comma (or with one after a plain block, which goes), moved to the end of the
+/// arm's line, as the standard formatter takes them
+/// for the arm's comments after it: the first after one space, each later one under it, the
+/// blank lines among them dropped. `None` when there are none to move. Not in a
+/// `// mto: off` region or a skipped item.
+pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
+  let mut edits: Vec<(usize, usize, String)> = Vec::new();
+  for list in root.descendant_nodes_where(|kind| kind == K::MatchArmList) {
+    let Some(arm) = list.children_iter().rfind(|c| c.kind() == K::MatchArm) else {
+      continue;
+    };
+    let mut after = Vec::new();
+    let arm_end = arm.text_range().end;
+    for element in list
+      .children_with_tokens_iter()
+      .filter(|e| e.text_range().start >= arm_end)
+    {
+      match element {
+        SyntaxElement::Token(t) if t.kind() == K::RBrace => break,
+        SyntaxElement::Token(t) if t.kind().is_trivia() => after.push(t),
+        _ => {
+          after.clear();
+          break;
+        }
+      }
+    }
+    // Whitespace, then comments each ending its line, then the `}` on a line of its own.
+    let starts_line = |i: usize| {
+      after
+        .get(i)
+        .is_some_and(|t| t.kind() == K::Whitespace && t.text().contains('\n'))
+    };
+    let comments: Vec<usize> = (0..after.len())
+      .filter(|&i| after[i].kind() != K::Whitespace)
+      .collect();
+    if comments.is_empty()
+      || after.len() != comments.len() * 2 + 1
+      || !(0..after.len()).all(|i| (i % 2 == 1) == (after[i].kind() != K::Whitespace))
+      || !(0..=comments.len()).all(|n| starts_line(n * 2))
+      || arm.last_token().is_some_and(|t| t.kind() == K::Comma) && !plain_block_body(&arm)
+      || skipped_within(&list)
+    {
+      continue;
+    }
+    let end = arm.text_range().end as usize;
+    let line_start = text[..end].rfind('\n').map_or(0, |i| i + 1);
+    // Under the first comment: the arm's line, each of its characters a space but tabs.
+    let mut under: String = text[line_start..end]
+      .chars()
+      .map(|c| match c {
+        '\t' => "\t".to_string(),
+        c => " ".repeat(crate::text::unicode::char_width(c)),
+      })
+      .collect();
+    under.push(' ');
+    for (n, &i) in comments.iter().enumerate() {
+      let space = &after[i - 1];
+      let range = space.text_range();
+      let replacement = if n == 0 {
+        " ".to_string()
+      } else {
+        format!("\n{}", under)
+      };
+      edits.push((range.start as usize, range.end as usize, replacement));
+    }
+  }
+  if edits.is_empty() {
+    return None;
+  }
+  let off = off_regions(root);
+  edits.retain(|&(start, end, _)| !off.iter().any(|&(s, e)| s < end && start < e));
+  if edits.is_empty() {
+    return None;
+  }
+  edits.sort_unstable_by_key(|e| e.0);
+  let mut out = String::with_capacity(text.len());
+  let mut at = 0;
+  for (start, end, replacement) in edits {
+    out.push_str(&text[at..start]);
+    out.push_str(&replacement);
+    at = end;
+  }
+  out.push_str(&text[at..]);
   Some(out)
 }
 
@@ -464,6 +651,17 @@ fn own_line_comment(item: &SyntaxNode) -> bool {
   false
 }
 
+/// Whether a match arm's body is a block with nothing before its `{`, whose comma after it
+/// is dropped: the arm then ends without one too.
+fn plain_block_body(arm: &SyntaxNode) -> bool {
+  arm
+    .children_iter()
+    .rfind(|c| c.kind() != K::Attr)
+    .is_some_and(|body| {
+      body.kind() == K::BlockExpr && body.first_token().is_some_and(|t| t.kind() == K::LBrace)
+    })
+}
+
 /// The runs of a container: declarations of one sortable kind, one after another with no
 /// blank line between them. With blank lines removed (`blank_lines_upper_bound = 0`) they
 /// end no run, so that a second run sorts nothing more.
@@ -496,6 +694,16 @@ fn runs(container: &SyntaxNode, blank_ends_run: bool) -> Vec<Vec<SyntaxNode>> {
   runs.push(current);
   runs.retain(|r| !r.is_empty());
   runs
+}
+
+/// Whether a node is inside an item, statement or expression marked `#[rustfmt::skip]`.
+fn skipped_within(node: &SyntaxNode) -> bool {
+  node.ancestors_iter().any(|owner| {
+    owner
+      .children_iter()
+      .filter_map(Attr::cast)
+      .any(|a| a.is_rustfmt_skip())
+  })
 }
 
 #[cfg(test)]

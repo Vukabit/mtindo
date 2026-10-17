@@ -405,12 +405,16 @@ pub fn collect_jobs_into(
       walk_inner(path, real, resolver, opts, &mut walk, true)?;
       continue;
     }
-    let files = if opts.skip_children {
-      vec![path.clone()]
+    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = real.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let skip_children = opts.skip_children || resolver.config_for_absolute(dir)?.skip_children();
+    let (files, skips) = if skip_children {
+      (vec![path.clone()], Default::default())
     } else {
       let (files, missing) = cli::modules::module_files(path);
       problems.extend(missing);
-      files
+      let text = fs::read_to_string(path).unwrap_or_default();
+      (files, cli::modules::crate_skips(&text))
     };
     for file in files {
       let real = fs::canonicalize(&file).unwrap_or_else(|_| file.clone());
@@ -420,7 +424,12 @@ pub fn collect_jobs_into(
       let dir = real.parent().unwrap_or(Path::new(".")).to_path_buf();
       let resolved = resolver.config_for_absolute(dir)?;
       print_warnings(resolver);
-      found((file, Settings::of(&resolved).map(Arc::new)));
+      let mut settings = Settings::of(&resolved);
+      if let Some(format) = settings.as_mut().and_then(|s| s.format.as_mut()) {
+        format.crate_skipped_macros = skips.0.clone();
+        format.crate_skipped_attributes = skips.1.clone();
+      }
+      found((file, settings.map(Arc::new)));
     }
   }
   Ok(Collected {

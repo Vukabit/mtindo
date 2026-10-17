@@ -21,6 +21,40 @@ use crate::layout::parse_any_edition;
 use crate::syntax::ast::{Item, ItemKind};
 use crate::syntax::{SyntaxKind, SyntaxNode};
 
+/// The macros and the attributes a crate root's own `#![rustfmt::skip::macros(..)]` and
+/// `#![rustfmt::skip::attributes(..)]` name: the standard formatter leaves them as written
+/// in every file the root reaches.
+pub fn crate_skips(text: &str) -> (Vec<String>, Vec<String>) {
+  let (_, parsed) = parse_any_edition(text);
+  let mut macros = Vec::new();
+  let mut attributes = Vec::new();
+  for attr in parsed
+    .syntax_node()
+    .children_iter()
+    .filter(|c| c.kind() == SyntaxKind::Attr)
+  {
+    let written: String = attr.text().to_string().split_whitespace().collect();
+    let Some(inside) = written
+      .strip_prefix("#![")
+      .and_then(|w| w.strip_suffix(']'))
+    else {
+      continue;
+    };
+    for (prefix, names) in [
+      ("rustfmt::skip::macros(", &mut macros),
+      ("rustfmt::skip::attributes(", &mut attributes),
+    ] {
+      if let Some(list) = inside
+        .strip_prefix(prefix)
+        .and_then(|r| r.strip_suffix(')'))
+      {
+        names.extend(list.split(',').filter(|n| !n.is_empty()).map(String::from));
+      }
+    }
+  }
+  (macros, attributes)
+}
+
 /// Every file `root` reaches, `root` first, each once; and what could not be found.
 pub fn module_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
   let mut files = Vec::new();

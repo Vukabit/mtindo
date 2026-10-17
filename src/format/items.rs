@@ -160,9 +160,21 @@ pub fn rewrite_field(
     } else {
       ("(", ")")
     };
-    let tail = flat_tokens(&code_tokens(&tail), spacing);
-    let tail = if tail.is_empty() {
-      String::new()
+    // A discriminant laid out as an expression (`= m! {}`), else as written on a line.
+    let value = tail.iter().find_map(|e| match e {
+      SyntaxElement::Node(n) => Some(n.clone()),
+      SyntaxElement::Token(_) => None,
+    });
+    let laid = value.and_then(|v| {
+      let shape = super::stmt::statement_shape(indent, config)?;
+      super::expr::rewrite(&v, shape).filter(|t| !t.contains('\n'))
+    });
+    let tail = match laid {
+      Some(value) => format!(" = {}", value),
+      None => flat_tokens(&code_tokens(&tail), spacing),
+    };
+    let tail = if tail.is_empty() || tail.starts_with(' ') {
+      tail
     } else {
       format!(" {}", tail)
     };
@@ -180,6 +192,90 @@ pub fn rewrite_field(
       return None;
     }
     return Some((text, node.text_range().end as usize));
+  }
+  // A struct-like variant whose fields hold block comments on a line only, between them:
+  // on one line with them when that fits `struct_variant_width` (each comment counted with
+  // six columns more, `total_item_width`), as the standard formatter writes its fields
+  // horizontally.
+  if node.kind() == K::Variant
+    && let Some(fields) = node
+      .children_iter()
+      .find(|c| c.kind() == K::RecordFieldList)
+    && !fields.children().is_empty()
+    && fields
+      .children_with_tokens_iter()
+      .any(|e| e.kind() == K::BlockComment)
+    && fields.children_with_tokens_iter().all(|e| match e {
+      SyntaxElement::Token(t) => {
+        !(t.kind().is_trivia() && t.kind() != K::Whitespace)
+          || t.kind() == K::BlockComment && !t.text().contains('\n')
+      }
+      SyntaxElement::Node(n) => {
+        !n.subtree_has(|kind| {
+          (kind.is_trivia() && kind != K::Whitespace) || is_doc(kind) || kind == K::Attr
+        }) && !unwanted(&SyntaxElement::Node(n))
+      }
+    })
+    && !elements
+      .iter()
+      .filter(|e| e.text_range() != fields.text_range())
+      .any(unwanted)
+    && !node
+      .parent()
+      .is_some_and(|list| mixed_variants(&list, indent, config))
+  {
+    let items: Vec<SyntaxNode> = fields.children_iter().collect();
+    let comments = super::lists::list_comments(&fields, &items)?;
+    let mut joined = Vec::new();
+    let mut counted = 0;
+    for (item, c) in items.iter().zip(&comments) {
+      let text = flat_tokens(&code_tokens(&[SyntaxElement::Node(item.clone())]), spacing);
+      let mut piece = String::new();
+      if let Some(pre) = &c.pre {
+        piece.push_str(pre.trim());
+        piece.push(' ');
+        counted += pre.trim().len().max(4) + 6;
+      }
+      counted += text.len();
+      piece.push_str(&text);
+      if let Some(post) = &c.post {
+        piece.push(' ');
+        piece.push_str(post.trim());
+        counted += post.trim().len().max(4) + 6;
+      }
+      joined.push(piece);
+    }
+    let inside = joined.join(", ");
+    counted += 2 * (items.len() - 1);
+    if counted <= config.struct_variant_width && inside.len() <= config.struct_variant_width {
+      let head: Vec<SyntaxElement> = elements
+        .iter()
+        .filter(|e| e.text_range().start < fields.text_range().start)
+        .cloned()
+        .collect();
+      let tail: Vec<SyntaxElement> = elements
+        .iter()
+        .filter(|e| e.text_range().start >= fields.text_range().end)
+        .cloned()
+        .collect();
+      let tail = flat_tokens(&code_tokens(&tail), spacing);
+      let tail = if tail.is_empty() {
+        String::new()
+      } else {
+        format!(" {}", tail)
+      };
+      let comma = if comma_follows(node) { "" } else { "," };
+      let text = format!(
+        "{} {{ {} }}{}{}",
+        flat_tokens(&code_tokens(&head), spacing),
+        inside,
+        tail,
+        comma
+      );
+      if indent + str_width(&text) <= config.max_width {
+        return Some((text, node.text_range().end as usize));
+      }
+    }
   }
   // A struct-like variant whose fields hold doc comments, attributes or comments: its head
   // and `{` here, its fields laid out one per line by the whole-file pass as a struct's are,
@@ -207,7 +303,25 @@ pub fn rewrite_field(
     }
     return Some((text, fields.text_range().start as usize));
   }
-  if elements.iter().any(unwanted) {
+  // A tuple variant's fields holding attributes, and comments on a line between them only,
+  // are laid out as a list (below), which places the comments.
+  let listed_fields = |e: &SyntaxElement| {
+    match e {
+    SyntaxElement::Node(n) => {
+      node.kind() == K::Variant
+        && n.kind() == K::TupleFieldList
+        && n.subtree_has(|kind| kind == K::Attr)
+        && n.children_iter().all(|f| {
+          !f.subtree_has(|kind| (kind.is_trivia() && kind != K::Whitespace) || is_doc(kind))
+        })
+        && n.children_with_tokens_iter().all(|t| {
+          !matches!(t, SyntaxElement::Token(ref t) if t.kind() == K::BlockComment && t.text().contains('\n'))
+        })
+    }
+    SyntaxElement::Token(_) => false,
+  }
+  };
+  if elements.iter().filter(|e| !listed_fields(e)).any(unwanted) {
     return None;
   }
   // A field's type laid out after its name (the standard formatter's
@@ -273,13 +387,29 @@ pub fn rewrite_field(
       .filter(|e| e.text_range().start < fields.text_range().start)
       .cloned()
       .collect();
-    if elements.iter().any(|e| {
-      e.text_range().start >= fields.text_range().end
-        && e.kind() != K::Comma
-        && !e.kind().is_trivia()
-    }) {
+    // After the fields, only a discriminant (`= 3`), on the line after them.
+    let after: Vec<SyntaxElement> = elements
+      .iter()
+      .filter(|e| e.text_range().start >= fields.text_range().end && e.kind() != K::Comma)
+      .cloned()
+      .collect();
+    let code: Vec<&SyntaxElement> = after.iter().filter(|e| !e.kind().is_trivia()).collect();
+    let discriminant_only = match code.as_slice() {
+      [] => true,
+      [eq, SyntaxElement::Node(_)] => eq.kind() == K::Eq,
+      _ => false,
+    };
+    if !discriminant_only
+      || after
+        .iter()
+        .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+    {
       return None;
     }
+    let discriminant = match after.iter().find(|e| !e.kind().is_trivia()) {
+      Some(_) => format!(" {}", flat_tokens(&code_tokens(&after), spacing)),
+      None => String::new(),
+    };
     let lead = flat_tokens(&code_tokens(&head), spacing);
     // 1 = `,`
     let shape = super::shape::Shape {
@@ -290,6 +420,15 @@ pub fn rewrite_field(
       limits: super::shape::Limits::of(config),
     };
     let text = super::expr::rewrite_list(&lead, &items, shape, config.fn_call_width, "(", ")")?;
+    let text = format!("{}{}", text, discriminant);
+    // 1 = `,`
+    let last = match text.rsplit_once('\n') {
+      Some((_, last)) => str_width(last),
+      None => indent + str_width(&text),
+    };
+    if last + 1 > config.max_width {
+      return None;
+    }
     let comma = if comma_follows(node) { "" } else { "," };
     return Some((format!("{}{}", text, comma), node.text_range().end as usize));
   }
@@ -421,7 +560,8 @@ pub fn rewrite_header(
 
 /// A macro call standing as an item or statement, its arguments in parentheses or brackets,
 /// laid out as one in an expression is (the standard formatter's `rewrite_macro` in item
-/// position), with its `;`. `None` for one holding a comment, or that does not fit.
+/// position), with its `;`. `None` for one holding a comment but among its arguments, or
+/// that does not fit.
 pub fn rewrite_macro_item(
   node: &SyntaxNode,
   indent: usize,
@@ -437,11 +577,17 @@ pub fn rewrite_macro_item(
   let start = header_start(node)?;
   // A comment after its `;` is not its own.
   let end = super::imports::code_end(node);
-  let commented = node.token_texts().any(|(kind, _, range)| {
-    range.start as usize >= start
-      && (range.start as usize) < end
-      && kind.is_trivia()
-      && kind != K::Whitespace
+  // But for those among its arguments, which they are laid out with.
+  let commented = node.descendants_with_tokens_iter().any(|e| match e {
+    SyntaxElement::Token(t) => {
+      let range = t.text_range();
+      range.start as usize >= start
+        && (range.start as usize) < end
+        && t.kind().is_trivia()
+        && t.kind() != K::Whitespace
+        && !super::stmt::safe(&SyntaxElement::Token(t))
+    }
+    SyntaxElement::Node(_) => false,
   });
   if commented {
     return None;
@@ -677,14 +823,15 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
     })
   };
   // A comment among a function's parameters, a tuple struct's fields or generic
-  // parameters, placed by the list layout.
+  // parameters, placed by the list layout; or alone in a function type's `()`
+  // (`Fn(/* c */)`).
   let parameter_comment = |t: &SyntaxToken| {
     matches!(t.kind(), K::LineComment | K::BlockComment)
       && !t.text().contains('\n')
-      && matches!(
+      && (matches!(
         t.parent().kind(),
         K::ParamList | K::TupleFieldList | K::GenericParamList
-      )
+      ) || super::types::alone_in_function_type(t))
   };
   let commented = |n: &SyntaxNode| {
     n.descendants_with_tokens_iter().any(|e| match e {
@@ -701,12 +848,10 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
     }
     SyntaxElement::Node(n) if matches!(n.kind(), K::ParamList | K::TupleFieldList) => {
       commented(n)
-        || n.subtree_has(|kind| {
-          matches!(
-            kind,
-            K::BlockExpr | K::MatchArmList | K::MacroCall | K::MacroType | K::MacroExpr
-          )
-        })
+        || n
+          .descendant_nodes_where(|kind| matches!(kind, K::BlockExpr | K::MatchArmList))
+          .any(|b| !b.parent().is_some_and(|p| p.kind() == K::ConstArg))
+        || n.subtree_has(|kind| matches!(kind, K::MacroCall | K::MacroExpr)) && !macros_in_types(n)
         || n.subtree_has(|kind| kind == K::Attr) && !parameter_attributes(n)
     }
     SyntaxElement::Node(n) => {
@@ -717,6 +862,7 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
           .any(|b| !b.parent().is_some_and(|p| p.kind() == K::ConstArg))
         || commented(n)
         || n.subtree_has(|kind| matches!(kind, K::MacroCall | K::MacroType | K::MacroExpr))
+          && !macros_in_types(n)
         || n.subtree_has(|kind| kind == K::Attr) && !parameter_attributes(n)
     }
   };
@@ -1279,6 +1425,22 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
     ),
     end,
   ))
+}
+
+/// Whether every macro call in `node` stands as a type, or alone in a const generic
+/// argument's block (`S<{ m!(..) }>`), which the type layout lays out.
+fn macros_in_types(node: &SyntaxNode) -> bool {
+  node
+    .descendant_nodes_where(|kind| kind == K::MacroCall)
+    .all(|call| {
+      call.parent().is_some_and(|p| {
+        p.kind() == K::MacroType
+          || p.kind() == K::MacroExpr
+            && p.parent().is_some_and(|b| {
+              b.kind() == K::BlockExpr && b.parent().is_some_and(|a| a.kind() == K::ConstArg)
+            })
+      })
+    })
 }
 
 /// Whether an enum has both a variant written on several lines and one on a single line.
@@ -2146,13 +2308,58 @@ fn rewrite_type_alias(
 fn same_header_tokens(written: &str, laid: &str) -> bool {
   let tokens = |text: &str| -> Vec<String> {
     let mut at = 0;
-    crate::syntax::lexer::tokenize(text, crate::syntax::Edition::E2021)
-      .into_iter()
-      .filter_map(|token| {
-        let piece = &text[at..at + token.len as usize];
-        at += token.len as usize;
-        (token.kind != K::Whitespace && super::stmt::compared(token.kind)
-          || matches!(token.kind, K::LineComment | K::BlockComment))
+    let all: Vec<(SyntaxKind, &str)> =
+      crate::syntax::lexer::tokenize(text, crate::syntax::Edition::E2021)
+        .into_iter()
+        .map(|token| {
+          let piece = &text[at..at + token.len as usize];
+          at += token.len as usize;
+          (token.kind, piece)
+        })
+        .collect();
+    // `vec!(..)` and `vec! {..}` are written `vec![..]`: their delimiters read as brackets.
+    let mut bracket = vec![false; all.len()];
+    let code: Vec<usize> = (0..all.len()).filter(|&i| !all[i].0.is_trivia()).collect();
+    for w in 0..code.len().saturating_sub(2) {
+      let (name, bang, open) = (code[w], code[w + 1], code[w + 2]);
+      if all[name].1 != "vec" || all[bang].0 != K::Bang {
+        continue;
+      }
+      let (open_kind, close_kind) = match all[open].0 {
+        K::LParen => (K::LParen, K::RParen),
+        K::LBrace => (K::LBrace, K::RBrace),
+        _ => continue,
+      };
+      let mut depth = 0;
+      for &i in &code[w + 2..] {
+        if all[i].0 == open_kind {
+          depth += 1;
+        } else if all[i].0 == close_kind {
+          depth -= 1;
+          if depth == 0 {
+            bracket[open] = true;
+            bracket[i] = true;
+            break;
+          }
+        }
+      }
+    }
+    all
+      .iter()
+      .enumerate()
+      .filter_map(|(i, &(kind, piece))| {
+        if bracket[i] {
+          return Some(
+            if matches!(kind, K::LParen | K::LBrace) {
+              "["
+            } else {
+              "]"
+            }
+            .to_string(),
+          );
+        }
+        (kind != K::Whitespace && super::stmt::compared(kind)
+          || matches!(kind, K::LineComment | K::BlockComment))
         .then(|| piece.trim_end().to_string())
       })
       .collect::<Vec<String>>()

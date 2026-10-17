@@ -72,7 +72,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("show_parse_errors", "missing"),
   ("single_line_if_else_max_width", "partial"),
   ("single_line_let_else_max_width", "partial"),
-  ("skip_children", "missing"),
+  ("skip_children", "supported"),
   ("skip_macro_invocations", "supported"),
   ("space_after_colon", "supported"),
   ("space_before_colon", "supported"),

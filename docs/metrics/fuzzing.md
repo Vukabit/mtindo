@@ -2,8 +2,8 @@
 paper: "fuzzing"
 title: "Fuzzing"
 status: "measured"
-generated: "2026-10-17T03:01:20.168Z"
-commit: "dbce525-dirty.3e79d707"
+generated: "2026-10-17T17:26:57.863Z"
+commit: "c04dd05-dirty.bac65780"
 command: "cargo xtask fuzz run TARGET"
 sources:
   - fuzz/fuzz_targets/
@@ -11,7 +11,7 @@ sources:
 seed: "chosen by libFuzzer for each run; not recorded"
 metrics:
   fuzz.targets: 8
-  fuzz.regressions: 18
+  fuzz.regressions: 20
 ---
 
 # Fuzzing
@@ -20,7 +20,7 @@ metrics:
 
 <!-- generated: abstract -->
 8 fuzz targets drive mto's lexer, parser, layout, formatting, meaning check and
-TOML reader with generated inputs. 18 inputs that once failed are kept as
+TOML reader with generated inputs. 20 inputs that once failed are kept as
 regression tests, from 3 of the targets; each still passes its target's checks
 in every test run.
 <!-- end generated -->
@@ -88,7 +88,7 @@ Inputs kept as regression tests, by target:
 |---|---:|
 | `comments` | 0 |
 | `format` | 12 |
-| `generated` | 5 |
+| `generated` | 7 |
 | `layout` | 1 |
 | `lexer` | 0 |
 | `parser` | 0 |
@@ -105,7 +105,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | kept inputs |
 |---|---|---:|
-| current |  | 18 |
+| current |  | 20 |
+| 2026-10-17 | c04dd05 | 18 |
 | 2026-10-16 | dbce525 | 16 |
 | 2026-10-16 | 4254797 | 12 |
 | 2026-10-16 | 2a3f879 | 11 |
@@ -142,9 +143,9 @@ sanitizer), and the share of src/ lines its corpus reaches.
 | target | inputs/s | peak MB | lines reached % |
 |---|---:|---:|---:|
 | `comments` | 214 | 2355 | 31.03 |
-| `format` | 476 | 2798 | 43.90 |
-| `generated` | 127 | 2470 | 47.85 |
-| `layout` | 1384 | 458 | 20.17 |
+| `format` | 362 | 2203 | 43.90 |
+| `generated` | 145 | 1302 | 47.85 |
+| `layout` | 1332 | 382 | 20.17 |
 | `lexer` | 43884 | 172 | 2.55 |
 | `parser` | 1359 | 352 | 15.60 |
 | `toml` | 54087 | 167 | 4.39 |

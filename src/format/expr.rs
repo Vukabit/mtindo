@@ -356,8 +356,8 @@ pub fn chain_comments(link: &SyntaxNode, receiver: &SyntaxNode) -> Vec<(String, 
 }
 
 /// A token the standard formatter drops: a [`leading_pipe`], or with
-/// `remove_nested_parens` one of the parentheses directly inside parentheses, no comment
-/// among them (`rewrite_paren`).
+/// `remove_nested_parens` one of the parentheses directly around parentheses, no comment
+/// in them (`rewrite_paren`).
 pub fn dropped(token: &SyntaxToken, spacing: Spacing) -> bool {
   if leading_pipe(token)
     || root_of_visibility(token)
@@ -849,12 +849,13 @@ thread_local! {
 /// formatter's char classes read a raw string's lines (found by measuring it); a `://` is a
 /// link's, not a comment.
 pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
-  text.split('\n').skip(1).map(|line| {
+  let inside = lines_in_block_comments(text);
+  text.split('\n').zip(inside).skip(1).map(|(line, inside)| {
     let trimmed = line.trim_start();
     let comment = trimmed.starts_with("//") || trimmed.starts_with("/*");
     (
       line,
-      if comment || ends_in_line_comment(line) {
+      if comment || inside || ends_in_line_comment(line) {
         0
       } else {
         line.width()
@@ -1127,6 +1128,49 @@ pub(super) fn rewrite_list(
       }
     }
     let trailing = !outer_attribute && (!comma_as_written || items.last().is_some_and(comma_after));
+    // A format-like macro's arguments before and after its format string, each group on a
+    // line, when the only comments are the format string's before it
+    // (`SpecialMacro` after `maybe_get_args_offset`).
+    let fits = |texts: &[String]| definitive(texts, nested.width) == Tactic::Horizontal;
+    if let Some(before) = special_macro(ident, shape.limits.style_2024)
+      && items.len() > before
+      && let Some(pre) = &comments[before].pre
+      && comments
+        .iter()
+        .enumerate()
+        .all(|(i, c)| c.post.is_none() && (i == before || c.pre.is_none()))
+      && items[..before].iter().all(is_simple)
+      && items[before + 1..].iter().all(is_simple)
+      && texts.iter().all(|t| !t.contains('\n'))
+      && fits(&texts[..before])
+      && fits(&texts[before + 1..])
+    {
+      let pad = " ".repeat(nested.indent);
+      let mut lines = Vec::new();
+      if before > 0 {
+        lines.push(format!("{},", texts[..before].join(", ")));
+      }
+      lines.extend(pre.trim().lines().map(|l| l.trim().to_string()));
+      lines.push(texts[before].clone());
+      if items.len() > before + 1 {
+        let last = lines.len() - 1;
+        lines[last].push(',');
+        lines.push(texts[before + 1..].join(", "));
+      }
+      let mut body = lines.join(&format!("\n{}", pad));
+      if trailing {
+        body.push(',');
+      }
+      return Some(format!(
+        "{}{}\n{}{}\n{}{}",
+        ident,
+        open,
+        pad,
+        body,
+        " ".repeat(shape.indent),
+        close
+      ));
+    }
     // Short simple items packed, as without comments.
     let mixed = items.len() > 1
       && items.iter().all(is_simple)
@@ -1315,12 +1359,14 @@ pub(super) fn rewrite_list(
     Tactic::Mixed => {
       let mut lines: Vec<String> = Vec::new();
       let mut line = String::new();
-      for text in &texts {
-        // The item with its comma, and the space after the comma before it.
+      for (i, text) in texts.iter().enumerate() {
+        // The item with its comma (the last's only when it takes one), and the space after
+        // the comma before it.
+        let comma = usize::from(i + 1 < texts.len() || !trailing.is_empty());
         let added = if line.is_empty() {
-          text.width() + 1
+          text.width() + comma
         } else {
-          text.width() + 3
+          text.width() + 2 + comma
         };
         if !line.is_empty() && line.width() + added > nested.width {
           lines.push(std::mem::take(&mut line));
@@ -1951,7 +1997,8 @@ fn fits_shape(text: String, shape: Shape) -> Option<String> {
 /// statement too).
 fn if_on_one_line(node: &SyntaxNode, limits: Limits) -> bool {
   match node.parent() {
-    Some(p) if p.kind() == SyntaxKind::ExprStmt => false,
+    // A match arm's body is laid out as a statement (`ExprType::Statement`).
+    Some(p) if matches!(p.kind(), SyntaxKind::ExprStmt | SyntaxKind::MatchArm) => false,
     // As a block's tail it is a statement before style edition 2024, an expression from
     // it; taken out of a closure's block it is an expression, out of a match arm's a
     // statement.
@@ -2085,6 +2132,61 @@ fn leading_width(text: &str) -> usize {
   last.width() - last.trim_start().width()
 }
 
+/// For each line of `text`, whether it is a block comment's own: it starts inside one, and
+/// that comment ends on it with nothing after, or goes on past it (the standard formatter's
+/// `filter_normal_code` leaves such lines out). Strings and line comments are skipped.
+fn lines_in_block_comments(text: &str) -> Vec<bool> {
+  let mut out = Vec::new();
+  let mut depth = 0usize;
+  let mut in_string = false;
+  for line in text.split('\n') {
+    let starts_inside = depth > 0;
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    // Where the comment the line starts in closes.
+    let mut closed_at = None;
+    while i < bytes.len() {
+      let pair = bytes.get(i..i + 2);
+      if in_string {
+        match bytes[i] {
+          b'\\' => i += 1,
+          b'"' => in_string = false,
+          _ => {}
+        }
+      } else if depth > 0 {
+        if pair == Some(b"*/") {
+          depth -= 1;
+          i += 1;
+          if depth == 0 && starts_inside && closed_at.is_none() {
+            closed_at = Some(i + 1);
+          }
+        } else if pair == Some(b"/*") {
+          depth += 1;
+          i += 1;
+        }
+      } else if pair == Some(b"//") {
+        break;
+      } else if pair == Some(b"/*") {
+        depth += 1;
+        i += 1;
+      } else if bytes[i] == b'"'
+        && !(i > 0 && bytes[i - 1] == b'\'' && bytes.get(i + 1) == Some(&b'\''))
+      {
+        in_string = true;
+      }
+      i += 1;
+    }
+    out.push(
+      starts_inside
+        && match closed_at {
+          None => true,
+          Some(at) => line[at.min(line.len())..].trim().is_empty(),
+        },
+    );
+  }
+  out
+}
+
 /// Whether every branch of an `if` (through its `else if`s) holds one expression.
 fn lone_branches(node: &SyntaxNode) -> bool {
   let children = node.children();
@@ -2124,11 +2226,12 @@ fn macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments
     .find(|c| c.kind() == SyntaxKind::Path)
     .ok_or(Declined)?;
   let name = format!("{}!", flat(&path, spacing));
-  // In braces, kept as written: comments in them too.
-  if tree
+  // In braces, kept as written: comments in them too. But `vec! {..}`, which the standard
+  // formatter writes as `vec![..]` (`FORCED_BRACKET_MACROS`).
+  let braced = tree
     .first_token()
-    .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
-  {
+    .is_some_and(|t| t.kind() == SyntaxKind::LBrace);
+  if braced && name != "vec!" {
     return Err(Unread::Braced(name));
   }
   // Comments on a line, which the arguments read again as code place (between the
@@ -2141,15 +2244,22 @@ fn macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments
   }) {
     return Err(Declined);
   }
-  let inner = tree.text().to_string();
-  let delimiter = tree
+  let mut inner = tree.text().to_string();
+  let mut delimiter = tree
     .children_with_tokens()
     .into_iter()
     .find(|e| !e.kind().is_trivia())
     .ok_or(Declined)?
     .kind();
+  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
+  if name == "vec!" && matches!(delimiter, SyntaxKind::LParen | SyntaxKind::LBrace) {
+    if inner.len() < 2 {
+      return Err(Declined);
+    }
+    inner = format!("[{}]", &inner[1..inner.len() - 1]);
+    delimiter = SyntaxKind::LBrack;
+  }
   let (source, list_kind, open, close, array) = match delimiter {
-    // `vec!(...)` the standard formatter writes as `vec![...]`, which changes tokens.
     SyntaxKind::LParen if name != "vec!" => (
       format!("fn f() {{\n__mto_macro{};\n}}", inner),
       SyntaxKind::ArgList,
@@ -2175,8 +2285,6 @@ fn macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments
       "]",
       true,
     ),
-    // `vec!(...)` the standard formatter writes with brackets, which changes tokens.
-    SyntaxKind::LParen => return Err(Declined),
     _ => return Err(AsWritten),
   };
   let parsed = crate::syntax::parse(&source, Edition::E2021);
@@ -2244,7 +2352,10 @@ fn macro_item_argument(node: &SyntaxNode, shape: Shape) -> Option<String> {
   {
     return None;
   }
+  let vec = path.text().to_string().trim() == "vec";
   let (open, close) = match tree.first_token()?.kind() {
+    // `vec!` in brackets whatever it is written in (`FORCED_BRACKET_MACROS`).
+    SyntaxKind::LParen | SyntaxKind::LBrace if vec => ("[", "]"),
     SyntaxKind::LParen => ("(", ")"),
     SyntaxKind::LBrack => ("[", "]"),
     _ => return None,
@@ -2457,19 +2568,21 @@ fn multi_line_body(body: &SyntaxNode) -> bool {
   }
 }
 
-/// A parenthesized expression standing directly in parentheses, each of them holding no
-/// comment and no attribute, which drop.
+/// Parentheses holding no comment and no attribute of their own around parenthesized
+/// expression, which drop (`rewrite_paren`): `(((a)))` is `(a)`, `(/* c */((a)))` is
+/// `(/* c */(a))`.
 fn nested_paren(node: &SyntaxNode) -> bool {
-  let bare = |n: &SyntaxNode| {
-    n.kind() == SyntaxKind::ParenExpr
-      && n.children_with_tokens_iter().all(|e| {
-        !matches!(
-          e.kind(),
-          SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::Attr
-        )
-      })
-  };
-  bare(node) && node.parent().is_some_and(|p| bare(&p))
+  node.kind() == SyntaxKind::ParenExpr
+    && node.children_with_tokens_iter().all(|e| {
+      !matches!(
+        e.kind(),
+        SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::Attr
+      )
+    })
+    && node
+      .children_iter()
+      .next()
+      .is_some_and(|inner| inner.kind() == SyntaxKind::ParenExpr)
 }
 
 /// Whether a comma is a one-element tuple's, which it makes a tuple.
@@ -3275,13 +3388,38 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       rewrite_list("", &items, shape, limit, "(", ")")
     }
     SyntaxKind::ParenExpr => {
-      // Parentheses directly inside dropped.
-      let mut inner = node.children().into_iter().next()?;
-      while shape.limits.spacing.remove_nested_parens && nested_paren(&inner) {
-        inner = inner.children().into_iter().next()?;
+      // Parentheses directly around parentheses dropped.
+      let mut outer = node.clone();
+      while shape.limits.spacing.remove_nested_parens && nested_paren(&outer) {
+        outer = outer.children().into_iter().next()?;
       }
-      let inner = rewrite(&inner, shape.offset_left(1)?.sub_width(1)?)?;
-      Some(format!("({})", inner))
+      let inner = outer.children().into_iter().next()?;
+      // Its block comments after `(` and before `)`, as written there but for the space
+      // around them.
+      let (from, to) = (inner.text_range().start, inner.text_range().end);
+      let comments = |before: bool| -> Option<String> {
+        let mut text = String::new();
+        for element in outer.children_with_tokens_iter() {
+          let SyntaxElement::Token(t) = element else {
+            continue;
+          };
+          let at = t.text_range();
+          if before && at.end > from || !before && at.start < to {
+            continue;
+          }
+          match t.kind() {
+            SyntaxKind::BlockComment if !t.text().contains('\n') => text.push_str(t.text()),
+            SyntaxKind::Whitespace if !text.is_empty() => text.push(' '),
+            SyntaxKind::Whitespace | SyntaxKind::LParen | SyntaxKind::RParen => {}
+            _ => return None,
+          }
+        }
+        Some(text.trim_end().to_string())
+      };
+      let (pre, post) = (comments(true)?, comments(false)?);
+      let width = str_width(&pre) + str_width(&post);
+      let inner = rewrite(&inner, shape.offset_left(1 + width)?.sub_width(1)?)?;
+      Some(format!("({}{}{})", pre, inner, post))
     }
     // `f(x)?` with no chain: the call laid out, then the `?`.
     SyntaxKind::TryExpr => {
@@ -3361,7 +3499,9 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       }
     }
     SyntaxKind::PathExpr => rewrite_path(node, shape),
-    kind if super::types::is_type(kind) => super::types::rewrite_type(node, shape),
+    kind if super::types::is_type(kind) || kind == SyntaxKind::MacroType => {
+      super::types::rewrite_type(node, shape)
+    }
     SyntaxKind::OrPat => rewrite_or_pattern(node, shape),
     // `name @ pattern`: the pattern laid out after the binding.
     SyntaxKind::IdentPat
@@ -3719,7 +3859,7 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
   }
   // Comments among a literal's fields: one field per line, the comments placed around them
   // as a list's are; the `..base` an item of its own from its `..`.
-  if !shape.limits.inside_macro {
+  {
     let mut spans: Vec<(usize, usize)> = Vec::new();
     for field in list.children_iter() {
       if !matches!(
@@ -3774,13 +3914,21 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
       {
         return None;
       }
+      // In a macro's arguments a trailing comma stays as written.
+      let written_comma = list
+        .children_with_tokens()
+        .iter()
+        .rev()
+        .find(|e| !e.kind().is_trivia() && e.kind() != SyntaxKind::RBrace)
+        .is_some_and(|e| e.kind() == SyntaxKind::Comma);
+      let trailing = spread.is_none() && (!shape.limits.comma_as_written || written_comma);
       let body = super::lists::write_vertical_kept(
         &all,
         &comments,
         v_shape.indent,
         v_shape.width,
         shape.limits.max_width,
-        spread.is_none(),
+        trailing,
       )?;
       return Some(format!(
         "{} {{\n{}{}\n{}}}",

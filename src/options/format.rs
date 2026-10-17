@@ -76,6 +76,11 @@ pub struct FormatConfig {
   /// The macros whose calls are left as written, by their path as written (`self::m`), or
   /// all of them for `*`.
   pub skip_macro_invocations: Vec<String>,
+  /// For a file a crate root reaches through its modules, the macros the root's
+  /// `#![rustfmt::skip::macros(..)]` names, left as written there too; not a setting.
+  pub crate_skipped_macros: Vec<String>,
+  /// The same for the root's `#![rustfmt::skip::attributes(..)]`.
+  pub crate_skipped_attributes: Vec<String>,
   /// `brace_style = "AlwaysNextLine"`: an item's `{` on the line after its header.
   pub brace_next_line: bool,
   /// `struct_variant_width`: the widest struct-like variant's fields kept on one line.
@@ -124,6 +129,8 @@ impl Default for FormatConfig {
       force_explicit_abi: true,
       remove_nested_parens: true,
       skip_macro_invocations: Vec::new(),
+      crate_skipped_macros: Vec::new(),
+      crate_skipped_attributes: Vec::new(),
       brace_next_line: false,
       struct_variant_width: 35,
       single_line_if_else_max_width: 50,

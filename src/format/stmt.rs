@@ -159,8 +159,9 @@ pub fn rewrite_control_head(
       let condition = children.iter().find(|c| c.kind() != K::Label)?;
       match rewrite(condition, after) {
         Some(text) => text,
-        // Only `if` keeps its condition on its line.
-        None if keyword != "if" => {
+        // Only `if` keeps its condition on its line; a `match` whose scrutinee does not
+        // fit after it is not laid out there (`rewrite_match`).
+        None if keyword != "if" && keyword != "match" => {
           let nested = shape.block_indent(config.tab_spaces);
           format!(
             "\n{}{}",
@@ -195,11 +196,18 @@ pub fn rewrite_control_head(
   } else {
     text.push(' ');
   }
-  // The same tokens, as the lexer splits them, but for those [`compared`] passes over.
+  // The same tokens, as the lexer splits them, but for those [`compared`] passes over;
+  // `vec!(..)` and `vec! {..}` written `vec![..]`.
+  let brackets = vec_delimiters(node);
   let written: Vec<&str> = head
     .iter()
-    .filter(|t| compared(t.kind()))
-    .map(|t| t.text())
+    .filter_map(|t| {
+      let at = t.text_range().start as usize;
+      match brackets.iter().find(|b| b.0 == at) {
+        Some(b) => Some(b.1),
+        None => compared(t.kind()).then(|| t.text()),
+      }
+    })
     .collect();
   let ours: Vec<String> = crate::syntax::parse_tokens(&text, Edition::E2021)
     .into_iter()
@@ -544,16 +552,41 @@ pub fn rewrite_let_control(
   if head.contains('\n') {
     return None;
   }
-  // On the `let`'s line, the head on one line within the line width; when it breaks, the
-  // standard formatter weighs the next line by rules not followed yet: left as written.
+  // On the `let`'s line, the head on one line within the line width; else a `match` on the
+  // next line one level in when it fits on one line there and the `let`'s line would take
+  // it across two lines more (the standard formatter's `prefer_next_line`).
   let column = indent + str_width(&head) + 1;
-  let same = rewrite_control_head(&value, indent, column, config)?;
-  if same.text.contains('\n') || column + str_width(&same.text) + 1 > config.max_width {
+  let same = rewrite_control_head(&value, indent, column, config);
+  let fits_same =
+    |same: &Head| !same.text.contains('\n') && column + str_width(&same.text) < config.max_width;
+  if let Some(same) = same.as_ref().filter(|s| fits_same(s)) {
+    return Some(Head {
+      text: format!("{} {}", head, same.text),
+      open: same.open,
+      tail: Vec::new(),
+      keep_comma: false,
+      links: Vec::new(),
+    });
+  }
+  // A `match` only: the whole-file pass indents an `if`'s or a loop's block from the line
+  // it was written on.
+  if value.kind() != K::MatchExpr {
+    return None;
+  }
+  let nested = indent + config.tab_spaces;
+  let next = rewrite_control_head(&value, nested, nested, config)?;
+  let breaks_more = same
+    .as_ref()
+    .is_none_or(|s| !s.text.contains('\n') || s.text.matches('\n').count() >= 2);
+  if next.text.contains('\n')
+    || nested + str_width(&next.text) + 1 > config.max_width
+    || !breaks_more
+  {
     return None;
   }
   Some(Head {
-    text: format!("{} {}", head, same.text),
-    open: same.open,
+    text: format!("{}\n{}{}", head, " ".repeat(nested), next.text),
+    open: next.open,
     tail: Vec::new(),
     keep_comma: false,
     links: Vec::new(),
@@ -679,6 +712,79 @@ pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig
     .all(|n| rewrite(&n, shape).is_some_and(|t| !t.contains('\n')))
 }
 
+/// Whether one token or node is one [`clean_expression`] lets through.
+pub(super) fn safe(element: &SyntaxElement) -> bool {
+  match element {
+    // A comment between a chain's links, on a line of its own: the chain layout places it;
+    // one among a call's arguments, which the list layout places.
+    SyntaxElement::Token(t)
+      if matches!(t.kind(), K::LineComment | K::BlockComment)
+        && !t.text().contains('\n')
+        && (super::expr::in_chain_gap(t)
+          || matches!(
+            t.parent().kind(),
+            K::ArgList
+              | K::ArrayExpr
+              | K::TupleExpr
+              | K::RecordExprFieldList
+              | K::RecordPatFieldList
+          )
+          || t.parent().kind() == K::TokenTree && macro_arguments_tree(&t.parent())) =>
+    {
+      true
+    }
+    // A comment directly in a block holding nothing else, which the block's layout places.
+    SyntaxElement::Token(t)
+      if matches!(t.kind(), K::LineComment | K::BlockComment)
+        && t.parent().kind() == K::BlockExpr
+        && t.parent().children_iter().next().is_none() =>
+    {
+      true
+    }
+    // A block comment inside parentheses, after `(` or before `)`: kept there.
+    SyntaxElement::Token(t)
+      if t.kind() == K::BlockComment
+        && !t.text().contains('\n')
+        && t.parent().kind() == K::ParenExpr =>
+    {
+      true
+    }
+    // A comment between a binary expression's operands: the expression is kept as written
+    // (`recover_comments`), what is around it laid out. One before `else`, placed above it.
+    SyntaxElement::Token(t)
+      if matches!(t.kind(), K::LineComment | K::BlockComment)
+        && matches!(t.parent().kind(), K::BinExpr | K::IfExpr) =>
+    {
+      true
+    }
+    SyntaxElement::Token(t) => {
+      !matches!(
+        t.kind(),
+        K::LineComment
+          | K::BlockComment
+          | K::OuterLineDoc
+          | K::InnerLineDoc
+          | K::OuterBlockDoc
+          | K::InnerBlockDoc
+      ) && !(t.kind().is_literal() && t.text().contains('\n') && !argument_string(t))
+    }
+    // A block of one expression the layout code puts on one line.
+    SyntaxElement::Node(n) if n.kind() == K::BlockExpr => {
+      super::expr::joins(n) || super::expr::one_line_if_block(n)
+    }
+    // An element's or a struct literal field's attributes, laid out with it.
+    SyntaxElement::Node(n) => {
+      n.kind() != K::Attr
+        || n.parent().is_some_and(|p| {
+          matches!(
+            p.kind(),
+            K::ArrayExpr | K::ArgList | K::TupleExpr | K::RecordExprField
+          )
+        })
+    }
+  }
+}
+
 /// Whether `text` holds the statement's code tokens, but for those [`compared`] passes over.
 pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
   same_tokens_until(node, text, usize::MAX)
@@ -725,33 +831,48 @@ pub(super) fn same_tokens_until(node: &SyntaxNode, text: &str, end: usize) -> bo
   // All of them, or less those a line drops (a leading `|`, nested parentheses).
   let dropped = super::expr::dropped_tokens(node, Spacing::default());
   let dropped = &dropped;
+  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
+  let brackets = &vec_delimiters(node);
   let theirs = |drop: bool| {
     node
       .token_texts()
       .filter(move |&(kind, _, range)| {
-        compared(kind)
+        (compared(kind) || brackets.iter().any(|b| b.0 == range.start as usize))
           && range.start as usize >= start
           && (range.start as usize) < end
           && !(drop && dropped.contains(&(range.start as usize)))
       })
-      .map(|(_, text, _)| text)
+      .map(move |(_, text, range)| {
+        brackets
+          .iter()
+          .find(|b| b.0 == range.start as usize)
+          .map_or(text, |b| b.1)
+      })
   };
   if !theirs(true).eq(ours()) && !theirs(false).eq(ours()) {
     return false;
   }
-  // Every comment kept, each once.
+  // Every comment kept, each once; one across lines with its lines re-indented.
   let comment = |kind: SyntaxKind| matches!(kind, K::LineComment | K::BlockComment);
-  let mut theirs: Vec<&str> = node
+  let lines = |text: &str| -> String {
+    text
+      .trim_end()
+      .split('\n')
+      .map(str::trim)
+      .collect::<Vec<_>>()
+      .join("\n")
+  };
+  let mut theirs: Vec<String> = node
     .token_texts()
     .filter(|&(kind, _, range)| {
       comment(kind) && range.start as usize >= start && (range.start as usize) < end
     })
-    .map(|(_, text, _)| text.trim_end())
+    .map(|(_, text, _)| lines(text))
     .collect();
-  let mut ours: Vec<&str> = tokens
+  let mut ours: Vec<String> = tokens
     .iter()
     .filter(|&&(kind, _)| comment(kind))
-    .map(|&(_, text)| text.trim_end())
+    .map(|&(_, text)| lines(text))
     .collect();
   theirs.sort_unstable();
   ours.sort_unstable();
@@ -768,6 +889,34 @@ pub(super) fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Sh
     width: config.max_width.checked_sub(indent)?,
     limits,
   })
+}
+
+/// Where the parentheses or braces of each `vec!` call in `node` start, with the bracket
+/// the standard formatter writes for each.
+pub(super) fn vec_delimiters(node: &SyntaxNode) -> Vec<(usize, &'static str)> {
+  let mut found = Vec::new();
+  for call in node.descendant_nodes_where(|kind| kind == K::MacroCall) {
+    let named_vec = call
+      .children_iter()
+      .find(|c| c.kind() == K::Path)
+      .is_some_and(|p| p.text().to_string().trim() == "vec");
+    let Some(tree) = call.children_iter().find(|c| c.kind() == K::TokenTree) else {
+      continue;
+    };
+    let (Some(open), Some(close)) = (tree.first_token(), tree.last_token()) else {
+      continue;
+    };
+    if named_vec
+      && matches!(
+        (open.kind(), close.kind()),
+        (K::LParen, K::RParen) | (K::LBrace, K::RBrace)
+      )
+    {
+      found.push((open.text_range().start as usize, "["));
+      found.push((close.text_range().start as usize, "]"));
+    }
+  }
+  found
 }
 
 /// Whether `text` is the node's text from `from` to its end exactly: laid out as written,
@@ -895,6 +1044,42 @@ fn code_tokens(node: &SyntaxNode) -> Vec<SyntaxToken> {
     .collect()
 }
 
+/// A `let` without a value, `let pattern: Type;`: the type placed after the pattern as a
+/// value's would be.
+fn declared_let(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let spacing = shape.limits.spacing;
+  let keyword = if flat_code(node, spacing).starts_with("super let ") {
+    "super let "
+  } else {
+    "let "
+  };
+  let mut parts = node.children_iter().filter(|c| c.kind() != K::Attr);
+  let pattern = parts.next()?;
+  let ty = parts.next();
+  if parts.next().is_some() || node.children_iter().any(|c| c.kind() == K::LetElse) {
+    return None;
+  }
+  // 1 = `;`
+  let pattern_text = rewrite(&pattern, shape.offset_left(keyword.len())?.sub_width(1)?)?;
+  let mut text = format!("{}{}", keyword, pattern_text);
+  if let Some(ty) = ty {
+    text.push_str(if spacing.space_before_colon {
+      " :"
+    } else {
+      ":"
+    });
+    if spacing.space_after_colon {
+      text.push(' ');
+    }
+    let ty_shape = shape
+      .offset_left(last_line_used(&text, shape.indent))?
+      .sub_width(1)?;
+    text.push_str(&rewrite(&ty, ty_shape)?);
+  }
+  text.push(';');
+  (last_line_used(&text, shape.indent) <= shape.width).then_some(text)
+}
+
 /// The statement's expression: an expression statement's, or a `let`'s initializer.
 fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
   let children = node.children();
@@ -963,6 +1148,7 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
       let text = rewrite(&expression, shape.sub_width(1)?)?;
       Some(format!("{};", text))
     }
+    K::LetStmt if expression_of(node).is_none() => declared_let(node, shape),
     K::LetStmt => {
       let expression = expression_of(node)?;
       let head = let_head(node, &expression, shape)?;
@@ -1181,63 +1367,6 @@ fn right_side(
   }
 }
 
-/// Whether one token or node is one [`clean_expression`] lets through.
-fn safe(element: &SyntaxElement) -> bool {
-  match element {
-    // A comment between a chain's links, on a line of its own: the chain layout places it;
-    // one among a call's arguments, which the list layout places.
-    SyntaxElement::Token(t)
-      if matches!(t.kind(), K::LineComment | K::BlockComment)
-        && !t.text().contains('\n')
-        && (super::expr::in_chain_gap(t)
-          || matches!(
-            t.parent().kind(),
-            K::ArgList
-              | K::ArrayExpr
-              | K::TupleExpr
-              | K::RecordExprFieldList
-              | K::RecordPatFieldList
-          )
-          || t.parent().kind() == K::TokenTree && macro_arguments_tree(&t.parent())) =>
-    {
-      true
-    }
-    // A comment between a binary expression's operands: the expression is kept as written
-    // (`recover_comments`), what is around it laid out. One before `else`, placed above it.
-    SyntaxElement::Token(t)
-      if matches!(t.kind(), K::LineComment | K::BlockComment)
-        && matches!(t.parent().kind(), K::BinExpr | K::IfExpr) =>
-    {
-      true
-    }
-    SyntaxElement::Token(t) => {
-      !matches!(
-        t.kind(),
-        K::LineComment
-          | K::BlockComment
-          | K::OuterLineDoc
-          | K::InnerLineDoc
-          | K::OuterBlockDoc
-          | K::InnerBlockDoc
-      ) && !(t.kind().is_literal() && t.text().contains('\n') && !argument_string(t))
-    }
-    // A block of one expression the layout code puts on one line.
-    SyntaxElement::Node(n) if n.kind() == K::BlockExpr => {
-      super::expr::joins(n) || super::expr::one_line_if_block(n)
-    }
-    // An element's or a struct literal field's attributes, laid out with it.
-    SyntaxElement::Node(n) => {
-      n.kind() != K::Attr
-        || n.parent().is_some_and(|p| {
-          matches!(
-            p.kind(),
-            K::ArrayExpr | K::ArgList | K::TupleExpr | K::RecordExprField
-          )
-        })
-    }
-  }
-}
-
 /// Whether `node` holds a tuple field written apart from the one before it (`x.0 .0`): the
 /// standard formatter keeps the space a chain layout would drop.
 fn spaced_field(node: &SyntaxNode) -> bool {
@@ -1289,15 +1418,13 @@ fn takes(node: &SyntaxNode) -> bool {
           | K::ParenExpr
       )
   };
-  // An assignment, as a `let`: its two sides laid out as expressions are.
-  if node.kind() == K::ExprStmt
-    && let Some((left, _, right)) = expression_of(node).as_ref().and_then(assignment)
-  {
-    return laid(&left) || laid(&right);
+  // An assignment, as a `let`, whatever its sides: its value may go on the next line.
+  if node.kind() == K::ExprStmt && expression_of(node).as_ref().and_then(assignment).is_some() {
+    return true;
   }
-  // A `let` with a value, whatever it is: its pattern may break, and its value go on the
+  // A `let`, whatever its value: its pattern and type may break, and its value go on the
   // next line.
-  if node.kind() == K::LetStmt && expression_of(node).is_some() {
+  if node.kind() == K::LetStmt {
     return true;
   }
   (matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node))

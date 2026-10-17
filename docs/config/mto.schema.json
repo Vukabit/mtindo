@@ -473,7 +473,7 @@
       "default": 50
     },
     "skip_children": {
-      "description": "Don't reformat out of line modules\n\nIn mto: missing.",
+      "description": "Don't reformat out of line modules\n\nIn mto: supported. The files a path's modules reach are left out, as --skip-children leaves them.",
       "type": "boolean",
       "default": false
     },

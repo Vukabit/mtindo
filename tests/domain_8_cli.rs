@@ -608,6 +608,25 @@ fn test_cli_config_sets_values_and_refuses_a_file() {
 }
 
 #[test]
+fn test_cli_crate_skip_attributes_reach_its_modules() {
+  let env = TestEnvironment::new();
+  env.write_file("mto.toml", "format = true\n");
+  env.write_file(
+    "src/lib.rs",
+    "#![rustfmt::skip::macros(kept)]\n#![rustfmt::skip::attributes(odd)]\n\nmod a;\n",
+  );
+  let child = "#[odd(a,   b)]\nfn f() {\n    kept!(x   ,  y);\n    other!(x   ,  y);\n}\n";
+  env.write_file("src/a.rs", child);
+
+  let output = env.mto_cmd().arg("src/lib.rs").output().unwrap();
+  assert_eq!(output.status.code(), Some(0), "{:?}", output);
+  assert_eq!(
+    env.read_file("src/a.rs"),
+    "#[odd(a,   b)]\nfn f() {\n    kept!(x   ,  y);\n    other!(x, y);\n}\n"
+  );
+}
+
+#[test]
 fn test_cli_dbg_prints_the_split() {
   let env = TestEnvironment::new();
   env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
@@ -1295,6 +1314,23 @@ fn test_cli_restore_undoes_the_last_run() {
   let (code, stdout, _) = mto(&env, &["history", "show", "last~2"]);
   assert_eq!(code, 0);
   assert!(stdout.contains("as written"), "{}", stdout);
+}
+
+#[test]
+fn test_cli_skip_children_setting_leaves_modules_out() {
+  let env = TestEnvironment::new();
+  env.write_file("rustfmt.toml", "skip_children = true\n");
+  env.write_file("mto.toml", "layout = true\n");
+  env.write_file("src/lib.rs", "mod b;\nmod a;\n");
+  env.write_file("src/a.rs", "fn z() {}\nfn y() {}\n");
+  env.write_file("src/b.rs", "fn d() {}\nfn c() {}\n");
+
+  let output = env
+    .mto_cmd()
+    .args(["--check", "-l", "src/lib.rs"])
+    .output()
+    .unwrap();
+  assert_eq!(String::from_utf8(output.stdout).unwrap(), "src/lib.rs\n");
 }
 
 #[test]

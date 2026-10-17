@@ -214,6 +214,14 @@ impl Config {
     self.get("layout").and_then(Value::as_bool).unwrap_or(false)
   }
 
+  /// Whether the files a path's modules reach are left out (`skip_children`).
+  pub fn skip_children(&self) -> bool {
+    self
+      .get("skip_children")
+      .and_then(Value::as_bool)
+      .unwrap_or(false)
+  }
+
   /// Whether `format = true` applies: not where the standard formatter's
   /// `disable_all_formatting` is set.
   pub fn format_on(&self) -> bool {

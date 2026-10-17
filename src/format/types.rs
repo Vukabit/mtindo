@@ -14,6 +14,15 @@ use super::shape::Shape;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::text::unicode::str_width;
 
+/// Whether a comment is alone in a function type's parentheses (`Fn(/* c */)`), on a line,
+/// which its layout keeps.
+pub fn alone_in_function_type(comment: &SyntaxToken) -> bool {
+  matches!(comment.kind(), K::LineComment | K::BlockComment)
+    && !comment.text().contains('\n')
+    && comment.parent().kind() == K::ParenthesizedArgList
+    && comment.parent().children_iter().next().is_none()
+}
+
 /// `head` and then a right-hand side `rhs` lays out into a shape: after a space on the
 /// head's last line when it fits there on one line, else on the next line one level in when
 /// that is better (the standard formatter's `rewrite_assign_rhs` and `choose_rhs`).
@@ -144,10 +153,12 @@ pub fn legacy(shape: Shape, n: usize) -> Option<Shape> {
 /// A parameter (`name: Type`, a type alone, `self`) printed into `shape`, its type in what
 /// the name leaves of it (the standard formatter's `Param` rewrite).
 pub fn rewrite_param(param: &SyntaxNode, shape: Shape) -> Option<String> {
-  if param
-    .descendants_with_tokens_iter()
-    .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
-  {
+  if param.descendants_with_tokens_iter().any(|e| match e {
+    SyntaxElement::Token(t) => {
+      matches!(t.kind(), K::LineComment | K::BlockComment) && !alone_in_function_type(&t)
+    }
+    SyntaxElement::Node(_) => false,
+  }) {
     return None;
   }
   // Its attributes laid out at its column, each on a line of its own; one on a line goes on
@@ -263,7 +274,15 @@ pub fn rewrite_type(node: &SyntaxNode, shape: Shape) -> Option<String> {
     K::ConstArg => match node.children_iter().next() {
       // A block on one line when it fits there (`{ N - 1 }`).
       Some(value) if value.kind() == K::BlockExpr => {
-        let text = flat(&value, spacing);
+        // One holding a macro call, whose arguments are laid out, as an expression is.
+        let text = if value.subtree_has(|kind| kind == K::MacroCall) {
+          let lone = crate::format::expr::lone_expression(&value)?;
+          // 4 = `{ ` and ` }`
+          let inner = crate::format::expr::rewrite(&lone, shape.offset_left(2)?.sub_width(2)?)?;
+          format!("{{ {} }}", inner)
+        } else {
+          flat(&value, spacing)
+        };
         (str_width(&text) <= shape.width && !text.contains('\n')).then_some(text)
       }
       Some(value) => rewrite(&value, shape),
@@ -347,6 +366,11 @@ pub fn rewrite_type(node: &SyntaxNode, shape: Shape) -> Option<String> {
       Some(format!("{}{}", prefix, text))
     }
     K::LifetimeParam | K::TypeParam | K::ConstParam => rewrite_generic_param(node, shape),
+    // A macro call standing as a type, laid out as one in an expression is.
+    K::MacroType => {
+      let call = node.children_iter().find(|c| c.kind() == K::MacroCall)?;
+      crate::format::expr::rewrite(&call, shape)
+    }
     _ => {
       let text = flat(node, spacing);
       (str_width(&text) <= shape.width).then_some(text)
@@ -434,9 +458,17 @@ fn colon_text(spacing: super::shape::Spacing) -> String {
   )
 }
 
-/// Whether a comment or attribute lies anywhere inside a node.
+/// Whether a comment or attribute lies anywhere inside a node, but a comment alone in a
+/// function type's parentheses, which its layout keeps.
 fn commented(node: &SyntaxNode) -> bool {
-  node.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment | K::Attr))
+  node.subtree_has(|kind| kind == K::Attr)
+    || node.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
+      && node.descendants_with_tokens_iter().any(|e| match e {
+        SyntaxElement::Token(t) => {
+          matches!(t.kind(), K::LineComment | K::BlockComment) && !alone_in_function_type(&t)
+        }
+        SyntaxElement::Node(_) => false,
+      })
 }
 
 /// A function type's parameters and return type (`(A, B) -> C`), as the standard
@@ -467,8 +499,25 @@ fn function_type(list: &SyntaxNode, ret: Option<&SyntaxNode>, shape: Shape) -> O
     return None;
   }
   let nested = shape.block_indent(shape.limits.tab);
+  // Nothing but comments inside: a line comment on a line of its own one level in, `)` on
+  // the next; others as written.
   if params.is_empty() {
-    return Some(format!("(){}", output));
+    let text = list.text().to_string();
+    let inside = text
+      .strip_prefix('(')
+      .and_then(|t| t.strip_suffix(')'))?
+      .trim();
+    let args = if inside.starts_with("//") {
+      format!(
+        "(\n{}{}\n{})",
+        " ".repeat(nested.indent),
+        inside,
+        " ".repeat(shape.indent)
+      )
+    } else {
+      format!("({})", inside)
+    };
+    return Some(format!("{}{}", args, output));
   }
   let texts: Vec<String> = params
     .iter()

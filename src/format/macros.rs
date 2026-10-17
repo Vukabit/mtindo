@@ -112,6 +112,72 @@ fn adjusted(config: &FormatConfig, max_width: usize) -> FormatConfig {
   new
 }
 
+/// A definition's braces holding only comments, as the standard formatter writes an empty
+/// block holding them: one block comment on a line, `{ /* c */ }`, when it fits after the
+/// header's `used` columns; else the first comment after `{` on its line when written
+/// there, each other on a line of its own one level in, and `}` on a line of its own.
+/// `None` when it holds code, nothing, a comment across lines or a blank line.
+fn commented_empty_body(
+  tree: &SyntaxNode,
+  indent: usize,
+  used: usize,
+  config: &FormatConfig,
+) -> Option<String> {
+  let tokens: Vec<_> = tree.children_with_tokens_iter().collect();
+  let (first, last) = (tokens.first()?, tokens.last()?);
+  if first.kind() != K::LBrace || last.kind() != K::RBrace {
+    return None;
+  }
+  let inside = &tokens[1..tokens.len() - 1];
+  let mut comments = Vec::new();
+  // Whether each comment starts its line.
+  let mut on_new_line = false;
+  for element in inside {
+    let SyntaxElement::Token(t) = element else {
+      return None;
+    };
+    match t.kind() {
+      K::Whitespace => {
+        let breaks = t.text().matches('\n').count();
+        if breaks > 1 {
+          return None;
+        }
+        on_new_line = breaks == 1;
+      }
+      K::LineComment | K::BlockComment if !t.text().contains('\n') => {
+        comments.push((on_new_line, t.text().to_string()));
+        on_new_line = false;
+      }
+      _ => return None,
+    }
+  }
+  if comments.is_empty() {
+    return None;
+  }
+  let width = config.max_width.saturating_sub(indent + used);
+  if let [(_, only)] = comments.as_slice()
+    && !only.starts_with("//")
+    && str_width(only) + 4 <= width
+  {
+    return Some(format!("{{ {} }}", only));
+  }
+  let pad = " ".repeat(indent + config.tab_spaces);
+  let mut out = String::from("{");
+  for (i, (new_line, comment)) in comments.iter().enumerate() {
+    if i == 0 && !new_line {
+      out.push(' ');
+    } else {
+      out.push('\n');
+      out.push_str(&pad);
+    }
+    out.push_str(comment.trim_end());
+  }
+  out.push('\n');
+  out.push_str(&" ".repeat(indent));
+  out.push('}');
+  Some(out)
+}
+
 /// Whether formatted code fits as the standard formatter's `filtered_str_fits` measures it:
 /// lines of comments aside, the first within `width`, the others within `max_width`, the
 /// last within the line from column `indent`.
@@ -254,9 +320,12 @@ fn rewrite_definition(
   if keyword.kind() != K::MacroRulesKw || bang.kind() != K::Bang || name.kind() != K::Name {
     return None;
   }
-  let rules = rules(tree)?;
   let name = name.text().to_string();
   let header = format!("macro_rules! {}", name.trim());
+  if let Some(body) = commented_empty_body(tree, indent, str_width(&header) + 1, config) {
+    return Some(format!("{} {}", header, body));
+  }
+  let rules = rules(tree)?;
   if rules.is_empty() {
     return Some(format!("{} {{}}", header));
   }

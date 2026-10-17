@@ -323,15 +323,20 @@ pub fn rewrite_arm_in(
   }
   // Less those a line drops (a leading `|`, nested parentheses).
   let dropped = super::expr::dropped_tokens(node, Spacing::of(config));
+  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
+  let brackets = super::stmt::vec_delimiters(node);
   let written: String = node
     .token_texts()
-    .filter(|&(kind, _, range)| {
-      compared(kind)
-        && (range.start as usize) >= start
-        && (range.start as usize) < end
-        && !dropped.contains(&(range.start as usize))
+    .filter_map(|(kind, text, range)| {
+      let at = range.start as usize;
+      if at < start || at >= end || dropped.contains(&at) {
+        return None;
+      }
+      match brackets.iter().find(|b| b.0 == at) {
+        Some(b) => Some(b.1),
+        None => compared(kind).then_some(text),
+      }
     })
-    .map(|(_, text, _)| text)
     .collect();
   let ours: String = crate::syntax::parse_tokens(laid_text, Edition::E2021)
     .into_iter()

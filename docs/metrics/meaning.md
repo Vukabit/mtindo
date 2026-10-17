@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-17T03:01:20.168Z"
-commit: "dbce525-dirty.3e79d707"
+generated: "2026-10-17T17:26:57.863Z"
+commit: "c04dd05-dirty.bac65780"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -13,13 +13,13 @@ toolchain:
 corpus_fingerprint: "sha256:0bfa13269439c574"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
-  meaning.exceptions.tests: 9
+  meaning.exceptions.tests: 10
   meaning.exceptions.tests-with-settings: 21
   meaning.exceptions.corpus: 1
   meaning.exceptions.corpus-unformatted: 0
-  meaning.exceptions.total: 31
+  meaning.exceptions.total: 32
   meaning.exceptions.unmodelled: 10
-  meaning.exceptions.other: 21
+  meaning.exceptions.other: 22
 ---
 
 # Meaning and stability
@@ -29,8 +29,8 @@ metrics:
 <!-- generated: abstract -->
 Every output of mto that `cargo xtask diff` scores must keep the input's meaning
 and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 31 files, each listed
-with its reason: 10 are rewrites the check does not model yet, and 21 are the
+check, run on the standard formatter's own outputs, flags 32 files, each listed
+with its reason: 10 are rewrites the check does not model yet, and 22 are the
 formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
@@ -90,7 +90,7 @@ Exceptions listed for the standard formatter's output, by set:
 <!-- generated: results -->
 | set | listed | not modelled | other |
 |---|---:|---:|---:|
-| tests | 9 | 0 | 9 |
+| tests | 10 | 0 | 10 |
 | tests-with-settings | 21 | 10 | 11 |
 | corpus | 1 | 0 | 1 |
 | corpus-scrambled | 0 | 0 | 0 |
@@ -118,6 +118,9 @@ The reasons given, with how many files give each:
   mto keeps it (1)
 - the expected file drops a `;` from a `macro_rules!` transcriber, which changes
   its expansion (1)
+- the expected file puts a block comment's `*/` under its `/*`, which the
+  standard formatter moves a space in on a second run; mto writes what a second
+  run keeps (1)
 - the expected file writes two spaces after a tuple field's visibility (`pub
   u64`) after a comment (1)
 - the formatter adds parentheses that change what a closure covers (1)
@@ -137,7 +140,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
-| current |  | 31 | 10 | 21 |
+| current |  | 32 | 10 | 22 |
+| 2026-10-17 | c04dd05 | 31 | 10 | 21 |
 | 2026-10-15 | 0cfb09d | 97 | 20 | 77 |
 | 2026-10-15 | acd6789 | 101 | 22 | 79 |
 | 2026-10-10 | 4b2e95f | 107 | 28 | 79 |

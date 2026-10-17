@@ -59,6 +59,9 @@ type OffsetSet = HashSet<usize, BuildHasherDefault<OffsetHasher>>;
 /// A map keyed by byte offsets.
 type Offsets<V> = HashMap<usize, V, BuildHasherDefault<OffsetHasher>>;
 
+/// Ranges of the text, as `(start, end)`.
+type Ranges = Vec<(usize, usize)>;
+
 /// Hashes a byte offset with one multiplication. Offsets are only looked up, never iterated
 /// in hash order, and come from the file being formatted, so a hash built to resist
 /// attackers buys nothing here and costs time on every token.
@@ -149,8 +152,8 @@ struct Roles {
 }
 
 /// What [`overflowing`] measures written lines against: the statements in tree order, where
-/// lines start, the chains, the raw strings spanning lines, the attributes and where line
-/// comments start.
+/// lines start, the chains, the raw strings spanning lines, the attributes, where line
+/// comments start and the block comments spanning lines.
 #[derive(Clone, Copy)]
 struct Spans<'a> {
   statements: &'a [(usize, usize)],
@@ -159,6 +162,10 @@ struct Spans<'a> {
   raw_strings: &'a [(usize, usize)],
   attrs: &'a [(usize, usize)],
   line_comments: &'a [usize],
+  block_comments: &'a [(usize, usize)],
+  /// Where an item starts after a block comment before it on its line, in a list whose
+  /// layout may put the comment on a line of its own: measured apart.
+  after_pre_comments: &'a OffsetSet,
 }
 
 /// A token, with where it starts.
@@ -190,9 +197,16 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   let _memo = crate::format::expr::RewriteMemo::open();
   let before =
     SKIPPED_INVOCATIONS.with(|names| names.replace(config.skip_macro_invocations.clone()));
+  let crate_before = CRATE_SKIPS.with(|names| {
+    names.replace((
+      config.crate_skipped_macros.clone(),
+      config.crate_skipped_attributes.clone(),
+    ))
+  });
   let edition_before = EDITION.with(|e| e.replace(edition));
   let out = format_text_with(source, edition, config, strip);
   SKIPPED_INVOCATIONS.with(|names| names.replace(before));
+  CRATE_SKIPS.with(|names| names.replace(crate_before));
   EDITION.with(|e| e.set(edition_before));
   out
 }
@@ -270,6 +284,9 @@ thread_local! {
   /// `skip_macro_invocations` for the text being formatted.
   static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
     const { std::cell::RefCell::new(Vec::new()) };
+  /// The crate root's skipped macros and attributes, for the text being formatted.
+  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
+    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
   /// The edition of the text being formatted.
   static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
 }
@@ -362,6 +379,74 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
   out
 }
 
+/// The display width of text: tabs count as `tab_spaces`, wide characters as two columns.
+/// A block comment across lines with its later lines placed from column `column`: each
+/// trimmed, one starting with `*` a space in (`light_rewrite_comment`); when any does not
+/// start with `*`, their layout kept, the least indented at the column
+/// (`trim_left_preserve_layout`).
+pub(super) fn reindent_block_comment(
+  text: &str,
+  column: usize,
+  tab: usize,
+  config: &FormatConfig,
+  // After code on its line from the 2024 style: its later lines all trimmed.
+  trimmed: bool,
+) -> String {
+  let mut lines = text.split('\n');
+  let first = lines.next().unwrap_or("").trim_end();
+  let rest: Vec<&str> = lines.collect();
+  let bare = rest.iter().any(|l| {
+    let t = l.trim_start();
+    !t.is_empty() && !t.starts_with('*')
+  });
+  let mut out = first.to_string();
+  if bare && !trimmed {
+    // A line inside a string the comment's code opened stays as written, and does not count
+    // toward the least indentation.
+    let mut in_string = first.matches('"').count() % 2 == 1;
+    let mut kept = Vec::with_capacity(rest.len());
+    for line in &rest {
+      kept.push(in_string);
+      if line.matches('"').count() % 2 == 1 {
+        in_string = !in_string;
+      }
+    }
+    let prefix = |l: &str| width_of(&l[..l.len() - l.trim_start().len()], tab);
+    let min = rest
+      .iter()
+      .zip(&kept)
+      .filter(|(l, k)| !l.trim().is_empty() && !**k)
+      .map(|(l, _)| prefix(l))
+      .min()
+      .unwrap_or(0);
+    for (line, &k) in rest.iter().zip(&kept) {
+      out.push('\n');
+      if k {
+        out.push_str(line);
+      } else if !line.trim().is_empty() {
+        out.push_str(&indentation(
+          column + prefix(line).saturating_sub(min),
+          config,
+        ));
+        out.push_str(line.trim());
+      }
+    }
+  } else {
+    for line in &rest {
+      out.push('\n');
+      out.push_str(&indentation(column, config));
+      let t = line.trim();
+      // A `*` line a space in, but among bare lines; one written at the start of its line
+      // only when the comment is indented (as a second run would read it).
+      if t.starts_with('*') && !bare && (column > 0 || line.len() > line.trim_start().len()) {
+        out.push(' ');
+      }
+      out.push_str(t);
+    }
+  }
+  out
+}
+
 /// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names, or
 /// `skip_macro_invocations` does: left exactly as written.
 pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
@@ -374,6 +459,9 @@ pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
   }
   let name = path.text().to_string();
   let name = name.rsplit("::").next().unwrap_or("").trim().to_string();
+  if CRATE_SKIPS.with(|names| names.borrow().0.contains(&name)) {
+    return true;
+  }
   call.ancestors_iter().any(|owner| {
     owner
       .children_iter()
@@ -686,6 +774,78 @@ fn control_block(node: &SyntaxNode) -> bool {
   })
 }
 
+/// The comments on lines of their own between a `loop`, `while`, `for` or `if` head (or an
+/// `else`) and its block, and the block's `{` after them, indented as the statement the
+/// head starts (the standard formatter's block indentation for them).
+fn control_comment_lines(root: &SyntaxNode, roles: &mut Roles) {
+  let controls = root.descendant_nodes_where(|kind| {
+    matches!(
+      kind,
+      SyntaxKind::LoopExpr | SyntaxKind::WhileExpr | SyntaxKind::ForExpr | SyntaxKind::IfExpr
+    )
+  });
+  for control in controls {
+    // The statement it starts, by the container its line is indented in.
+    let mut owner = control.clone();
+    while let Some(parent) = owner.parent()
+      && parent.kind() == SyntaxKind::IfExpr
+    {
+      owner = parent;
+    }
+    let Some(&container) = roles.starts.get(&(owner.text_range().start as usize)) else {
+      continue;
+    };
+    let elements: Vec<SyntaxElement> = control.children_with_tokens_iter().collect();
+    let block =
+      |e: &SyntaxElement| matches!(e, SyntaxElement::Node(n) if n.kind() == SyntaxKind::BlockExpr);
+    let mut bodies = Vec::new();
+    if control.kind() == SyntaxKind::IfExpr {
+      bodies.extend(elements.iter().position(block));
+      if let Some(at) = elements.iter().position(|e| e.kind() == SyntaxKind::ElseKw)
+        && let Some(after) = (at + 1..elements.len()).find(|&i| !elements[i].kind().is_trivia())
+        && block(&elements[after])
+      {
+        bodies.push(after);
+      }
+    } else {
+      bodies.extend(elements.iter().rposition(block));
+    }
+    for body in bodies {
+      let mut first = body;
+      while first > 0 && elements[first - 1].kind().is_trivia() {
+        first -= 1;
+      }
+      let between = &elements[first..body];
+      if first == 0
+        || !between
+          .iter()
+          .any(|e| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment))
+      {
+        continue;
+      }
+      // Each starting its line, after the pass before this one.
+      let mut line_start = false;
+      let mut starts = Vec::new();
+      for element in between {
+        match element {
+          SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {
+            line_start = t.text().contains('\n');
+          }
+          _ if line_start => starts.push(element.text_range().start as usize),
+          _ => {}
+        }
+      }
+      if !line_start {
+        continue;
+      }
+      starts.push(elements[body].text_range().start as usize);
+      for at in starts {
+        roles.starts.entry(at).or_insert(container);
+      }
+    }
+  }
+}
+
 /// Where the `}` of an item's body holding nothing but whitespace starts.
 fn empty_body_close(item: &SyntaxNode) -> Option<usize> {
   let body = item
@@ -766,6 +926,20 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     Some(stripped) => {
       let root = parse(&stripped, edition).syntax_node();
       (stripped, root)
+    }
+    None => (text, root),
+  };
+  let (text, root) = match crate::format::reorder::last_arm_comments(&root, &text) {
+    Some(moved) => {
+      let root = parse(&moved, edition).syntax_node();
+      (moved, root)
+    }
+    None => (text, root),
+  };
+  let (text, root) = match crate::format::reorder::control_comments(&root, &text) {
+    Some(moved) => {
+      let root = parse(&moved, edition).syntax_node();
+      (moved, root)
     }
     None => (text, root),
   };
@@ -994,6 +1168,37 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
         roles.breaks.insert(t.text_range().start as usize);
       }
     }
+    // A block comment on the `{`'s line of a struct's fields or an enum's variants goes to
+    // a line of its own, indented as they are (the first's pre-comment, `itemize_list`).
+    if items
+      && matches!(
+        node.kind(),
+        SyntaxKind::RecordFieldList | SyntaxKind::VariantList
+      )
+      && let Some(first) = node.children_iter().next()
+    {
+      let mut after = node
+        .children_with_tokens_iter()
+        .skip_while(|e| e.kind() != SyntaxKind::LBrace)
+        .skip(1);
+      let mut next = after.next();
+      if let Some(SyntaxElement::Token(t)) = &next
+        && t.kind() == SyntaxKind::Whitespace
+        && !t.text().contains('\n')
+      {
+        next = after.next();
+      }
+      if let Some(SyntaxElement::Token(comment)) = next
+        && comment.kind() == SyntaxKind::BlockComment
+        && comment.text_range().end <= first.text_range().start
+      {
+        let at = comment.text_range().start as usize;
+        roles.breaks.insert(at);
+        if let Some(&container) = roles.starts.get(&(first.text_range().start as usize)) {
+          roles.starts.entry(at).or_insert(container);
+        }
+      }
+    }
     for child in node.children_iter() {
       if child.kind() == SyntaxKind::Label {
         continue;
@@ -1126,12 +1331,15 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
               other.text_range().start as usize,
               after_attr || after_doc || after_block_lines,
             );
+            // Code after a comment after the attributes of what combines them joins it too
+            // (`combine_strs_with_missing_comments` keeps no blank line).
             if (after_attr || after_doc) && combined
               || after_comment
                 && matches!(
                   child.kind(),
                   SyntaxKind::MatchArm | SyntaxKind::RecordField | SyntaxKind::Variant
                 )
+              || after_comment && seen_attr && combined
             {
               joined.push(other.text_range().start as usize);
             }
@@ -1153,6 +1361,30 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
           .starts
           .entry(semi.text_range().start as usize)
           .or_insert(container);
+      }
+      // A stray `;` after an item ending in a comment starts a line of its own, indented as
+      // the item: the standard formatter ends the comment's line.
+      if child
+        .last_token()
+        .is_some_and(|t| t.kind() == SyntaxKind::BlockComment)
+      {
+        let mut after = child.next_sibling_or_token();
+        while let Some(SyntaxElement::Token(t)) = &after
+          && t.kind() == SyntaxKind::Whitespace
+        {
+          after = t.next_sibling_or_token();
+        }
+        if let Some(SyntaxElement::Token(semi)) = after
+          && semi.kind() == SyntaxKind::Semi
+        {
+          roles.breaks.insert(semi.text_range().start as usize);
+          if let Some(container) = container {
+            roles
+              .starts
+              .entry(semi.text_range().start as usize)
+              .or_insert(container);
+          }
+        }
       }
     }
     if any && node.kind() != SyntaxKind::SourceFile {
@@ -1194,6 +1426,8 @@ fn overflowing(spans: &Spans<'_>, text: &str, config: &FormatConfig) -> Vec<(usi
     raw_strings,
     attrs,
     line_comments,
+    block_comments,
+    after_pre_comments,
   } = *spans;
   let tab = config.tab_spaces.max(1);
   let mut found = Vec::new();
@@ -1232,11 +1466,17 @@ fn overflowing(spans: &Spans<'_>, text: &str, config: &FormatConfig) -> Vec<(usi
       .iter()
       .any(|&(start, end)| start < at && at < end)
       && !chains.iter().any(|&(start, end)| start < at && at < end);
+    // A line of a block comment, which the standard formatter does not measure
+    // (`filter_normal_code`): one starting in it, with no code after it on the line.
+    let in_comment = block_comments.iter().any(|&(start, end)| {
+      start <= first && first < end && (end >= line_end || text[end..line_end].trim().is_empty())
+    });
     if let Some(owner) = owner
       && open[owner].0 < at
       && !open[owner].2
       && !in_attr()
       && !in_raw
+      && !in_comment
     {
       let comment = line_comments.partition_point(|&c| c < at);
       // Up to a line comment, or the statement's end when other code follows it.
@@ -1252,7 +1492,9 @@ fn overflowing(spans: &Spans<'_>, text: &str, config: &FormatConfig) -> Vec<(usi
       let mut too_wide = false;
       let mut from = at;
       for p in first + 1..=code_end {
-        if p == code_end || breaks.contains(&p) && text.is_char_boundary(p) {
+        if p == code_end
+          || (breaks.contains(&p) || after_pre_comments.contains(&p)) && text.is_char_boundary(p)
+        {
           let part = if from == at {
             text[at..p].trim_end().to_string()
           } else {
@@ -1308,10 +1550,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     })
     .collect();
   // A space where none is written before what must start a line, for the line break to
-  // take its place.
+  // take its place, and before what follows the token before it after one space.
   let mut spaced: Vec<Tok> = Vec::with_capacity(tokens.len());
   for tok in tokens {
-    if roles.breaks.contains(&tok.start)
+    if (roles.breaks.contains(&tok.start) || roles.spaced.contains(&tok.start))
       && spaced
         .last()
         .is_some_and(|before| before.kind != SyntaxKind::Whitespace)
@@ -1923,76 +2165,20 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   out
 }
 
-/// The display width of text: tabs count as `tab_spaces`, wide characters as two columns.
-/// A block comment across lines with its later lines placed from column `column`: each
-/// trimmed, one starting with `*` a space in (`light_rewrite_comment`); when any does not
-/// start with `*`, their layout kept, the least indented at the column
-/// (`trim_left_preserve_layout`).
-fn reindent_block_comment(
-  text: &str,
-  column: usize,
-  tab: usize,
-  config: &FormatConfig,
-  // After code on its line from the 2024 style: its later lines all trimmed.
-  trimmed: bool,
-) -> String {
-  let mut lines = text.split('\n');
-  let first = lines.next().unwrap_or("").trim_end();
-  let rest: Vec<&str> = lines.collect();
-  let bare = rest.iter().any(|l| {
-    let t = l.trim_start();
-    !t.is_empty() && !t.starts_with('*')
-  });
-  let mut out = first.to_string();
-  if bare && !trimmed {
-    // A line inside a string the comment's code opened stays as written, and does not count
-    // toward the least indentation.
-    let mut in_string = first.matches('"').count() % 2 == 1;
-    let mut kept = Vec::with_capacity(rest.len());
-    for line in &rest {
-      kept.push(in_string);
-      if line.matches('"').count() % 2 == 1 {
-        in_string = !in_string;
-      }
-    }
-    let prefix = |l: &str| width_of(&l[..l.len() - l.trim_start().len()], tab);
-    let min = rest
-      .iter()
-      .zip(&kept)
-      .filter(|(l, k)| !l.trim().is_empty() && !**k)
-      .map(|(l, _)| prefix(l))
-      .min()
-      .unwrap_or(0);
-    for (line, &k) in rest.iter().zip(&kept) {
-      out.push('\n');
-      if k {
-        out.push_str(line);
-      } else if !line.trim().is_empty() {
-        out.push_str(&indentation(
-          column + prefix(line).saturating_sub(min),
-          config,
-        ));
-        out.push_str(line.trim());
-      }
-    }
-  } else {
-    for line in &rest {
-      out.push('\n');
-      out.push_str(&indentation(column, config));
-      let t = line.trim();
-      // A `*` line a space in, but among bare lines; one written at the start of its line
-      // only when the comment is indented (as a second run would read it).
-      if t.starts_with('*') && !bare && (column > 0 || line.len() > line.trim_start().len()) {
-        out.push(' ');
-      }
-      out.push_str(t);
-    }
-  }
-  out
-}
-
 fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let mut roles = Roles::default();
+  // A file's frontmatter, and what is before it and after it up to the first comment or
+  // code, as written: the standard formatter writes it as code it has not formatted.
+  let mut leading = root.token_texts().take_while(|(kind, _, _)| {
+    kind.is_trivia() && !matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment)
+  });
+  if leading.any(|(kind, _, _)| kind == SyntaxKind::Frontmatter)
+    && let Some((_, _, after)) = root.token_texts().find(|(kind, _, _)| {
+      !kind.is_trivia() || matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment)
+    })
+  {
+    roles.verbatim.push((0, after.start as usize));
+  }
   for child in root.child_spans() {
     if let Some(start) = construct_start(child) {
       roles.starts.insert(start, None);
@@ -2009,6 +2195,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let mut braced_macros: Vec<(usize, usize)> = Vec::new();
   let mut chained_const = Vec::new();
   let mut line_comments = Vec::new();
+  let mut block_comments = Vec::new();
+  let mut after_pre_comments = OffsetSet::default();
   // A `#[rustfmt::skip]` (or `rustfmt_skip`, or either in a `cfg_attr`) holds one of these
   // words: a file with neither has none, and no node's attributes need reading.
   let any_skip = root
@@ -2109,6 +2297,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             roles.layable.insert(start, node.clone());
           } else if (is_item(node.kind())
             || node.kind() == SyntaxKind::MacroCall && !braced_macro(node))
+            && !skipped
             && let Some(start) = crate::format::items::header_start(node)
           {
             roles.layable.insert(start, node.clone());
@@ -2120,6 +2309,110 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             && let Some(start) = crate::format::items::header_start(node)
           {
             roles.layable.insert(start, node.clone());
+          }
+        }
+        // A block comment on a line in a binding pattern (`ref /* c */ x`, `a @ /* c */ b`),
+        // after a pattern list's opening delimiter (`Some(/* c */ x)`) or after a `let`'s
+        // `=`, one space from what follows it, and from what is before it but the delimiter,
+        // as the standard formatter joins them (`combine_strs_with_missing_comments`).
+        let patterned = matches!(
+          node.kind(),
+          SyntaxKind::IdentPat
+            | SyntaxKind::TupleStructPat
+            | SyntaxKind::TuplePat
+            | SyntaxKind::SlicePat
+            | SyntaxKind::LetExpr
+            | SyntaxKind::LetStmt
+        );
+        let elements: Vec<SyntaxElement> = if patterned {
+          node.children_with_tokens_iter().collect()
+        } else {
+          Vec::new()
+        };
+        let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if t.kind() == SyntaxKind::BlockComment && !t.text().contains('\n'));
+        let mut i = 0;
+        while i < elements.len() {
+          if !comment(&elements[i]) {
+            i += 1;
+            continue;
+          }
+          // A run of comments, with only spaces among them (kept as written).
+          let first = i;
+          let mut last = i;
+          let mut j = i + 1;
+          while j < elements.len() {
+            match &elements[j] {
+              SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => j += 1,
+              e if comment(e) => {
+                last = j;
+                j += 1;
+              }
+              _ => break,
+            }
+          }
+          i = last + 1;
+          let before = elements[..first]
+            .iter()
+            .rev()
+            .find(|e| e.kind() != SyntaxKind::Whitespace);
+          let after = elements[last + 1..]
+            .iter()
+            .find(|e| e.kind() != SyntaxKind::Whitespace);
+          let (Some(before), Some(after)) = (before, after) else {
+            continue;
+          };
+          if matches!(
+            after.kind(),
+            SyntaxKind::LineComment | SyntaxKind::BlockComment
+          ) || before.kind() == SyntaxKind::LineComment
+          {
+            continue;
+          }
+          let opener = matches!(before.kind(), SyntaxKind::LParen | SyntaxKind::LBrack);
+          let placed = match node.kind() {
+            SyntaxKind::IdentPat => true,
+            SyntaxKind::TupleStructPat | SyntaxKind::TuplePat | SyntaxKind::SlicePat => opener,
+            _ => before.kind() == SyntaxKind::Eq,
+          };
+          if !placed {
+            continue;
+          }
+          let at = elements[first].text_range().start as usize;
+          if opener {
+            roles.tight.insert(at);
+          } else {
+            roles.spaced.insert(at);
+          }
+          roles.spaced.insert(after.text_range().start as usize);
+        }
+        // Comments between a struct's, enum's or union's visibility and its keyword, one
+        // space from each, as the standard formatter's `format_header` combines them; code
+        // after a line comment goes on the next line.
+        if matches!(
+          node.kind(),
+          SyntaxKind::Struct | SyntaxKind::Enum | SyntaxKind::Union
+        ) && let Some(vis) = node
+          .children_iter()
+          .find(|c| c.kind() == SyntaxKind::Visibility)
+        {
+          let mut previous_block = false;
+          for element in node
+            .children_with_tokens_iter()
+            .filter(|e| e.text_range().start >= vis.text_range().end)
+          {
+            match element.kind() {
+              SyntaxKind::Whitespace => continue,
+              SyntaxKind::LineComment | SyntaxKind::BlockComment => {
+                roles.spaced.insert(element.text_range().start as usize);
+                previous_block = element.kind() == SyntaxKind::BlockComment;
+              }
+              _ => {
+                if previous_block {
+                  roles.spaced.insert(element.text_range().start as usize);
+                }
+                break;
+              }
+            }
           }
         }
         // An `else if`, from its `if`; and the `else` before it, or before a block, one
@@ -2149,9 +2442,13 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               roles
                 .spaced
                 .insert(elements[at].text_range().start as usize);
-              roles
-                .spaced
-                .insert(elements[after].text_range().start as usize);
+              // A comment after `else` keeps its line (one there, before the block, went on
+              // a line of its own before the pass).
+              if !elements[after].kind().is_trivia() {
+                roles
+                  .spaced
+                  .insert(elements[after].text_range().start as usize);
+              }
             }
           }
         }
@@ -2311,7 +2608,16 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         if let Some(start) = rules_start {
           roles.macro_rules.insert(start, node.clone());
         }
-        if kept || skipped || unparsed_attr {
+        let member = (skipped
+          && node
+            .parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::AssocItemList))
+        .then(|| skipped_member(node, text))
+        .flatten();
+        if let Some((ranges, spaced)) = member {
+          roles.verbatim.extend(ranges);
+          roles.spaced.extend(spaced);
+        } else if kept || skipped || unparsed_attr {
           let start = rules_start.unwrap_or(range.start as usize);
           // A definition's comment after its code is not part of it.
           let end = if node.kind() == SyntaxKind::MacroRules && !skipped {
@@ -2360,6 +2666,27 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           SyntaxKind::LineComment | SyntaxKind::OuterLineDoc | SyntaxKind::InnerLineDoc
         ) {
           line_comments.push(start);
+        }
+        if token.kind() == SyntaxKind::BlockComment && token.text().contains('\n') {
+          block_comments.push((start, token.text_range().end as usize));
+        }
+        if token.kind() == SyntaxKind::BlockComment
+          && !token.text().contains('\n')
+          && matches!(
+            token.parent().kind(),
+            SyntaxKind::ArgList | SyntaxKind::ArrayExpr | SyntaxKind::TupleExpr
+          )
+        {
+          let mut next = token.next_sibling_or_token();
+          if let Some(SyntaxElement::Token(t)) = &next
+            && t.kind() == SyntaxKind::Whitespace
+            && !t.text().contains('\n')
+          {
+            next = t.next_sibling_or_token();
+          }
+          if let Some(SyntaxElement::Node(item)) = next {
+            after_pre_comments.insert(item.text_range().start as usize);
+          }
         }
         // A raw string's later lines are kept whatever their width.
         if matches!(
@@ -2444,6 +2771,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   // Where lines start, which the measuring below splits written lines at.
   line_starts(root, &mut roles, config);
+  control_comment_lines(root, &mut roles);
   // An item's header with a line too wide is laid out when it can be, else left as written
   // (decided as the pass reaches it).
   let spans = Spans {
@@ -2453,6 +2781,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     raw_strings: &raw_strings,
     attrs: &attrs,
     line_comments: &line_comments,
+    block_comments: &block_comments,
+    after_pre_comments: &after_pre_comments,
   };
   for range in overflowing(&spans, text, config) {
     if braced_macros.contains(&range) {
@@ -2513,6 +2843,9 @@ fn skipped_attribute(attr: &SyntaxNode) -> bool {
   };
   let name = path.text().to_string();
   let name = name.split("::").next().unwrap_or("").trim().to_string();
+  if CRATE_SKIPS.with(|names| names.borrow().1.contains(&name)) {
+    return true;
+  }
   attr.ancestors_iter().skip(1).any(|owner| {
     owner
       .children_iter()
@@ -2525,6 +2858,68 @@ fn skipped_attribute(attr: &SyntaxNode) -> bool {
           .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
       })
   })
+}
+
+/// What of a skipped impl or trait member is left as written: the standard formatter writes
+/// its attributes as it writes text it has not formatted, the member from its first token
+/// after them as written. Between the comments there (indented as comments are), each line
+/// of code ending its line is kept as written, the blank lines before it too; code a
+/// comment follows on its line is indented as the member, its spacing kept, and the comment
+/// follows it after one space. A verbatim range keeps what starts after its own start: each
+/// starts one byte early. The ranges and where those comments start; `None` when code
+/// shares the member's first line.
+fn skipped_member(node: &SyntaxNode, text: &str) -> Option<(Ranges, Vec<usize>)> {
+  let head = crate::format::items::header_start(node)?;
+  let range = node.text_range();
+  let start = match node.prev_sibling_or_token() {
+    Some(SyntaxElement::Token(t)) if t.kind() == SyntaxKind::Whitespace => t.text_range().start,
+    _ => range.start,
+  } as usize;
+  let comments = node.children_with_tokens_iter().filter_map(|e| match e {
+    SyntaxElement::Token(t)
+      if t.kind().is_trivia() && t.kind() != SyntaxKind::Whitespace
+        || crate::format::items::is_doc(t.kind()) =>
+    {
+      Some(t.text_range())
+    }
+    _ => None,
+  });
+  let mut slices = Vec::new();
+  let mut at = start;
+  for comment in comments.filter(|c| (c.end as usize) <= head) {
+    slices.push((at, comment.start as usize));
+    at = comment.end as usize;
+  }
+  slices.push((at, head));
+  let mut ranges = vec![(head, range.end as usize)];
+  let mut spaced = Vec::new();
+  for (from, to) in slices {
+    let slice = &text[from..to];
+    if slice.trim().is_empty() {
+      continue;
+    }
+    let rest = match slice.rfind('\n') {
+      Some(newline) => {
+        let lines = slice[..newline].trim_end();
+        if !lines.trim().is_empty() {
+          ranges.push((from.saturating_sub(1), from + lines.len()));
+        }
+        from + newline + 1
+      }
+      None => from,
+    };
+    let code = text[rest..to].trim();
+    if code.is_empty() {
+      continue;
+    }
+    if to == head {
+      return None;
+    }
+    let code_start = rest + (text[rest..to].len() - text[rest..to].trim_start().len());
+    ranges.push((code_start, code_start + code.len()));
+    spaced.push(to);
+  }
+  Some((ranges, spaced))
 }
 
 /// A file with `#![rustfmt::skip]` is left alone.

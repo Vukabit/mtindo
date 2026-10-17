@@ -109,8 +109,18 @@ pub fn spanned_comments(list: &SyntaxNode, spans: &[(usize, usize)]) -> Option<V
   }
   // A block comment across lines is re-indented line by line, which is not done here.
   let spans = |c: &Option<String>| {
-    c.as_ref()
-      .is_some_and(|c| c.contains("/*") && c.trim().contains('\n'))
+    c.as_ref().is_some_and(|c| {
+      let mut rest = c.as_str();
+      while let Some(at) = rest.find("/*") {
+        let after = &rest[at..];
+        let end = after.find("*/").map_or(after.len(), |e| e + 2);
+        if after[..end].contains('\n') {
+          return true;
+        }
+        rest = &after[end..];
+      }
+      false
+    })
   };
   if out.iter().any(|c| spans(&c.pre) || spans(&c.post)) {
     return None;
@@ -412,7 +422,10 @@ fn write_list(
     }
     if let Some(pre) = &c.pre {
       out.push_str(&comment_lines(pre, indent));
-      let total = str_width(text) + usize::from(separate) + 1;
+      // The item with its comments, each counted six columns wider, as the standard
+      // formatter's `total_item_width` counts them.
+      let counted = |c: &Option<String>| c.as_ref().map_or(0, |c| c.trim().len().max(4) + 6);
+      let total = counted(&c.pre) + counted(&c.post) + text.len() + usize::from(separate) + 1;
       if c.pre_same_line && total <= width {
         out.push(' ');
       } else {

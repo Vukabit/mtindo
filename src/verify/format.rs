@@ -649,6 +649,18 @@ fn emit_node<'a>(
         .filter(|(kind, _, _)| !kind.is_trivia())
         .map(|(_, text, _)| text)
         .collect();
+      // A path from the root names a module from the crate's (`pub(in ::a)` is
+      // `pub(in a)`).
+      if let ["pub", "(", "in", "::", rest @ ..] = words.as_slice() {
+        let line = lines.line(node.text_range().start as usize);
+        for text in ["pub", "(", "in"].iter().chain(rest) {
+          out.push(Token {
+            text: text.to_string().into(),
+            line,
+          });
+        }
+        return;
+      }
       if let ["pub", "(", "in", target @ ("crate" | "super" | "self"), ")"] = words.as_slice() {
         let line = lines.line(node.text_range().start as usize);
         for text in ["pub", "(", target, ")"] {
@@ -913,6 +925,11 @@ fn flatten_tree(tree: &SyntaxNode, prefix: &str, paths: &mut Vec<String>) {
     .map(str::to_string)
     .unwrap_or(full);
   let full = full.strip_prefix("::").map(str::to_string).unwrap_or(full);
+  // `a as a` is `a`.
+  let last = full.rsplit("::").next().unwrap_or("");
+  if !glob && rename == format!("as {}", last) {
+    rename.clear();
+  }
   let mut entry = if glob { join(&full, "*") } else { full };
   if !rename.is_empty() {
     entry = format!("{} {}", entry, rename);
@@ -1134,9 +1151,11 @@ fn sole_expression(block: &SyntaxNode) -> Option<SyntaxNode> {
   if block.kind() != SyntaxKind::BlockExpr {
     return None;
   }
+  // A `;` standing alone in the block is an empty statement (stray-semicolon).
   let inner: Vec<SyntaxElement> = block
     .children_with_tokens_iter()
     .filter(significant)
+    .filter(|e| kind_of(e) != SyntaxKind::Semi)
     .collect();
   match inner.as_slice() {
     [open, SyntaxElement::Node(expr), close]

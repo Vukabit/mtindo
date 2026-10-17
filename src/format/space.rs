@@ -166,6 +166,10 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
   if ka == K::Lt && kb == K::Lt && pa != K::BinExpr {
     return None;
   }
+  // `builtin # offset_of(..)`: the `#` spaced as written.
+  if (ka == K::Pound && pa == K::Builtin) || (kb == K::Pound && pb == K::Builtin) {
+    return None;
+  }
   // A macro's name, `!` and arguments are tight, unless the arguments hold what no
   // expression list can (`quote! (span => #x)`): the standard formatter leaves such a call
   // whole as written.
@@ -276,7 +280,8 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
     if matches!(pb, K::Visibility | K::Restriction | K::Attr) || pa == K::Meta {
       return Some(false);
     }
-    if ka == K::Gt && pa == K::GenericParamList && pb == K::ParamList {
+    // `fn f<T>(`, `struct S<T>(`.
+    if ka == K::Gt && pa == K::GenericParamList && matches!(pb, K::ParamList | K::TupleFieldList) {
       return Some(false);
     }
     return if callee_end(ka, pa) {

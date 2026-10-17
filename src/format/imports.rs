@@ -58,7 +58,38 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   if body.iter().any(comment) {
     return None;
   }
-  let tree = node.children_iter().find(|c| c.kind() == K::UseTree)?;
+  let mut tree = node.children_iter().find(|c| c.kind() == K::UseTree)?;
+  // Reordered, the tree is normalized as the standard formatter normalizes it (`a::{b}` is
+  // `a::b`, `a::self` is `a`), then laid out read again.
+  let mut normalized = None;
+  // Not one with a `::` starting a tree inside a list, which the normalized tree drops.
+  let nested_root = tree
+    .descendant_nodes_where(|kind| kind == K::UseTree)
+    .any(|t| {
+      t != tree
+        && t
+          .first_token()
+          .is_some_and(|first| first.kind() == K::Colon2)
+    });
+  if config.reorder_imports && !nested_root {
+    let global = super::file::edition() >= Edition::E2018;
+    let version = config.style_edition >= 2024;
+    let written = crate::order::UseTree::from_syntax(&tree, global, version);
+    // One importing nothing, or `::{a}`, as written.
+    let text = written.text();
+    if !written.is_empty() && !written.unbraced_root() && text != flat(&tree, Spacing::of(config)) {
+      let source = format!("use {};", text);
+      let parsed = crate::syntax::parse(&source, Edition::E2021);
+      if !parsed.errors().is_empty() {
+        return None;
+      }
+      tree = parsed
+        .syntax_node()
+        .descendant_nodes_where(|kind| kind == K::UseTree)
+        .next()?;
+      normalized = Some(tree.clone());
+    }
+  }
   let spacing = Spacing::of(config);
   // `pub use `, everything before the tree.
   let head = match node.children_iter().find(|c| c.kind() == K::Visibility) {
@@ -70,7 +101,18 @@ pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
     .max_width
     .checked_sub(indent + str_width(&head) + 1)?;
   let text = format!("{}{};", head, tree_text(&tree, indent, width, config)?);
-  same_tokens(&body, &text).then_some(text)
+  match normalized {
+    // The tokens of the tree as normalized, the head's as written.
+    Some(tree) => {
+      let mut ours: Vec<SyntaxElement> = body
+        .into_iter()
+        .filter(|e| e.kind() != K::UseTree)
+        .collect();
+      ours.push(SyntaxElement::Node(tree));
+      same_tokens(&ours, &text).then_some(text)
+    }
+    None => same_tokens(&body, &text).then_some(text),
+  }
 }
 
 /// The items of a list, its trees.

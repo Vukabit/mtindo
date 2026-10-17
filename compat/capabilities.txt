@@ -35,7 +35,7 @@ option  fn_args_layout                                   not-planned  # deprecat
 option  fn_call_width                                    partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  fn_params_layout                                 partial      # with format = true, Tall only (src/format/items/tests.rs)
 option  fn_single_line                                   missing
-option  force_explicit_abi                               missing
+option  force_explicit_abi                               supported    # with format = true, `extern` alone written `extern "C"` on functions, blocks and function pointer types (src/format/reorder/tests.rs)
 option  force_multiline_blocks                           missing
 option  format_code_in_doc_comments                      missing
 option  format_generated_files                           supported    # with format = true; also on stdin, which the standard formatter does not check (src/format/file/tests.rs)
@@ -66,7 +66,7 @@ option  normalize_comments                               missing
 option  normalize_doc_attributes                         missing
 option  overflow_delimited_expr                          missing
 option  print_misformatted_file_names                    missing
-option  remove_nested_parens                             missing
+option  remove_nested_parens                             supported    # with format = true, parentheses directly inside parentheses dropped when no comment is among them (src/format/file/tests.rs)
 option  reorder_impl_items                               supported    # as rustfmt nightly applies it (src/layout/tests.rs; corpus check agreement)
 option  reorder_imports                                  partial      # with format = true, runs of use items sorted as the standard formatter sorts them; a run holding a comment keeps its order, and lists inside an item are not sorted yet (src/format/reorder/tests.rs)
 option  reorder_modules                                  partial      # with format = true, runs of `mod name;` sorted by name; a run holding a comment keeps its order (src/format/reorder/tests.rs)
@@ -76,7 +76,7 @@ option  show_parse_errors                                missing
 option  single_line_if_else_max_width                    partial      # with format = true, for an `if` with one-expression branches as a value or a block's tail (src/format/stmt/tests.rs); not yet in match arms
 option  single_line_let_else_max_width                   partial      # with format = true, a `let ... else` block of one expression on the `let`'s line (src/format/stmt/tests.rs)
 option  skip_children                                    missing
-option  skip_macro_invocations                           missing
+option  skip_macro_invocations                           supported    # with format = true, the calls of the macros named, by their path as written, or of all for `*`, left as written (src/format/file/tests.rs)
 option  space_after_colon                                supported    # with format = true (src/format/space/tests.rs)
 option  space_before_colon                               supported    # with format = true (src/format/space/tests.rs)
 option  spaces_around_ranges                             supported    # with format = true (src/format/space/tests.rs)

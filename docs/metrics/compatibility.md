@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-16T13:28:50.196Z"
-commit: "2a3f879-dirty.7d07f924"
+generated: "2026-10-17T01:12:30.100Z"
+commit: "4254797-dirty.347012c2"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -13,34 +13,34 @@ toolchain:
 corpus_fingerprint: "sha256:0bfa13269439c574"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
-  compat.tests.files: 76.84
-  compat.tests.files_matched: 355
+  compat.tests.files: 86.58
+  compat.tests.files_matched: 400
   compat.tests.files_scored: 462
-  compat.tests.lines: 94.18
-  compat.tests.lines_matched: 10574
+  compat.tests.lines: 96.26
+  compat.tests.lines_matched: 10807
   compat.tests.lines_total: 11227
   compat.tests.skipped: 0
-  compat.tests-with-settings.files: 47.58
-  compat.tests-with-settings.files_matched: 266
+  compat.tests-with-settings.files: 51.34
+  compat.tests-with-settings.files_matched: 287
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 83.16
-  compat.tests-with-settings.lines_matched: 18341
+  compat.tests-with-settings.lines: 84.68
+  compat.tests-with-settings.lines_matched: 18676
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
-  compat.corpus.files: 96.68
-  compat.corpus.files_matched: 10090
-  compat.corpus.files_scored: 10436
-  compat.corpus.lines: 99.89
-  compat.corpus.lines_matched: 2650951
-  compat.corpus.lines_total: 2653974
-  compat.corpus.skipped: 260
-  compat.corpus-unformatted.files: 82.47
-  compat.corpus-unformatted.files_matched: 8590
-  compat.corpus-unformatted.files_scored: 10416
-  compat.corpus-unformatted.lines: 97.66
-  compat.corpus-unformatted.lines_matched: 2707413
-  compat.corpus-unformatted.lines_total: 2772411
-  compat.corpus-unformatted.skipped: 273
+  compat.corpus.files: 99.61
+  compat.corpus.files_matched: 9227
+  compat.corpus.files_scored: 9263
+  compat.corpus.lines: 99.98
+  compat.corpus.lines_matched: 2620412
+  compat.corpus.lines_total: 2620990
+  compat.corpus.skipped: 6
+  compat.corpus-unformatted.files: 93.46
+  compat.corpus-unformatted.files_matched: 8645
+  compat.corpus-unformatted.files_scored: 9250
+  compat.corpus-unformatted.lines: 98.93
+  compat.corpus-unformatted.lines_matched: 2709979
+  compat.corpus-unformatted.lines_total: 2739378
+  compat.corpus-unformatted.skipped: 17
   compat.corpus.repositories: 44
 ---
 
@@ -50,9 +50,9 @@ metrics:
 
 <!-- generated: abstract -->
 Against the standard formatter 1.9.0-stable (88d9e12ae1 2026-08-18), mto's
-output equals the expected output for 355 of 462 test files (76.84%) and for
-10090 of 10436 corpus files (96.68%). On whitespace-scrambled corpus files it
-matches 8590 of 10416 files (82.47%) and keeps 97.66% of the expected lines.
+output equals the expected output for 400 of 462 test files (86.58%) and for
+9227 of 9263 corpus files (99.61%). On whitespace-scrambled corpus files it
+matches 8645 of 9250 files (93.46%) and keeps 98.93% of the expected lines.
 <!-- end generated -->
 
 ## 1 Question
@@ -121,10 +121,10 @@ The record as it stands (shares in percent):
 <!-- generated: results -->
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
-| tests | 355 of 462 | 76.84 | 10574 of 11227 | 94.18 | 0 |
-| tests-with-settings | 266 of 559 | 47.58 | 18341 of 22055 | 83.16 | 0 |
-| corpus | 10090 of 10436 | 96.68 | 2650951 of 2653974 | 99.89 | 260 |
-| corpus-scrambled | 8590 of 10416 | 82.47 | 2707413 of 2772411 | 97.66 | 273 |
+| tests | 400 of 462 | 86.58 | 10807 of 11227 | 96.26 | 0 |
+| tests-with-settings | 287 of 559 | 51.34 | 18676 of 22055 | 84.68 | 0 |
+| corpus | 9227 of 9263 | 99.61 | 2620412 of 2620990 | 99.98 | 6 |
+| corpus-scrambled | 8645 of 9250 | 93.46 | 2709979 of 2739378 | 98.93 | 17 |
 <!-- end generated -->
 
 ### History
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 94.18 | 83.16 | 99.89 | 97.66 | 82.47 |
+| current |  | 96.26 | 84.68 | 99.98 | 98.93 | 93.46 |
+| 2026-10-16 | 4254797 | 94.18 | 83.16 | 99.89 | 97.66 | 82.47 |
 | 2026-10-16 | 2a3f879 | 90.47 | 81.33 | 99.85 | 97.37 | 80.35 |
 | 2026-10-15 | 66bdbe6 | 88.55 | 80.85 | 99.81 | 95.28 | 69.90 |
 | 2026-10-15 | 4e21107 | 88.55 | 80.82 | 99.81 | 95.22 | 69.17 |
@@ -183,31 +184,31 @@ does not check this part, and it may describe a newer run than the record.
 
 <!-- generated: last-run -->
 From the last `cargo xtask diff` run recorded on the machine that generated this
-page (2026-10-16), which need not be the run the record above was made from.
+page (2026-10-17), which need not be the run the record above was made from.
 Scored files by the share of their expected lines mto's output keeps:
 
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
-| tests | 357 | 2 | 24 | 79 |
-| tests-with-settings | 272 | 0 | 55 | 232 |
-| corpus | 10095 | 37 | 90 | 214 |
-| corpus-scrambled | 8637 | 492 | 762 | 525 |
+| tests | 402 | 0 | 17 | 43 |
+| tests-with-settings | 293 | 0 | 50 | 216 |
+| corpus | 9227 | 22 | 9 | 5 |
+| corpus-scrambled | 8673 | 241 | 241 | 95 |
 
 The syntax at the first line where a mismatching file differs, the ten most
 common over every set:
 
 | syntax kind | files |
 |---|---:|
-| `LetStmt` | 296 |
-| `BlockExpr` | 171 |
-| `TokenTree` | 156 |
-| `Fn` | 153 |
-| `Use` | 126 |
-| `MatchArm` | 125 |
-| `MethodCallExpr` | 110 |
-| `CallExpr` | 81 |
-| `Attr` | 79 |
-| `Name` | 75 |
+| `LetStmt` | 133 |
+| `TokenTree` | 70 |
+| `Fn` | 67 |
+| `Use` | 51 |
+| `MacroRules` | 45 |
+| `BlockExpr` | 41 |
+| `SourceFile` | 38 |
+| `MatchArm` | 35 |
+| `MethodCallExpr` | 30 |
+| `BinExpr` | 27 |
 <!-- end generated -->
 
 ## 4 Threats to validity

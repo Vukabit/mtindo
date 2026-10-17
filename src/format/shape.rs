@@ -200,13 +200,15 @@ impl Shape {
 }
 
 /// The settings spacing within a line reads: `spaces_around_ranges`, `space_before_colon`,
-/// `space_after_colon` and `type_punctuation_density`.
+/// `space_after_colon` and `type_punctuation_density`; and `remove_nested_parens`, for the
+/// tokens a line keeps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Spacing {
   pub spaces_around_ranges: bool,
   pub space_before_colon: bool,
   pub space_after_colon: bool,
   pub compressed_type_punctuation: bool,
+  pub remove_nested_parens: bool,
 }
 
 impl Spacing {
@@ -216,6 +218,7 @@ impl Spacing {
       space_before_colon: config.space_before_colon,
       space_after_colon: config.space_after_colon,
       compressed_type_punctuation: config.compressed_type_punctuation,
+      remove_nested_parens: config.remove_nested_parens,
     }
   }
 
@@ -226,6 +229,7 @@ impl Spacing {
       space_before_colon: self.space_before_colon,
       space_after_colon: self.space_after_colon,
       compressed_type_punctuation: self.compressed_type_punctuation,
+      remove_nested_parens: self.remove_nested_parens,
       ..FormatConfig::default()
     }
   }

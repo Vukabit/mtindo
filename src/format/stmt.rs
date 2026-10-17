@@ -92,8 +92,19 @@ pub fn rewrite_control_head(
       _ => None,
     })
     .collect();
+  // A comment only where the layout places it, among a list's items (an empty list has
+  // none to place it with).
+  let listed = |t: &SyntaxToken| {
+    matches!(t.kind(), K::LineComment | K::BlockComment)
+      && !t.text().contains('\n')
+      && matches!(
+        t.parent().kind(),
+        K::ArgList | K::ArrayExpr | K::TupleExpr | K::RecordExprFieldList
+      )
+      && t.parent().children_iter().next().is_some()
+  };
   if head.iter().any(|t| {
-    (t.kind().is_trivia() && t.kind() != K::Whitespace)
+    (t.kind().is_trivia() && t.kind() != K::Whitespace && !listed(t))
       || super::items::is_doc(t.kind())
       || t.kind() == K::Pound
       || t.kind().is_literal() && t.text().contains('\n')
@@ -670,33 +681,71 @@ pub(super) fn nested_fit(node: &SyntaxNode, indent: usize, config: &FormatConfig
 
 /// Whether `text` holds the statement's code tokens, but for those [`compared`] passes over.
 pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
+  same_tokens_until(node, text, usize::MAX)
+}
+
+/// [`same_tokens`] for the node's tokens before `end` (an item's comment after its `;` is
+/// not its own).
+pub(super) fn same_tokens_until(node: &SyntaxNode, text: &str, end: usize) -> bool {
   // As `code_tokens` picks them, read straight from the tree.
   let start = header_start(node).unwrap_or(node.text_range().start as usize);
   if written_as(node, start, text) {
     return true;
   }
-  let theirs = node
-    .token_texts()
-    .filter(|&(kind, _, range)| compared(kind) && range.start as usize >= start)
-    .map(|(_, text, _)| text);
   // Inside a function body, where the statement stands, so that tokens split as they do
   // there (`>>` closing two generic lists).
   let wrapped = format!("fn f() {{\n{}\n}}", text);
   let tokens = parse_tokens(&wrapped, Edition::E2021);
-  let ours = tokens
+  // Less the parentheses put around a float ending in `.` (`(10.).method()`).
+  let laid: Vec<(SyntaxKind, &str)> = tokens
     .iter()
     .skip_while(|&&(kind, _)| kind != K::LBrace)
     .skip(1)
     .filter(|&&(kind, _)| compared(kind))
-    .map(|&(_, text)| text);
-  if !theirs.eq(ours) {
+    .copied()
+    .collect();
+  let mut kept = Vec::with_capacity(laid.len());
+  let mut i = 0;
+  while i < laid.len() {
+    if i + 3 < laid.len()
+      && laid[i].0 == K::LParen
+      && laid[i + 1].0 == K::FloatNumber
+      && laid[i + 1].1.ends_with('.')
+      && laid[i + 2].0 == K::RParen
+      && laid[i + 3].0 == K::Dot
+    {
+      kept.push(laid[i + 1].1);
+      i += 3;
+    } else {
+      kept.push(laid[i].1);
+      i += 1;
+    }
+  }
+  let ours = || kept.iter().copied();
+  // All of them, or less those a line drops (a leading `|`, nested parentheses).
+  let dropped = super::expr::dropped_tokens(node, Spacing::default());
+  let dropped = &dropped;
+  let theirs = |drop: bool| {
+    node
+      .token_texts()
+      .filter(move |&(kind, _, range)| {
+        compared(kind)
+          && range.start as usize >= start
+          && (range.start as usize) < end
+          && !(drop && dropped.contains(&(range.start as usize)))
+      })
+      .map(|(_, text, _)| text)
+  };
+  if !theirs(true).eq(ours()) && !theirs(false).eq(ours()) {
     return false;
   }
   // Every comment kept, each once.
   let comment = |kind: SyntaxKind| matches!(kind, K::LineComment | K::BlockComment);
   let mut theirs: Vec<&str> = node
     .token_texts()
-    .filter(|&(kind, _, range)| comment(kind) && range.start as usize >= start)
+    .filter(|&(kind, _, range)| {
+      comment(kind) && range.start as usize >= start && (range.start as usize) < end
+    })
     .map(|(_, text, _)| text.trim_end())
     .collect();
   let mut ours: Vec<&str> = tokens
@@ -750,15 +799,29 @@ fn argument_string(token: &SyntaxToken) -> bool {
   {
     return true;
   }
-  literal.kind() == K::Literal
-    && literal.parent().is_some_and(|p| {
-      // The value of a `let`, `const` or `static`.
-      matches!(p.kind(), K::LetStmt | K::Const | K::Static)
-        || p.kind() == K::ArgList
-          && p
-            .parent()
-            .is_some_and(|call| matches!(call.kind(), K::CallExpr | K::MethodCallExpr))
-    })
+  if literal.kind() != K::Literal {
+    return false;
+  }
+  // Under a `&`, indexed (`&b"..."[..]`) or a method's receiver (`"..".to_owned()`), as
+  // where the reference, index or call is.
+  let mut value = literal;
+  while let Some(parent) = value.parent()
+    && (parent.kind() == K::RefExpr
+      || matches!(parent.kind(), K::IndexExpr | K::MethodCallExpr)
+        && parent.children().first() == Some(&value))
+  {
+    value = parent;
+  }
+  value.parent().is_some_and(|p| {
+    // The value of a `let`, `const` or `static`, an element.
+    matches!(
+      p.kind(),
+      K::LetStmt | K::Const | K::Static | K::ArrayExpr | K::TupleExpr
+    ) || p.kind() == K::ArgList
+      && p
+        .parent()
+        .is_some_and(|call| matches!(call.kind(), K::CallExpr | K::MethodCallExpr))
+  })
 }
 
 /// Whether a macro call's arguments are in braces: they are left as written, and so is a
@@ -1032,6 +1095,21 @@ fn let_head(node: &SyntaxNode, expression: &SyntaxNode, shape: Shape) -> Option<
   (last_line_used(&head, shape.indent) <= shape.width).then_some(head)
 }
 
+/// Whether a token tree is a macro call's arguments not in braces, or nested in them: the
+/// arguments are read again as code, their comments placed as code's are (each kept, as
+/// the statement's check makes sure).
+fn macro_arguments_tree(tree: &SyntaxNode) -> bool {
+  let mut tree = tree.clone();
+  while let Some(parent) = tree.parent()
+    && parent.kind() == K::TokenTree
+  {
+    tree = parent;
+  }
+  tree
+    .parent()
+    .is_some_and(|p| p.kind() == K::MacroCall && !braced(&p))
+}
+
 /// A statement the layout code does not take whole, on one line when it fits there and
 /// every call, chain, struct literal, array and tuple in it stays on one line by its own
 /// width; else `None`.
@@ -1083,10 +1161,7 @@ fn right_side(
   let next_fits = |next: &str| {
     next_shape.is_some_and(|s| {
       super::expr::first_line_width(next) <= s.width
-        && next
-          .lines()
-          .skip(1)
-          .all(|l| super::expr::code_width(l) <= s.limits.max_width)
+        && super::expr::later_lines(next).all(|(_, w)| w <= s.limits.max_width)
     })
   };
   match (same_line, next_line) {
@@ -1109,12 +1184,23 @@ fn safe(element: &SyntaxElement) -> bool {
       if matches!(t.kind(), K::LineComment | K::BlockComment)
         && !t.text().contains('\n')
         && (super::expr::in_chain_gap(t)
-          || matches!(t.parent().kind(), K::ArgList | K::ArrayExpr | K::TupleExpr)
-          || t.parent().kind() == K::TokenTree
-            && t
-              .parent()
-              .parent()
-              .is_some_and(|p| p.kind() == K::MacroCall && !braced(&p))) =>
+          || matches!(
+            t.parent().kind(),
+            K::ArgList
+              | K::ArrayExpr
+              | K::TupleExpr
+              | K::RecordExprFieldList
+              | K::RecordPatFieldList
+          )
+          || t.parent().kind() == K::TokenTree && macro_arguments_tree(&t.parent())) =>
+    {
+      true
+    }
+    // A comment between a binary expression's operands: the expression is kept as written
+    // (`recover_comments`), what is around it laid out. One before `else`, placed above it.
+    SyntaxElement::Token(t)
+      if matches!(t.kind(), K::LineComment | K::BlockComment)
+        && matches!(t.parent().kind(), K::BinExpr | K::IfExpr) =>
     {
       true
     }
@@ -1133,7 +1219,16 @@ fn safe(element: &SyntaxElement) -> bool {
     SyntaxElement::Node(n) if n.kind() == K::BlockExpr => {
       super::expr::joins(n) || super::expr::one_line_if_block(n)
     }
-    SyntaxElement::Node(n) => n.kind() != K::Attr,
+    // An element's or a struct literal field's attributes, laid out with it.
+    SyntaxElement::Node(n) => {
+      n.kind() != K::Attr
+        || n.parent().is_some_and(|p| {
+          matches!(
+            p.kind(),
+            K::ArrayExpr | K::ArgList | K::TupleExpr | K::RecordExprField
+          )
+        })
+    }
   }
 }
 
@@ -1151,7 +1246,7 @@ fn statement(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<
     return None;
   }
   if !takes(node) {
-    return on_one_line(node, indent, config);
+    return on_one_line(node, indent, config).filter(|text| same_tokens(node, text));
   }
   let text = laid_out(node, indent, config)?;
   same_tokens(node, &text).then_some(text)

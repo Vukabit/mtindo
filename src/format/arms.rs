@@ -28,8 +28,15 @@ pub enum Arm {
 }
 
 /// The arm starting at column `indent` on a line of its own, laid out; `None` for one left
-/// as written.
+/// as written. One with a leading `|` is left as written: laid out alone, its `match` may be
+/// one the standard formatter keeps as written whole (a comment among an arm's patterns).
 pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Arm> {
+  let leading = node
+    .descendants_with_tokens_iter()
+    .any(|e| matches!(&e, crate::syntax::SyntaxElement::Token(t) if super::expr::leading_pipe(t)));
+  if leading {
+    return None;
+  }
   rewrite_arm_in(node, indent, config, false)
 }
 
@@ -56,12 +63,8 @@ pub fn rewrite_arm_in(
   let body = parts
     .last()
     .filter(|b| *b != pattern && Some(*b) != guard)?;
-  // A leading `|` the standard formatter drops; comments anywhere.
-  let leading_pipe = node
-    .children_with_tokens_iter()
-    .find(|e| e.text_range().start as usize >= start && !e.kind().is_trivia())
-    .is_some_and(|e| e.kind() == K::Pipe);
-  if leading_pipe || !clean_expression(pattern) {
+  // Comments anywhere.
+  if !clean_expression(pattern) {
     return None;
   }
   let condition = match guard {
@@ -114,6 +117,7 @@ pub fn rewrite_arm_in(
     body = inner;
   }
   let body = &body;
+  let mut one_line_comment = false;
   let laid = match body.kind() {
     K::BlockExpr => {
       let prefixed = body
@@ -127,7 +131,42 @@ pub fn rewrite_arm_in(
           .children_with_tokens_iter()
           .any(|e| !e.kind().is_trivia() && !matches!(e.kind(), K::LBrace | K::RBrace | K::Label))
         && !prefixed;
-      if empty {
+      // Comments alone in it: what is between the braces kept on the arm's line when it is
+      // one line and no line comment, and fits there (the standard formatter's
+      // `rewrite_empty_block`); else the block on lines.
+      let inside = {
+        let text = body.text();
+        let from = text.find('{').map_or(0, |i| i + 1);
+        let to = text.rfind('}').unwrap_or(text.len());
+        text[from..to.max(from)].trim().to_string()
+      };
+      if empty && !inside.is_empty() {
+        if !inside.contains('\n')
+          && !inside.starts_with("//")
+          && !forbid_same_line
+          && indent + used + 4 + str_width(&inside) + 4 <= config.max_width
+        {
+          one_line_comment = true;
+          Arm::Whole(format!("{} => {{ {} }}", lhs, inside))
+        } else {
+          let open = body
+            .children_with_tokens_iter()
+            .find(|e| e.kind() == K::LBrace)?
+            .text_range()
+            .start as usize;
+          let tail = match &written_comma {
+            Some(comma) => vec![(comma.text_range().start as usize, K::Comma)],
+            None => Vec::new(),
+          };
+          Arm::Head(Head {
+            text: format!("{}{}", lhs, arrow),
+            open,
+            tail,
+            keep_comma: false,
+            links: Vec::new(),
+          })
+        }
+      } else if empty {
         // `{}`, after the arrow even below a guard of its own line; its `}` on the next line
         // when `{}` runs past the line width.
         if indent + used + 4 + 2 > config.max_width {
@@ -254,17 +293,43 @@ pub fn rewrite_arm_in(
     Arm::Whole(_) => node.text_range().end as usize,
     Arm::Head(head) => head.open,
   };
-  // No comment in what is laid out here: a block body's are its own.
-  if node.descendants_with_tokens_iter().any(|e| {
-    let at = e.text_range().start as usize;
-    at >= start && at < end && matches!(e.kind(), K::LineComment | K::BlockComment)
-  }) {
+  // No comment in what is laid out here: a block body's are its own, or kept as written.
+  let comment_end = if one_line_comment {
+    body.text_range().start as usize
+  } else {
+    end
+  };
+  // Or, laid out whole, ones its body's layout placed: each kept.
+  let comments: Vec<String> = node
+    .descendants_with_tokens_iter()
+    .filter(|e| {
+      let at = e.text_range().start as usize;
+      at >= start && at < comment_end && matches!(e.kind(), K::LineComment | K::BlockComment)
+    })
+    .map(|e| match e {
+      crate::syntax::SyntaxElement::Token(t) => t.text().trim_end().to_string(),
+      crate::syntax::SyntaxElement::Node(n) => n.text().to_string(),
+    })
+    .collect();
+  let placed = matches!(&laid, Arm::Whole(text) if {
+    let body_start = body.text_range().start as usize;
+    node.descendants_with_tokens_iter().all(|e| {
+      let at = e.text_range().start as usize;
+      !(at >= start && at < body_start && matches!(e.kind(), K::LineComment | K::BlockComment))
+    }) && comments.iter().all(|c| text.matches(c.as_str()).count() >= comments.iter().filter(|d| *d == c).count())
+  });
+  if !comments.is_empty() && !placed {
     return None;
   }
+  // Less those a line drops (a leading `|`, nested parentheses).
+  let dropped = super::expr::dropped_tokens(node, Spacing::of(config));
   let written: String = node
     .token_texts()
     .filter(|&(kind, _, range)| {
-      compared(kind) && (range.start as usize) >= start && (range.start as usize) < end
+      compared(kind)
+        && (range.start as usize) >= start
+        && (range.start as usize) < end
+        && !dropped.contains(&(range.start as usize))
     })
     .map(|(_, text, _)| text)
     .collect();

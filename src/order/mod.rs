@@ -104,6 +104,25 @@ impl Segment {
     }
   }
 
+  /// The segment as the standard formatter writes it.
+  fn text(&self) -> String {
+    let named = |name: &str, alias: &Option<String>| match alias {
+      Some(alias) => format!("{} as {}", name, alias),
+      None => name.to_string(),
+    };
+    match self {
+      Segment::Ident(name, alias) => named(name, alias),
+      Segment::Slf(alias) => named("self", alias),
+      Segment::Super(alias) => named("super", alias),
+      Segment::Crate(alias) => named("crate", alias),
+      Segment::Glob => "*".to_string(),
+      Segment::List(list) => {
+        let items: Vec<String> = list.iter().map(UseTree::text).collect();
+        format!("{{{}}}", items.join(", "))
+      }
+    }
+  }
+
   fn without_alias(&self) -> Segment {
     match self {
       Segment::Ident(name, _) => Segment::Ident(name.clone(), None),
@@ -170,7 +189,7 @@ impl UseTree {
   /// names the root (the 2018 edition and later), as the standard formatter reads it;
   /// `version` is the order nested lists are sorted in, as for [`UseTree::compare`].
   pub fn from_syntax(tree: &SyntaxNode, global_paths: bool, version: bool) -> UseTree {
-    read_tree(tree, global_paths, true).normalize(version)
+    read_tree(tree, global_paths, true).normalize(version, true)
   }
 
   /// The standard formatter's ordering of two trees; `version` for style edition 2024 and later.
@@ -187,8 +206,30 @@ impl UseTree {
     self.path.len().cmp(&other.path.len())
   }
 
-  /// The standard formatter's `UseTree::normalize`.
-  fn normalize(mut self, version: bool) -> UseTree {
+  /// The tree on one line, as the standard formatter writes it.
+  pub fn text(&self) -> String {
+    let segments: Vec<String> = self.path.iter().map(Segment::text).collect();
+    segments.join("::")
+  }
+
+  /// Whether the tree imports nothing (`a::{}`), which normalizing leaves without a path.
+  pub fn is_empty(&self) -> bool {
+    self.path.is_empty()
+  }
+
+  /// Whether the tree is a name after a root `::` that was in braces (`::{a}` normalized),
+  /// which read again as `::a` would sort apart from where it was sorted.
+  pub fn unbraced_root(&self) -> bool {
+    matches!(
+      self.path.as_slice(),
+      [Segment::Ident(root, _), second, ..]
+        if root.is_empty() && !matches!(second, Segment::Glob | Segment::List(_))
+    )
+  }
+
+  /// The standard formatter's `UseTree::normalize`; `top` for a `use`'s own tree, not one in
+  /// a list.
+  fn normalize(mut self, version: bool, top: bool) -> UseTree {
     let Some(mut last) = self.path.pop() else {
       return self;
     };
@@ -198,7 +239,7 @@ impl UseTree {
         return self;
       }
       // `use self;` at the top level.
-      Segment::Slf(None) if self.path.is_empty() => {
+      Segment::Slf(None) if self.path.is_empty() && top => {
         self.path.clear();
         return self;
       }
@@ -221,15 +262,19 @@ impl UseTree {
     // `a::{b}` -> `a::b`.
     if let Segment::List(list) = &last
       && list.len() == 1
-      && list[0].path != [Segment::Slf(None)]
+      // `self as a` reads as `self` here, as the standard formatter writes it to compare.
+      && !matches!(list[0].path.as_slice(), [Segment::Slf(_)])
       && !list[0].has_comment
     {
       let only = list[0].clone();
       self.path.extend(only.path);
-      return self.normalize(version);
+      return self.normalize(version, top);
     }
     if let Segment::List(list) = last {
-      let mut list: Vec<UseTree> = list.into_iter().map(|t| t.normalize(version)).collect();
+      let mut list: Vec<UseTree> = list
+        .into_iter()
+        .map(|t| t.normalize(version, false))
+        .collect();
       list.sort_by(|a, b| a.compare(b, version));
       list.dedup();
       last = Segment::List(list);
@@ -406,7 +451,9 @@ mod tests {
     assert_eq!(tree("a::{b}"), tree("a::b"));
     assert_eq!(tree("a::{c, b}"), tree("a::{b, c}"));
     assert_eq!(tree("a::self"), tree("a"));
-    assert_eq!(tree("a::{self as x}"), tree("a as x"));
+    // `self as x` alone keeps its braces (the standard formatter writes it `self` to decide).
+    assert_ne!(tree("a::{self as x}"), tree("a as x"));
+    assert_eq!(tree("a::self as x"), tree("a as x"));
     assert_ne!(tree("a::{self}"), tree("a"));
     assert_ne!(
       tree("a::{\n// note\nb}"),

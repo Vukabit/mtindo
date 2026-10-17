@@ -266,10 +266,13 @@ fn test_generic_arguments_broken_to_overflow() {
 
 #[test]
 fn test_layouts_keep_every_token() {
-  // A float before a method keeps its space; a rest with no base keeps its `..`; generic
-  // lists closing together stay as they are.
+  // A float before a method is put in parentheses; a rest with no base keeps its `..`;
+  // generic lists closing together stay as they are.
+  assert_eq!(
+    formatted("fn f() {\n    0. .to_string();\n}\n"),
+    "fn f() {\n    (0.).to_string();\n}\n"
+  );
   for kept in [
-    "fn f() {\n    0. .to_string();\n}\n",
     "fn f() {\n    let s = S { x: 5, .. };\n}\n",
     "fn f() {\n    let x = foo::<Vec<u8>>(a, b);\n}\n",
   ] {

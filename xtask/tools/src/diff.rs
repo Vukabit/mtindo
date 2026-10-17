@@ -7,9 +7,10 @@
 //! - **tests:** the standard formatter's own test pairs; the answer is the expected file.
 //!   Pairs whose input sets options with `// rustfmt-KEY: VALUE` lines are a set of their
 //!   own, since mto does not read those lines yet.
-//! - **corpus:** every corpus file as fetched; the answer is the standard formatter's output,
-//!   run as `cargo fmt` runs it (the crate's edition, its configuration file), with an empty
-//!   home folder so the machine's own settings cannot leak in.
+//! - **corpus:** every corpus file as fetched, test fixtures aside (the standard formatter's
+//!   own test inputs, rust-analyzer's `test_data`); the answer is the standard formatter's
+//!   output, run as `cargo fmt` runs it (the crate's edition, its configuration file), with an
+//!   empty home folder so the machine's own settings cannot leak in.
 //! - **corpus, unformatted:** every corpus file with its whitespace scrambled
 //!   ([`crate::unformat`]); the answer is the standard formatter's output for the scrambled
 //!   text.
@@ -844,6 +845,9 @@ fn collect_cases(options: &Options) -> Vec<Case> {
         name,
         file.strip_prefix(dir).unwrap_or(&file).display()
       );
+      if fixture(&shown) {
+        continue;
+      }
       corpus.push((file, shown, text));
     }
   }
@@ -977,6 +981,15 @@ fn exceptions(path: &Path) -> Vec<String> {
     .filter(|l| !l.is_empty() && !l.starts_with('#'))
     .filter_map(|l| l.find(']').map(|end| l[..=end].to_string()))
     .collect()
+}
+
+/// Whether a corpus file, named as the report shows it, is a test fixture, left out of the
+/// corpus sets: the standard formatter's own test inputs (scored as test pairs, with their
+/// settings) and rust-analyzer's `test_data` folders, written to be odd rather than to be
+/// formatted.
+fn fixture(shown: &str) -> bool {
+  shown.starts_with("rustfmt/tests/")
+    || shown.starts_with("rust-analyzer/") && shown.contains("/test_data/")
 }
 
 /// The formatting settings a test pair's `// rustfmt-NAME: VALUE` header lines set, resolved

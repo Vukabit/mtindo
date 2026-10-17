@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-16T13:28:50.196Z"
-commit: "2a3f879-dirty.7d07f924"
+generated: "2026-10-17T00:22:25.091Z"
+commit: "4254797-dirty.3012a1c3"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -163,8 +163,8 @@ status:
 
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
-| `meaning` | 0 | 0 | 99 | 0 |
-| `unstable` | 0 | 0 | 326 | 0 |
+| `meaning` | 0 | 0 | 123 | 0 |
+| `unstable` | 0 | 0 | 332 | 0 |
 | `panic` | 0 | 0 | 5 | 0 |
 <!-- end generated -->
 

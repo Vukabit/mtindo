@@ -35,52 +35,7 @@ pub fn list_comments(list: &SyntaxNode, items: &[SyntaxNode]) -> Option<Vec<Item
     Some((first.start as usize, last as usize))
   };
   let spans: Vec<(usize, usize)> = items.iter().map(code).collect::<Option<_>>()?;
-  let inside = |at: usize| spans.iter().any(|&(lo, hi)| lo <= at && at < hi);
-  let has = list.token_texts().any(|(kind, _, range)| {
-    matches!(
-      kind,
-      crate::syntax::SyntaxKind::LineComment | crate::syntax::SyntaxKind::BlockComment
-    ) && !inside(range.start as usize)
-  });
-  if !has {
-    return None;
-  }
-  let text = list.text().to_string();
-  let base = list.text_range().start as usize;
-  let open_end = list.first_token()?.text_range().end as usize - base;
-  let close_start = list.last_token()?.text_range().start as usize - base;
-  let mut prev_end = open_end;
-  let mut out = Vec::with_capacity(items.len());
-  for (i, &(lo, hi)) in spans.iter().enumerate() {
-    let (lo, hi) = (lo - base, hi - base);
-    let pre_snippet = text.get(prev_end..lo)?;
-    let (pre, pre_same_line) = extract_pre_comment(pre_snippet);
-    let is_last = i + 1 == items.len();
-    let next_start = match spans.get(i + 1) {
-      Some(&(next, _)) => next - base,
-      None => close_start,
-    };
-    let post_snippet = text.get(hi..next_start)?;
-    let comment_end = get_comment_end(post_snippet, is_last);
-    let new_lines = has_extra_newline(post_snippet, comment_end);
-    let post = extract_post_comment(post_snippet, comment_end, is_last);
-    prev_end = hi + comment_end;
-    out.push(ItemComments {
-      pre,
-      pre_same_line,
-      post,
-      new_lines,
-    });
-  }
-  // A block comment across lines is re-indented line by line, which is not done here.
-  let spans = |c: &Option<String>| {
-    c.as_ref()
-      .is_some_and(|c| c.contains("/*") && c.trim().contains('\n'))
-  };
-  if out.iter().any(|c| spans(&c.pre) || spans(&c.post)) {
-    return None;
-  }
-  Some(out)
+  spanned_comments(list, &spans)
 }
 
 /// The spaces `write_vertical` puts before each item's comment after it on its line, for
@@ -109,6 +64,60 @@ pub fn post_comment_spaces(
   spaces
 }
 
+/// [`list_comments`] for items given by where their code starts and ends (a struct
+/// literal's `..base` starts at its `..`).
+pub fn spanned_comments(list: &SyntaxNode, spans: &[(usize, usize)]) -> Option<Vec<ItemComments>> {
+  if spans.is_empty() {
+    return None;
+  }
+  let inside = |at: usize| spans.iter().any(|&(lo, hi)| lo <= at && at < hi);
+  let has = list.token_texts().any(|(kind, _, range)| {
+    matches!(
+      kind,
+      crate::syntax::SyntaxKind::LineComment | crate::syntax::SyntaxKind::BlockComment
+    ) && !inside(range.start as usize)
+  });
+  if !has {
+    return None;
+  }
+  let text = list.text().to_string();
+  let base = list.text_range().start as usize;
+  let open_end = list.first_token()?.text_range().end as usize - base;
+  let close_start = list.last_token()?.text_range().start as usize - base;
+  let mut prev_end = open_end;
+  let mut out = Vec::with_capacity(spans.len());
+  for (i, &(lo, hi)) in spans.iter().enumerate() {
+    let (lo, hi) = (lo - base, hi - base);
+    let pre_snippet = text.get(prev_end..lo)?;
+    let (pre, pre_same_line) = extract_pre_comment(pre_snippet);
+    let is_last = i + 1 == spans.len();
+    let next_start = match spans.get(i + 1) {
+      Some(&(next, _)) => next - base,
+      None => close_start,
+    };
+    let post_snippet = text.get(hi..next_start)?;
+    let comment_end = get_comment_end(post_snippet, is_last);
+    let new_lines = has_extra_newline(post_snippet, comment_end);
+    let post = extract_post_comment(post_snippet, comment_end, is_last);
+    prev_end = hi + comment_end;
+    out.push(ItemComments {
+      pre,
+      pre_same_line,
+      post,
+      new_lines,
+    });
+  }
+  // A block comment across lines is re-indented line by line, which is not done here.
+  let spans = |c: &Option<String>| {
+    c.as_ref()
+      .is_some_and(|c| c.contains("/*") && c.trim().contains('\n'))
+  };
+  if out.iter().any(|c| spans(&c.pre) || spans(&c.post)) {
+    return None;
+  }
+  Some(out)
+}
+
 /// The items one per line from column `indent` with their comments, each followed by a
 /// comma (the last only with `trailing`), as `write_list` writes a vertical list.
 pub fn write_vertical(
@@ -129,6 +138,30 @@ pub fn write_vertical(
     trailing,
     mixed,
     false,
+    true,
+    &mut [],
+  )
+}
+
+/// [`write_vertical`] keeping a blank line written after an item (`preserve_newline`, as a
+/// struct literal's fields are written).
+pub fn write_vertical_kept(
+  texts: &[String],
+  comments: &[ItemComments],
+  indent: usize,
+  width: usize,
+  max_width: usize,
+  trailing: bool,
+) -> Option<String> {
+  write_list(
+    texts,
+    comments,
+    indent,
+    width,
+    max_width,
+    trailing,
+    false,
+    true,
     true,
     &mut [],
   )
@@ -370,6 +403,10 @@ fn write_list(
       prev_post = c.post.is_some();
     } else if i > 0 {
       out.push('\n');
+      // A blank line written after the item before, where the list keeps it.
+      if preserve_newline && separator && comments[i - 1].new_lines {
+        out.push('\n');
+      }
       line_start = out.len();
       out.push_str(&pad);
     }

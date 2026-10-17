@@ -39,12 +39,47 @@ pub fn block_body(block: &SyntaxNode, shape: Shape) -> Option<String> {
   {
     return Some(format!("{{ {} }}", comment.text()));
   }
+  // Only one comment, written on the `{`'s line: it stays there, `}` on the next line.
+  let significant: Vec<&SyntaxElement> = inside
+    .iter()
+    .filter(|e| e.kind() != K::Whitespace)
+    .collect();
+  if let [SyntaxElement::Token(comment)] = significant.as_slice()
+    && matches!(comment.kind(), K::LineComment | K::BlockComment)
+    && !comment.text().contains('\n')
+    && !inside
+      .iter()
+      .take_while(|e| e.kind() == K::Whitespace)
+      .any(|e| matches!(e, SyntaxElement::Token(t) if t.text().contains('\n')))
+  {
+    return Some(format!(
+      "{{ {}\n{}}}",
+      comment.text().trim_end(),
+      " ".repeat(shape.indent)
+    ));
+  }
   let inner = shape.block_inside();
   let config = shape.limits.config();
   let lines = lines(block, inner, |node| match node.kind() {
-    K::LetStmt | K::ExprStmt => statement(node, inner, &config),
-    _ if is_tail(node) => statement(node, inner, &config),
-    K::MacroCall => braced_macro(node, inner),
+    K::LetStmt => statement(node, inner, &config),
+    K::ExprStmt => statement(node, inner, &config).or_else(|| macro_as_written(node)),
+    _ if is_tail(node) => statement(node, inner, &config).or_else(|| macro_as_written(node)),
+    K::MacroCall => braced_macro(node, inner).or_else(|| item(node, inner, &config)),
+    K::Use | K::Const | K::Static | K::TypeAlias | K::ExternCrate => item(node, inner, &config),
+    // A function: its header, then its body laid out here; one written on its header's
+    // line only when that header is on one line.
+    K::Fn => attributed(node, inner, &config, || {
+      let body = node.children_iter().find(|c| c.kind() == K::BlockExpr)?;
+      let (head, to) = super::items::rewrite_header(node, inner.indent, &config)?;
+      if to != body.text_range().start as usize {
+        return None;
+      }
+      let text = block_body(&body, inner)?;
+      if head.contains('\n') && text == "{}" {
+        return Some(format!("{}{{\n{}}}", head, " ".repeat(inner.indent)));
+      }
+      Some(format!("{}{}", head, text))
+    }),
     _ => None,
   })?;
   Some(close(lines, shape))
@@ -106,7 +141,21 @@ pub fn rewrite_loop(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let config = shape.limits.config();
   let head = rewrite_control_head(node, shape.indent, shape.indent + shape.offset, &config)?;
   let body = node.children_iter().rfind(|c| c.kind() == K::BlockExpr)?;
-  Some(format!("{}{}", head.text, block_body(&body, shape)?))
+  let text = block_body(&body, shape)?;
+  // An empty body keeps its braces apart when its `{` starts a line after a head on one
+  // line, or when `{}` would pass the line width.
+  let alone = head.text.matches('\n').count() == 1
+    && head
+      .text
+      .rsplit('\n')
+      .next()
+      .is_some_and(|l| l.trim().is_empty());
+  let past = !head.text.contains('\n')
+    && shape.indent + shape.offset + str_width(&head.text) + 2 > shape.limits.max_width;
+  if text == "{}" && (alone || past) {
+    return Some(format!("{}{{\n{}}}", head.text, " ".repeat(shape.indent)));
+  }
+  Some(format!("{}{}", head.text, text))
 }
 
 /// A `match`: its head as a control expression's, then each arm on lines of its own one
@@ -124,10 +173,41 @@ pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
     shape.block_indent(0)
   };
   let lines = lines(&arms, inner, |arm| {
-    if arm.kind() != K::MatchArm || arm.children_iter().any(|c| c.kind() == K::Attr) {
+    if arm.kind() != K::MatchArm {
       return None;
     }
-    match rewrite_arm_in(arm, inner.indent, &config, shape.limits.inside_macro)? {
+    // Its attributes each on a line of their own; none with a comment among them.
+    let attributes: Vec<SyntaxNode> = arm
+      .children_iter()
+      .filter(|c| c.kind() == K::Attr)
+      .collect();
+    if !attributes.is_empty()
+      && arm.children_with_tokens_iter().any(|e| {
+        matches!(e.kind(), K::LineComment | K::BlockComment)
+          && e.text_range().start < super::items::header_start(arm).unwrap_or(0) as u32
+      })
+    {
+      return None;
+    }
+    // `#[rustfmt::skip]` keeps it as written: left to the whole-file pass.
+    if attributes
+      .iter()
+      .filter_map(|a| crate::syntax::ast::Attr::cast(a.clone()))
+      .any(|a| a.is_rustfmt_skip())
+    {
+      return None;
+    }
+    let mut prefix = String::new();
+    for attribute in &attributes {
+      prefix.push_str(&super::attrs::rewrite_attr(
+        attribute,
+        inner.indent,
+        &config,
+      )?);
+      prefix.push('\n');
+      prefix.push_str(&" ".repeat(inner.indent));
+    }
+    let text = match rewrite_arm_in(arm, inner.indent, &config, shape.limits.inside_macro)? {
       Arm::Whole(text) => Some(text),
       Arm::Head(head) => {
         let body = arm
@@ -147,7 +227,8 @@ pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
         };
         Some(format!("{}{}{}", head.text, rest, comma))
       }
-    }
+    }?;
+    Some(format!("{}{}", prefix, text))
   })?;
   Some(format!("{}{}", head.text, close(lines, shape)))
 }
@@ -175,6 +256,45 @@ pub fn wrapped(expression: &SyntaxNode, shape: Shape) -> Option<String> {
   ))
 }
 
+/// A statement or item after its attributes, each on a line of their own; none skipped, and
+/// no comment among them.
+fn attributed(
+  node: &SyntaxNode,
+  shape: Shape,
+  config: &crate::options::format::FormatConfig,
+  bare: impl Fn() -> Option<String>,
+) -> Option<String> {
+  let attributes: Vec<SyntaxNode> = node
+    .children_iter()
+    .filter(|c| c.kind() == K::Attr)
+    .collect();
+  if attributes.is_empty() {
+    return bare();
+  }
+  let start = super::items::header_start(node)?;
+  let commented = node.children_with_tokens_iter().any(|e| {
+    matches!(e.kind(), K::LineComment | K::BlockComment) && (e.text_range().start as usize) < start
+  });
+  let skipped = attributes
+    .iter()
+    .filter_map(|a| crate::syntax::ast::Attr::cast(a.clone()))
+    .any(|a| a.is_rustfmt_skip());
+  if commented || skipped {
+    return None;
+  }
+  let mut prefix = String::new();
+  for attribute in &attributes {
+    prefix.push_str(&super::attrs::rewrite_attr(
+      attribute,
+      shape.indent,
+      config,
+    )?);
+    prefix.push('\n');
+    prefix.push_str(&" ".repeat(shape.indent));
+  }
+  Some(format!("{}{}", prefix, bare()?))
+}
+
 /// A braced macro call standing as a statement: its name, a space and its arguments, their
 /// lines kept as written but re-indented from the call's.
 fn braced_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
@@ -200,10 +320,32 @@ fn close(lines: Vec<String>, shape: Shape) -> String {
   format!("{{\n{}\n{}}}", lines.join("\n"), " ".repeat(shape.indent))
 }
 
+/// An item without a body standing in a block laid out here: a `use`, a `const`, a
+/// `static`, a type alias or a macro call, its header laid out whole.
+fn item(
+  node: &SyntaxNode,
+  shape: Shape,
+  config: &crate::options::format::FormatConfig,
+) -> Option<String> {
+  let end = super::imports::code_end(node);
+  // Nothing after its code on its line here, such as a comment.
+  if end != node.text_range().end as usize {
+    return None;
+  }
+  attributed(node, shape, config, || match node.kind() {
+    K::Use => super::imports::rewrite_use(node, shape.indent, config),
+    K::MacroCall => super::items::rewrite_macro_item(node, shape.indent, config),
+    _ => {
+      let (text, to) = super::items::rewrite_header(node, shape.indent, config)?;
+      (to >= end).then_some(text)
+    }
+  })
+}
+
 /// A control expression standing as a statement, on lines, with its `;`.
 fn laid_control(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let expression = if node.kind() == K::ExprStmt {
-    node.children_iter().next()?
+    node.children_iter().find(|c| c.kind() != K::Attr)?
   } else if node.kind() == K::LetStmt {
     return None;
   } else {
@@ -242,6 +384,16 @@ fn lines(
   let mut newlines = 0;
   // The column of a line comment ending the last line of code.
   let mut trailing: Option<usize> = None;
+  let comments_only = container.kind() == K::BlockExpr
+    && container.children_iter().next().is_none()
+    && container
+      .children_with_tokens_iter()
+      .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment));
+  // After an arm on its line, a comment is aligned with those after the others, as a
+  // list's are (`write_list`): placed once all are laid out. Each arm's line, and each
+  // comment's.
+  let mut arm_lines: Vec<usize> = Vec::new();
+  let mut arm_comments: Vec<(usize, String)> = Vec::new();
   // Where the last entry ends.
   let last_entry = container
     .children_iter()
@@ -254,9 +406,10 @@ fn lines(
       }
       continue;
     }
-    // Before an entry or comment: the blank lines kept, none after `{`.
+    // Before an entry or comment: the blank lines kept, none after `{` but in a block of
+    // comments alone.
     let blank = |lines: &mut Vec<String>, newlines: usize| {
-      if !lines.is_empty() {
+      if !lines.is_empty() || comments_only {
         let keep = newlines.saturating_sub(1).clamp(lower, upper.max(lower));
         lines.extend(std::iter::repeat_n(String::new(), keep));
       }
@@ -268,29 +421,33 @@ fn lines(
         K::LineComment | K::BlockComment => {
           let text = t.text().trim_end();
           // One just before the `}` keeps its place from the container, as written: left
-          // to the whole-file pass.
-          let last = t.text_range().start >= last_entry;
-          if text.contains('\n') || last && newlines > 0 {
+          // to the whole-file pass; in a block not an `if`'s, on a line of its own one
+          // level in.
+          let last = last_entry > 0 && t.text_range().start >= last_entry;
+          let placed = container.kind() == K::BlockExpr
+            && container.parent().is_none_or(|p| p.kind() != K::IfExpr);
+          if text.contains('\n') || last && newlines > 0 && !placed {
             return None;
           }
           if newlines == 0 && !lines.is_empty() {
-            // After an entry, on its line; after an arm, aligned with those around it as
-            // a list's are: left to the whole-file pass.
+            // After an entry, on its line; after an arm, aligned with those around it.
             if container.kind() == K::MatchArmList {
-              return None;
+              arm_comments.push((lines.len() - 1, text.to_string()));
+              newlines = 0;
+              continue;
             }
             let last = lines.last_mut()?;
             last.push(' ');
             if t.kind() == K::LineComment {
-              trailing = Some(str_width(last));
+              // An entry's text may span lines.
+              trailing = Some(str_width(last.rsplit('\n').next().unwrap_or("")));
             }
             last.push_str(text);
-          } else if let Some(column) = trailing
-            .filter(|&column| newlines == 1 && column + str_width(text) <= inner.limits.max_width)
-            && t.kind() == K::LineComment
+          } else if let Some(column) =
+            trailing.filter(|_| newlines == 1 && !inner.limits.style_2024)
           {
-            // On the line after one ending a line of code, lined up under it when it fits
-            // there.
+            // On the line after one ending a line of code, lined up under it however wide;
+            // from the 2024 style at the block's indentation.
             lines.push(format!("{}{}", " ".repeat(column), text));
           } else {
             // On a line of its own; one after `{` goes to the next line.
@@ -313,11 +470,70 @@ fn lines(
         }
         let text = entry(node)?;
         lines.push(format!("{}{}", pad, text));
+        arm_lines.push(lines.len() - 1);
         newlines = 0;
       }
     }
   }
+  if !arm_comments.is_empty() {
+    let arms: Vec<SyntaxNode> = container
+      .children_iter()
+      .filter(|c| c.kind() == K::MatchArm)
+      .collect();
+    if arms.len() != arm_lines.len() {
+      return None;
+    }
+    let comments = super::lists::list_comments(container, &arms)?;
+    // An arm spanning lines starts a group of its own.
+    let texts: Vec<String> = arm_lines
+      .iter()
+      .map(|&i| match lines[i].strip_prefix(&pad) {
+        Some(text) if !text.contains('\n') => text.to_string(),
+        _ => "\n".to_string(),
+      })
+      .collect();
+    let spaces = super::lists::post_comment_spaces(
+      &texts,
+      &comments,
+      inner.indent,
+      inner.limits.max_width,
+      false,
+    );
+    for (line, comment) in arm_comments {
+      let arm = arm_lines.iter().position(|&i| i == line)?;
+      let gap = spaces.get(arm).copied().flatten().unwrap_or(1);
+      lines[line].push_str(&" ".repeat(gap));
+      lines[line].push_str(&comment);
+    }
+  }
   Some(lines)
+}
+
+/// A macro call in parentheses or brackets standing as a statement, which could not be laid
+/// out: as written, its later lines where they were, as the standard formatter keeps a
+/// statement it cannot rewrite (`push_rewrite` given nothing). Not one with attributes or
+/// comments.
+fn macro_as_written(node: &SyntaxNode) -> Option<String> {
+  let expression = if node.kind() == K::ExprStmt {
+    node.children_iter().next()?
+  } else {
+    node.clone()
+  };
+  let call = match expression.kind() {
+    K::MacroExpr => expression
+      .children_iter()
+      .find(|c| c.kind() == K::MacroCall)?,
+    _ => return None,
+  };
+  let tree = call.children_iter().find(|c| c.kind() == K::TokenTree)?;
+  if tree.first_token()?.kind() == K::LBrace
+    || node.subtree_has(|kind| {
+      matches!(kind, K::Attr | K::LineComment | K::BlockComment) || super::items::is_doc(kind)
+    })
+  {
+    return None;
+  }
+  Some(node.text().to_string())
 }
 
 /// The `match`'s arms in their braces, after its head.
@@ -333,9 +549,17 @@ fn statement(
   shape: Shape,
   config: &crate::options::format::FormatConfig,
 ) -> Option<String> {
-  if node.children_iter().any(|c| c.kind() == K::Attr) {
-    return None;
-  }
+  attributed(node, shape, config, || {
+    statement_without_attributes(node, shape, config)
+  })
+}
+
+/// [`statement`] for what follows its attributes.
+fn statement_without_attributes(
+  node: &SyntaxNode,
+  shape: Shape,
+  config: &crate::options::format::FormatConfig,
+) -> Option<String> {
   // A block's last `return`, `break` or `continue` gains a `;`.
   let semi = |text: String| {
     if is_tail(node) && ends_with_semi(node, shape.limits) && !text.ends_with(';') {

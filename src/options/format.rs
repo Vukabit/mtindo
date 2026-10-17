@@ -69,6 +69,13 @@ pub struct FormatConfig {
   pub reorder_imports: bool,
   /// Whether runs of `mod name;` declarations are sorted.
   pub reorder_modules: bool,
+  /// Whether `extern` alone is written `extern "C"`.
+  pub force_explicit_abi: bool,
+  /// Whether parentheses directly inside parentheses are dropped: `((a))` is `(a)`.
+  pub remove_nested_parens: bool,
+  /// The macros whose calls are left as written, by their path as written (`self::m`), or
+  /// all of them for `*`.
+  pub skip_macro_invocations: Vec<String>,
   /// `brace_style = "AlwaysNextLine"`: an item's `{` on the line after its header.
   pub brace_next_line: bool,
   /// `struct_variant_width`: the widest struct-like variant's fields kept on one line.
@@ -114,6 +121,9 @@ impl Default for FormatConfig {
       style_edition: 2015,
       reorder_imports: true,
       reorder_modules: true,
+      force_explicit_abi: true,
+      remove_nested_parens: true,
+      skip_macro_invocations: Vec::new(),
       brace_next_line: false,
       struct_variant_width: 35,
       single_line_if_else_max_width: 50,

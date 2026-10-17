@@ -65,7 +65,8 @@ pub const REWRITES: &[Rewrite] = &[
   Rewrite {
     name: "visibility-in",
     reason: "`pub(in crate)` is `pub(crate)`, `pub(in super)` is `pub(super)`, and \
-                 `pub(in self)` is `pub(self)`.",
+                 `pub(in self)` is `pub(self)`; a path from the root names a module from the \
+                 crate's, so `pub(in ::a)` is `pub(in a)`.",
   },
   Rewrite {
     name: "merge-derives",
@@ -76,9 +77,10 @@ pub const REWRITES: &[Rewrite] = &[
     name: "use-trees",
     reason: "A run of `use` items imports the same names however its trees are braced, \
                  nested, ordered, merged into fewer items or split into more (`a::{b}` is \
-                 `a::b`, `a::{self}` is `a`, `::a` is `a`; `imports_granularity`), so each run is compared as \
-                 the set of paths it imports, each with its attributes and visibility. A `use` \
-                 importing nothing (`use a::{};`) imports nothing either way.",
+                 `a::b`, `a::{self}` is `a`, `::a` is `a`, `a as a` is `a`; \
+                 `imports_granularity`), so each run is compared as the set of paths it \
+                 imports, each with its attributes and visibility. A `use` importing nothing \
+                 (`use a::{};`) imports nothing either way.",
   },
   Rewrite {
     name: "import-and-module-order",

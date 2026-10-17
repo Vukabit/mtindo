@@ -257,7 +257,7 @@
       "default": false
     },
     "force_explicit_abi": {
-      "description": "Always print the abi for extern items\n\nIn mto: missing.",
+      "description": "Always print the abi for extern items\n\nIn mto: supported. With format = true, `extern` alone written `extern \"C\"` on functions, blocks and function pointer types.",
       "type": "boolean",
       "default": true
     },
@@ -425,7 +425,7 @@
       "default": false
     },
     "remove_nested_parens": {
-      "description": "Remove nested parens.\n\nIn mto: missing.",
+      "description": "Remove nested parens.\n\nIn mto: supported. With format = true, parentheses directly inside parentheses dropped when no comment is among them.",
       "type": "boolean",
       "default": true
     },
@@ -478,7 +478,7 @@
       "default": false
     },
     "skip_macro_invocations": {
-      "description": "Skip formatting the bodies of macro invocations with the following names.\n\nThe formatter will not format any macro invocation for macros with names set in this list. Including the special value \"*\" will prevent any macro invocations from being formatted.\n\nNote: This option does not have any impact on how the formatter formats macro definitions.\n\nIn mto: missing.",
+      "description": "Skip formatting the bodies of macro invocations with the following names.\n\nThe formatter will not format any macro invocation for macros with names set in this list. Including the special value \"*\" will prevent any macro invocations from being formatted.\n\nNote: This option does not have any impact on how the formatter formats macro definitions.\n\nIn mto: supported. With format = true, the calls of the macros named, by their path as written, or of all for `*`, left as written.",
       "type": "array",
       "items": {"type": "string"},
       "default": []

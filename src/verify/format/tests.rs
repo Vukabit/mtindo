@@ -184,6 +184,7 @@ fn test_each_allowed_rewrite() {
     "pub(in crate) fn f() {}\npub(in super) fn g() {}\n",
     "pub(crate) fn f() {}\npub(super) fn g() {}\n",
   );
+  same("pub(in ::a::b) fn f() {}\n", "pub(in a::b) fn f() {}\n");
   // merge-derives
   same(
     "#[derive(Debug)]\n#[derive(Clone, Copy)]\nstruct S;\n",
@@ -199,6 +200,12 @@ fn test_each_allowed_rewrite() {
     "use b::x;\nuse a::y;\nmod z;\nmod m;\n",
     "use a::y;\nuse b::x;\nmod m;\nmod z;\n",
   );
+  // use-trees: an alias naming the path's last segment is no alias.
+  same(
+    "use a::b as b;\nuse c::{d as d, e};\n",
+    "use a::b;\nuse c::{d, e};\n",
+  );
+  assert!(rules("use a::b as c;\n", "use a::b;\n").contains(&Rule::MeaningChanged));
   // use-trees across items: merged, split and emptied.
   same("use a::b;\nuse a::c;\nuse d::{};\n", "use a::{b, c};\n");
   // import-and-module-order for extern crates.
@@ -336,6 +343,13 @@ fn test_each_allowed_rewrite() {
     .is_empty()
   );
   assert_eq!(REWRITES.len(), 28);
+}
+
+#[test]
+fn test_stray_semicolons_in_a_closure_body() {
+  // `|_| { ; x }` is `|_| x`: the `;` is an empty statement. (Found by the format fuzz
+  // target.)
+  same("fn f() { g(|_| { ; x.y }); }\n", "fn f() { g(|_| x.y); }\n");
 }
 
 #[test]

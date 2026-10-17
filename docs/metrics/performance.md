@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-16T02:33:38.634Z"
-commit: "4e21107-dirty.6d24caf0"
+generated: "2026-10-17T01:12:30.100Z"
+commit: "4254797-dirty.347012c2"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -163,11 +163,11 @@ timing taken while the machine was busy is not judged:
 
 | series | latest | within | date |
 |---|---:|---|---|
-| `speed.speedup.stable` | 9.74 | no | 2026-10-16 |
-| `speed.speedup.nightly` | 10.94 | no | 2026-10-16 |
-| `speed.mto.laid_out.mb_per_s` | 79.70 | no | 2026-10-16 |
-| `speed.mto.as_fetched.mb_per_s` | 81.67 | no | 2026-10-16 |
-| `speed.layout.one_thread.mb_per_s` | 56.98 | no | 2026-10-16 |
+| `speed.speedup.stable` | 15.61 | no | 2026-10-17 |
+| `speed.speedup.nightly` | 15.48 | no | 2026-10-17 |
+| `speed.mto.laid_out.mb_per_s` | 138.47 | no | 2026-10-17 |
+| `speed.mto.as_fetched.mb_per_s` | 119.30 | no | 2026-10-17 |
+| `speed.layout.one_thread.mb_per_s` | 76.20 | yes | 2026-10-17 |
 | `memst.serde.allocs` | 1.86M | yes | 2026-10-13 |
 | `memst.serde.bytes` | 420.47M | yes | 2026-10-13 |
 | `memst.serde.peak_live` | 36.05M | yes | 2026-10-13 |

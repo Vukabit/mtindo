@@ -49,10 +49,7 @@ pub fn assign_rhs(
   // The next line's text must fit there (`filtered_str_fits`).
   let fits = |text: &str| {
     first_line_width(text) <= next_shape.width
-      && text
-        .lines()
-        .skip(1)
-        .all(|l| super::expr::code_width(l) <= shape.limits.max_width)
+      && super::expr::later_lines(text).all(|(_, w)| w <= shape.limits.max_width)
   };
   match (same, next) {
     (Some(same), Some(next)) if !fits(&next) => Some(format!("{} {}", head, same)),
@@ -147,26 +144,64 @@ pub fn legacy(shape: Shape, n: usize) -> Option<Shape> {
 /// A parameter (`name: Type`, a type alone, `self`) printed into `shape`, its type in what
 /// the name leaves of it (the standard formatter's `Param` rewrite).
 pub fn rewrite_param(param: &SyntaxNode, shape: Shape) -> Option<String> {
-  let spacing = shape.limits.spacing;
   if param
     .descendants_with_tokens_iter()
     .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
   {
     return None;
   }
-  // One attribute goes on the parameter's line (`#[case] value: T`).
+  // Its attributes laid out at its column, each on a line of its own; one on a line goes on
+  // the parameter's line when both fit there (`#[case] value: T`), as the standard
+  // formatter's `combine_strs_with_missing_comments` puts them.
   let attributes: Vec<SyntaxNode> = param
     .children_iter()
     .filter(|c| c.kind() == K::Attr)
     .collect();
   if !attributes.is_empty() {
-    let [attribute] = attributes.as_slice() else {
+    let config = shape.limits.config();
+    let pad = " ".repeat(shape.indent);
+    let texts = attributes
+      .iter()
+      .map(|a| super::attrs::rewrite_attr(a, shape.indent, &config))
+      .collect::<Option<Vec<String>>>()?;
+    let joined = texts.join(&format!("\n{}", pad));
+    if !joined.contains('\n')
+      && let Some(rest) = shape
+        .offset_left(str_width(&joined) + 1)
+        .and_then(|s| rewrite_param_after(param, s))
+      && str_width(&joined) + 1 + first_line_width(&rest) <= shape.width
+    {
+      return Some(format!("{} {}", joined, rest));
+    }
+    // One attribute on a line that does not fit with the parameter: left as written, as the
+    // standard formatter leaves the signature (found by measuring it), but a bare name's
+    // (`#[name]`) in a function's, which goes on a line of its own.
+    let in_fn = param
+      .parent()
+      .and_then(|list| list.parent())
+      .is_some_and(|f| f.kind() == K::Fn);
+    let bare = attributes[0]
+      .descendant_nodes_where(|kind| kind == K::TokenTree)
+      .next()
+      .is_none()
+      && !attributes[0]
+        .children_with_tokens_iter()
+        .any(|e| e.kind() == K::Eq)
+      && !attributes[0]
+        .descendant_nodes_where(|kind| kind == K::Meta)
+        .any(|m| m.children_with_tokens_iter().any(|e| e.kind() == K::Eq));
+    if texts.len() == 1 && !joined.contains('\n') && !(in_fn && bare) {
       return None;
-    };
-    let attribute = format!("{} ", flat(attribute, spacing));
-    let used = str_width(&attribute);
-    let rest = rewrite_param_after(param, shape.offset_left(used)?)?;
-    return Some(format!("{}{}", attribute, rest));
+    }
+    let rest = rewrite_param_after(
+      param,
+      Shape {
+        offset: 0,
+        width: shape.width + shape.offset,
+        ..shape
+      },
+    )?;
+    return Some(format!("{}\n{}{}", joined, pad, rest));
   }
   rewrite_param_after(param, shape)
 }
@@ -206,6 +241,12 @@ pub fn rewrite_path(path: &SyntaxNode, shape: Shape, expression: bool) -> Option
 pub fn rewrite_type(node: &SyntaxNode, shape: Shape) -> Option<String> {
   if node.kind() == K::TupleField {
     return rewrite_tuple_field(node, shape);
+  }
+  // A generic parameter's attribute it lays out itself.
+  if matches!(node.kind(), K::LifetimeParam | K::TypeParam | K::ConstParam)
+    && !node.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
+  {
+    return rewrite_generic_param(node, shape);
   }
   if commented(node) {
     return None;
@@ -666,10 +707,29 @@ fn rewrite_constraint(node: &SyntaxNode, shape: Shape) -> Option<String> {
 /// A generic parameter: its name (`const N: T` for a const one), then its bounds, then its
 /// default (the standard formatter's `GenericParam` rewrite).
 fn rewrite_generic_param(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let spacing = shape.limits.spacing;
-  if node.children_iter().any(|c| c.kind() == K::Attr) {
+  // One attribute goes before it on its line (`#[may_dangle] T`); more are not laid out.
+  let attributes: Vec<SyntaxNode> = node
+    .children_iter()
+    .filter(|c| c.kind() == K::Attr)
+    .collect();
+  if let [attribute] = attributes.as_slice() {
+    let config = shape.limits.config();
+    let attribute = super::attrs::rewrite_attr(attribute, shape.indent, &config)?;
+    if attribute.contains('\n') {
+      return None;
+    }
+    let rest = rewrite_generic_param_after(node, shape.offset_left(str_width(&attribute) + 1)?)?;
+    return Some(format!("{} {}", attribute, rest));
+  }
+  if !attributes.is_empty() {
     return None;
   }
+  rewrite_generic_param_after(node, shape)
+}
+
+/// [`rewrite_generic_param`] for what follows its attributes.
+fn rewrite_generic_param_after(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let spacing = shape.limits.spacing;
   let eq = if spacing.compressed_type_punctuation {
     "="
   } else {
@@ -678,7 +738,7 @@ fn rewrite_generic_param(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let mut out = String::new();
   let mut after_eq = false;
   for element in node.children_with_tokens_iter() {
-    if element.kind().is_trivia() {
+    if element.kind().is_trivia() || element.kind() == K::Attr {
       continue;
     }
     match element {
@@ -900,10 +960,28 @@ fn rewrite_tuple_field(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .children_iter()
     .filter(|c| c.kind() == K::Attr)
     .collect();
-  match attributes.as_slice() {
-    [] => {}
-    [attribute] => prefix.push_str(&format!("{} ", flat(attribute, spacing))),
-    _ => return None,
+  // Its attributes each on a line of their own (one the standard formatter leaves as
+  // written keeps its lines), and the field on their line when they are one line
+  // (`is_attributes_extendable`), else on the next.
+  if !attributes.is_empty() {
+    let config = shape.limits.config();
+    let pad = " ".repeat(shape.indent);
+    let texts = attributes
+      .iter()
+      .map(|a| {
+        if super::file::meta_like(a) {
+          super::attrs::rewrite_attr(a, shape.indent, &config)
+        } else {
+          Some(a.text().to_string())
+        }
+      })
+      .collect::<Option<Vec<_>>>()?;
+    let joined = texts.join(&format!("\n{}", pad));
+    if joined.contains('\n') {
+      prefix.push_str(&format!("{}\n{}", joined, pad));
+    } else {
+      prefix.push_str(&format!("{} ", joined));
+    }
   }
   // Its visibility and restrictions (`pub mut(crate)`): every token before the type.
   let at = ty.text_range().start;
@@ -927,8 +1005,17 @@ fn rewrite_tuple_field(node: &SyntaxNode, shape: Shape) -> Option<String> {
   {
     return None;
   }
-  if let Some(text) = shape
-    .offset_left(str_width(&prefix))
+  // After attributes on lines of their own, the type starts a line at the field's column.
+  let type_shape = match prefix.rsplit_once('\n') {
+    Some((_, last)) => Shape {
+      offset: 0,
+      width: shape.width + shape.offset,
+      ..shape
+    }
+    .offset_left(str_width(last).saturating_sub(shape.indent)),
+    None => shape.offset_left(str_width(&prefix)),
+  };
+  if let Some(text) = type_shape
     .and_then(|s| rewrite(&ty, s))
     .filter(|t| !t.contains('\n'))
   {

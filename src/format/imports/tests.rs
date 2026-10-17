@@ -98,12 +98,27 @@ fn test_long_lists_fill_lines() {
 }
 
 #[test]
+fn test_trees_normalized() {
+  // As the standard formatter normalizes them when it reorders: a list of one loses its
+  // braces, `a::self` is `a`, `self as x` alone keeps its braces, `::{a}` is left.
+  assert_eq!(formatted("use a::{\n    b,\n};\n"), "use a::b;\n");
+  assert_eq!(
+    formatted("use crate::lexer::self;\n"),
+    "use crate::lexer;\n"
+  );
+  assert_eq!(
+    formatted("use a::{l::{self, m, p::*}};\n"),
+    "use a::l::{self, m, p::*};\n"
+  );
+  assert_eq!(
+    formatted("use super::unix::{self as os};\n"),
+    "use super::unix::{self as os};\n"
+  );
+}
+
+#[test]
 fn test_what_is_left_as_written() {
-  // A list of one would be rewritten (`a::{b}` to `a::b`); a comment stays where it is.
-  for kept in [
-    "use a::{\n    b,\n};\n",
-    "use a::{\n    b, // why\n    c,\n};\n",
-  ] {
-    assert_eq!(formatted(kept), kept);
-  }
+  // A comment stays where it is.
+  let kept = "use a::{\n    b, // why\n    c,\n};\n";
+  assert_eq!(formatted(kept), kept);
 }

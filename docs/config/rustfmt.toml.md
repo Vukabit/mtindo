@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 12
+  supported: 15
   partial: 26
-  missing: 49
+  missing: 46
   not_planned: 3
 ---
 
@@ -372,7 +372,8 @@ Always print the abi for extern items
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true, `extern` alone written `extern "C"`
+    on functions, blocks and function pointer types.
 
 ### `force_multiline_blocks`
 
@@ -736,7 +737,8 @@ Remove nested parens.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true, parentheses directly inside
+    parentheses dropped when no comment is among them.
 
 ### `reorder_impl_items`
 
@@ -867,7 +869,8 @@ definitions.
 *   Default: `[]`; from style edition 2024: `[]`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true, the calls of the macros named, by
+    their path as written, or of all for `*`, left as written.
 
 ### `space_after_colon`
 

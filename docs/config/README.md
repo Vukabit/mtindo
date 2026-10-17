@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 27
+  supported: 30
   partial: 27
-  missing: 49
+  missing: 46
   not_planned: 3
 ---
 
@@ -358,7 +358,7 @@ behavior, so the column does not apply to them.
 <code>force_explicit_abi</code></a></td>
 <td>rustfmt.toml</td>
 <td>Always print the abi for extern items.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#force_multiline_blocks">
@@ -673,7 +673,7 @@ behavior, so the column does not apply to them.
 <code>remove_nested_parens</code></a></td>
 <td>rustfmt.toml</td>
 <td>Remove nested parens.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#reorder_impl_items">
@@ -768,7 +768,7 @@ behavior, so the column does not apply to them.
 <code>skip_macro_invocations</code></a></td>
 <td>rustfmt.toml</td>
 <td>Skip formatting the bodies of macros invoked with the following names.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="mto.toml.md#sort_alphabetically">

@@ -120,9 +120,11 @@ fn test_headers_with_parameter_attributes_and_trailing_comments() {
     formatted("trait T {\n    fn\n m(self) ->\n Self::Mask; // note\n}\n"),
     "trait T {\n    fn m(self) -> Self::Mask; // note\n}\n"
   );
-  // Two attributes on a parameter are left as written.
-  let two = "fn h(#[a]\n#[b] x: u8) {}\n";
-  assert_eq!(formatted(two), two);
+  // Two attributes on a parameter go on lines of their own, the parameters one per line.
+  assert_eq!(
+    formatted("fn h(#[a]\n#[b] x: u8) {}\n"),
+    "fn h(\n    #[a]\n    #[b]\n    x: u8,\n) {\n}\n"
+  );
 }
 
 #[test]

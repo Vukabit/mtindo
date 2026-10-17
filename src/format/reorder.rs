@@ -1,11 +1,12 @@
-//! Runs of `use` declarations and of `mod name;` declarations sorted as the standard
-//! formatter sorts them (`reorder_imports`, `reorder_modules`), before the file is formatted.
+//! Runs of `use` declarations, of `extern crate` items and of `mod name;` declarations
+//! sorted as the standard formatter sorts them (`reorder_imports`, `reorder_modules`),
+//! before the file is formatted.
 //!
 //! A run is the declarations of one kind that follow each other in a file, module or block
 //! with no blank line between them; a comment does not end a run. A declaration marked
 //! `#[macro_use]` or skipped ends a run and stays where it is. Imports sort by their use
-//! trees ([`crate::order::UseTree`]), visibility and attributes aside; modules by
-//! name. A run holding a comment is left in its order, since the standard formatter moves
+//! trees ([`crate::order::UseTree`]), visibility and attributes aside; `extern crate`
+//! items by crate name, then alias; modules by name. A run holding a comment is left in its order, since the standard formatter moves
 //! such comments in ways that depend on more than the order, but for comments after the
 //! last declaration's code, which stay after the run; so is a run in a `// mto: off`
 //! region. The meaning check compares each run of imports as a set (`use-trees`) and
@@ -17,6 +18,45 @@ use crate::options::format::FormatConfig;
 use crate::order::{UseTree, version_sort};
 use crate::syntax::ast::Attr;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode};
+
+/// `text` with `extern` written alone given its ABI, `extern "C"` (`force_explicit_abi`);
+/// `None` when there is none to give. Not `extern crate`, and not in a `// mto: off`
+/// region.
+pub fn explicit_abi(root: &SyntaxNode, text: &str) -> Option<String> {
+  let off = off_regions(root);
+  let mut at: Vec<usize> = Vec::new();
+  for token in root.descendants_with_tokens_iter().filter_map(|e| match e {
+    SyntaxElement::Token(t) if t.kind() == K::ExternKw => Some(t),
+    _ => None,
+  }) {
+    let parent = token.parent();
+    // An ABI node, or an `extern { .. }` block's own keyword; with no string after it.
+    let abi = match parent.kind() {
+      K::Abi => parent
+        .children_with_tokens_iter()
+        .all(|e| !e.kind().is_literal()),
+      K::ExternBlock => !parent.children_iter().any(|c| c.kind() == K::Abi),
+      _ => false,
+    };
+    let end = token.text_range().end as usize;
+    if abi && !off.iter().any(|&(s, e)| s < end && end <= e) {
+      at.push(end);
+    }
+  }
+  if at.is_empty() {
+    return None;
+  }
+  at.sort_unstable();
+  let mut out = String::with_capacity(text.len() + at.len() * 4);
+  let mut from = 0;
+  for end in at {
+    out.push_str(&text[from..end]);
+    out.push_str(" \"C\"");
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
 
 /// `text` with its runs sorted, or `None` when nothing moves.
 pub fn reorder(
@@ -74,6 +114,37 @@ pub fn reorder(
             }
           });
         }
+        // By the crate's name, then its alias: none first.
+        K::ExternCrate if config.reorder_imports => {
+          let names: Vec<(String, Option<String>)> = run
+            .iter()
+            .map(|item| {
+              let name = item.children_iter().find(|c| c.kind() == K::NameRef)?;
+              let alias = item
+                .children_iter()
+                .find(|c| c.kind() == K::Rename)
+                .and_then(|r| r.children_iter().find(|c| c.kind() == K::Name))
+                .map(|n| n.text().to_string());
+              Some((name.text().to_string(), alias))
+            })
+            .collect::<Option<Vec<_>>>()?;
+          let by = |x: &str, y: &str| {
+            if config.style_edition > 2024 {
+              version_sort(x, y)
+            } else {
+              x.cmp(y)
+            }
+          };
+          order.sort_by(|&a, &b| {
+            let ((x, x_alias), (y, y_alias)) = (&names[a], &names[b]);
+            by(x, y).then_with(|| match (x_alias, y_alias) {
+              (Some(_), None) => std::cmp::Ordering::Greater,
+              (None, Some(_)) => std::cmp::Ordering::Less,
+              (None, None) => std::cmp::Ordering::Equal,
+              (Some(x), Some(y)) => by(x, y),
+            })
+          });
+        }
         _ => continue,
       }
       if order.iter().enumerate().all(|(i, &o)| i == o) {
@@ -97,11 +168,17 @@ pub fn reorder(
         }
       };
       for (slot, &from) in order.iter().enumerate() {
-        moves.push((
-          start_of(slot),
-          end_of(slot),
-          text[start_of(from)..end_of(from)].to_string(),
-        ));
+        let mut moved = text[start_of(from)..end_of(from)].to_string();
+        // One ending in a line comment, put where code follows on the line, ends its line.
+        let rest = &text[end_of(slot)..];
+        let line_rest = rest.split('\n').next().unwrap_or("");
+        let ends_in_comment = run[from].last_token().is_some_and(|t| {
+          t.kind() == K::LineComment && t.text_range().end as usize <= end_of(from)
+        });
+        if ends_in_comment && !line_rest.trim().is_empty() {
+          moved.push('\n');
+        }
+        moves.push((start_of(slot), end_of(slot), moved));
       }
     }
   }
@@ -120,10 +197,68 @@ pub fn reorder(
   Some(out)
 }
 
-/// A `use`, or a `mod name;`, with no `#[macro_use]` and not skipped.
+/// `text` without the `;`s standing alone in a block (empty statements), which the standard
+/// formatter drops; `None` when there are none. Not in a `// mto: off` region or a skipped
+/// item.
+pub fn strip_semicolons(root: &SyntaxNode, text: &str) -> Option<String> {
+  let mut stray: Vec<(usize, usize)> = Vec::new();
+  for block in root.descendant_nodes_where(|kind| kind == K::BlockExpr) {
+    // One after an item (`struct S {};`) the standard formatter keeps.
+    let mut after_item = false;
+    for element in block.children_with_tokens_iter() {
+      match &element {
+        SyntaxElement::Token(t) if t.kind() == K::Semi => {
+          if !after_item {
+            let range = t.text_range();
+            stray.push((range.start as usize, range.end as usize));
+          }
+          after_item = false;
+        }
+        SyntaxElement::Token(t) if t.kind().is_trivia() => {}
+        SyntaxElement::Node(n) => {
+          after_item =
+            !matches!(n.kind(), K::ExprStmt | K::LetStmt) && !n.kind().name().ends_with("_EXPR");
+        }
+        SyntaxElement::Token(_) => after_item = false,
+      }
+    }
+  }
+  if stray.is_empty() {
+    return None;
+  }
+  let off = off_regions(root);
+  let skipped = |at: usize| {
+    root
+      .descendant_nodes_where(|kind| kind != K::Attr)
+      .filter(|n| {
+        let r = n.text_range();
+        (r.start as usize) <= at && at < r.end as usize
+      })
+      .any(|n| {
+        n.children_iter()
+          .filter_map(Attr::cast)
+          .any(|a| a.is_rustfmt_skip())
+      })
+  };
+  stray.retain(|&(start, end)| !off.iter().any(|&(s, e)| s < end && start < e) && !skipped(start));
+  if stray.is_empty() {
+    return None;
+  }
+  stray.sort_unstable();
+  let mut out = String::with_capacity(text.len());
+  let mut at = 0;
+  for (start, end) in stray {
+    out.push_str(&text[at..start]);
+    at = end;
+  }
+  out.push_str(&text[at..]);
+  Some(out)
+}
+
+/// A `use`, an `extern crate` or a `mod name;`, with no `#[macro_use]` and not skipped.
 pub(super) fn sortable(node: &SyntaxNode) -> bool {
   let declaration = match node.kind() {
-    K::Use => true,
+    K::Use | K::ExternCrate => true,
     K::Module => node
       .children_with_tokens_iter()
       .any(|e| e.kind() == K::Semi),
@@ -157,10 +292,12 @@ fn code_start(item: &SyntaxNode) -> usize {
     })
 }
 
-/// Whether a run holds a comment, in a declaration or between two, doc comments aside.
-/// The comments the run's first item carries before it stay where they are: they come
-/// before the run, which the standard formatter sorts without them; so do those its last
-/// carries after its code, which come after it.
+/// Whether a run holds a comment that sorting would misplace: one inside a declaration's
+/// code, or between two declarations outside them. The comments the run's first item
+/// carries before it stay where they are (they come before the run, which the standard
+/// formatter sorts without them); so do those its last carries after its code. Another
+/// item's comment after its `;`, or a block comment before it on its line, moves with it;
+/// one on a line of its own before it starts a run ([`runs`]).
 fn has_comment(run: &[SyntaxNode]) -> bool {
   let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment));
   let commented = |item: &SyntaxNode, from: usize, to: usize| {
@@ -170,37 +307,27 @@ fn has_comment(run: &[SyntaxNode]) -> bool {
         && matches!(kind, K::LineComment | K::BlockComment)
     })
   };
-  let last = run.len() - 1;
-  run.iter().enumerate().any(|(i, item)| {
-    let from = if i == 0 {
-      code_start(item)
-    } else {
-      item.text_range().start as usize
-    };
-    let to = if i == last {
-      code_end(item)
-    } else {
-      item.text_range().end as usize
-    };
-    commented(item, from, to)
-  }) || run.windows(2).any(|pair| {
-    let mut next = pair[0].next_sibling_or_token();
-    while let Some(element) = next {
-      if let SyntaxElement::Node(n) = &element
-        && n == &pair[1]
-      {
-        return false;
+  run
+    .iter()
+    .any(|item| commented(item, code_start(item), code_end(item)))
+    || run.windows(2).any(|pair| {
+      let mut next = pair[0].next_sibling_or_token();
+      while let Some(element) = next {
+        if let SyntaxElement::Node(n) = &element
+          && n == &pair[1]
+        {
+          return false;
+        }
+        if comment(&element) {
+          return true;
+        }
+        next = match element {
+          SyntaxElement::Token(t) => t.next_sibling_or_token(),
+          SyntaxElement::Node(n) => n.next_sibling_or_token(),
+        };
       }
-      if comment(&element) {
-        return true;
-      }
-      next = match element {
-        SyntaxElement::Token(t) => t.next_sibling_or_token(),
-        SyntaxElement::Node(n) => n.next_sibling_or_token(),
-      };
-    }
-    false
-  })
+      false
+    })
 }
 
 fn module_name(node: &SyntaxNode) -> Option<String> {
@@ -232,6 +359,23 @@ fn off_regions(root: &SyntaxNode) -> Vec<(usize, usize)> {
   regions
 }
 
+/// Whether an item carries a comment before it on a line of its own.
+fn own_line_comment(item: &SyntaxNode) -> bool {
+  let mut comment = false;
+  for element in item.children_with_tokens_iter() {
+    match element.kind() {
+      K::LineComment | K::BlockComment => comment = true,
+      K::Whitespace => {
+        if comment && matches!(&element, SyntaxElement::Token(t) if t.text().contains('\n')) {
+          return true;
+        }
+      }
+      _ => return false,
+    }
+  }
+  false
+}
+
 /// The runs of a container: declarations of one sortable kind, one after another with no
 /// blank line between them. With blank lines removed (`blank_lines_upper_bound = 0`) they
 /// end no run, so that a second run sorts nothing more.
@@ -245,10 +389,15 @@ fn runs(container: &SyntaxNode, blank_ends_run: bool) -> Vec<Vec<SyntaxNode>> {
           runs.push(std::mem::take(&mut current));
         }
       }
-      // Comments stay within a run (the run is then left in its order).
+      // A comment between declarations ends the run, as one carried before a declaration
+      // on a line of its own does.
+      SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment) => {
+        runs.push(std::mem::take(&mut current));
+      }
       SyntaxElement::Token(t) if t.kind().is_trivia() => {}
       SyntaxElement::Node(n) if sortable(n) => {
-        if current.first().is_some_and(|f| f.kind() != n.kind()) {
+        // A comment on a line of its own before it ends the run before.
+        if current.first().is_some_and(|f| f.kind() != n.kind()) || own_line_comment(n) {
           runs.push(std::mem::take(&mut current));
         }
         current.push(n.clone());

@@ -1,0 +1,9 @@
+fç/*!First comment.
+*/
+pub mod outer {
+    /*.
+*/
+    pub struct Inner {
+        pub octets: Vec<u8>,
+    }
+}

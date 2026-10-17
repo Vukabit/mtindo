@@ -48,6 +48,31 @@ pub fn rewrite_macro_rules(
   (rewrite_definition(&again, indent, edition, config)? == laid).then_some(laid)
 }
 
+/// An item standing as a macro call's argument, formatted as a file of its own would be and
+/// put at column `indent`: `None` as for [`format_snippet`].
+pub(super) fn format_item(text: &str, indent: usize, config: &FormatConfig) -> Option<String> {
+  let config = FormatConfig {
+    max_width: config.max_width.checked_sub(indent)?,
+    ..config.clone()
+  };
+  let out = format_snippet(text, Edition::E2021, &config)?;
+  let out = out.trim_end();
+  let continued = in_string(out, Edition::E2021);
+  let pad = " ".repeat(indent);
+  let lines: Vec<String> = out
+    .split('\n')
+    .enumerate()
+    .map(|(i, line)| {
+      if line.is_empty() || continued.get(i).copied().unwrap_or(false) {
+        line.to_string()
+      } else {
+        format!("{}{}", pad, line)
+      }
+    })
+    .collect();
+  Some(lines.join("\n"))
+}
+
 /// Notes that a macro call could not be laid out (or was left as written for arguments
 /// that do not read as code).
 pub(super) fn macro_failed() {
@@ -170,7 +195,7 @@ fn format_snippet(text: &str, edition: Edition, config: &FormatConfig) -> Option
     return None;
   }
   let before = MACRO_FAILURE.with(|f| f.replace(false));
-  let out = super::file::format_file(text, edition, config);
+  let out = super::file::format_text(text, edition, config, false);
   let failed = MACRO_FAILURE.with(|f| f.replace(before));
   if failed || out.is_empty() && !text.is_empty() {
     return None;

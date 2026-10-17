@@ -1,3 +1,4 @@
+use super::{explicit_abi, strip_semicolons};
 use crate::format::file::format_file;
 use crate::options::format::FormatConfig;
 use crate::syntax::Edition;
@@ -29,6 +30,37 @@ fn test_a_comment_after_the_last_import_stays_last() {
 }
 
 #[test]
+fn test_comments_move_with_their_declarations() {
+  // A comment after a declaration's `;` goes with it; the last one's stays after the run.
+  assert_eq!(
+    formatted("use c; // on c\nuse b;\n", &FormatConfig::default()),
+    "use b;\nuse c; // on c\n"
+  );
+}
+
+#[test]
+fn test_empty_statements_dropped() {
+  let source = "fn f() {;\n    x();;\n    struct S {};\n}\n";
+  let root = crate::syntax::parse(source, crate::syntax::Edition::E2021).syntax_node();
+  assert_eq!(
+    strip_semicolons(&root, source).as_deref(),
+    Some("fn f() {\n    x();\n    struct S {};\n}\n")
+  );
+}
+
+#[test]
+fn test_extern_given_its_abi() {
+  let source = "extern {}\nextern fn f() {}\ntype F = extern fn();\nextern crate a;\nextern \"system\" fn g() {}\n";
+  let root = crate::syntax::parse(source, crate::syntax::Edition::E2021).syntax_node();
+  assert_eq!(
+    explicit_abi(&root, source).as_deref(),
+    Some(
+      "extern \"C\" {}\nextern \"C\" fn f() {}\ntype F = extern \"C\" fn();\nextern crate a;\nextern \"system\" fn g() {}\n"
+    )
+  );
+}
+
+#[test]
 fn test_module_declarations_are_sorted() {
   assert_eq!(
     formatted("mod b;\nmod a;\nmod c {}\n", &FormatConfig::default()),
@@ -39,9 +71,8 @@ fn test_module_declarations_are_sorted() {
 #[test]
 fn test_runs_left_in_their_order() {
   let config = FormatConfig::default();
-  // A comment in the run; the settings off; an `// mto: off` region.
+  // A comment between them ends the run; the settings off; an `// mto: off` region.
   for kept in [
-    "use c; // on c\nuse b;\n",
     "use c;\n// between\nuse b;\n",
     "// mto: off\nuse c;\nuse b;\n// mto: on\n",
   ] {

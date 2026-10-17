@@ -2,8 +2,10 @@
 //! long; `#[derive(...)]` on one line when it ends four columns short of the line width, else
 //! on one row inside or one name per line; any other argument list as a call, each list within
 //! `attr_fn_like_width`, lines inside a broken one and a nested list overflowing its parent
-//! ending a column short of the line width, a trailing comma kept only where written. Attributes holding a macro call or a
-//! string spanning lines are left as written.
+//! ending a column short of the line width, a trailing comma kept only where written. A
+//! string spanning lines keeps its lines (a lone `name = value` holding one stays on the
+//! attribute's line when its first line fits there); attributes holding a macro call are
+//! left as written.
 //!
 //! Only attributes whose arguments read as names and values are taken (the caller checks);
 //! one holding a comment is left as written.
@@ -19,8 +21,11 @@ use crate::text::unicode::str_width;
 /// The attribute laid out, starting at column `indent` on a line of its own, its later lines
 /// indented in full; `None` when it is not one this module takes or does not fit.
 pub fn rewrite_attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
-  if config.hard_tabs || config.tab_spaces == 0 || has_comment(node) || spans_lines(node) {
+  if config.hard_tabs || config.tab_spaces == 0 {
     return None;
+  }
+  if has_comment(node) {
+    return commented_derive(node, indent, config);
   }
   let meta = node.children().into_iter().find(|c| c.kind() == K::Meta)?;
   let open = if node
@@ -152,6 +157,132 @@ fn call(
   Some(format!("{}{}]", open, text))
 }
 
+/// A `#[derive(..)]` with block comments among its names, as the standard formatter lays
+/// out a list with comments: on one line when it fits there and no comment ends its line,
+/// else one name per line, a comment before a name on its line, or on a line of its own
+/// when written so (a comment spanning lines keeps its layout, moved with its first line).
+fn commented_derive(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
+  let meta = node.children_iter().find(|c| c.kind() == K::Meta)?;
+  let path = meta.children_iter().find(|c| c.kind() == K::Path)?;
+  if flat(&path, Spacing::of(config)) != "derive"
+    || node
+      .children_with_tokens_iter()
+      .any(|e| e.kind() == K::Bang)
+  {
+    return None;
+  }
+  let tree = meta.children_iter().find(|c| c.kind() == K::TokenTree)?;
+  // The comments before a name, each with whether a line break follows it.
+  struct Name {
+    before: Vec<(String, bool)>,
+    text: String,
+  }
+  let mut names: Vec<Name> = Vec::new();
+  let mut before: Vec<(String, bool)> = Vec::new();
+  let mut text = String::new();
+  let elements: Vec<SyntaxElement> = tree.children_with_tokens();
+  let inside = elements.get(1..elements.len().checked_sub(1)?)?;
+  for (i, element) in inside.iter().enumerate() {
+    let SyntaxElement::Token(t) = element else {
+      return None;
+    };
+    match t.kind() {
+      K::Whitespace => {}
+      // A comment after a name, before its comma, is not placed here.
+      K::BlockComment if text.is_empty() => {
+        let broken = matches!(
+          inside.get(i + 1),
+          Some(SyntaxElement::Token(w)) if w.kind() == K::Whitespace && w.text().contains('\n')
+        );
+        // Its later lines kept as far past its first as they were.
+        let line_start = node.text().to_string()
+          [..(t.text_range().start - node.text_range().start) as usize]
+          .rfind('\n')
+          .map_or(0, |i| i + 1);
+        let column = (t.text_range().start - node.text_range().start) as usize - line_start;
+        let mut lines = t.text().split('\n');
+        let mut comment = lines.next().unwrap_or("").to_string();
+        for line in lines {
+          let kept = line.len() - line.trim_start_matches(' ').len();
+          comment.push('\n');
+          comment.push_str(&line[kept.min(column)..]);
+        }
+        before.push((comment, broken));
+      }
+      K::Comma => {
+        if text.is_empty() {
+          return None;
+        }
+        names.push(Name {
+          before: std::mem::take(&mut before),
+          text: std::mem::take(&mut text),
+        });
+      }
+      kind if kind.is_trivia() => return None,
+      _ => {
+        let word = |c: char| c == '_' || c.is_alphanumeric();
+        if text.ends_with(word) && t.text().starts_with(word) {
+          return None;
+        }
+        text.push_str(t.text());
+      }
+    }
+  }
+  if !text.is_empty() {
+    names.push(Name {
+      before: std::mem::take(&mut before),
+      text,
+    });
+  }
+  if !before.is_empty() || names.is_empty() || !names.iter().all(|n| is_path(&n.text)) {
+    return None;
+  }
+  let item = |n: &Name| {
+    let mut out = String::new();
+    for (comment, _) in &n.before {
+      out.push_str(comment);
+      out.push(' ');
+    }
+    out.push_str(&n.text);
+    out
+  };
+  let lone = names.iter().all(|n| {
+    n.before
+      .iter()
+      .all(|(c, broken)| !broken && !c.contains('\n'))
+  });
+  if lone {
+    let one_line = format!(
+      "#[derive({})]",
+      names.iter().map(item).collect::<Vec<_>>().join(", ")
+    );
+    if indent + str_width(&one_line) + 4 <= config.max_width {
+      return Some(one_line);
+    }
+  }
+  let inner = indent + config.tab_spaces;
+  let pad = " ".repeat(inner);
+  let mut out = String::from("#[derive(");
+  for n in &names {
+    out.push('\n');
+    out.push_str(&pad);
+    for (comment, broken) in &n.before {
+      // Its later lines moved by as much as its first.
+      out.push_str(&comment.replace('\n', &format!("\n{}", pad)));
+      if *broken {
+        out.push('\n');
+        out.push_str(&pad);
+      } else {
+        out.push(' ');
+      }
+    }
+    out.push_str(&n.text);
+    out.push(',');
+  }
+  out.push_str(&format!("\n{})]", " ".repeat(indent)));
+  Some(out)
+}
+
 /// `#[derive(...)]`: one line when it ends four columns short of the line width, else the
 /// names on one row inside when they fit before its comma, else one name per line, each with
 /// its comma, as the standard formatter writes it (found by measuring it).
@@ -258,13 +389,6 @@ fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
         .filter(|(kind, _)| code(*kind))
         .map(|(_, t)| *t),
     )
-}
-
-/// Whether a string in the attribute spans lines; the standard formatter leaves it as written.
-fn spans_lines(node: &SyntaxNode) -> bool {
-  node
-    .token_texts()
-    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
 }
 
 #[cfg(test)]

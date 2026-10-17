@@ -229,6 +229,11 @@ fn type_inner(p: &mut Parser, allow_bounds: bool) {
       list.complete(p, SyntaxKind::TypeBoundList);
       m.complete(p, SyntaxKind::DynTraitType);
     }
+  } else if p.at(SyntaxKind::Question) && allow_bounds {
+    // A bare trait object led by a `?` bound: `?Sized + Trait` (2015 style).
+    let m = p.start();
+    generics::bounds(p);
+    m.complete(p, SyntaxKind::DynTraitType);
   } else if p.at(SyntaxKind::Lifetime) && allow_bounds {
     // A bare trait object led by a lifetime: `'static + Trait` (2015 style).
     let m = p.start();

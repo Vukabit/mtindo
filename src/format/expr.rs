@@ -2911,8 +2911,18 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     let s = shape.offset_left(root_text.width())?;
     match rewrite_link(&links[0], s) {
       Some(text) => {
-        // `0. .f()`: a float before a method keeps its space.
-        if space::glues(&root_text, &text) {
+        // `0. .f()`: a float before a method keeps its space; before style edition 2024
+        // so does a tuple field after a tuple field (`x.0 .0`).
+        let tuple_field = |t: &str| {
+          t.strip_prefix('.')
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        };
+        let previous_field = root_text
+          .rfind('.')
+          .is_some_and(|at| tuple_field(&root_text[at..]));
+        if space::glues(&root_text, &text)
+          || !shape.limits.style_2024 && previous_field && tuple_field(&text)
+        {
           root_text.push(' ');
         }
         root_text.push_str(&text);

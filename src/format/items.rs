@@ -618,6 +618,39 @@ pub fn variant_fields_on_lines(node: &SyntaxNode) -> bool {
       })
 }
 
+/// `prev` and `next` with the comments between them, as the standard formatter's
+/// `combine_strs_with_missing_comments` puts them: the comments (each on a line at `inner`,
+/// joined) after `prev` on its line when they were written there (`same_line`) and fit in
+/// `width`, else on the next line; `next` after them on their line when it all fits on one
+/// line and they are no line comment, else on the next line.
+pub(super) fn combine_with_comments(
+  prev: &str,
+  next: &str,
+  comments: &[String],
+  same_line: bool,
+  inner: usize,
+  width: usize,
+) -> String {
+  let pad = format!("\n{}", " ".repeat(inner));
+  let missing = comments.join(&pad);
+  let prev_width = super::expr::last_line_width(prev);
+  let first_sep = if same_line && prev_width + super::expr::first_line_width(&missing) < width {
+    " ".to_string()
+  } else {
+    pad.clone()
+  };
+  let one_line = !prev.contains('\n')
+    && !next.contains('\n')
+    && !missing.contains('\n')
+    && prev_width + super::expr::first_line_width(next) + missing.len() + 2 <= width;
+  let second_sep = if !missing.starts_with("//") && same_line && one_line {
+    " ".to_string()
+  } else {
+    pad
+  };
+  format!("{}{}{}{}{}", prev, first_sep, missing, second_sep, next)
+}
+
 /// [`rewrite_header`] before its tokens are checked.
 /// A type alias's comments on one line each between its name (generics, bounds) and its
 /// `=`, children of it; none for one with a `where` before the `=`.
@@ -658,39 +691,6 @@ fn code_tokens(elements: &[SyntaxElement]) -> Vec<SyntaxToken> {
       _ => None,
     })
     .collect()
-}
-
-/// `prev` and `next` with the comments between them, as the standard formatter's
-/// `combine_strs_with_missing_comments` puts them: the comments (each on a line at `inner`,
-/// joined) after `prev` on its line when they were written there (`same_line`) and fit in
-/// `width`, else on the next line; `next` after them on their line when it all fits on one
-/// line and they are no line comment, else on the next line.
-fn combine_with_comments(
-  prev: &str,
-  next: &str,
-  comments: &[String],
-  same_line: bool,
-  inner: usize,
-  width: usize,
-) -> String {
-  let pad = format!("\n{}", " ".repeat(inner));
-  let missing = comments.join(&pad);
-  let prev_width = super::expr::last_line_width(prev);
-  let first_sep = if same_line && prev_width + super::expr::first_line_width(&missing) < width {
-    " ".to_string()
-  } else {
-    pad.clone()
-  };
-  let one_line = !prev.contains('\n')
-    && !next.contains('\n')
-    && !missing.contains('\n')
-    && prev_width + super::expr::first_line_width(next) + missing.len() + 2 <= width;
-  let second_sep = if !missing.starts_with("//") && same_line && one_line {
-    " ".to_string()
-  } else {
-    pad
-  };
-  format!("{}{}{}{}{}", prev, first_sep, missing, second_sep, next)
 }
 
 /// Whether a comma follows a node, whitespace and comments aside.
@@ -1051,7 +1051,9 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
       && (matches!(
         t.parent().kind(),
         K::ParamList | K::TupleFieldList | K::GenericParamList
-      ) || super::types::alone_in_function_type(t))
+      ) || super::types::alone_in_function_type(t)
+        || super::types::in_reference(t)
+        || super::types::between_bounds(t))
   };
   // A block comment on one line right before a `where` clause, and one right after its
   // last predicate: on a line of their own before `where`, and after that predicate's

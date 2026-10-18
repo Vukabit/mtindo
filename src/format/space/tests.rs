@@ -34,7 +34,7 @@ fn test_cases_the_standard_formatter_writes_its_own_way() {
     "impl<'de> ::serde::Deserialize<'de> for F {}\n",
     "type R = Option<<T as A>::B>;\n",
     "type R = Option< <T as A>::B>;\n",
-    "fn f() {\n    x.0 .0;\n    y.1.0;\n    1.into();\n}\n",
+    "fn f() {\n    x.0 .0;\n    y.1 .0;\n    1.into();\n}\n",
     "fn f() {\n    if a > (b) {}\n}\n",
     "macro_rules! m (\n    () => {}\n);\n",
     "fn f() {\n    let s = quote! (span => #s);\n}\n",

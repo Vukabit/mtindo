@@ -695,11 +695,8 @@ pub(super) fn assignment(expression: &SyntaxNode) -> Option<(SyntaxNode, String,
 
 /// Whether an expression (or a pattern) holds nothing laying it out would lose or misplace:
 /// a comment, a block not laid out on one line, a `match`'s arms, a macro in braces, an
-/// attribute, a string spanning lines, a tuple field written `x.0 .0`.
+/// attribute, a string spanning lines.
 pub(super) fn clean_expression(node: &SyntaxNode) -> bool {
-  if spaced_field(node) {
-    return false;
-  }
   laid_on_lines(node) || safe(&SyntaxElement::Node(node.clone())) && clean_inside(node)
 }
 
@@ -1065,10 +1062,6 @@ fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
   let Some(start) = header_start(node) else {
     return false;
   };
-  // A tuple field written `x.0 .0` from style edition 2024 (chains keep the space before).
-  if config.style_edition >= 2024 && spaced_field(node) {
-    return false;
-  }
   // A tail that is a block itself (`unsafe { .. }`) only as one the layout code joins.
   (matches!(node.kind(), K::ExprStmt | K::LetStmt)
     || is_tail(node) && (node.kind() != K::BlockExpr || super::expr::joins(node)))
@@ -1443,15 +1436,6 @@ fn right_side(
     (None, Some(next)) => Some(format!("{}\n{}{};", head, pad, next)),
     (None, None) => None,
   }
-}
-
-/// Whether `node` holds a tuple field written apart from the one before it (`x.0 .0`): the
-/// standard formatter keeps the space a chain layout would drop.
-fn spaced_field(node: &SyntaxNode) -> bool {
-  let tokens: Vec<SyntaxKind> = node.token_texts().map(|(kind, _, _)| kind).collect();
-  tokens
-    .windows(4)
-    .any(|w| w == [K::IntNumber, K::Whitespace, K::Dot, K::IntNumber])
 }
 
 fn statement(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {

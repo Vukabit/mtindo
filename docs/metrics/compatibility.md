@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-18T03:18:55.088Z"
-commit: "f439c80-dirty.2f4a814c"
+generated: "2026-10-18T05:55:06.145Z"
+commit: "9d9e790-dirty.d8387528"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -13,18 +13,18 @@ toolchain:
 corpus_fingerprint: "sha256:0bfa13269439c574"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
-  compat.tests.files: 97.83
-  compat.tests.files_matched: 450
+  compat.tests.files: 98.26
+  compat.tests.files_matched: 452
   compat.tests.files_scored: 460
-  compat.tests.lines: 99.13
-  compat.tests.lines_matched: 11108
+  compat.tests.lines: 99.55
+  compat.tests.lines_matched: 11155
   compat.tests.lines_total: 11205
   compat.tests.skipped: 0
-  compat.tests-with-settings.files: 51.88
-  compat.tests-with-settings.files_matched: 290
+  compat.tests-with-settings.files: 52.06
+  compat.tests-with-settings.files_matched: 291
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 86.16
-  compat.tests-with-settings.lines_matched: 19003
+  compat.tests-with-settings.lines: 86.17
+  compat.tests-with-settings.lines_matched: 19004
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
   compat.corpus.files: 99.67
@@ -34,11 +34,11 @@ metrics:
   compat.corpus.lines_matched: 2620661
   compat.corpus.lines_total: 2620990
   compat.corpus.skipped: 6
-  compat.corpus-unformatted.files: 94.84
-  compat.corpus-unformatted.files_matched: 8773
+  compat.corpus-unformatted.files: 95.07
+  compat.corpus-unformatted.files_matched: 8794
   compat.corpus-unformatted.files_scored: 9250
-  compat.corpus-unformatted.lines: 99.14
-  compat.corpus-unformatted.lines_matched: 2715874
+  compat.corpus-unformatted.lines: 99.17
+  compat.corpus-unformatted.lines_matched: 2716637
   compat.corpus-unformatted.lines_total: 2739378
   compat.corpus-unformatted.skipped: 17
   compat.corpus.repositories: 44
@@ -50,9 +50,9 @@ metrics:
 
 <!-- generated: abstract -->
 Against the standard formatter 1.9.0-stable (88d9e12ae1 2026-08-18), mto's
-output equals the expected output for 450 of 460 test files (97.83%) and for
+output equals the expected output for 452 of 460 test files (98.26%) and for
 9232 of 9263 corpus files (99.67%). On whitespace-scrambled corpus files it
-matches 8773 of 9250 files (94.84%) and keeps 99.14% of the expected lines.
+matches 8794 of 9250 files (95.07%) and keeps 99.17% of the expected lines.
 <!-- end generated -->
 
 ## 1 Question
@@ -121,10 +121,10 @@ The record as it stands (shares in percent):
 <!-- generated: results -->
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
-| tests | 450 of 460 | 97.83 | 11108 of 11205 | 99.13 | 0 |
-| tests-with-settings | 290 of 559 | 51.88 | 19003 of 22055 | 86.16 | 0 |
+| tests | 452 of 460 | 98.26 | 11155 of 11205 | 99.55 | 0 |
+| tests-with-settings | 291 of 559 | 52.06 | 19004 of 22055 | 86.17 | 0 |
 | corpus | 9232 of 9263 | 99.67 | 2620661 of 2620990 | 99.99 | 6 |
-| corpus-scrambled | 8773 of 9250 | 94.84 | 2715874 of 2739378 | 99.14 | 17 |
+| corpus-scrambled | 8794 of 9250 | 95.07 | 2716637 of 2739378 | 99.17 | 17 |
 <!-- end generated -->
 
 ### History
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.13 | 86.16 | 99.99 | 99.14 | 94.84 |
+| current |  | 99.55 | 86.17 | 99.99 | 99.17 | 95.07 |
+| 2026-10-17 | 9d9e790 | 99.13 | 86.16 | 99.99 | 99.14 | 94.84 |
 | 2026-10-17 | f439c80 | 97.72 | 86.10 | 99.99 | 99.05 | 94.24 |
 | 2026-10-17 | 793f665 | 97.72 | 85.77 | 99.99 | 98.98 | 93.84 |
 | 2026-10-17 | c04dd05 | 96.79 | 85.32 | 99.98 | 98.93 | 93.50 |
@@ -193,26 +194,26 @@ Scored files by the share of their expected lines mto's output keeps:
 
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
-| tests | 451 | 0 | 2 | 7 |
-| tests-with-settings | 296 | 1 | 54 | 208 |
+| tests | 453 | 0 | 2 | 5 |
+| tests-with-settings | 297 | 1 | 54 | 207 |
 | corpus | 9232 | 22 | 6 | 3 |
-| corpus-scrambled | 8796 | 215 | 175 | 64 |
+| corpus-scrambled | 8817 | 205 | 167 | 61 |
 
 The syntax at the first line where a mismatching file differs, the ten most
 common over every set:
 
 | syntax kind | files |
 |---|---:|
-| `LetStmt` | 105 |
+| `LetStmt` | 102 |
 | `Use` | 48 |
 | `Fn` | 43 |
-| `BlockExpr` | 40 |
 | `TokenTree` | 40 |
-| `MatchArm` | 34 |
+| `BlockExpr` | 39 |
 | `SourceFile` | 33 |
+| `MatchArm` | 32 |
 | `MacroRules` | 29 |
-| `MethodCallExpr` | 29 |
-| `CallExpr` | 24 |
+| `MethodCallExpr` | 23 |
+| `MacroExpr` | 22 |
 <!-- end generated -->
 
 ## 4 Threats to validity

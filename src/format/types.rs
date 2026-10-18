@@ -71,6 +71,20 @@ pub fn assign_rhs(
   }
 }
 
+/// Whether a comment on one line stands between two bounds, which [`join_bounds_inner`]
+/// places.
+pub fn between_bounds(comment: &SyntaxToken) -> bool {
+  is_comment(comment.kind())
+    && !comment.text().contains('\n')
+    && comment.parent().kind() == K::TypeBoundList
+    // Not one in a generic argument's (`Trait<Assoc: A // c + B>`), which the standard
+    // formatter writes oddly.
+    && !comment
+      .parent()
+      .ancestors_iter()
+      .any(|a| a.kind() == K::GenericArgList)
+}
+
 /// Whether the last of `count` generic arguments may overflow its list: a one-element tuple,
 /// or a reference or pointer to one (the standard formatter's `can_be_overflowed_type`).
 pub fn can_overflow_type(node: &SyntaxNode, count: usize) -> bool {
@@ -82,6 +96,14 @@ pub fn can_overflow_type(node: &SyntaxNode, count: usize) -> bool {
       .is_some_and(|c| can_overflow_type(&c, count)),
     _ => false,
   }
+}
+
+/// Whether a comment on one line stands among a reference type's parts (`& // c`), which
+/// [`reference_with_comments`] places.
+pub fn in_reference(comment: &SyntaxToken) -> bool {
+  is_comment(comment.kind())
+    && !comment.text().contains('\n')
+    && comment.parent().kind() == K::RefType
 }
 
 /// Whether a node is a type, a generic argument or a generic parameter: what
@@ -155,7 +177,9 @@ pub fn legacy(shape: Shape, n: usize) -> Option<Shape> {
 pub fn rewrite_param(param: &SyntaxNode, shape: Shape) -> Option<String> {
   if param.descendants_with_tokens_iter().any(|e| match e {
     SyntaxElement::Token(t) => {
-      matches!(t.kind(), K::LineComment | K::BlockComment) && !alone_in_function_type(&t)
+      matches!(t.kind(), K::LineComment | K::BlockComment)
+        && !alone_in_function_type(&t)
+        && !in_reference(&t)
     }
     SyntaxElement::Node(_) => false,
   }) {
@@ -328,6 +352,13 @@ pub fn rewrite_type(node: &SyntaxNode, shape: Shape) -> Option<String> {
       }
     },
     K::AssocTypeArg => rewrite_constraint(node, shape),
+    K::RefType
+      if node
+        .children_with_tokens_iter()
+        .any(|e| is_comment(e.kind())) =>
+    {
+      reference_with_comments(node, shape)
+    }
     K::RefType | K::PtrType => {
       let inner = node.children_iter().next_back()?;
       let prefix = prefix_before(node, &inner, shape)?;
@@ -518,7 +549,10 @@ fn commented(node: &SyntaxNode) -> bool {
     || node.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
       && node.descendants_with_tokens_iter().any(|e| match e {
         SyntaxElement::Token(t) => {
-          matches!(t.kind(), K::LineComment | K::BlockComment) && !alone_in_function_type(&t)
+          matches!(t.kind(), K::LineComment | K::BlockComment)
+            && !alone_in_function_type(&t)
+            && !in_reference(&t)
+            && !between_bounds(&t)
         }
         SyntaxElement::Node(_) => false,
       })
@@ -538,6 +572,41 @@ fn comments_before(param: &SyntaxNode) -> String {
   }
   comments.reverse();
   comments.concat()
+}
+
+/// The comments on one line each between two bounds, before their `+` (`before`) or after
+/// it, and whether no line ended before the first of them.
+fn comments_between_plus(
+  first: &SyntaxNode,
+  second: &SyntaxNode,
+  before: bool,
+) -> (Vec<String>, bool) {
+  let mut comments = Vec::new();
+  let mut same_line = true;
+  let mut past_plus = false;
+  let mut element = first.next_sibling_or_token();
+  while let Some(e) = element {
+    if e.text_range().start >= second.text_range().start {
+      break;
+    }
+    match &e {
+      SyntaxElement::Token(t) if t.kind() == K::Plus => past_plus = true,
+      SyntaxElement::Token(t) if past_plus != before => {
+        if t.kind() == K::Whitespace && comments.is_empty() && t.text().contains('\n') {
+          same_line = false;
+        }
+        if is_comment(t.kind()) {
+          comments.push(t.text().trim_end().to_string());
+        }
+      }
+      _ => {}
+    }
+    element = match &e {
+      SyntaxElement::Token(t) => t.next_sibling_or_token(),
+      SyntaxElement::Node(n) => n.next_sibling_or_token(),
+    };
+  }
+  (comments, same_line)
 }
 
 /// A function type's parameters and return type (`(A, B) -> C`), as the standard
@@ -629,6 +698,10 @@ fn function_type(list: &SyntaxNode, ret: Option<&SyntaxNode>, shape: Shape) -> O
   }
 }
 
+fn is_comment(kind: SyntaxKind) -> bool {
+  matches!(kind, K::LineComment | K::BlockComment)
+}
+
 fn join_bounds_inner(
   bounds: &[SyntaxNode],
   shape: Shape,
@@ -652,23 +725,57 @@ fn join_bounds_inner(
   };
   let mut out = String::new();
   let mut previous_extendable = false;
+  let pad = shape.indent + shape.align;
+  // The comments after the bound before (up to its `+`), with whether they were written on
+  // its line.
+  let mut trailing: (Vec<String>, bool) = (Vec::new(), true);
   for (i, bound) in bounds.iter().enumerate() {
     let text = rewrite_bound(bound, shape)?;
-    if i > 0 {
+    if i == 0 {
+      out.push_str(&text);
+    } else {
       let whitespace = if force_newline && (!previous_extendable || !in_order) {
-        format!("\n{}", " ".repeat(shape.indent + shape.align))
+        format!("\n{}", " ".repeat(pad))
       } else {
         " ".to_string()
       };
-      if compressed {
-        out.push('+');
+      let leading = comments_between_plus(&bounds[i - 1], bound, false);
+      let mut joiner = if compressed {
+        "+".to_string()
       } else {
-        out.push_str(&whitespace);
-        out.push_str("+ ");
+        format!("{}+ ", whitespace)
+      };
+      if !leading.0.is_empty() {
+        joiner = joiner.trim_end().to_string();
+      }
+      if !trailing.0.is_empty() {
+        joiner = joiner.trim_start().to_string();
+      }
+      // The bound after its `+` with the comments between them (`combine_strs_with_missing
+      // _comments`); then after what is before with the comments after that.
+      let after = if leading.0.is_empty() {
+        format!("{}{}", joiner, text)
+      } else {
+        super::items::combine_with_comments(&joiner, &text, &leading.0, leading.1, pad, shape.width)
+      };
+      if trailing.0.is_empty() {
+        out.push_str(&after);
+      } else {
+        out = super::items::combine_with_comments(
+          &out,
+          &after,
+          &trailing.0,
+          trailing.1,
+          pad,
+          shape.width,
+        );
       }
     }
+    trailing = match bounds.get(i + 1) {
+      Some(next) => comments_between_plus(bound, next, true),
+      None => (Vec::new(), true),
+    };
     previous_extendable = !is_trait(bound) || last_line_extendable(&text);
-    out.push_str(&text);
   }
   Some(out)
 }
@@ -721,6 +828,73 @@ fn prefix_before(node: &SyntaxNode, inner: &SyntaxNode, shape: Shape) -> Option<
     K::RefType if text == "&" => text,
     _ => format!("{} ", text),
   })
+}
+
+/// A reference type holding comments among its `&`, lifetime, `mut` and type, as the
+/// standard formatter writes one: each part joined to what is before it with the comments
+/// between them (`combine_strs_with_missing_comments`), on lines at the shape's indentation.
+fn reference_with_comments(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let spacing = shape.limits.spacing;
+  let mut result = String::new();
+  let mut comments: Vec<String> = Vec::new();
+  // Whether a line ended before the first of `comments`.
+  let mut broke = false;
+  let mut seen_amp = false;
+  let join = |result: &mut String, part: &str, comments: &mut Vec<String>, broke: bool| {
+    if comments.is_empty() {
+      result.push_str(part);
+    } else {
+      *result = super::items::combine_with_comments(
+        result.trim_end(),
+        part,
+        comments,
+        !broke,
+        shape.indent,
+        shape.width,
+      );
+      comments.clear();
+    }
+  };
+  for element in node.children_with_tokens_iter() {
+    match &element {
+      SyntaxElement::Token(t) if t.kind() == K::Amp && !seen_amp => {
+        result.push('&');
+        seen_amp = true;
+      }
+      SyntaxElement::Token(t) if t.kind() == K::Whitespace => {
+        if comments.is_empty() && t.text().contains('\n') {
+          broke = true;
+        }
+      }
+      SyntaxElement::Token(t) if is_comment(t.kind()) => {
+        if t.text().contains('\n') {
+          return None;
+        }
+        comments.push(t.text().trim_end().to_string());
+      }
+      SyntaxElement::Token(t) if t.kind() == K::MutKw => {
+        join(&mut result, "mut ", &mut comments, broke);
+        broke = false;
+      }
+      SyntaxElement::Node(n) if n.kind() == K::Lifetime => {
+        let text = format!("{} ", flat(n, spacing));
+        join(&mut result, &text, &mut comments, broke);
+        broke = false;
+      }
+      SyntaxElement::Node(n) => {
+        let text = rewrite(n, shape)?;
+        join(&mut result, &text, &mut comments, broke);
+        broke = false;
+      }
+      SyntaxElement::Token(t) if t.kind() == K::Lifetime => {
+        let text = format!("{} ", t.text());
+        join(&mut result, &text, &mut comments, broke);
+        broke = false;
+      }
+      _ => return None,
+    }
+  }
+  comments.is_empty().then_some(result)
 }
 
 /// One bound: a lifetime, `use<..>`, or a trait with its `for<..>`, `?`, `const` or

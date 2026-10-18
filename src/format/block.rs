@@ -61,8 +61,10 @@ pub fn block_body(block: &SyntaxNode, shape: Shape) -> Option<String> {
   let inner = shape.block_inside();
   let config = shape.limits.config();
   let lines = lines(block, inner, |node| match node.kind() {
-    K::LetStmt => statement(node, inner, &config),
-    K::ExprStmt => statement(node, inner, &config).or_else(|| macro_as_written(node)),
+    K::LetStmt => statement(node, inner, &config).or_else(|| given_up(node, inner)),
+    K::ExprStmt => statement(node, inner, &config)
+      .or_else(|| macro_as_written(node))
+      .or_else(|| given_up(node, inner)),
     _ if is_tail(node) => statement(node, inner, &config).or_else(|| macro_as_written(node)),
     K::MacroCall => braced_macro(node, inner).or_else(|| item(node, inner, &config)),
     K::Use | K::Const | K::Static | K::TypeAlias | K::ExternCrate => item(node, inner, &config),
@@ -322,6 +324,39 @@ fn close(lines: Vec<String>, shape: Shape) -> String {
     return "{}".to_string();
   }
   format!("{{\n{}\n{}}}", lines.join("\n"), " ".repeat(shape.indent))
+}
+
+/// A statement in a block the standard formatter gives up on, as written (`push_rewrite`
+/// given nothing): one whose layout with no line width still has a line past it, so that
+/// no layout fits, or that holds a string spanning lines. Not one holding a comment or an attribute, nor one in a macro's arguments, which the
+/// standard formatter keeps as written whole then.
+fn given_up(node: &SyntaxNode, inner: Shape) -> Option<String> {
+  if inner.limits.inside_macro
+    || node.subtree_has(|kind| {
+      matches!(kind, K::Attr | K::LineComment | K::BlockComment) || super::items::is_doc(kind)
+    })
+  {
+    return None;
+  }
+  let mut wide = inner.limits.config();
+  wide.max_width = 100_000;
+  let unlimited = Shape {
+    width: wide.max_width - inner.indent,
+    limits: super::shape::Limits::of(&wide),
+    ..inner
+  };
+  // Laid out with no line width, a line still past it: no layout fits; or a string
+  // spanning lines in it, whose later lines no layout moves.
+  let laid = statement(node, unlimited, &wide)?;
+  let max = inner.limits.max_width;
+  let past = laid
+    .split('\n')
+    .enumerate()
+    .any(|(i, line)| str_width(line) + if i == 0 { inner.indent } else { 0 } > max);
+  let spanning = node
+    .token_texts()
+    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'));
+  (past || spanning).then(|| node.text().to_string().trim().to_string())
 }
 
 /// An item without a body standing in a block laid out here: a `use`, a `const`, a

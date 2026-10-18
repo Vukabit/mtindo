@@ -154,6 +154,21 @@ fn test_comments_among_items_follow_the_items() {
 }
 
 #[test]
+fn test_comments_around_attributes_list_ends_and_bodies() {
+  // A file's last inner attribute aligns the comments under its own; an attribute's comment
+  // joins it; a type macro in a field is laid out; the first comment after a list's last
+  // item joins it, or aligns under that item's comment; a tuple field's comment is placed;
+  // a function's body of comments closes on a line of its own; a `const` block stands on
+  // one line.
+  assert_eq!(
+    formatted(
+      "#![allow(warnings)] // A module\n// across lines.\n\nstruct S<T> {\n    #[serde(rename = \"b\")]\n\n    // About the field.\n    tables: Punctuated<Path,\nToken![,]>,\n\n    // After the last field.\n}\npub enum E<A> {\n    Left(/* #[pin] */\n        A),\n    Last, // first\n    // second\n}\nfn g() {\n    /* a */ }\nconst {\n    g(x)\n}\n"
+    ),
+    "#![allow(warnings)] // A module\n                    // across lines.\n\nstruct S<T> {\n    #[serde(rename = \"b\")]\n    // About the field.\n    tables: Punctuated<Path, Token![,]>,\n    // After the last field.\n}\npub enum E<A> {\n    Left(/* #[pin] */ A),\n    Last, // first\n          // second\n}\nfn g() {\n    /* a */\n}\nconst { g(x) }\n"
+  );
+}
+
+#[test]
 fn test_comments_inside_macro_arguments() {
   // Comments inside a macro's arguments placed as code's.
   assert_eq!(

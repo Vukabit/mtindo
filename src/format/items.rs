@@ -23,6 +23,34 @@ use crate::options::format::FormatConfig;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::text::unicode::str_width;
 
+/// A `const` block standing as an item (`const { f() }`, which the parser takes for a
+/// `const` with no name): its block of one expression on one line, as an expression's is,
+/// when that fits from column `indent`; `None` otherwise.
+pub fn const_block_item(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
+  if node.kind() != K::Const
+    || config.hard_tabs
+    || node
+      .children_iter()
+      .any(|c| matches!(c.kind(), K::Name | K::Attr))
+    || node.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment) || is_doc(kind))
+  {
+    return None;
+  }
+  let block = node.children_iter().find(|c| c.kind() == K::BlockExpr)?;
+  if !super::expr::joins(&block) {
+    return None;
+  }
+  let expression = super::expr::lone_expression(&block)?;
+  let shape = super::stmt::statement_shape(indent, config)?
+    .offset_left(8)?
+    .sub_width(2)?;
+  let inner = super::expr::rewrite(&expression, shape)?;
+  if inner.contains('\n') {
+    return None;
+  }
+  Some(format!("const {{ {} }}", inner))
+}
+
 /// Where an item's own text starts: after its attributes and the comments and doc comments
 /// before it.
 pub fn header_start(node: &SyntaxNode) -> Option<usize> {
@@ -77,7 +105,7 @@ pub fn is_item(kind: SyntaxKind) -> bool {
 /// A field or variant on one line from column `indent`, with its comma (added when the last
 /// one has none), and where in the source it ends. A struct-like variant stays on one line
 /// while its fields fit in `struct_variant_width`; a wider one is left as written, as is one
-/// holding a comment or a macro, or one that does not fit.
+/// holding a comment or a macro (but one as a type), or one that does not fit.
 pub fn rewrite_field(
   node: &SyntaxNode,
   indent: usize,
@@ -103,8 +131,10 @@ pub fn rewrite_field(
       n.subtree_has(|kind| {
         (kind.is_trivia() && kind != K::Whitespace)
           || is_doc(kind)
-          || matches!(kind, K::MacroCall | K::MacroType | K::MacroExpr | K::BlockExpr)
+          || matches!(kind, K::MacroExpr | K::BlockExpr)
       })
+        // A macro call only as a type (`T![,]`).
+        || n.subtree_has(|kind| matches!(kind, K::MacroCall | K::MacroType)) && !macros_in_types(n)
         // A tuple field's attribute is written before its type on its line; with two, they
         // go on lines of their own.
         || n.descendant_nodes_where(|kind| kind == K::Attr).any(|a| {
@@ -303,14 +333,14 @@ pub fn rewrite_field(
     }
     return Some((text, fields.text_range().start as usize));
   }
-  // A tuple variant's fields holding attributes, and comments on a line between them only,
-  // are laid out as a list (below), which places the comments.
+  // A tuple variant's fields holding attributes or block comments, and comments on a line
+  // between them only, are laid out as a list (below), which places the comments.
   let listed_fields = |e: &SyntaxElement| {
     match e {
     SyntaxElement::Node(n) => {
       node.kind() == K::Variant
         && n.kind() == K::TupleFieldList
-        && n.subtree_has(|kind| kind == K::Attr)
+        && n.subtree_has(|kind| matches!(kind, K::Attr | K::BlockComment))
         && n.children_iter().all(|f| {
           !f.subtree_has(|kind| (kind.is_trivia() && kind != K::Whitespace) || is_doc(kind))
         })
@@ -372,11 +402,11 @@ pub fn rewrite_field(
     }
     return Some((format!("{}{}", text, comma), node.text_range().end as usize));
   }
-  // A tuple variant whose fields hold attributes: its fields as a list (`V(#[a] T)`), as a
-  // tuple struct's.
+  // A tuple variant whose fields hold attributes or block comments: its fields as a list
+  // (`V(#[a] T)`), as a tuple struct's.
   if node.kind() == K::Variant
     && let Some(fields) = node.children_iter().find(|c| c.kind() == K::TupleFieldList)
-    && fields.subtree_has(|kind| kind == K::Attr)
+    && fields.subtree_has(|kind| matches!(kind, K::Attr | K::BlockComment))
   {
     let items: Vec<SyntaxNode> = fields
       .children_iter()
@@ -1084,15 +1114,35 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   let before_where = clause_node
     .as_ref()
     .and_then(|c| lone_block(&skip_space(c.prev_sibling_or_token(), true)));
+  // After the last predicate a line comment too, which ends that line.
+  let lone_after = |e: &Option<SyntaxElement>| {
+    lone_block(e).or_else(|| match e {
+      Some(SyntaxElement::Token(t)) if t.kind() == K::LineComment => Some(t.clone()),
+      _ => None,
+    })
+  };
   let after_where = clause_node.as_ref().and_then(|c| {
     let last = c.children_iter().rfind(|p| p.kind() == K::WherePred)?;
-    lone_block(&skip_space(last.next_sibling_or_token(), false)).or_else(|| {
+    // Past its comma.
+    let mut after = last.next_sibling_or_token();
+    if let Some(SyntaxElement::Token(t)) = &after
+      && t.kind() == K::Comma
+    {
+      after = t.next_sibling_or_token();
+    }
+    let on_line = |e: &Option<SyntaxElement>| {
+      !matches!(e, Some(SyntaxElement::Token(w)) if w.kind() == K::Whitespace && w.text().contains('\n'))
+    };
+    (on_line(&after).then(|| lone_after(&skip_space(after.clone(), false))).flatten()).or_else(|| {
       // After the clause itself, before the body.
-      (last
-        .next_sibling_or_token()
-        .is_none_or(|e| e.kind() == K::Whitespace)
-        && skip_space(last.next_sibling_or_token(), false).is_none())
-      .then(|| lone_block(&skip_space(c.next_sibling_or_token(), false)))
+      (after.as_ref().is_none_or(|e| e.kind() == K::Whitespace)
+        && skip_space(after.clone(), false).is_none())
+      .then(|| {
+        let next = c.next_sibling_or_token();
+        on_line(&next)
+          .then(|| lone_after(&skip_space(next, false)))
+          .flatten()
+      })
       .flatten()
     })
   });

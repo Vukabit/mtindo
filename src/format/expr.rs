@@ -1527,8 +1527,7 @@ pub(super) fn rewrite_list(
     };
     // A line inside a raw string spanning lines is not measured: kept as written
     // (`format_expr`), where a plain string's lines are (`rewrite_string_lit`).
-    // Not in a macro's arguments (found by measuring it).
-    (fits(&[]) || !shape.limits.inside_macro && fits(&in_raw_string(&text))).then_some(text)
+    (fits(&[]) || fits(&in_raw_string(&text, shape.limits.style_2024))).then_some(text)
   }
 }
 
@@ -2139,14 +2138,18 @@ fn if_on_one_line(node: &SyntaxNode, limits: Limits) -> bool {
   }
 }
 
-/// For each line of `text`, whether it starts inside a raw string.
-fn in_raw_string(text: &str) -> Vec<bool> {
+/// For each line of `text`, whether it starts inside a raw string (or, from style edition
+/// 2024, a string continued with `\`).
+fn in_raw_string(text: &str, style_2024: bool) -> Vec<bool> {
   let mut starts = vec![false];
   for (kind, piece) in crate::syntax::parse_tokens(text, Edition::E2021) {
+    // From style edition 2024 so are a string's whose lines but the last end with `\`.
     let raw = matches!(
       kind,
       SyntaxKind::RawStr | SyntaxKind::RawByteStr | SyntaxKind::RawCStr
-    );
+    ) || style_2024
+      && kind == SyntaxKind::Str
+      && piece.lines().rev().skip(1).all(|line| line.ends_with('\\'));
     for _ in piece.matches('\n') {
       starts.push(raw);
     }

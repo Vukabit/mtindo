@@ -18,7 +18,8 @@ use crate::text::unicode::str_width;
 /// A block's braces and what is between them, laid out as [`rewrite_lines`] does.
 pub fn block_body(block: &SyntaxNode, shape: Shape) -> Option<String> {
   // Only a comment written on the braces' line stays there (`{ /* c */ }`), the gap kept as
-  // written.
+  // written; a function's body, which the standard formatter visits, closes on the next
+  // line.
   let inside: Vec<SyntaxElement> = block
     .children_with_tokens_iter()
     .skip_while(|e| e.kind() != K::LBrace)
@@ -31,6 +32,7 @@ pub fn block_body(block: &SyntaxNode, shape: Shape) -> Option<String> {
     SyntaxElement::Token(after),
   ] = inside.as_slice()
     && comment.kind() == K::BlockComment
+    && block.parent().is_none_or(|p| p.kind() != K::Fn)
     && before.kind() == K::Whitespace
     && after.kind() == K::Whitespace
     && !before.text().contains('\n')
@@ -302,8 +304,16 @@ pub fn wrapped(expression: &SyntaxNode, shape: Shape) -> Option<String> {
 /// Whether the standard formatter gives up on a statement at `inner`'s indentation: its
 /// layout with no line width still has a line past it, so that no layout fits, or it holds a
 /// string spanning lines. Not one holding a comment or an attribute, nor one in a macro's
-/// arguments, which the standard formatter keeps as written whole then.
-pub(super) fn gives_up(node: &SyntaxNode, inner: Shape) -> bool {
+/// arguments, which the standard formatter keeps as written whole then. But for `any_string`,
+/// not for a raw string spanning lines, nor from style edition 2024 one whose lines but the
+/// last end with `\`, which the standard formatter keeps whatever their width; and but for
+/// `string_lines`, those strings' later lines are not measured.
+pub(super) fn gives_up(
+  node: &SyntaxNode,
+  inner: Shape,
+  any_string: bool,
+  string_lines: bool,
+) -> bool {
   if inner.limits.inside_macro
     || node.subtree_has(|kind| {
       matches!(kind, K::Attr | K::LineComment | K::BlockComment) || super::items::is_doc(kind)
@@ -322,13 +332,28 @@ pub(super) fn gives_up(node: &SyntaxNode, inner: Shape) -> bool {
     return false;
   };
   let max = inner.limits.max_width;
+  // The lines inside a string kept whatever their width do not count.
+  let kept = |kind: SyntaxKind, text: &str| {
+    matches!(kind, K::RawStr | K::RawByteStr | K::RawCStr)
+      || inner.limits.style_2024
+        && kind == K::Str
+        && text.lines().rev().skip(1).all(|line| line.ends_with('\\'))
+  };
+  let mut laid = laid;
+  if !string_lines {
+    for (kind, text, _) in node.token_texts() {
+      if text.contains('\n') && kind.is_literal() && kept(kind, text) {
+        laid = laid.replacen(text, text.lines().next().unwrap_or(""), 1);
+      }
+    }
+  }
   let past = laid
     .split('\n')
     .enumerate()
     .any(|(i, line)| str_width(line) + if i == 0 { inner.indent } else { 0 } > max);
-  let spanning = node
-    .token_texts()
-    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'));
+  let spanning = node.token_texts().any(|(kind, text, _)| {
+    kind.is_literal() && text.contains('\n') && (any_string || !kept(kind, text))
+  });
   past || spanning
 }
 
@@ -418,7 +443,7 @@ fn close(lines: Vec<String>, shape: Shape) -> String {
 /// A statement in a block the standard formatter gives up on, as written (`push_rewrite`
 /// given nothing): see [`gives_up`].
 fn given_up(node: &SyntaxNode, inner: Shape) -> Option<String> {
-  gives_up(node, inner).then(|| node.text().to_string().trim().to_string())
+  gives_up(node, inner, true, true).then(|| node.text().to_string().trim().to_string())
 }
 
 /// An item without a body standing in a block laid out here: a `use`, a `const`, a

@@ -1262,6 +1262,38 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
     if !items && !block {
       continue;
     }
+    // The first comment on a line of its own after the last field, variant or arm follows
+    // it with no blank line (its post-comment, `itemize_list`), when the item's line ends
+    // in none.
+    if matches!(
+      node.kind(),
+      SyntaxKind::MatchArmList | SyntaxKind::RecordFieldList | SyntaxKind::VariantList
+    ) && let Some(last) = node.children_iter().next_back()
+    {
+      let mut next = last.next_sibling_or_token();
+      let mut broke = false;
+      while let Some(element) = next {
+        match &element {
+          SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace => {
+            broke |= t.text().contains('\n');
+          }
+          SyntaxElement::Token(t) if t.kind() == SyntaxKind::Comma && !broke => {}
+          SyntaxElement::Token(t)
+            if matches!(t.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment) =>
+          {
+            if broke {
+              roles.joined.insert(t.text_range().start as usize);
+            }
+            break;
+          }
+          _ => break,
+        }
+        next = match element {
+          SyntaxElement::Token(t) => t.next_sibling_or_token(),
+          SyntaxElement::Node(n) => n.next_sibling_or_token(),
+        };
+      }
+    }
     // A comment above a match arm is its pre-comment (`itemize_list`): the arm follows it
     // with no blank line.
     if matches!(
@@ -1477,7 +1509,8 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
               after_attr || after_doc || after_block_lines,
             );
             // Code after a comment after the attributes of what combines them joins it too
-            // (`combine_strs_with_missing_comments` keeps no blank line).
+            // (`combine_strs_with_missing_comments` keeps no blank line), and so does that
+            // comment the last attribute.
             if (after_attr || after_doc) && combined
               || after_comment
                 && matches!(
@@ -1487,6 +1520,9 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
               || after_comment && seen_attr && combined
             {
               joined.push(other.text_range().start as usize);
+            }
+            if after_comment && seen_attr && combined {
+              joined.append(&mut pending);
             }
             break;
           }
@@ -1538,6 +1574,21 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
           roles.breaks.insert(token.text_range().start as usize);
         }
       }
+    }
+  }
+  // A function's body holding only comments closes on a line of its own, as the standard
+  // formatter visits it (`{ /* c */` then `}`).
+  for body in root.descendant_nodes_where(|kind| kind == SyntaxKind::BlockExpr) {
+    if body.parent().is_some_and(|p| p.kind() == SyntaxKind::Fn)
+      && body.children_iter().next().is_none()
+      && body
+        .children_with_tokens_iter()
+        .any(|e| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment))
+      && let Some(close) = body
+        .children_with_tokens_iter()
+        .find(|e| e.kind() == SyntaxKind::RBrace)
+    {
+      roles.breaks.insert(close.text_range().start as usize);
     }
   }
 }
@@ -1746,7 +1797,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   // A line comment that ended a line of code: its column as written and as output.
   // A line comment after code: the column it was written at, the one it is written at,
   // whether it follows a statement's end, and the indentation of its line.
-  let mut comment_column: Option<(usize, usize, bool, usize)> = None;
+  // A trailing comment's column, as written and as output; whether it ends a statement;
+  // the indentation of the statement's line; whether it is a list's last item's.
+  let mut comment_column: Option<(usize, usize, bool, usize, bool)> = None;
   let mut out_line_start = 0usize;
   let mut text_line_start = 0usize;
   let mut code_on_line = false;
@@ -1868,8 +1921,8 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         }
         None => newlines.min(max_newlines),
       };
-      let aligned = comment_column.filter(|&(column, _, after_statement, _)| {
-        newlines == 1
+      let aligned = comment_column.filter(|&(column, _, after_statement, _, last_item)| {
+        (newlines == 1 || last_item)
           && (next.kind == SyntaxKind::LineComment
             || next.kind == SyntaxKind::BlockComment
               && !next.text.contains('\n')
@@ -1878,7 +1931,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 .split('\n')
                 .next()
                 .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with("//")))
-          && (written == column || after_statement)
+          && (written == column || after_statement || last_item)
       });
       let indent = if attr_comment_break {
         let line = &out[out_line_start..];
@@ -1910,8 +1963,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       // A comment aligned under the one before it; what follows it (an item it starts) is
       // indented as the comment would have been.
       let shown = match aligned {
-        Some((_, _, true, block)) if config.style_edition >= 2024 => block,
-        Some((_, column, _, _)) => column,
+        Some((_, column, _, _, true)) => column,
+        Some((_, _, true, block, _)) if config.style_edition >= 2024 => block,
+        Some((_, column, _, _, _)) => column,
         None => {
           comment_column = None;
           indent
@@ -2134,6 +2188,13 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           // Laid out whole even where a written line is too wide, as a statement is.
           SyntaxKind::MacroCall => crate::format::items::rewrite_macro_item(node, indent, config)
             .map(|text| (text, crate::format::imports::code_end(node))),
+          // A `const` block standing as an item, on one line where it fits.
+          SyntaxKind::Const
+            if crate::format::items::const_block_item(node, indent, config).is_some() =>
+          {
+            crate::format::items::const_block_item(node, indent, config)
+              .map(|text| (text, node.text_range().end as usize))
+          }
           kind if is_item(kind) => {
             if covered(node) {
               None
@@ -2186,7 +2247,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             // whole, its closures' lines too (`wrap_str` of the chain), and gives up on it.
             if chain_value(node)
               && crate::format::stmt::statement_shape(indent, config)
-                .is_some_and(|shape| crate::format::block::gives_up(node, shape))
+                .is_some_and(|shape| crate::format::block::gives_up(node, shape, false, true))
             {
               return None;
             }
@@ -2246,7 +2307,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       && let Some(&end) = roles.statements.get(&tok.start)
       && let Some(shape) =
         crate::format::stmt::statement_shape(width_of(&out[out_line_start..], tab), config)
-      && crate::format::block::gives_up(node, shape)
+      && crate::format::block::gives_up(node, shape, false, false)
     {
       explain(root, tok.start, &text[tok.start..end], || {
         "no layout fits within max_width (or a string in it spans lines): left as written"
@@ -2341,6 +2402,26 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         .find(|t| !t.kind.is_trivia())
         .is_some_and(|t| match t.kind {
           SyntaxKind::Semi => true,
+          // The `]` of a file's last inner attribute (the comments between them are laid out
+          // with them).
+          SyntaxKind::RBrack => {
+            let attr = t.token.parent();
+            let inner = |a: &SyntaxNode| {
+              a.kind() == SyntaxKind::Attr
+                && a
+                  .children_with_tokens_iter()
+                  .any(|e| e.kind() == SyntaxKind::Bang)
+            };
+            inner(&attr)
+              && attr
+                .parent()
+                .is_some_and(|p| p.kind() == SyntaxKind::SourceFile)
+              && !attr.parent().is_some_and(|file| {
+                file
+                  .children_iter()
+                  .any(|n| n.text_range().start > attr.text_range().start && inner(&n))
+              })
+          }
           // The `}` ending a statement or item (`if x { .. }`, `fn f() { .. }`).
           SyntaxKind::RBrace => t
             .token
@@ -2383,7 +2464,44 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           width_of(&line[..line.len() - line.trim_start().len()], tab)
         }
       };
-      comment_column = Some((written, output, after_statement, block));
+      // After a struct's last field or an enum's last variant, the comments up to the `}`
+      // are its post-comment (`itemize_list`), aligned under this one in every style.
+      let last_item = tokens[..i]
+        .iter()
+        .rev()
+        .find(|t| !t.kind.is_trivia())
+        .is_some_and(|t| {
+          // Its comma, or its own last token where it has none (the layout adds one).
+          let list_kinds =
+            |k: SyntaxKind| matches!(k, SyntaxKind::RecordFieldList | SyntaxKind::VariantList);
+          let item = t
+            .token
+            .parent()
+            .ancestors_iter()
+            .find(|a| matches!(a.kind(), SyntaxKind::RecordField | SyntaxKind::Variant))
+            .filter(|item| {
+              item.parent().is_some_and(|p| list_kinds(p.kind()))
+                && item.last_token().is_some_and(|last| last == t.token)
+            });
+          let after = match &item {
+            Some(item) => item.next_sibling_or_token(),
+            None if t.kind == SyntaxKind::Comma && list_kinds(t.token.parent().kind()) => {
+              t.token.next_sibling_or_token()
+            }
+            None => return false,
+          };
+          let mut next = after;
+          while let Some(e) = &next
+            && e.kind().is_trivia()
+          {
+            next = match e {
+              SyntaxElement::Token(t) => t.next_sibling_or_token(),
+              SyntaxElement::Node(n) => n.next_sibling_or_token(),
+            };
+          }
+          next.is_some_and(|e| e.kind() == SyntaxKind::RBrace)
+        });
+      comment_column = Some((written, output, after_statement, block, last_item));
     }
     // An empty body's `}` kept apart from its `{`, written touching.
     if tok.kind == SyntaxKind::RBrace && split.borrow().contains(&tok.start) && out.ends_with('{') {
@@ -2567,8 +2685,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 statements.push((start, end));
                 headers.insert((start, end), start);
               }
-              // A `let`, an expression statement, a macro definition or a `use` from after
-              // its attributes too, which are laid out on their own.
+              // A `let`, an expression statement, a macro definition or call, or a `use` from
+              // after its attributes too, which are laid out on their own.
               None => {
                 // A match arm's block holding only this: flattened into the arm, so not one
                 // given up on alone.
@@ -2585,7 +2703,10 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 statements.push((
                   if matches!(
                     node.kind(),
-                    SyntaxKind::LetStmt | SyntaxKind::ExprStmt | SyntaxKind::MacroRules
+                    SyntaxKind::LetStmt
+                      | SyntaxKind::ExprStmt
+                      | SyntaxKind::MacroRules
+                      | SyntaxKind::MacroCall
                   ) {
                     crate::format::items::header_start(node).unwrap_or(range.start as usize)
                   } else if node.kind() == SyntaxKind::Use {
@@ -3152,7 +3273,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     flattened: &flattened,
   };
   for (range, width, line) in overflowing(&spans, text, config) {
-    if braced_macros.contains(&range) {
+    if braced_macros.iter().any(|&(_, end)| end == range.1) {
       continue;
     }
     let reason = || {

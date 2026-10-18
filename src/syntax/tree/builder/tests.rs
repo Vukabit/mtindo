@@ -88,6 +88,20 @@ fn item(tokens: usize) -> Vec<Op> {
   ops
 }
 
+#[test]
+fn test_a_macro_call_in_an_expression_owns_no_comments() {
+  let text = "fn f() {\n    // above\n    m!(x) // after\n}\nm!(y); // item\n";
+  let root = crate::syntax::parse(text, Edition::E2021).syntax_node();
+  let calls: Vec<String> = root
+    .descendant_nodes_where(|kind| kind == SyntaxKind::MacroCall)
+    .map(|call| call.text().to_string())
+    .collect();
+  assert_eq!(
+    calls,
+    vec!["m!(x)".to_string(), "m!(y); // item".to_string()]
+  );
+}
+
 /// A file makes about three events per token: each is kept to 8 bytes.
 #[test]
 fn test_an_event_is_small() {

@@ -59,6 +59,24 @@ pub fn block_body(block: &SyntaxNode, shape: Shape) -> Option<String> {
     ));
   }
   let inner = shape.block_inside();
+  // Only comments, the first written on the `{`'s line: it stays there, the rest on lines
+  // of their own.
+  let on_brace_line = match significant.first() {
+    Some(SyntaxElement::Token(first))
+      if (first.kind() == K::LineComment
+        || first.kind() == K::BlockComment && !first.text().contains('\n'))
+        && significant
+          .iter()
+          .all(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+        && !inside
+          .iter()
+          .take_while(|e| e.kind() == K::Whitespace)
+          .any(|e| matches!(e, SyntaxElement::Token(t) if t.text().contains('\n'))) =>
+    {
+      Some(first.text().trim_end().to_string())
+    }
+    _ => None,
+  };
   let config = shape.limits.config();
   let lines = lines(block, inner, |node| match node.kind() {
     K::LetStmt => statement(node, inner, &config).or_else(|| given_up(node, inner)),
@@ -84,6 +102,25 @@ pub fn block_body(block: &SyntaxNode, shape: Shape) -> Option<String> {
     }),
     _ => None,
   })?;
+  if let Some(first) = on_brace_line
+    && lines.first().is_some_and(|line| line.trim() == first)
+  {
+    // Before style edition 2024 the comments right under it (up to a blank line) stand a
+    // column further in.
+    let mut lines = lines;
+    if !shape.limits.style_2024 {
+      for line in lines.iter_mut().skip(1) {
+        if line.trim().is_empty() {
+          break;
+        }
+        line.insert(0, ' ');
+      }
+    }
+    let mut text = close(lines, shape);
+    let end = text[2..].find('\n').map_or(text.len(), |i| i + 2);
+    text.replace_range(1..end, &format!(" {}", first));
+    return Some(text);
+  }
   Some(close(lines, shape))
 }
 
@@ -262,6 +299,39 @@ pub fn wrapped(expression: &SyntaxNode, shape: Shape) -> Option<String> {
   ))
 }
 
+/// Whether the standard formatter gives up on a statement at `inner`'s indentation: its
+/// layout with no line width still has a line past it, so that no layout fits, or it holds a
+/// string spanning lines. Not one holding a comment or an attribute, nor one in a macro's
+/// arguments, which the standard formatter keeps as written whole then.
+pub(super) fn gives_up(node: &SyntaxNode, inner: Shape) -> bool {
+  if inner.limits.inside_macro
+    || node.subtree_has(|kind| {
+      matches!(kind, K::Attr | K::LineComment | K::BlockComment) || super::items::is_doc(kind)
+    })
+  {
+    return false;
+  }
+  let mut wide = inner.limits.config();
+  wide.max_width = 100_000;
+  let unlimited = Shape {
+    width: wide.max_width - inner.indent,
+    limits: super::shape::Limits::of(&wide),
+    ..inner
+  };
+  let Some(laid) = statement(node, unlimited, &wide) else {
+    return false;
+  };
+  let max = inner.limits.max_width;
+  let past = laid
+    .split('\n')
+    .enumerate()
+    .any(|(i, line)| str_width(line) + if i == 0 { inner.indent } else { 0 } > max);
+  let spanning = node
+    .token_texts()
+    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'));
+  past || spanning
+}
+
 /// A statement or item after its attributes, each on a line of their own; none skipped, and
 /// no comment among them.
 fn attributed(
@@ -288,14 +358,30 @@ fn attributed(
   if commented || skipped {
     return None;
   }
+  // A macro call standing as a statement keeps a blank line written after its attributes,
+  // which the standard formatter visits apart from it.
+  let blank = node.kind() == K::ExprStmt
+    && node
+      .children_iter()
+      .find(|c| c.kind() != K::Attr)
+      .is_some_and(|e| e.kind() == K::MacroExpr)
+    && config.blank_lines_upper_bound > 0
+    && node.children_with_tokens_iter().any(|e| {
+      matches!(&e, SyntaxElement::Token(t) if t.kind() == K::Whitespace
+        && t.text_range().end as usize == start
+        && t.text().matches('\n').count() > 1)
+    });
   let mut prefix = String::new();
-  for attribute in &attributes {
+  for (i, attribute) in attributes.iter().enumerate() {
     prefix.push_str(&super::attrs::rewrite_attr(
       attribute,
       shape.indent,
       config,
     )?);
     prefix.push('\n');
+    if blank && i + 1 == attributes.len() {
+      prefix.push('\n');
+    }
     prefix.push_str(&" ".repeat(shape.indent));
   }
   Some(format!("{}{}", prefix, bare()?))
@@ -310,6 +396,9 @@ fn braced_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
   }
   let path = node.children_iter().find(|c| c.kind() == K::Path)?;
   let name = flat(&path, shape.limits.spacing);
+  if let Some(body) = super::macros::lazy_static_body(node, shape.indent, &shape.limits.config()) {
+    return Some(format!("{}! {}", name, body));
+  }
   let snippet = tree.text().to_string();
   if snippet.lines().any(|l| l.contains('"')) && snippet.contains('\n') {
     return None;
@@ -327,36 +416,9 @@ fn close(lines: Vec<String>, shape: Shape) -> String {
 }
 
 /// A statement in a block the standard formatter gives up on, as written (`push_rewrite`
-/// given nothing): one whose layout with no line width still has a line past it, so that
-/// no layout fits, or that holds a string spanning lines. Not one holding a comment or an attribute, nor one in a macro's arguments, which the
-/// standard formatter keeps as written whole then.
+/// given nothing): see [`gives_up`].
 fn given_up(node: &SyntaxNode, inner: Shape) -> Option<String> {
-  if inner.limits.inside_macro
-    || node.subtree_has(|kind| {
-      matches!(kind, K::Attr | K::LineComment | K::BlockComment) || super::items::is_doc(kind)
-    })
-  {
-    return None;
-  }
-  let mut wide = inner.limits.config();
-  wide.max_width = 100_000;
-  let unlimited = Shape {
-    width: wide.max_width - inner.indent,
-    limits: super::shape::Limits::of(&wide),
-    ..inner
-  };
-  // Laid out with no line width, a line still past it: no layout fits; or a string
-  // spanning lines in it, whose later lines no layout moves.
-  let laid = statement(node, unlimited, &wide)?;
-  let max = inner.limits.max_width;
-  let past = laid
-    .split('\n')
-    .enumerate()
-    .any(|(i, line)| str_width(line) + if i == 0 { inner.indent } else { 0 } > max);
-  let spanning = node
-    .token_texts()
-    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'));
-  (past || spanning).then(|| node.text().to_string().trim().to_string())
+  gives_up(node, inner).then(|| node.text().to_string().trim().to_string())
 }
 
 /// An item without a body standing in a block laid out here: a `use`, a `const`, a

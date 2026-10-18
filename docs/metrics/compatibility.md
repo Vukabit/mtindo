@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-18T05:55:06.145Z"
-commit: "9d9e790-dirty.d8387528"
+generated: "2026-10-18T14:15:10.127Z"
+commit: "70bb007-dirty.afdb1899"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -23,22 +23,22 @@ metrics:
   compat.tests-with-settings.files: 52.06
   compat.tests-with-settings.files_matched: 291
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 86.17
-  compat.tests-with-settings.lines_matched: 19004
+  compat.tests-with-settings.lines: 86.25
+  compat.tests-with-settings.lines_matched: 19023
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
-  compat.corpus.files: 99.67
-  compat.corpus.files_matched: 9232
+  compat.corpus.files: 99.70
+  compat.corpus.files_matched: 9235
   compat.corpus.files_scored: 9263
   compat.corpus.lines: 99.99
-  compat.corpus.lines_matched: 2620661
+  compat.corpus.lines_matched: 2620708
   compat.corpus.lines_total: 2620990
   compat.corpus.skipped: 6
-  compat.corpus-unformatted.files: 95.07
-  compat.corpus-unformatted.files_matched: 8794
+  compat.corpus-unformatted.files: 96.12
+  compat.corpus-unformatted.files_matched: 8891
   compat.corpus-unformatted.files_scored: 9250
-  compat.corpus-unformatted.lines: 99.17
-  compat.corpus-unformatted.lines_matched: 2716637
+  compat.corpus-unformatted.lines: 99.24
+  compat.corpus-unformatted.lines_matched: 2718605
   compat.corpus-unformatted.lines_total: 2739378
   compat.corpus-unformatted.skipped: 17
   compat.corpus.repositories: 44
@@ -51,8 +51,8 @@ metrics:
 <!-- generated: abstract -->
 Against the standard formatter 1.9.0-stable (88d9e12ae1 2026-08-18), mto's
 output equals the expected output for 452 of 460 test files (98.26%) and for
-9232 of 9263 corpus files (99.67%). On whitespace-scrambled corpus files it
-matches 8794 of 9250 files (95.07%) and keeps 99.17% of the expected lines.
+9235 of 9263 corpus files (99.70%). On whitespace-scrambled corpus files it
+matches 8891 of 9250 files (96.12%) and keeps 99.24% of the expected lines.
 <!-- end generated -->
 
 ## 1 Question
@@ -122,9 +122,9 @@ The record as it stands (shares in percent):
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
 | tests | 452 of 460 | 98.26 | 11155 of 11205 | 99.55 | 0 |
-| tests-with-settings | 291 of 559 | 52.06 | 19004 of 22055 | 86.17 | 0 |
-| corpus | 9232 of 9263 | 99.67 | 2620661 of 2620990 | 99.99 | 6 |
-| corpus-scrambled | 8794 of 9250 | 95.07 | 2716637 of 2739378 | 99.17 | 17 |
+| tests-with-settings | 291 of 559 | 52.06 | 19023 of 22055 | 86.25 | 0 |
+| corpus | 9235 of 9263 | 99.70 | 2620708 of 2620990 | 99.99 | 6 |
+| corpus-scrambled | 8891 of 9250 | 96.12 | 2718605 of 2739378 | 99.24 | 17 |
 <!-- end generated -->
 
 ### History
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.55 | 86.17 | 99.99 | 99.17 | 95.07 |
+| current |  | 99.55 | 86.25 | 99.99 | 99.24 | 96.12 |
+| 2026-10-18 | 70bb007 | 99.55 | 86.17 | 99.99 | 99.17 | 95.07 |
 | 2026-10-17 | 9d9e790 | 99.13 | 86.16 | 99.99 | 99.14 | 94.84 |
 | 2026-10-17 | f439c80 | 97.72 | 86.10 | 99.99 | 99.05 | 94.24 |
 | 2026-10-17 | 793f665 | 97.72 | 85.77 | 99.99 | 98.98 | 93.84 |
@@ -196,24 +197,24 @@ Scored files by the share of their expected lines mto's output keeps:
 |---|---:|---:|---:|---:|
 | tests | 453 | 0 | 2 | 5 |
 | tests-with-settings | 297 | 1 | 54 | 207 |
-| corpus | 9232 | 22 | 6 | 3 |
-| corpus-scrambled | 8817 | 205 | 167 | 61 |
+| corpus | 9235 | 20 | 5 | 3 |
+| corpus-scrambled | 8912 | 162 | 131 | 45 |
 
 The syntax at the first line where a mismatching file differs, the ten most
 common over every set:
 
 | syntax kind | files |
 |---|---:|
-| `LetStmt` | 102 |
-| `Use` | 48 |
+| `LetStmt` | 93 |
 | `Fn` | 43 |
-| `TokenTree` | 40 |
-| `BlockExpr` | 39 |
+| `Use` | 39 |
+| `BlockExpr` | 37 |
+| `TokenTree` | 37 |
 | `SourceFile` | 33 |
-| `MatchArm` | 32 |
-| `MacroRules` | 29 |
+| `MatchArm` | 25 |
 | `MethodCallExpr` | 23 |
-| `MacroExpr` | 22 |
+| `RecordField` | 20 |
+| `CallExpr` | 18 |
 <!-- end generated -->
 
 ## 4 Threats to validity

@@ -228,9 +228,6 @@ pub(super) fn edition() -> Edition {
   EDITION.with(|e| e.get())
 }
 
-/// Whether an attribute's arguments are what the standard formatter can format: names and
-/// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
-/// else (a closure, a path as a value) is left as written.
 pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
   // Inside an argument list a path's `::` is two colons, written touching.
   let colons: Vec<(usize, usize)> = attr
@@ -272,9 +269,17 @@ pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
           | SyntaxKind::Bang
       );
     // A `!` only as an inner attribute's own: a macro call among the arguments is not a
-    // name or a value.
-    let allowed =
-      allowed && (kind != SyntaxKind::Bang || token.parent().kind() == SyntaxKind::Attr);
+    // name or a value. Brackets only as its own too (`["a"]` is no meta item), and a `(`
+    // only after a name (`a(..)`, not `()`).
+    let allowed = allowed
+      && (kind != SyntaxKind::Bang || token.parent().kind() == SyntaxKind::Attr)
+      && (!matches!(kind, SyntaxKind::LBrack | SyntaxKind::RBrack)
+        || token.parent().kind() == SyntaxKind::Attr)
+      && (kind != SyntaxKind::LParen
+        || matches!(previous, Some(SyntaxKind::Ident | SyntaxKind::RawIdent))
+        || previous.is_some_and(|p| p.name().ends_with("_KW")));
+    // A literal with a suffix it cannot take (`""huh`, `1omg`) is no value.
+    let allowed = allowed && (!kind.is_literal() || valid_suffix(kind, token.text()));
     let allowed = allowed
       || kind == SyntaxKind::Colon
         && in_path(
@@ -397,19 +402,6 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
   out
 }
 
-thread_local! {
-  /// `skip_macro_invocations` for the text being formatted.
-  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
-    const { std::cell::RefCell::new(Vec::new()) };
-  /// The crate root's skipped macros and attributes, for the text being formatted.
-  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
-    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
-  /// The edition of the text being formatted.
-  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
-  /// The style edition of the text being formatted.
-  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
-}
-
 /// The display width of text: tabs count as `tab_spaces`, wide characters as two columns.
 /// A block comment across lines with its later lines placed from column `column`: each
 /// trimmed, one starting with `*` a space in (`light_rewrite_comment`); when any does not
@@ -476,6 +468,19 @@ pub(super) fn reindent_block_comment(
     }
   }
   out
+}
+
+thread_local! {
+  /// `skip_macro_invocations` for the text being formatted.
+  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
+    const { std::cell::RefCell::new(Vec::new()) };
+  /// The crate root's skipped macros and attributes, for the text being formatted.
+  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
+    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
+  /// The edition of the text being formatted.
+  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
+  /// The style edition of the text being formatted.
+  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
 }
 
 /// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names, or
@@ -613,6 +618,28 @@ fn braced_macro(node: &SyntaxNode) -> bool {
           .first_token()
           .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
     })
+}
+
+/// Whether a `let`'s value or an expression statement is a method chain (`a.b()`, `a.b()?`).
+fn chain_value(node: &SyntaxNode) -> bool {
+  let value = match node.kind() {
+    SyntaxKind::ExprStmt => node.children_iter().find(|c| c.kind() != SyntaxKind::Attr),
+    SyntaxKind::LetStmt => node
+      .children_with_tokens_iter()
+      .skip_while(|e| e.kind() != SyntaxKind::Eq)
+      .find_map(|e| match e {
+        SyntaxElement::Node(n) => Some(n),
+        SyntaxElement::Token(_) => None,
+      }),
+    _ => None,
+  };
+  let mut value = value;
+  while let Some(v) = &value
+    && matches!(v.kind(), SyntaxKind::TryExpr | SyntaxKind::AwaitExpr)
+  {
+    value = v.children_iter().next();
+  }
+  value.is_some_and(|v| v.kind() == SyntaxKind::MethodCallExpr)
 }
 
 /// Whether a block of one expression holds a comment: the standard formatter writes it on
@@ -1357,9 +1384,16 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
       let mut after_block_lines = false;
       // A statement's, field's, variant's, match arm's, foreign item's, `use`'s and
       // `extern crate`'s attributes and doc comments join it with no blank line, as the
-      // standard formatter combines them; another item's in a file or module keep one.
+      // standard formatter combines them; another item's in a file or module keep one, as
+      // does a macro call standing as a statement, whose attributes are visited apart.
+      let macro_statement = child.kind() == SyntaxKind::ExprStmt
+        && child
+          .children_iter()
+          .find(|c| c.kind() != SyntaxKind::Attr)
+          .is_some_and(|e| e.kind() == SyntaxKind::MacroExpr);
       let combined = node.kind() == SyntaxKind::ExternItemList
-        || matches!(
+        || !macro_statement
+          && matches!(
           child.kind(),
           SyntaxKind::LetStmt
             | SyntaxKind::ExprStmt
@@ -1895,10 +1929,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       break;
     }
     // Spaces within a line: as the Rust style spaces the two tokens around them; before a
-    // line comment right after an item laid out to its `;`, though a region left as written
-    // covers it.
+    // line comment right after an item laid out to its `;` or `}`, though a region left as
+    // written covers it.
     let after_laid = i > 0
-      && tokens[i - 1].kind == SyntaxKind::Semi
+      && matches!(tokens[i - 1].kind, SyntaxKind::Semi | SyntaxKind::RBrace)
       && tokens[i - 1].start + tokens[i - 1].text.len() == laid_out_to
       && next.is_some_and(|n| n.kind == SyntaxKind::LineComment);
     if tok.kind == SyntaxKind::Whitespace && (!in_verbatim(tok.start) || after_laid) && i > 0 {
@@ -2019,6 +2053,13 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       // Holding nothing, they close up (`m! {}`).
       if snippet.len() >= 2 && snippet[1..snippet.len() - 1].trim().is_empty() {
         out.push_str("{}");
+      } else if let Some(body) = tok
+        .token
+        .parent()
+        .parent()
+        .and_then(|call| crate::format::macros::lazy_static_body(&call, indent, config))
+      {
+        out.push_str(&body);
       } else {
         out.push_str(&preserve_layout(snippet, indent, config));
       }
@@ -2141,6 +2182,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             if covered(node) {
               return None;
             }
+            // Nor a method chain no layout fits: the standard formatter checks the chain
+            // whole, its closures' lines too (`wrap_str` of the chain), and gives up on it.
+            if chain_value(node)
+              && crate::format::stmt::statement_shape(indent, config)
+                .is_some_and(|shape| crate::format::block::gives_up(node, shape))
+            {
+              return None;
+            }
             if let Some(head) = rewrite_let_control(node, indent, config) {
               return Some((head.text, head.open));
             }
@@ -2175,6 +2224,35 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       code_on_line = true;
       comment_column = None;
       continue;
+    }
+    // A statement the layout above could not lay out, which no layout fits: left as written,
+    // as the standard formatter gives up on it.
+    if let Some(node) = roles.layable.get(&tok.start)
+      && matches!(node.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt)
+      // Not a control expression, whose head and block the standard formatter lays out apart.
+      && !node.children_iter().any(|c| {
+        matches!(
+          c.kind(),
+          SyntaxKind::IfExpr
+            | SyntaxKind::MatchExpr
+            | SyntaxKind::WhileExpr
+            | SyntaxKind::ForExpr
+            | SyntaxKind::LoopExpr
+            | SyntaxKind::BlockExpr
+        )
+      })
+      && !in_verbatim(tok.start)
+      && !covered(node)
+      && let Some(&end) = roles.statements.get(&tok.start)
+      && let Some(shape) =
+        crate::format::stmt::statement_shape(width_of(&out[out_line_start..], tab), config)
+      && crate::format::block::gives_up(node, shape)
+    {
+      explain(root, tok.start, &text[tok.start..end], || {
+        "no layout fits within max_width (or a string in it spans lines): left as written"
+          .to_string()
+      });
+      gave_up.borrow_mut().push((tok.start, end));
     }
     // One the layout above could not lay out: its written lines kept, re-indented.
     if crate::format::explain::active()
@@ -2471,8 +2549,11 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           });
           let end = match &body {
             Some(body) if is_item(node.kind()) => body.text_range().start as usize,
-            // A `use`'s comment after its `;` is not its own.
-            _ if node.kind() == SyntaxKind::Use => crate::format::imports::code_end(node),
+            // A `use`'s comment after its `;` is not its own, nor a macro definition's after
+            // its `}`.
+            _ if matches!(node.kind(), SyntaxKind::Use | SyntaxKind::MacroRules) => {
+              crate::format::imports::code_end(node)
+            }
             _ => range.end as usize,
           };
           {
@@ -2486,8 +2567,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 statements.push((start, end));
                 headers.insert((start, end), start);
               }
-              // A `let`, an expression statement or a `use` from after its attributes too,
-              // which are laid out on their own.
+              // A `let`, an expression statement, a macro definition or a `use` from after
+              // its attributes too, which are laid out on their own.
               None => {
                 // A match arm's block holding only this: flattened into the arm, so not one
                 // given up on alone.
@@ -2502,7 +2583,10 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                   flattened.insert(range.start as usize);
                 }
                 statements.push((
-                  if matches!(node.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt) {
+                  if matches!(
+                    node.kind(),
+                    SyntaxKind::LetStmt | SyntaxKind::ExprStmt | SyntaxKind::MacroRules
+                  ) {
                     crate::format::items::header_start(node).unwrap_or(range.start as usize)
                   } else if node.kind() == SyntaxKind::Use {
                     crate::format::imports::body_start(node).unwrap_or(range.start as usize)
@@ -2984,11 +3068,16 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           }
         }
         // A comment between a binary operator's operands is one the standard formatter
-        // cannot place: it leaves the statement around it as written.
+        // cannot place: it leaves the statement around it as written; but a match arm's
+        // guard, kept as written itself.
         if matches!(
           token.kind(),
           SyntaxKind::LineComment | SyntaxKind::BlockComment
         ) && token.parent().kind() == SyntaxKind::BinExpr
+          && !token
+            .parent()
+            .ancestors_iter()
+            .any(|a| a.kind() == SyntaxKind::MatchGuard)
         {
           stranded.push(start);
         }
@@ -3234,6 +3323,46 @@ fn skips_itself(root: &SyntaxNode) -> bool {
     .children_iter()
     .filter_map(Attr::cast)
     .any(|a| a.is_inner() && a.is_rustfmt_skip())
+}
+
+/// Whether an attribute's arguments are what the standard formatter can format: names and
+/// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
+/// else (a closure, a path as a value) is left as written.
+/// Whether a literal's suffix is one it can take: none on a string or character, a
+/// number's type (`1u8`, `2.0f32`) on a number.
+fn valid_suffix(kind: SyntaxKind, text: &str) -> bool {
+  match kind {
+    SyntaxKind::IntNumber | SyntaxKind::FloatNumber => {
+      let digits = if text.starts_with("0x") || text.starts_with("0X") {
+        text.trim_end_matches(|c: char| !c.is_ascii_hexdigit() && c != '_')
+      } else {
+        text.trim_end_matches(|c: char| c.is_ascii_alphabetic() && c != 'e' && c != 'E')
+      };
+      let suffix = &text[digits.len()..];
+      suffix.is_empty()
+        || matches!(
+          suffix,
+          "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "f32"
+            | "f64"
+        )
+    }
+    _ => {
+      // The closing quote ends a string or character with no suffix.
+      text.ends_with(['"', '\'', '#'])
+    }
+  }
 }
 
 fn width_of(indent: &str, tab: usize) -> usize {

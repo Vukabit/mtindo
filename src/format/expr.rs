@@ -156,7 +156,9 @@ pub fn assign_value(head: &str, value: &SyntaxNode, shape: Shape) -> Option<Stri
   } else {
     last_line_width(head)
   };
-  let same = shape.offset_left(used + 1).and_then(|s| rewrite(value, s));
+  let same = shape
+    .offset_left(used + 1)
+    .and_then(|s| rewrite_or_written(value, s));
   if let Some(same) = &same
     && !same.contains('\n')
     && same.width() + used < shape.width
@@ -169,7 +171,7 @@ pub fn assign_value(head: &str, value: &SyntaxNode, shape: Shape) -> Option<Stri
     ..nested
   };
   let next_shape = next;
-  let next = rewrite(value, next);
+  let next = rewrite_or_written(value, next);
   let pad = " ".repeat(nested.indent);
   // The next line's first line within its shape (the standard formatter's
   // `filtered_str_fits`).
@@ -819,6 +821,17 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
   }
 }
 
+/// `node` laid out in `shape`; a macro call that cannot be is kept as written where that
+/// fits, as the standard formatter's `format_expr` falls back to its text (`wrap_str`): for
+/// a value on its line or the next, between which `prefer_next_line` chooses.
+pub fn rewrite_or_written(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  rewrite(node, shape).or_else(|| {
+    matches!(node.kind(), SyntaxKind::MacroExpr | SyntaxKind::MacroCall)
+      .then(|| wrap_str(node.text().to_string().trim().to_string(), shape))
+      .flatten()
+  })
+}
+
 /// Whether a block's last expression gains a `;` on a line of its own: a `return`, `break`
 /// or `continue`, with `trailing_semicolon`.
 pub(super) fn ends_with_semi(node: &SyntaxNode, limits: Limits) -> bool {
@@ -1319,13 +1332,15 @@ pub(super) fn rewrite_list(
     // the line, which is not done here: the list fails.
     let repeat_macro = |item: &SyntaxNode| {
       matches!(item.kind(), SyntaxKind::MacroExpr | SyntaxKind::MacroCall)
-        && macro_arguments(item, shape.limits.spacing).is_ok_and(|arguments| {
-          arguments
-            .list
-            .children_with_tokens()
-            .iter()
-            .any(|e| e.kind() == SyntaxKind::Semi)
-        })
+        && macro_arguments(item, shape.limits.spacing, shape.limits.inside_macro).is_ok_and(
+          |arguments| {
+            arguments
+              .list
+              .children_with_tokens()
+              .iter()
+              .any(|e| e.kind() == SyntaxKind::Semi)
+          },
+        )
     };
     if overflow && placeholder.is_none() && repeat_macro(&items[last]) {
       return None;
@@ -1533,7 +1548,7 @@ pub(super) fn unread_macro(call: &SyntaxNode) -> bool {
     });
   comments_only
     || matches!(
-      read_macro_arguments(call, Spacing::default()),
+      read_macro_arguments(call, Spacing::default(), false),
       Err(Unread::AsWritten)
     )
 }
@@ -1730,6 +1745,9 @@ fn braced_macro(node: &SyntaxNode, name: &str, shape: Shape) -> Option<String> {
       .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
   {
     return None;
+  }
+  if let Some(body) = super::macros::lazy_static_body(&call, shape.indent, &shape.limits.config()) {
+    return Some(format!("{} {}", name, body));
   }
   let text = tree.text();
   let body = super::file::preserve_layout(&text, shape.indent, &shape.limits.config());
@@ -2310,8 +2328,12 @@ fn lone_branches(node: &SyntaxNode) -> bool {
   }
 }
 
-fn macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments, Unread> {
-  let read = read_macro_arguments(node, spacing);
+fn macro_arguments(
+  node: &SyntaxNode,
+  spacing: Spacing,
+  nested: bool,
+) -> Result<MacroArguments, Unread> {
+  let read = read_macro_arguments(node, spacing, nested);
   if matches!(read, Err(Unread::AsWritten)) && super::explain::active() {
     super::explain::note("MACRO_CALL", &node.text().to_string(), || {
       "macro arguments not read as expressions or a list, so kept as written".to_string()
@@ -2390,6 +2412,7 @@ fn macro_item_argument(node: &SyntaxNode, shape: Shape) -> Option<String> {
 fn macro_mixed_arguments(
   node: &SyntaxNode,
   spacing: Spacing,
+  nested: bool,
 ) -> Option<(String, Vec<SyntaxNode>, &'static str, &'static str, bool)> {
   let call = if node.kind() == SyntaxKind::MacroExpr {
     node
@@ -2413,7 +2436,7 @@ fn macro_mixed_arguments(
   }
   let elements: Vec<SyntaxElement> = tree.children_with_tokens();
   let (open, close) = match elements.first()?.kind() {
-    SyntaxKind::LParen if name != "vec!" => ("(", ")"),
+    SyntaxKind::LParen if name != "vec!" || nested => ("(", ")"),
     SyntaxKind::LBrack => ("[", "]"),
     _ => return None,
   };
@@ -2590,7 +2613,11 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
 }
 
 /// [`macro_arguments`], without the note.
-fn read_macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments, Unread> {
+fn read_macro_arguments(
+  node: &SyntaxNode,
+  spacing: Spacing,
+  nested: bool,
+) -> Result<MacroArguments, Unread> {
   use Unread::{AsWritten, Declined};
   let call = if node.kind() == SyntaxKind::MacroExpr {
     node
@@ -2637,8 +2664,12 @@ fn read_macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArgu
     .find(|e| !e.kind().is_trivia())
     .ok_or(Declined)?
     .kind();
-  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
-  if name == "vec!" && matches!(delimiter, SyntaxKind::LParen | SyntaxKind::LBrace) {
+  // `vec!(..)` and `vec! {..}` are written `vec![..]`, but in another macro's arguments
+  // (`is_nested_macro`).
+  if name == "vec!" && nested && delimiter == SyntaxKind::LBrace {
+    return Err(Unread::Braced(name));
+  }
+  if name == "vec!" && !nested && matches!(delimiter, SyntaxKind::LParen | SyntaxKind::LBrace) {
     if inner.len() < 2 {
       return Err(Declined);
     }
@@ -2646,7 +2677,7 @@ fn read_macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArgu
     delimiter = SyntaxKind::LBrack;
   }
   let (source, list_kind, open, close, array) = match delimiter {
-    SyntaxKind::LParen if name != "vec!" => (
+    SyntaxKind::LParen if name != "vec!" || nested => (
       format!("fn f() {{\n__mto_macro{};\n}}", inner),
       SyntaxKind::ArgList,
       "(",
@@ -3294,78 +3325,81 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
     open,
     close,
     array,
-  } = match macro_arguments(node, shape.limits.spacing).or_else(|unread| match unread {
-    Unread::AsWritten => macro_type_arguments(node, shape.limits.spacing).ok_or(unread),
-    unread => Err(unread),
-  }) {
-    Ok(arguments) => arguments,
-    // As written whatever its width, as the standard formatter's fallback for arguments it
-    // cannot read returns it (`return_macro_parse_failure_fallback`): spanning lines, its
-    // later lines re-indented keeping their layout when its last line only closes
-    // delimiters, else where they were.
-    // An item alone (`items!(const _: u8 = 0;)`), on a line of its own.
-    Err(Unread::AsWritten) if let Some(text) = macro_item_argument(node, shape) => {
-      return Some(text);
-    }
-    Err(Unread::AsWritten)
-      if let Some((name, items, open, close, array)) =
-        macro_mixed_arguments(node, shape.limits.spacing) =>
-    {
-      let width = if array {
-        shape.limits.array
-      } else {
-        shape.limits.fn_call
-      };
-      let shape = Shape {
-        limits: Limits {
-          comma_as_written: true,
-          inside_macro: true,
-          ..shape.limits
-        },
-        ..shape
-      };
-      return rewrite_list(&name, &items, shape, width, open, close);
-    }
-    Err(Unread::AsWritten) => {
-      super::macros::macro_failed();
-      // From its name to its arguments' closing delimiter: the comments an item carries
-      // before it and its `;` are not the call's.
-      let whole = node.text();
-      let from = node
-        .descendant_nodes_where(|kind| kind == SyntaxKind::Path)
-        .next()
-        .map_or(0, |path| {
-          (path.text_range().start - node.text_range().start) as usize
-        });
-      let end = node
-        .descendant_nodes_where(|kind| kind == SyntaxKind::TokenTree)
-        .next()
-        .map_or(whole.len(), |tree| {
-          (tree.text_range().end - node.text_range().start) as usize
-        });
-      let text = whole[from..end].to_string();
-      if !text.contains('\n') {
+  } =
+    match macro_arguments(node, shape.limits.spacing, shape.limits.inside_macro).or_else(|unread| {
+      match unread {
+        Unread::AsWritten => macro_type_arguments(node, shape.limits.spacing).ok_or(unread),
+        unread => Err(unread),
+      }
+    }) {
+      Ok(arguments) => arguments,
+      // As written whatever its width, as the standard formatter's fallback for arguments it
+      // cannot read returns it (`return_macro_parse_failure_fallback`): spanning lines, its
+      // later lines re-indented keeping their layout when its last line only closes
+      // delimiters, else where they were.
+      // An item alone (`items!(const _: u8 = 0;)`), on a line of its own.
+      Err(Unread::AsWritten) if let Some(text) = macro_item_argument(node, shape) => {
         return Some(text);
       }
-      if node
-        .token_texts()
-        .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+      Err(Unread::AsWritten)
+        if let Some((name, items, open, close, array)) =
+          macro_mixed_arguments(node, shape.limits.spacing, shape.limits.inside_macro) =>
       {
-        return None;
+        let width = if array {
+          shape.limits.array
+        } else {
+          shape.limits.fn_call
+        };
+        let shape = Shape {
+          limits: Limits {
+            comma_as_written: true,
+            inside_macro: true,
+            ..shape.limits
+          },
+          ..shape
+        };
+        return rewrite_list(&name, &items, shape, width, open, close);
       }
-      let closes = text
-        .lines()
-        .last()
-        .is_some_and(|l| l.trim().chars().all(|c| matches!(c, '}' | ')' | ']')));
-      return Some(if closes {
-        super::file::preserve_layout(&text, shape.indent, &shape.limits.config())
-      } else {
-        text
-      });
-    }
-    Err(Unread::Braced(name)) => return braced_macro(node, &name, shape),
-    Err(Unread::Declined) => return None,
-  };
+      Err(Unread::AsWritten) => {
+        super::macros::macro_failed();
+        // From its name to its arguments' closing delimiter: the comments an item carries
+        // before it and its `;` are not the call's.
+        let whole = node.text();
+        let from = node
+          .descendant_nodes_where(|kind| kind == SyntaxKind::Path)
+          .next()
+          .map_or(0, |path| {
+            (path.text_range().start - node.text_range().start) as usize
+          });
+        let end = node
+          .descendant_nodes_where(|kind| kind == SyntaxKind::TokenTree)
+          .next()
+          .map_or(whole.len(), |tree| {
+            (tree.text_range().end - node.text_range().start) as usize
+          });
+        let text = whole[from..end].to_string();
+        if !text.contains('\n') {
+          return Some(text);
+        }
+        if node
+          .token_texts()
+          .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+        {
+          return None;
+        }
+        let closes = text
+          .lines()
+          .last()
+          .is_some_and(|l| l.trim().chars().all(|c| matches!(c, '}' | ')' | ']')));
+        return Some(if closes {
+          super::file::preserve_layout(&text, shape.indent, &shape.limits.config())
+        } else {
+          text
+        });
+      }
+      Err(Unread::Braced(name)) => return braced_macro(node, &name, shape),
+      Err(Unread::Declined) => return None,
+    };
   let width = if array {
     shape.limits.array
   } else {
@@ -3581,22 +3615,10 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       Some(format!("{}{}", prefix, inner))
     }
     SyntaxKind::MacroExpr | SyntaxKind::MacroCall => rewrite_macro(node, shape),
-    // A literal must fit (the standard formatter's `wrap_str`); a string inside a macro's
-    // arguments is kept however long, as the standard formatter leaves the macro call as
-    // written when it does not fit.
+    // A literal must fit (the standard formatter's `wrap_str`): in a macro's arguments too,
+    // the call then kept as written where that fits (`rewrite_or_written`).
     SyntaxKind::Literal => {
       let text = flat(node, shape.limits.spacing);
-      let string = node.first_token().is_some_and(|t| {
-        matches!(
-          t.kind(),
-          SyntaxKind::Str
-            | SyntaxKind::ByteStr
-            | SyntaxKind::CStr
-            | SyntaxKind::RawStr
-            | SyntaxKind::RawByteStr
-            | SyntaxKind::RawCStr
-        )
-      });
       // A raw string that does not fit is kept as written (the standard formatter's
       // `format_expr`), a raw byte or C string is not.
       let raw = node
@@ -3609,15 +3631,7 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
           .first_token()
           .is_some_and(|t| t.kind() == SyntaxKind::Str)
         && text.lines().rev().skip(1).all(|line| line.ends_with('\\'));
-      // In a macro's arguments a string is kept however wide, but for a plain one spanning
-      // lines with a later line past the line width (`rewrite_string_lit` fails it).
-      // Its last line within the shape, for what follows it (`filtered_str_fits`).
-      let too_wide = !raw
-        && !continued
-        && text.contains('\n')
-        && (later_lines(&text).any(|(line, _)| line.width() > shape.limits.max_width)
-          || last_line_width(&text) > shape.indent + shape.offset + shape.width);
-      if string && shape.limits.inside_macro && !too_wide || continued {
+      if continued {
         Some(text)
       } else if raw {
         fits_shape(text.clone(), shape).or(Some(text))
@@ -3850,8 +3864,8 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let mut fields = Vec::new();
   let mut spread = None;
   let mut after_dots = false;
-  // Fields followed by a blank line after their comma, before another field or the rest:
-  // laid out a field per line, the standard formatter keeps one there.
+  // Fields followed by a blank line after their comma, before another field or a struct
+  // literal's base: laid out a field per line, the standard formatter keeps one there.
   let mut blank_after = Vec::new();
   let mut comma = false;
   let mut blank = false;
@@ -3862,9 +3876,12 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
         blank = comma && t.text().matches('\n').count() > 1;
       }
       SyntaxElement::Token(t) if t.kind().is_trivia() => {}
-      // Not before `}`.
+      // Not before `}`, nor before a pattern's `..`, which the standard formatter adds after
+      // the list.
       _ => {
-        if blank && element.kind() != SyntaxKind::RBrace {
+        let rest = matches!(&element, SyntaxElement::Node(n) if n.kind() == SyntaxKind::RecordPatField
+          && n.children().first().is_some_and(|c| c.kind() == SyntaxKind::RestPat));
+        if blank && element.kind() != SyntaxKind::RBrace && !rest {
           blank_after.push(fields.len());
         }
         (comma, blank) = (false, false);
@@ -4179,7 +4196,8 @@ fn rustc_rejects(list: &SyntaxNode) -> bool {
     return true;
   }
   // `<-` written touching (the obsolete in-place arrow) and `builtin #` rustc rejects or
-  // keeps apart; a `#` outside an attribute is left as written.
+  // keeps apart; a `#` outside an attribute is left as written, but in a macro call's own
+  // arguments (`quote!(#x)`), which take any tokens.
   // Kinds and ranges only: no handles.
   let tokens: Vec<(SyntaxKind, &str, TextRange)> = list
     .token_texts()
@@ -4200,7 +4218,10 @@ fn rustc_rejects(list: &SyntaxNode) -> bool {
       && w[0].2.end == w[1].2.start
       && !generic_opens.contains(&w[0].2.start)
   })
-    || tokens.iter().any(|t| t.0 == SyntaxKind::Pound)
+    || list.descendants_with_tokens_iter().any(|e| {
+      matches!(&e, SyntaxElement::Token(t) if t.kind() == SyntaxKind::Pound
+        && t.parent().kind() != SyntaxKind::TokenTree)
+    })
     // No binder after `?` (`?for<> Trait`).
     || tokens
       .windows(2)

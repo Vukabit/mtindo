@@ -88,6 +88,98 @@ pub(super) fn format_item(text: &str, indent: usize, config: &FormatConfig) -> O
   Some(lines.join("\n"))
 }
 
+/// A `lazy_static!` call's braces as the standard formatter's `format_lazy_static` writes
+/// them: each `static ref NAME: TYPE = VALUE;`, with its visibility, on a line of its own
+/// one level in from `indent`, its value placed as an assignment's is. `None` for a call
+/// holding a comment, one not in braces (whose delimiters would change), or what does not
+/// read as such entries.
+pub(super) fn lazy_static_body(
+  call: &SyntaxNode,
+  indent: usize,
+  config: &FormatConfig,
+) -> Option<String> {
+  let path = call.children_iter().find(|c| c.kind() == K::Path)?;
+  let tree = call.children_iter().find(|c| c.kind() == K::TokenTree)?;
+  if path.text() != "lazy_static"
+    || tree.first_token()?.kind() != K::LBrace
+    || call.subtree_has(|kind| {
+      matches!(kind, K::LineComment | K::BlockComment) || super::items::is_doc(kind)
+    })
+  {
+    return None;
+  }
+  // The entries as `static` items: each `ref` after `static` left out (words, in a token
+  // tree).
+  let inside: Vec<SyntaxElement> = tree.children_with_tokens_iter().collect();
+  let inside = inside.get(1..inside.len().checked_sub(1)?)?;
+  let mut source = String::new();
+  let mut refs = 0;
+  let mut after_static = false;
+  for element in inside {
+    match element {
+      SyntaxElement::Token(t) if t.kind() == K::Whitespace => source.push_str(t.text()),
+      SyntaxElement::Token(t) if after_static && t.text() == "ref" => {
+        refs += 1;
+        after_static = false;
+      }
+      element => {
+        after_static = matches!(element, SyntaxElement::Token(t) if t.text() == "static");
+        match element {
+          SyntaxElement::Token(t) => source.push_str(t.text()),
+          SyntaxElement::Node(n) => source.push_str(&n.text().to_string()),
+        }
+      }
+    }
+  }
+  let parsed = parse(&source, Edition::E2021);
+  if !parsed.errors().is_empty() {
+    return None;
+  }
+  let root = parsed.syntax_node();
+  let statics: Vec<SyntaxNode> = root.children_iter().collect();
+  if refs == 0
+    || statics.len() != refs
+    || statics
+      .iter()
+      .any(|s| s.kind() != K::Static || s.children_iter().any(|c| c.kind() == K::Attr))
+  {
+    return None;
+  }
+  let nested = indent + config.tab_spaces;
+  let shape = super::stmt::statement_shape(nested, config)?;
+  let spacing = shape.limits.spacing;
+  let mut entries = Vec::with_capacity(statics.len());
+  for item in &statics {
+    let visibility = item
+      .children_iter()
+      .find(|c| c.kind() == K::Visibility)
+      .map_or(String::new(), |v| {
+        format!("{} ", super::expr::flat(&v, spacing))
+      });
+    let name = item.children_iter().find(|c| c.kind() == K::Name)?;
+    let ty = item
+      .children_iter()
+      .find(|c| super::types::is_type(c.kind()))?;
+    let value = item.children_iter().next_back().filter(|v| v != &ty)?;
+    let head = format!(
+      "{}static ref {}: {} =",
+      visibility,
+      super::expr::flat(&name, spacing),
+      super::types::rewrite_type(&ty, shape)?
+    );
+    entries.push(format!(
+      "{};",
+      super::expr::assign_value(&head, &value, shape.sub_width(1)?)?
+    ));
+  }
+  Some(format!(
+    "{{\n{}{}\n{}}}",
+    " ".repeat(nested),
+    entries.join(&format!("\n{}", " ".repeat(nested))),
+    " ".repeat(indent)
+  ))
+}
+
 /// Notes that a macro call could not be laid out (or was left as written for arguments
 /// that do not read as code).
 pub(super) fn macro_failed() {

@@ -82,7 +82,7 @@ impl<'a> Sink<'a> {
     if self
       .builder
       .current_kind()
-      .is_some_and(SyntaxKind::is_attachable)
+      .is_some_and(|kind| attaches(kind, self.builder.parent_kind()))
     {
       self.pending_trivia();
       let attached = attach::trailing(&self.trivia);
@@ -132,7 +132,7 @@ impl<'a> Sink<'a> {
       self.builder.start_node(kind);
       return;
     }
-    if !kind.is_attachable() {
+    if !attaches(kind, self.builder.current_kind()) {
       let trivia = self.pending_trivia_len();
       self.emit_raw(trivia);
       self.builder.start_node(kind);
@@ -166,7 +166,6 @@ impl<'a> Sink<'a> {
   }
 }
 
-/// A problem found while lexing or parsing, with where it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxError {
   pub message: String,
@@ -187,6 +186,12 @@ impl TreeBuilder {
   /// The kind of the innermost open node.
   pub fn current_kind(&self) -> Option<SyntaxKind> {
     self.parents.last().map(|(kind, _)| *kind)
+  }
+
+  /// The kind of the node the innermost open node is in.
+  pub fn parent_kind(&self) -> Option<SyntaxKind> {
+    let len = self.parents.len();
+    len.checked_sub(2).map(|i| self.parents[i].0)
   }
 
   pub fn depth(&self) -> usize {
@@ -280,6 +285,13 @@ pub fn build_tree(
     });
   }
   (sink.builder.finish(text), sink.errors, depth)
+}
+
+/// A problem found while lexing or parsing, with where it is.
+/// Whether a node of `kind` in one of `parent` owns comments around it: an attachable one,
+/// but a macro call in an expression (`MACRO_EXPR`), which is not in item position.
+fn attaches(kind: SyntaxKind, parent: Option<SyntaxKind>) -> bool {
+  kind.is_attachable() && !(kind == SyntaxKind::MacroCall && parent == Some(SyntaxKind::MacroExpr))
 }
 
 #[cfg(test)]

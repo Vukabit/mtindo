@@ -866,3 +866,31 @@ fn test_what_is_left_as_written() {
     broken
   );
 }
+
+#[test]
+fn test_what_no_layout_fits_and_macros_kept_as_written() {
+  let config = FormatConfig {
+    max_width: 79,
+    ..FormatConfig::default()
+  };
+  // A statement no layout fits is left as written whole, its spaces too; a macro call
+  // whose arguments do not fit on the next line is kept there as written (`write!(  f,`),
+  // which the next line is chosen for.
+  assert_eq!(
+    formatted_with(
+      "impl X {\n    fn f() {\n        let\tall\n    =\t<<V as\n\tVector>::Eq\n    as  CmpEq>::Mask::all_zeros_except_least_significant(0);\n        let x = write!(  f,\n        \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    );\n        match *self {\n            A =>\n    write!(  f,\n        \"error computing start state because of cache inefficiency\"\n    ),\n            _ => 1,\n        }\n    }\n}\n",
+      &config
+    ),
+    "impl X {\n    fn f() {\n        let\tall\n    =\t<<V as\n\tVector>::Eq\n    as  CmpEq>::Mask::all_zeros_except_least_significant(0);\n        let x = write!(\n            f,\n            \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n        );\n        match *self {\n            A => {\n                write!(  f,\n        \"error computing start state because of cache inefficiency\"\n    )\n            }\n            _ => 1,\n        }\n    }\n}\n"
+  );
+  // A method chain holding a line past the line width is left as written; a block of
+  // comments keeps the first on its `{`'s line, the others a column further in; a
+  // `lazy_static!` call's entries are laid out as statics; a macro definition left as
+  // written has its attributes laid out, and one space before its comment.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    fields.map(|field| { a; { match x { None => { (w, t) = quote!({ _serde::de::SeqAccess::next_element::<#wrapper_ty>(&mut __seq) { } }) } }; } });\n    match res {\n        Ok(_) => {  // first\n            // second\n        }\n        Err(a) => {  // third\n            g();\n        }\n    }\n}\nlazy_static! {\n        static  ref  A:\tMutex<u32> = {\n  Mutex::new(1)\n};\n    pub static ref B: u8 =\n2;\n}\n/// Doc one\n        /// doc two\n#[macro_export]\n\tmacro_rules!\n    m\n{ ($($tt:tt)*) => { if  a() && b() && c() && d() && e() && f() && g() && h() && i() && j() && k() { $($tt)* } } }\t// After.\n"
+    ),
+    "fn f() {\n    fields.map(|field| { a; { match x { None => { (w, t) = quote!({ _serde::de::SeqAccess::next_element::<#wrapper_ty>(&mut __seq) { } }) } }; } });\n    match res {\n        Ok(_) => { // first\n             // second\n        }\n        Err(a) => {\n            // third\n            g();\n        }\n    }\n}\nlazy_static! {\n    static ref A: Mutex<u32> = { Mutex::new(1) };\n    pub static ref B: u8 = 2;\n}\n/// Doc one\n/// doc two\n#[macro_export]\nmacro_rules!\n    m\n{ ($($tt:tt)*) => { if  a() && b() && c() && d() && e() && f() && g() && h() && i() && j() && k() { $($tt)* } } } // After.\n"
+  );
+}

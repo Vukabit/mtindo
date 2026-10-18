@@ -1408,7 +1408,7 @@ fn right_side(
   // spanning lines leaves them.
   let head_width = last_line_used(head, indent) + 1;
   let same_shape = shape.offset_left(head_width).and_then(|s| s.sub_width(1));
-  let same_line = same_shape.and_then(|s| rewrite(value, s));
+  let same_line = same_shape.and_then(|s| super::expr::rewrite_or_written(value, s));
   // On one line where it is, when it fits there.
   if let (Some(same), Some(s)) = (&same_line, same_shape)
     && !same.contains('\n')
@@ -1417,7 +1417,7 @@ fn right_side(
     return Some(format!("{} {};", head, same));
   }
   let next_shape = shape.block_indent(tab).sub_width(1);
-  let next_line = next_shape.and_then(|s| rewrite(value, s));
+  let next_line = next_shape.and_then(|s| super::expr::rewrite_or_written(value, s));
   let pad = " ".repeat(indent + tab);
   // The next line's first line within its shape, room for the `;` kept (the standard
   // formatter's `filtered_str_fits`).

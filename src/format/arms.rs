@@ -71,7 +71,12 @@ pub fn rewrite_arm_in(
     Some(guard) => Some(guard.children_iter().next()?),
     None => None,
   };
-  if condition.as_ref().is_some_and(|c| !clean_expression(c)) {
+  // A condition of operators holding a comment, which their layout would lose: as written
+  // (the standard formatter's `recover_comment_removed`).
+  let written_guard = condition.as_ref().is_some_and(|c| {
+    c.kind() == K::BinExpr && c.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
+  });
+  if !written_guard && condition.as_ref().is_some_and(|c| !clean_expression(c)) {
     return None;
   }
   let mut shape = statement_shape(indent, config)?;
@@ -80,7 +85,7 @@ pub fn rewrite_arm_in(
   // 5 = ` => {`
   let pattern_text = rewrite(pattern, shape.sub_width(5)?)?;
   let guard_text = match &condition {
-    Some(condition) => rewrite_guard(condition, shape, &pattern_text, tab)?,
+    Some(condition) => rewrite_guard(condition, shape, &pattern_text, tab, written_guard)?,
     None => String::new(),
   };
   let lhs = format!("{}{}", pattern_text, guard_text);
@@ -234,7 +239,7 @@ pub fn rewrite_arm_in(
       let same = if forbid_same_line {
         None
       } else {
-        same_shape.and_then(|s| rewrite(body, s))
+        same_shape.and_then(|s| super::expr::rewrite_or_written(body, s))
       };
       let budget = same_shape.map_or(0, |s| s.width);
       let fits = |text: &String| !text.contains('\n') && str_width(text) <= budget;
@@ -242,7 +247,7 @@ pub fn rewrite_arm_in(
         Some(same) if fits(&same) => Arm::Whole(format!("{}{}{},", lhs, arrow, same)),
         same => {
           // On the next line, in a block of its own, when that looks better.
-          let next = rewrite(
+          let next = super::expr::rewrite_or_written(
             body,
             Shape {
               indent: indent + tab,
@@ -311,13 +316,35 @@ pub fn rewrite_arm_in(
       crate::syntax::SyntaxElement::Node(n) => n.text().to_string(),
     })
     .collect();
-  let placed = matches!(&laid, Arm::Whole(text) if {
-    let body_start = body.text_range().start as usize;
-    node.descendants_with_tokens_iter().all(|e| {
+  // A guard's as written keeps its own.
+  let in_guard = |at: usize| {
+    written_guard
+      && condition
+        .as_ref()
+        .is_some_and(|c| (c.text_range().start as usize..c.text_range().end as usize).contains(&at))
+  };
+  let placed = match &laid {
+    Arm::Whole(text) => {
+      let body_start = body.text_range().start as usize;
+      node.descendants_with_tokens_iter().all(|e| {
+        let at = e.text_range().start as usize;
+        !(at >= start
+          && at < body_start
+          && matches!(e.kind(), K::LineComment | K::BlockComment)
+          && !in_guard(at))
+      }) && comments
+        .iter()
+        .all(|c| text.matches(c.as_str()).count() >= comments.iter().filter(|d| *d == c).count())
+    }
+    // A head holds no comment but its guard's.
+    Arm::Head(_) => node.descendants_with_tokens_iter().all(|e| {
       let at = e.text_range().start as usize;
-      !(at >= start && at < body_start && matches!(e.kind(), K::LineComment | K::BlockComment))
-    }) && comments.iter().all(|c| text.matches(c.as_str()).count() >= comments.iter().filter(|d| *d == c).count())
-  });
+      !(at >= start
+        && at < comment_end
+        && matches!(e.kind(), K::LineComment | K::BlockComment)
+        && !in_guard(at))
+    }),
+  };
   if !comments.is_empty() && !placed {
     return None;
   }
@@ -400,7 +427,15 @@ fn rewrite_guard(
   shape: Shape,
   pattern: &str,
   tab: usize,
+  written: bool,
 ) -> Option<String> {
+  let laid = |s: Shape| {
+    if written {
+      Some(condition.text().to_string().trim().to_string())
+    } else {
+      rewrite(condition, s)
+    }
+  };
   let last = pattern.rsplit('\n').next().unwrap_or("");
   let pattern_width = str_width(last.trim());
   let multi_line_pattern = pattern.contains('\n') && pattern_width > tab;
@@ -408,12 +443,12 @@ fn rewrite_guard(
     && let Some(same) = shape
       .offset_left(pattern_width + 4)
       .and_then(|s| s.sub_width(5))
-      .and_then(|s| rewrite(condition, s))
+      .and_then(laid)
     && (!same.contains('\n') || pattern_width <= tab)
   {
     return Some(format!(" if {}", same));
   }
   let nested = shape.block_indent(tab);
-  let text = rewrite(condition, nested.offset_left(3)?.sub_width(5)?)?;
+  let text = laid(nested.offset_left(3)?.sub_width(5)?)?;
   Some(format!("\n{}if {}", " ".repeat(nested.indent), text))
 }

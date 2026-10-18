@@ -169,11 +169,13 @@ fn list_text(
   config: &FormatConfig,
 ) -> Option<String> {
   let mut items = items(list);
-  // One item alone keeps its braces only with a comment (`{self // why}`).
+  // One item alone keeps its braces only with a comment (`{self // why}`), or when it is
+  // `self` (`{self as name}`).
   let commented = list
     .children_with_tokens_iter()
     .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment));
-  if items.is_empty() || items.len() < 2 && !commented {
+  let lone_self = items.len() == 1 && items[0].first_token().is_some_and(|t| t.text() == "self");
+  if items.is_empty() || items.len() < 2 && !commented && !lone_self {
     return None;
   }
   // In the order the standard formatter sorts a nested list in (`UseTree::normalize`).
@@ -249,11 +251,16 @@ fn list_text(
     let pad = " ".repeat(inner_indent);
     return Some(format!("{{\n{}{}\n{}}}", pad, body, " ".repeat(indent)));
   }
-  // A list holding a list of two or more never stays on one line.
+  // A list holding a list of two or more, or of `self` (`a::{self}`), never stays on one
+  // line.
   let nested = items.iter().any(|item| {
-    item
-      .children_iter()
-      .any(|c| c.kind() == K::UseTreeList && self::items(&c).len() > 1)
+    item.children_iter().any(|c| {
+      c.kind() == K::UseTreeList && {
+        let inner = self::items(&c);
+        inner.len() > 1
+          || inner.len() == 1 && inner[0].first_token().is_some_and(|t| t.text() == "self")
+      }
+    })
   });
   let one_line: usize = texts.iter().map(|t| str_width(t)).sum::<usize>() + 2 * (texts.len() - 1);
   // 2 = `{}`; the standard formatter keeps two columns more free, found by measuring it.

@@ -576,12 +576,17 @@ fn code_start(item: &SyntaxNode) -> usize {
 fn has_comment(run: &[SyntaxNode]) -> bool {
   let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment));
   // One inside a `use`'s braces moves with it, and is laid out with its list; so does a block
-  // comment before its `;`, which goes after it.
+  // comment before its `;`, which goes after it, and one between its attributes and `use`,
+  // kept with them.
   let commented = |item: &SyntaxNode, from: usize, to: usize| {
+    let body = (item.kind() == K::Use)
+      .then(|| super::imports::body_start(item))
+      .flatten()
+      .unwrap_or(from);
     item.descendants_with_tokens_iter().any(|e| {
       matches!(&e, SyntaxElement::Token(t)
         if matches!(t.kind(), K::LineComment | K::BlockComment)
-          && t.text_range().start as usize >= from
+          && t.text_range().start as usize >= body
           && (t.text_range().start as usize) < to
           && !(item.kind() == K::Use
             && (t.parent().kind() == K::UseTreeList

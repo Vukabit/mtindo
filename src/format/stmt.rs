@@ -103,10 +103,20 @@ pub fn rewrite_control_head(
       )
       && t.parent().children_iter().next().is_some()
   };
+  // An attribute only on an element or a struct literal's field, laid out with it.
+  let element_attribute = |t: &SyntaxToken| {
+    t.parent().kind() == K::Attr
+      && t.parent().parent().is_some_and(|p| {
+        matches!(
+          p.kind(),
+          K::ArrayExpr | K::ArgList | K::TupleExpr | K::RecordExprField
+        )
+      })
+  };
   if head.iter().any(|t| {
     (t.kind().is_trivia() && t.kind() != K::Whitespace && !listed(t))
       || super::items::is_doc(t.kind())
-      || t.kind() == K::Pound
+      || t.kind() == K::Pound && !element_attribute(t)
       || t.kind().is_literal() && t.text().contains('\n')
   }) {
     return None;
@@ -552,8 +562,8 @@ pub fn rewrite_let_control(
   if head.contains('\n') {
     return None;
   }
-  // On the `let`'s line, the head on one line within the line width; else a `match` on the
-  // next line one level in when it fits on one line there and the `let`'s line would take
+  // On the `let`'s line, the head on one line within the line width; else a `match` or an
+  // `if` on the next line one level in when it fits on one line there and the `let`'s line would take
   // it across two lines more (the standard formatter's `prefer_next_line`).
   let column = indent + str_width(&head) + 1;
   let same = rewrite_control_head(&value, indent, column, config);
@@ -568,9 +578,8 @@ pub fn rewrite_let_control(
       links: Vec::new(),
     });
   }
-  // A `match` only: the whole-file pass indents an `if`'s or a loop's block from the line
-  // it was written on.
-  if value.kind() != K::MatchExpr {
+  // A `match` or an `if` (`rewrite_cond` puts a loop's head on its line).
+  if !matches!(value.kind(), K::MatchExpr | K::IfExpr) {
     return None;
   }
   let nested = indent + config.tab_spaces;
@@ -730,6 +739,16 @@ pub(super) fn safe(element: &SyntaxElement) -> bool {
               | K::RecordPatFieldList
           )
           || t.parent().kind() == K::TokenTree && macro_arguments_tree(&t.parent())) =>
+    {
+      true
+    }
+    // A comment in a struct literal kept as written for it.
+    SyntaxElement::Token(t)
+      if matches!(t.kind(), K::LineComment | K::BlockComment)
+        && t
+          .parent()
+          .ancestors_iter()
+          .any(|a| super::expr::lost_field_comment(&a)) =>
     {
       true
     }

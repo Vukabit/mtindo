@@ -601,6 +601,23 @@ pub fn joins(block: &SyntaxNode) -> bool {
     return true;
   }
   match parent.kind() {
+    // A plain block ending a block, from style edition 2024 an expression: on one line
+    // when what it holds is. Before, a statement, on lines.
+    SyntaxKind::BlockExpr if plain_tail_block(block) => {
+      super::file::style_2024()
+        && lone_expression(block).is_some_and(|inside| {
+          !matches!(
+            inside.kind(),
+            SyntaxKind::LoopExpr
+              | SyntaxKind::WhileExpr
+              | SyntaxKind::ForExpr
+              | SyntaxKind::MatchExpr
+          ) && !(inside.kind() == SyntaxKind::IfExpr
+            && !inside
+              .children_with_tokens_iter()
+              .any(|e| e.kind() == SyntaxKind::ElseKw))
+        })
+    }
     SyntaxKind::ExprStmt
     | SyntaxKind::BlockExpr
     | SyntaxKind::MatchArm
@@ -735,6 +752,19 @@ pub fn one_line_if_block(block: &SyntaxNode) -> bool {
   lone_branches(&node)
 }
 
+/// Whether `block` is a block of its own (no `unsafe`, `const`, `async`, label or
+/// attribute) ending the block it stands in.
+pub fn plain_tail_block(block: &SyntaxNode) -> bool {
+  block.kind() == SyntaxKind::BlockExpr
+    && block.parent().is_some_and(|p| {
+      p.kind() == SyntaxKind::BlockExpr && p.children_iter().next_back().as_ref() == Some(block)
+    })
+    && block
+      .children_with_tokens_iter()
+      .take_while(|e| e.kind() != SyntaxKind::LBrace)
+      .all(|e| e.kind().is_trivia())
+}
+
 /// The standard formatter moves a right-hand side that does not fit on one line where it is
 /// to the next line when it is on one line there, when that saves more than one line, or
 /// when its first line would otherwise end by opening a delimiter that the next line's does
@@ -765,7 +795,11 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
   });
   let laid = |node: &SyntaxNode, shape: Shape| {
     let attributes = element_attributes(node)?;
-    let text = recover_comments(node, rewrite_node(node, shape)?);
+    let text = if lost_field_comment(node) {
+      node.text().to_string()
+    } else {
+      recover_comments(node, rewrite_node(node, shape)?)
+    };
     with_attributes(&attributes, text, shape)
   };
   match kept {
@@ -862,6 +896,28 @@ pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
       },
     )
   })
+}
+
+/// Whether `node` is a struct literal with a comment between a field's attribute and the
+/// field, which the standard formatter's layout loses and so keeps the literal as written
+/// (`recover_comment_removed`).
+pub(super) fn lost_field_comment(node: &SyntaxNode) -> bool {
+  node.kind() == SyntaxKind::RecordExpr
+    && node
+      .descendant_nodes_where(|kind| kind == SyntaxKind::RecordExprField)
+      .filter(|field| field.ancestors_iter().nth(2).as_ref() == Some(node))
+      .any(|field| {
+        let mut after_attribute = false;
+        for element in field.children_with_tokens_iter() {
+          match element.kind() {
+            SyntaxKind::Attr => after_attribute = true,
+            SyntaxKind::LineComment | SyntaxKind::BlockComment if after_attribute => return true,
+            kind if kind.is_trivia() => {}
+            _ => return false,
+          }
+        }
+        false
+      })
 }
 
 /// Whether a control expression's head spans lines laid out in `shape`.
@@ -1458,6 +1514,27 @@ pub(super) fn rewrite_list(
   }
 }
 
+/// Whether a macro call's arguments in parentheses or brackets cannot be read as code, so
+/// the standard formatter keeps them as written: as with ones that are only comments.
+pub(super) fn unread_macro(call: &SyntaxNode) -> bool {
+  let comments_only = call
+    .children_iter()
+    .find(|c| c.kind() == SyntaxKind::TokenTree)
+    .is_some_and(|tree| {
+      let inside: Vec<SyntaxKind> = tree.children_with_tokens_iter().map(|e| e.kind()).collect();
+      inside.len() > 2
+        && inside[1..inside.len() - 1].iter().all(|k| k.is_trivia())
+        && inside
+          .iter()
+          .any(|k| matches!(k, SyntaxKind::LineComment | SyntaxKind::BlockComment))
+    });
+  comments_only
+    || matches!(
+      read_macro_arguments(call, Spacing::default()),
+      Err(Unread::AsWritten)
+    )
+}
+
 /// A text after its outer attributes, each on a line of its own at the shape's indentation
 /// (the standard formatter's `combine_strs_with_missing_comments`, never extending a line).
 pub(super) fn with_attributes(
@@ -1825,9 +1902,21 @@ fn closure_with_block(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
       | SyntaxKind::WhileExpr
       | SyntaxKind::ForExpr
   );
+  // An `async` block, seen through `&` and unary operators, the standard formatter puts in
+  // no block either (found by measuring it).
+  let mut inner = body.clone();
+  while matches!(inner.kind(), SyntaxKind::RefExpr | SyntaxKind::PrefixExpr)
+    && let Some(operand) = inner.children().into_iter().next()
+  {
+    inner = operand;
+  }
+  let asynchronous = inner.kind() == SyntaxKind::BlockExpr
+    && inner
+      .children_with_tokens_iter()
+      .any(|e| e.kind() == SyntaxKind::AsyncKw);
   // A macro called with nothing the standard formatter puts in no block (found by
   // measuring it).
-  if vetoed || empty_macro(body) {
+  if vetoed || asynchronous || empty_macro(body) {
     return None;
   }
   let block = super::block::wrapped(body, shape)?;
@@ -2205,127 +2294,13 @@ fn lone_branches(node: &SyntaxNode) -> bool {
 }
 
 fn macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments, Unread> {
-  use Unread::{AsWritten, Declined};
-  let call = if node.kind() == SyntaxKind::MacroExpr {
-    node
-      .children()
-      .into_iter()
-      .find(|c| c.kind() == SyntaxKind::MacroCall)
-      .ok_or(Declined)?
-  } else {
-    node.clone()
-  };
-  let tree = call
-    .children()
-    .into_iter()
-    .find(|c| c.kind() == SyntaxKind::TokenTree)
-    .ok_or(Declined)?;
-  let path = call
-    .children()
-    .into_iter()
-    .find(|c| c.kind() == SyntaxKind::Path)
-    .ok_or(Declined)?;
-  let name = format!("{}!", flat(&path, spacing));
-  // In braces, kept as written: comments in them too. But `vec! {..}`, which the standard
-  // formatter writes as `vec![..]` (`FORCED_BRACKET_MACROS`).
-  let braced = tree
-    .first_token()
-    .is_some_and(|t| t.kind() == SyntaxKind::LBrace);
-  if braced && name != "vec!" {
-    return Err(Unread::Braced(name));
+  let read = read_macro_arguments(node, spacing);
+  if matches!(read, Err(Unread::AsWritten)) && super::explain::active() {
+    super::explain::note("MACRO_CALL", &node.text().to_string(), || {
+      "macro arguments not read as expressions or a list, so kept as written".to_string()
+    });
   }
-  // Comments on a line, which the arguments read again as code place (between the
-  // arguments, in a block or another list); the statement's check makes sure each is kept.
-  if tree.descendants_with_tokens().iter().any(|e| match e {
-    SyntaxElement::Token(t) if t.kind().is_trivia() && t.kind() != SyntaxKind::Whitespace => {
-      t.kind() == SyntaxKind::BlockComment && t.text().contains('\n')
-    }
-    _ => false,
-  }) {
-    return Err(Declined);
-  }
-  let mut inner = tree.text().to_string();
-  let mut delimiter = tree
-    .children_with_tokens()
-    .into_iter()
-    .find(|e| !e.kind().is_trivia())
-    .ok_or(Declined)?
-    .kind();
-  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
-  if name == "vec!" && matches!(delimiter, SyntaxKind::LParen | SyntaxKind::LBrace) {
-    if inner.len() < 2 {
-      return Err(Declined);
-    }
-    inner = format!("[{}]", &inner[1..inner.len() - 1]);
-    delimiter = SyntaxKind::LBrack;
-  }
-  let (source, list_kind, open, close, array) = match delimiter {
-    SyntaxKind::LParen if name != "vec!" => (
-      format!("fn f() {{\n__mto_macro{};\n}}", inner),
-      SyntaxKind::ArgList,
-      "(",
-      ")",
-      false,
-    ),
-    // `[x; n]` only for `vec!` itself (`FORCED_BRACKET_MACROS`): `alloc::vec![0; k]` is
-    // left as written.
-    SyntaxKind::LBrack
-      if name != "vec!"
-        && tree
-          .children_with_tokens()
-          .iter()
-          .any(|e| e.kind() == SyntaxKind::Semi) =>
-    {
-      return Err(AsWritten);
-    }
-    SyntaxKind::LBrack => (
-      format!("fn f() {{\n{};\n}}", inner),
-      SyntaxKind::ArrayExpr,
-      "[",
-      "]",
-      true,
-    ),
-    _ => return Err(AsWritten),
-  };
-  let parsed = crate::syntax::parse(&source, Edition::E2021);
-  if !parsed.errors().is_empty() {
-    return Err(AsWritten);
-  }
-  let root = parsed.syntax_node();
-  let statement = root
-    .descendants()
-    .into_iter()
-    .find(|n| n.kind() == SyntaxKind::ExprStmt)
-    .ok_or(AsWritten)?;
-  let expression = statement.children().into_iter().next().ok_or(AsWritten)?;
-  let list = match list_kind {
-    SyntaxKind::ArgList => {
-      if expression.kind() != SyntaxKind::CallExpr {
-        return Err(AsWritten);
-      }
-      expression
-        .children()
-        .into_iter()
-        .find(|c| c.kind() == SyntaxKind::ArgList)
-        .ok_or(AsWritten)?
-    }
-    _ => {
-      if expression.kind() != SyntaxKind::ArrayExpr {
-        return Err(AsWritten);
-      }
-      expression
-    }
-  };
-  if rustc_rejects(&list) {
-    return Err(AsWritten);
-  }
-  Ok(MacroArguments {
-    name,
-    list,
-    open,
-    close,
-    array,
-  })
+  read
 }
 
 /// A macro call whose argument in parentheses or brackets is an item alone (one not holding
@@ -2553,14 +2528,14 @@ fn macro_type_arguments(node: &SyntaxNode, spacing: Spacing) -> Option<MacroArgu
 }
 
 /// Whether a closure's body may span lines without a block of its own: a struct literal, a
-/// block, a `match` or a `loop`, seen through `&`, `?`, a unary operator and a cast (the
-/// standard formatter's `allow_multi_line`).
+/// block (not a `const` one), a `match` or a `loop`, seen through `&`, `?`, a unary
+/// operator and a cast (the standard formatter's `allow_multi_line`).
 fn multi_line_body(body: &SyntaxNode) -> bool {
   match body.kind() {
-    SyntaxKind::RecordExpr
-    | SyntaxKind::BlockExpr
-    | SyntaxKind::MatchExpr
-    | SyntaxKind::LoopExpr => true,
+    SyntaxKind::BlockExpr => !body
+      .children_with_tokens_iter()
+      .any(|e| e.kind() == SyntaxKind::ConstKw),
+    SyntaxKind::RecordExpr | SyntaxKind::MatchExpr | SyntaxKind::LoopExpr => true,
     SyntaxKind::RefExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr | SyntaxKind::CastExpr => {
       body.children().first().is_some_and(multi_line_body)
     }
@@ -2595,6 +2570,131 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
       | SyntaxKind::TuplePat
       | SyntaxKind::TupleStructPat
   ) && parent.children().len() == 1
+}
+
+/// [`macro_arguments`], without the note.
+fn read_macro_arguments(node: &SyntaxNode, spacing: Spacing) -> Result<MacroArguments, Unread> {
+  use Unread::{AsWritten, Declined};
+  let call = if node.kind() == SyntaxKind::MacroExpr {
+    node
+      .children()
+      .into_iter()
+      .find(|c| c.kind() == SyntaxKind::MacroCall)
+      .ok_or(Declined)?
+  } else {
+    node.clone()
+  };
+  let tree = call
+    .children()
+    .into_iter()
+    .find(|c| c.kind() == SyntaxKind::TokenTree)
+    .ok_or(Declined)?;
+  let path = call
+    .children()
+    .into_iter()
+    .find(|c| c.kind() == SyntaxKind::Path)
+    .ok_or(Declined)?;
+  let name = format!("{}!", flat(&path, spacing));
+  // In braces, kept as written: comments in them too. But `vec! {..}`, which the standard
+  // formatter writes as `vec![..]` (`FORCED_BRACKET_MACROS`).
+  let braced = tree
+    .first_token()
+    .is_some_and(|t| t.kind() == SyntaxKind::LBrace);
+  if braced && name != "vec!" {
+    return Err(Unread::Braced(name));
+  }
+  // Comments on a line, which the arguments read again as code place (between the
+  // arguments, in a block or another list); the statement's check makes sure each is kept.
+  if tree.descendants_with_tokens().iter().any(|e| match e {
+    SyntaxElement::Token(t) if t.kind().is_trivia() && t.kind() != SyntaxKind::Whitespace => {
+      t.kind() == SyntaxKind::BlockComment && t.text().contains('\n')
+    }
+    _ => false,
+  }) {
+    return Err(Declined);
+  }
+  let mut inner = tree.text().to_string();
+  let mut delimiter = tree
+    .children_with_tokens()
+    .into_iter()
+    .find(|e| !e.kind().is_trivia())
+    .ok_or(Declined)?
+    .kind();
+  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
+  if name == "vec!" && matches!(delimiter, SyntaxKind::LParen | SyntaxKind::LBrace) {
+    if inner.len() < 2 {
+      return Err(Declined);
+    }
+    inner = format!("[{}]", &inner[1..inner.len() - 1]);
+    delimiter = SyntaxKind::LBrack;
+  }
+  let (source, list_kind, open, close, array) = match delimiter {
+    SyntaxKind::LParen if name != "vec!" => (
+      format!("fn f() {{\n__mto_macro{};\n}}", inner),
+      SyntaxKind::ArgList,
+      "(",
+      ")",
+      false,
+    ),
+    // `[x; n]` only for `vec!` itself (`FORCED_BRACKET_MACROS`): `alloc::vec![0; k]` is
+    // left as written.
+    SyntaxKind::LBrack
+      if name != "vec!"
+        && tree
+          .children_with_tokens()
+          .iter()
+          .any(|e| e.kind() == SyntaxKind::Semi) =>
+    {
+      return Err(AsWritten);
+    }
+    SyntaxKind::LBrack => (
+      format!("fn f() {{\n{};\n}}", inner),
+      SyntaxKind::ArrayExpr,
+      "[",
+      "]",
+      true,
+    ),
+    _ => return Err(AsWritten),
+  };
+  let parsed = crate::syntax::parse(&source, Edition::E2021);
+  if !parsed.errors().is_empty() {
+    return Err(AsWritten);
+  }
+  let root = parsed.syntax_node();
+  let statement = root
+    .descendants()
+    .into_iter()
+    .find(|n| n.kind() == SyntaxKind::ExprStmt)
+    .ok_or(AsWritten)?;
+  let expression = statement.children().into_iter().next().ok_or(AsWritten)?;
+  let list = match list_kind {
+    SyntaxKind::ArgList => {
+      if expression.kind() != SyntaxKind::CallExpr {
+        return Err(AsWritten);
+      }
+      expression
+        .children()
+        .into_iter()
+        .find(|c| c.kind() == SyntaxKind::ArgList)
+        .ok_or(AsWritten)?
+    }
+    _ => {
+      if expression.kind() != SyntaxKind::ArrayExpr {
+        return Err(AsWritten);
+      }
+      expression
+    }
+  };
+  if rustc_rejects(&list) {
+    return Err(AsWritten);
+  }
+  Ok(MacroArguments {
+    name,
+    list,
+    open,
+    close,
+    array,
+  })
 }
 
 /// The text laid out for `node`, or the node as written when that lost a comment inside it:
@@ -4058,9 +4158,21 @@ fn rustc_rejects(list: &SyntaxNode) -> bool {
     .token_texts()
     .filter(|(kind, _, _)| !kind.is_trivia())
     .collect();
-  if tokens
-    .windows(2)
-    .any(|w| w[0].0 == SyntaxKind::Lt && w[1].0 == SyntaxKind::Minus && w[0].2.end == w[1].2.start)
+  // Not the `<` opening generic arguments (`f::<-1>()`).
+  let generic_opens: Vec<u32> = list
+    .descendant_nodes_where(|kind| kind == SyntaxKind::GenericArgList)
+    .filter_map(|n| {
+      n.children_with_tokens_iter()
+        .find(|e| e.kind() == SyntaxKind::Lt)
+        .map(|e| e.text_range().start)
+    })
+    .collect();
+  if tokens.windows(2).any(|w| {
+    w[0].0 == SyntaxKind::Lt
+      && w[1].0 == SyntaxKind::Minus
+      && w[0].2.end == w[1].2.start
+      && !generic_opens.contains(&w[0].2.start)
+  })
     || tokens.iter().any(|t| t.0 == SyntaxKind::Pound)
     // No binder after `?` (`?for<> Trait`).
     || tokens

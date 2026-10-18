@@ -262,16 +262,25 @@ pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
     let comments: Vec<usize> = (0..after.len())
       .filter(|&i| after[i].kind() != K::Whitespace)
       .collect();
+    // The first comment may end the arm's own line instead; the rest go under it.
+    let on_arm_line = !after.is_empty() && !starts_line(0);
     if comments.is_empty()
       || after.len() != comments.len() * 2 + 1
       || !(0..after.len()).all(|i| (i % 2 == 1) == (after[i].kind() != K::Whitespace))
-      || !(0..=comments.len()).all(|n| starts_line(n * 2))
-      || arm.last_token().is_some_and(|t| t.kind() == K::Comma) && !plain_block_body(&arm)
+      || !(0..=comments.len()).all(|n| starts_line(n * 2) || n == 0 && on_arm_line)
+      || on_arm_line && (comments.len() < 2 || after[1].kind() != K::LineComment)
+      || !on_arm_line
+        && arm.last_token().is_some_and(|t| t.kind() == K::Comma)
+        && !plain_block_body(&arm)
       || skipped_within(&list)
     {
       continue;
     }
-    let end = arm.text_range().end as usize;
+    let end = if on_arm_line {
+      after[1].text_range().start as usize - 1
+    } else {
+      arm.text_range().end as usize
+    };
     let line_start = text[..end].rfind('\n').map_or(0, |i| i + 1);
     // Under the first comment: the arm's line, each of its characters a space but tabs.
     let mut under: String = text[line_start..end]
@@ -286,6 +295,9 @@ pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
       let space = &after[i - 1];
       let range = space.text_range();
       let replacement = if n == 0 {
+        if on_arm_line {
+          continue;
+        }
         " ".to_string()
       } else {
         format!("\n{}", under)

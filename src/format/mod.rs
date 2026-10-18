@@ -7,6 +7,7 @@
 pub mod arms;
 pub mod attrs;
 pub mod block;
+pub mod explain;
 pub mod expr;
 pub mod file;
 pub mod imports;

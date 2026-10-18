@@ -25,14 +25,31 @@ pub fn list_comments(list: &SyntaxNode, items: &[SyntaxNode]) -> Option<Vec<Item
   if items.is_empty() {
     return None;
   }
-  // An item's code, without the comments attached to either end of it.
+  // An item's code, without the comments attached to either end of it; from the
+  // attributes written right before it, which a list holds beside its element.
   let code = |item: &SyntaxNode| {
     let mut tokens = item
       .descendants_with_tokens_iter()
       .filter(|e| matches!(e, crate::syntax::SyntaxElement::Token(t) if !t.kind().is_trivia()));
     let first = tokens.next()?.text_range();
     let last = tokens.last().map_or(first.end, |e| e.text_range().end);
-    Some((first.start as usize, last as usize))
+    let mut start = first.start as usize;
+    let mut before = item.prev_sibling_or_token();
+    while let Some(element) = before {
+      match &element {
+        crate::syntax::SyntaxElement::Token(t)
+          if t.kind() == crate::syntax::SyntaxKind::Whitespace => {}
+        crate::syntax::SyntaxElement::Node(n) if n.kind() == crate::syntax::SyntaxKind::Attr => {
+          start = n.text_range().start as usize;
+        }
+        _ => break,
+      }
+      before = match &element {
+        crate::syntax::SyntaxElement::Token(t) => t.prev_sibling_or_token(),
+        crate::syntax::SyntaxElement::Node(n) => n.prev_sibling_or_token(),
+      };
+    }
+    Some((start, last as usize))
   };
   let spans: Vec<(usize, usize)> = items.iter().map(code).collect::<Option<_>>()?;
   spanned_comments(list, &spans)

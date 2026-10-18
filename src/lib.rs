@@ -440,6 +440,36 @@ pub fn collect_jobs_into(
   })
 }
 
+/// `mto debug layout`: the file at `path` read and shaped with the settings that apply to
+/// it, as a run would, and the places it is left as written, with why
+/// ([`format::explain`]), and whether formatting is on there; nothing is written. `None`
+/// when neither layout nor formatting is on there.
+pub fn explain_file(
+  resolver: &mut config::Resolver,
+  path: &Path,
+) -> Result<Option<(String, Vec<format::explain::Note>, bool)>, MtoError> {
+  let source = fs::read_to_string(path)
+    .map_err(|e| MtoError::Io(format!("cannot read {}: {}", path.display(), e)))?;
+  let dir = match path.parent() {
+    Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+    _ => env::current_dir()
+      .map_err(|e| MtoError::Io(format!("cannot read the current directory: {}", e)))?,
+  };
+  let resolved = resolver.config_for(&dir)?;
+  print_warnings(resolver);
+  let Some(settings) = Settings::of(&resolved) else {
+    return Ok(None);
+  };
+  let formatting = settings.format.is_some();
+  let (shaped, notes) = format::explain::collect(|| {
+    shape(&source, &settings, &doctor::Held::default(), None).map(|_| ())
+  });
+  if let Err(reason) = shaped {
+    return Err(MtoError::Io(format!("{}: {}", path.display(), reason)));
+  }
+  Ok(Some((source, notes, formatting)))
+}
+
 /// The `mto.toml` that `mto init` writes: every mto setting at its default, with its
 /// summary.
 pub fn init_template() -> String {

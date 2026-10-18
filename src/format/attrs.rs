@@ -21,6 +21,12 @@ use crate::text::unicode::str_width;
 /// The attribute laid out, starting at column `indent` on a line of its own, its later lines
 /// indented in full; `None` when it is not one this module takes or does not fit.
 pub fn rewrite_attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
+  // A macro call in an attribute's arguments is not one the standard formatter lays out:
+  // failing here does not fail a macro definition around it.
+  super::macros::sheltered(|| attr(node, indent, config))
+}
+
+fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
   if config.hard_tabs || config.tab_spaces == 0 {
     return None;
   }

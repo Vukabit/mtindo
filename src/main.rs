@@ -177,13 +177,19 @@ const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "debug",
-    args: "tokens|tree <FILE>",
-    summary: "Print the tokens or syntax tree mto sees, for bug reports",
-    about: "Prints the tokens or the syntax tree of FILE as mto reads it. The output is \
-                not stable; it is meant for bug reports.",
-    usage: &["mto debug tokens|tree <FILE> [--edition YEAR]"],
-    options: &[("options", "mto debug tokens|tree <FILE>", &[Flag::Edition])],
-    examples: &["mto debug tree src/lib.rs"],
+    args: "tokens|tree|layout <FILE>",
+    summary: "Print what mto sees in a file, or where and why it leaves code as written",
+    about: "Prints the tokens or the syntax tree of FILE as mto reads it, or (layout) each \
+                place the formatter leaves code as written in it and why, with the settings \
+                that apply to FILE and formatting on; nothing is written. The output is not stable; it is meant \
+                for bug reports and for finding why code was not formatted.",
+    usage: &["mto debug tokens|tree|layout <FILE> [--edition YEAR]"],
+    options: &[(
+      "options",
+      "mto debug tokens|tree|layout <FILE>",
+      &[Flag::Edition],
+    )],
+    examples: &["mto debug tree src/lib.rs", "mto debug layout src/lib.rs"],
   },
 ];
 
@@ -718,6 +724,8 @@ enum CliAction {
     view: DebugView,
     path: PathBuf,
     edition: Edition,
+    /// `--edition` as given, over the settings for `layout`.
+    edition_given: Option<String>,
   },
   Man,
 }
@@ -737,6 +745,7 @@ enum ConfigView {
 enum DebugView {
   Tokens,
   Tree,
+  Layout,
 }
 
 /// What `mto doctor` was asked for.
@@ -1096,9 +1105,16 @@ fn main() {
       0
     }
     CliAction::Debug {
+      view: DebugView::Layout,
+      path,
+      edition_given,
+      ..
+    } => run_debug_layout(&path, edition_given),
+    CliAction::Debug {
       view,
       path,
       edition,
+      ..
     } => run_debug(view, &path, edition),
     CliAction::Stdin {
       overrides,
@@ -1439,7 +1455,7 @@ fn parse_config_args(args: &[String]) -> Result<CliAction, ()> {
 fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
   let usage = || {
     eprintln!(
-      "{}Error: usage: mto debug tokens|tree <FILE> [--edition YEAR]{}",
+      "{}Error: usage: mto debug tokens|tree|layout <FILE> [--edition YEAR]{}",
       c_red(),
       c_reset(true)
     );
@@ -1447,6 +1463,7 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
   let view = match args.first().map(String::as_str) {
     Some("tokens") => DebugView::Tokens,
     Some("tree") => DebugView::Tree,
+    Some("layout") => DebugView::Layout,
     _ => {
       usage();
       return Err(());
@@ -1454,6 +1471,7 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
   };
   let mut path = None;
   let mut edition = Edition::DEFAULT;
+  let mut edition_given = None;
   let mut i = 1;
   while i < args.len() {
     match args[i].as_str() {
@@ -1470,6 +1488,7 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
             return Err(());
           }
         };
+        edition_given = Some(args[i + 1].clone());
         i += 1;
       }
       other if path.is_none() && !other.starts_with('-') => path = Some(PathBuf::from(other)),
@@ -1485,6 +1504,7 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
       view,
       path,
       edition,
+      edition_given,
     }),
     None => {
       usage();
@@ -2037,6 +2057,8 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
         offset = end;
       }
     }
+    // Run apart (`run_debug_layout`).
+    DebugView::Layout => {}
     DebugView::Tree => {
       let parse = parse(&text, edition);
       print!("{}", debug_dump(&parse.syntax_node()));
@@ -2044,6 +2066,58 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
         println!("error@{}: {}", error.range, error.message);
       }
     }
+  }
+  0
+}
+
+/// `mto debug layout FILE`: each place the formatter leaves code as written in FILE, and
+/// why, with the settings that apply to it and formatting on.
+fn run_debug_layout(path: &std::path::Path, edition: Option<String>) -> i32 {
+  // Formatting on, wherever it is off: it is what leaves code as written.
+  let overrides = Overrides {
+    edition,
+    settings: vec![("format".to_string(), "true".to_string())],
+    ..Overrides::default()
+  };
+  let mut resolver = match resolver(&overrides) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let (source, notes) = match mtindo::explain_file(&mut resolver, path) {
+    Ok(Some((source, notes, _))) => (source, notes),
+    Ok(None) => {
+      println!("{}: formatting is not on here", path.display());
+      return 0;
+    }
+    Err(e) => return report_error(&e),
+  };
+  if notes.is_empty() {
+    println!("{}: nothing left as written", path.display());
+    return 0;
+  }
+  // In the file's order; one not found in the file is about text mto made on the way (a
+  // macro body formatted with its `$` names replaced), not the file's.
+  let places = mtindo::format::explain::locate(&source, &notes);
+  let mut found: Vec<_> = notes
+    .iter()
+    .zip(places)
+    .filter_map(|(note, place)| place.map(|place| (note, place)))
+    .collect();
+  if found.is_empty() {
+    println!("{}: nothing left as written", path.display());
+    return 0;
+  }
+  found.sort_by_key(|(_, place)| *place);
+  for (note, (line, column)) in found {
+    let at = format!("{}:{}", line, column);
+    println!(
+      "{}:{}  {}  {}\n    {}",
+      path.display(),
+      at,
+      note.kind,
+      note.reason,
+      note.shown
+    );
   }
   0
 }

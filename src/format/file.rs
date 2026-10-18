@@ -124,6 +124,9 @@ struct Roles {
   /// Item headers with a written line wider than the line width, by where their own text
   /// starts: where they end. Left as written when they cannot be laid out.
   wide_headers: Offsets<usize>,
+  /// For `mto debug layout`: why each statement and header with a written line past the
+  /// line width is wide, by where it starts.
+  wide_reasons: HashMap<usize, String>,
   /// `macro_rules!` definitions, by where their `macro_rules` starts: written anew when
   /// their rules format, else left as written from there.
   macro_rules: Offsets<SyntaxNode>,
@@ -180,9 +183,13 @@ struct Tok<'a> {
 }
 
 /// Whether this pass writes a block's insides on lines of their own: a block of lines, a
-/// control expression's, or one holding a comment.
+/// control expression's, a plain block ending a block that holds what goes on lines, or one
+/// holding a comment.
 pub fn block_of_lines(node: &SyntaxNode) -> bool {
-  node.kind() == SyntaxKind::BlockExpr && (lines_block(node) || control_block(node))
+  node.kind() == SyntaxKind::BlockExpr
+    && (lines_block(node)
+      || control_block(node)
+      || crate::format::expr::plain_tail_block(node) && !crate::format::expr::joins(node))
     || commented_block(node)
 }
 
@@ -204,7 +211,9 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
     ))
   });
   let edition_before = EDITION.with(|e| e.replace(edition));
+  let style_before = STYLE.with(|e| e.replace(config.style_edition));
   let out = format_text_with(source, edition, config, strip);
+  STYLE.with(|e| e.set(style_before));
   SKIPPED_INVOCATIONS.with(|names| names.replace(before));
   CRATE_SKIPS.with(|names| names.replace(crate_before));
   EDITION.with(|e| e.set(edition_before));
@@ -280,17 +289,6 @@ pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
   true
 }
 
-thread_local! {
-  /// `skip_macro_invocations` for the text being formatted.
-  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
-    const { std::cell::RefCell::new(Vec::new()) };
-  /// The crate root's skipped macros and attributes, for the text being formatted.
-  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
-    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
-  /// The edition of the text being formatted.
-  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
-}
-
 /// A braced macro call's arguments as the standard formatter's `trim_left_preserve_layout`
 /// writes them: the first line as written, without trailing whitespace; each later line
 /// trimmed and indented from `indent` by as much as it was past the least indented of them
@@ -347,13 +345,16 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
   // leading whitespace is not the string's).
   let mut continued = first.ends_with('\\');
   for &(line, starts_in, ends_in) in &lines {
-    let new_veto = starts_in && ends_in && !line.ends_with('\\');
+    // A line whose first character opens a string counts as one in a string
+    // (`LineClasses` takes a line's kind from its first character).
+    let opens = !starts_in && line.starts_with('"');
+    let new_veto = (starts_in || opens) && ends_in && !line.ends_with('\\');
     // A line starting inside a string not continued with `\` starts with the string's own
     // whitespace: kept, where the standard formatter would re-indent it.
     kept.push(veto || new_veto || starts_in && !continued);
     veto = new_veto;
     continued = line.ends_with('\\');
-    if !line.trim().is_empty() && !starts_in {
+    if !line.trim().is_empty() && !starts_in && !opens {
       least = Some(least.map_or(leading(line), |l| l.min(leading(line))));
     }
   }
@@ -377,6 +378,19 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
     }
   }
   out
+}
+
+thread_local! {
+  /// `skip_macro_invocations` for the text being formatted.
+  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
+    const { std::cell::RefCell::new(Vec::new()) };
+  /// The crate root's skipped macros and attributes, for the text being formatted.
+  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
+    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
+  /// The edition of the text being formatted.
+  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
+  /// The style edition of the text being formatted.
+  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
 }
 
 /// The display width of text: tabs count as `tab_spaces`, wide characters as two columns.
@@ -474,6 +488,11 @@ pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
           .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
       })
   })
+}
+
+/// Whether the text being formatted is in style edition 2024 or later.
+pub(super) fn style_2024() -> bool {
+  STYLE.with(|e| e.get()) >= 2024
 }
 
 /// For a struct's fields, an enum's variants or a match's arms laid out one per line from
@@ -862,6 +881,29 @@ fn empty_body_close(item: &SyntaxNode) -> Option<usize> {
     Some(&(SyntaxKind::RBrace, range, false)) => Some(range.start as usize),
     _ => None,
   }
+}
+
+/// Notes for `mto debug layout` that what starts at `start` (its text from there, `from`)
+/// is left as written, and why: named by the statement or item around it.
+fn explain(root: &SyntaxNode, start: usize, from: &str, reason: impl FnOnce() -> String) {
+  if !crate::format::explain::active() {
+    return;
+  }
+  let kind = root
+    .descendants_iter()
+    .filter(|n| {
+      let range = n.text_range();
+      (range.start as usize) <= start
+        && start < range.end as usize
+        && (is_statement(n.kind())
+          || is_item(n.kind())
+          || n.kind() == SyntaxKind::Attr
+          || crate::format::stmt::is_tail(n))
+    })
+    .last()
+    .map_or("code", |n| n.kind().name())
+    .to_string();
+  crate::format::explain::note(&kind, from, reason);
 }
 
 fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip: bool) -> String {
@@ -1417,8 +1459,13 @@ fn list_items_of(list: &SyntaxNode) -> Vec<SyntaxNode> {
 /// run. A line inside a chain (of `chains`) belongs instead to the outermost statement
 /// holding that chain: the standard formatter measures a chain's every line, those of the
 /// statements in its closures given up on alone included. A written line is measured in the
-/// parts the layout starts lines with (`breaks`).
-fn overflowing(spans: &Spans<'_>, text: &str, config: &FormatConfig) -> Vec<(usize, usize)> {
+/// parts the layout starts lines with (`breaks`). Each with its widest part's width and
+/// where the line it is on starts.
+fn overflowing(
+  spans: &Spans<'_>,
+  text: &str,
+  config: &FormatConfig,
+) -> Vec<((usize, usize), usize, usize)> {
   let Spans {
     statements,
     breaks,
@@ -1490,6 +1537,7 @@ fn overflowing(spans: &Spans<'_>, text: &str, config: &FormatConfig) -> Vec<(usi
       // apart, at the line's indentation.
       let indent = first - at;
       let mut too_wide = false;
+      let mut widest = 0;
       let mut from = at;
       for p in first + 1..=code_end {
         if p == code_end
@@ -1500,13 +1548,15 @@ fn overflowing(spans: &Spans<'_>, text: &str, config: &FormatConfig) -> Vec<(usi
           } else {
             format!("{}{}", &text[at..at + indent], text[from..p].trim())
           };
-          too_wide |= width_of(&part, tab) > config.max_width;
+          let width = width_of(&part, tab);
+          too_wide |= width > config.max_width;
+          widest = widest.max(width);
           from = p;
         }
       }
       if too_wide {
         open[owner].2 = true;
-        found.push((open[owner].0, open[owner].1));
+        found.push(((open[owner].0, open[owner].1), widest, at));
       }
     }
     at = line_end + 1;
@@ -1578,6 +1628,8 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   let mut delta: isize = 0;
   // Each container's indentation, as written and as output.
   let mut open_indent: Offsets<(usize, usize)> = Offsets::default();
+  // Where a head laid out across lines ends at a block's `{`: that line's indentation.
+  let mut laid_opens: HashMap<usize, usize> = HashMap::new();
   let mut previous_significant: Option<usize> = None;
   // A line comment that ended a line of code: its column as written and as output.
   // A line comment after code: the column it was written at, the one it is written at,
@@ -1839,14 +1891,26 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       && out[out_line_start..].trim().is_empty()
     {
       let line = &out[out_line_start..];
-      if let Some(laid) =
-        crate::format::macros::rewrite_macro_rules(node, width_of(line, tab), edition, config)
-      {
+      let laid =
+        crate::format::macros::rewrite_macro_rules(node, width_of(line, tab), edition, config);
+      if laid.is_none() {
+        explain(
+          root,
+          tok.start,
+          &text[tok.start..node.text_range().end as usize],
+          || {
+            "a macro definition whose rules could not be laid out (a rule's body not read as \
+           code, or a comment among the rules): kept as written"
+              .to_string()
+          },
+        );
+      }
+      if let Some(laid) = laid {
         out.push_str(&laid);
         if let Some(at) = out.rfind('\n') {
           out_line_start = at + 1;
         }
-        laid_out_to = node.text_range().end as usize;
+        laid_out_to = crate::format::imports::code_end(node);
         previous_significant = None;
         code_on_line = true;
         comment_column = None;
@@ -1945,6 +2009,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
               if laid.is_none()
                 && let Some(&end) = roles.wide_headers.get(&tok.start)
               {
+                explain(root, tok.start, &text[tok.start..end], || {
+                  let why = roles.wide_reasons.get(&tok.start).cloned().unwrap_or_default();
+                  format!("{}; its header could not be laid out", why)
+                });
                 gave_up.borrow_mut().push((tok.start, end));
               }
               // An empty body after a header on one line closes up (`{}`); after one across
@@ -1973,7 +2041,8 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
               laid
             }
           }
-          _ => whole(rewrite_statement(node, indent, config)).or_else(|| {
+          _ => whole(rewrite_statement(node, indent, config))
+          .or_else(|| {
             // A statement holding one block: its head, the block's insides left to this pass,
             // and its tail kept on the block's closing line. Not one given up on whole: its
             // head laid out would hide the long line on a second run.
@@ -1999,12 +2068,51 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       out.push_str(&text);
       if let Some(at) = out.rfind('\n') {
         out_line_start = at + 1;
+        // A `let`'s head across lines ending at its value's block's `{` (`let x =` with
+        // `if c {` on the next line): the block is indented from the line the `{` is on.
+        if node.kind() == SyntaxKind::LetStmt && roles.openers.contains_key(&to) {
+          let line = &out[out_line_start..];
+          laid_opens.insert(
+            to,
+            width_of(&line[..line.len() - line.trim_start().len()], tab),
+          );
+        }
       }
       laid_out_to = to;
       previous_significant = None;
       code_on_line = true;
       comment_column = None;
       continue;
+    }
+    // One the layout above could not lay out: its written lines kept, re-indented.
+    if crate::format::explain::active()
+      && let Some(node) = roles.layable.get(&tok.start)
+      && !in_verbatim(tok.start)
+      && !roles.wide_reasons.contains_key(&tok.start)
+      && matches!(
+        node.kind(),
+        SyntaxKind::LetStmt | SyntaxKind::ExprStmt | SyntaxKind::MatchArm
+      )
+    {
+      let end = node.text_range().end as usize;
+      explain(root, tok.start, &text[tok.start..end], || {
+        "not laid out whole (a layout for something in it is missing or declined): its \
+         written lines are kept, re-indented"
+          .to_string()
+      });
+    }
+    // A statement with a written line past the line width, not laid out whole above: left
+    // as written.
+    if let Some(why) = roles.wide_reasons.get(&tok.start)
+      && !roles.wide_headers.contains_key(&tok.start)
+      && !in_verbatim(tok.start)
+    {
+      let end = roles
+        .statements
+        .get(&tok.start)
+        .copied()
+        .unwrap_or(tok.start);
+      explain(root, tok.start, &text[tok.start..end], || why.clone());
     }
     // A statement whose first line, at its new indentation, is longer than `max_width`
     // is left as written, as the standard formatter gives up on it. Measured here, where
@@ -2033,16 +2141,25 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       let width =
         width_of(&out[out_line_start..], tab) + width_of(text[tok.start..code_end].trim_end(), tab);
       if width > config.max_width {
+        explain(root, tok.start, &text[tok.start..end], || {
+          format!(
+            "its first line would be {} columns, past max_width {}",
+            width, config.max_width
+          )
+        });
         gave_up.borrow_mut().push((tok.start, end));
       }
     }
     if let Some(&base) = roles.openers.get(&tok.start) {
       let idx = lines.partition_point(|&(start, _, _)| start <= base);
       let (_, was, new) = lines[idx.saturating_sub(1)];
+      let new = laid_opens.get(&tok.start).copied().unwrap_or(new);
       open_indent.insert(tok.start, (was, new));
     }
     if tok.kind == SyntaxKind::LineComment && code_on_line {
-      let written = width_of(&text[text_line_start..tok.start], tab);
+      // From the comment's own line: what is laid out whole leaves `text_line_start` behind.
+      let line_start = text[..tok.start].rfind('\n').map_or(0, |i| i + 1);
+      let written = width_of(&text[line_start.max(text_line_start)..tok.start], tab);
       // From the output's last line start: a statement laid out whole is pushed with its
       // lines.
       let output = width_of(&out[out.rfind('\n').map_or(0, |i| i + 1)..], tab);
@@ -2587,14 +2704,29 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           SyntaxKind::TokenTree | SyntaxKind::MacroRules | SyntaxKind::MacroDef
         );
         // A braced macro call's arguments, with no string spanning lines in them (whose
-        // lines the standard formatter treats apart).
+        // lines the standard formatter treats apart); one in parentheses or brackets that
+        // cannot be read as code, when its last line holds only closing delimiters (the
+        // standard formatter's `return_macro_parse_failure_fallback`).
         if node.kind() == SyntaxKind::TokenTree
           && node
             .parent()
             .is_some_and(|p| p.kind() == SyntaxKind::MacroCall && !skipped_macro(&p))
-          && node
+          && (node
             .first_token()
             .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
+            || node.text().to_string().contains('\n')
+              && node
+                .text()
+                .to_string()
+                .rsplit('\n')
+                .next()
+                .is_some_and(|last| {
+                  !last.trim().is_empty()
+                    && last.trim().chars().all(|c| matches!(c, ')' | ']' | '}'))
+                })
+              && node
+                .parent()
+                .is_some_and(|call| crate::format::expr::unread_macro(&call)))
           && !config.hard_tabs
         {
           roles
@@ -2619,6 +2751,21 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           roles.spaced.extend(spaced);
         } else if kept || skipped || unparsed_attr {
           let start = rules_start.unwrap_or(range.start as usize);
+          // A definition laid out by the pass is noted there when it is not.
+          if skipped || unparsed_attr || node.kind() == SyntaxKind::MacroDef {
+            let shown = &text[start..range.end as usize];
+            crate::format::explain::note(node.kind().name(), shown, || {
+              if skipped {
+                "#[rustfmt::skip]".to_string()
+              } else if unparsed_attr {
+                "an attribute the standard formatter keeps as written (not name-value \
+                 lists, or a skipped attribute)"
+                  .to_string()
+              } else {
+                "a macro definition, kept as written".to_string()
+              }
+            });
+          }
           // A definition's comment after its code is not part of it.
           let end = if node.kind() == SyntaxKind::MacroRules && !skipped {
             crate::format::imports::code_end(node)
@@ -2635,6 +2782,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             .any(|e| e.kind() == SyntaxKind::Eq)
         {
           let start = crate::format::items::header_start(node).unwrap_or(range.start as usize);
+          explain(root, start, &text[start..range.end as usize], || {
+            "a field's default value, which the standard formatter keeps as written".to_string()
+          });
           roles.verbatim.push((start, range.end as usize));
         }
         if is_container(node.kind()) {
@@ -2748,6 +2898,17 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         }) {
           let start = crate::format::items::header_start(&standing)
             .unwrap_or(standing.text_range().start as usize);
+          explain(
+            root,
+            start,
+            &text[start..standing.text_range().end as usize],
+            || {
+              format!(
+                "a comment the standard formatter cannot place: {}",
+                token.text().lines().next().unwrap_or("").trim()
+              )
+            },
+          );
           roles
             .verbatim
             .push((start, standing.text_range().end as usize));
@@ -2759,6 +2920,12 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           } else if marker == "// mto: on"
             && let Some(from) = region.take()
           {
+            explain(
+              root,
+              from,
+              &text[from..token.text_range().end as usize],
+              || "// mto: off".to_string(),
+            );
             roles.verbatim.push((from, token.text_range().end as usize));
           }
         }
@@ -2767,6 +2934,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     }
   }
   if let Some(from) = region {
+    explain(root, from, &text[from..], || "// mto: off".to_string());
     roles.verbatim.push((from, text.len()));
   }
   // Where lines start, which the measuring below splits written lines at.
@@ -2784,15 +2952,32 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     block_comments: &block_comments,
     after_pre_comments: &after_pre_comments,
   };
-  for range in overflowing(&spans, text, config) {
+  for (range, width, line) in overflowing(&spans, text, config) {
     if braced_macros.contains(&range) {
       continue;
     }
+    let reason = || {
+      format!(
+        "a written line is {} columns, past max_width {}: {}",
+        width,
+        config.max_width,
+        text[line..].lines().next().unwrap_or("").trim()
+      )
+    };
     match headers.get(&range) {
       Some(&start) => {
         roles.wide_headers.insert(start, range.1);
+        if crate::format::explain::active() {
+          roles.wide_reasons.insert(start, reason());
+        }
       }
-      None => roles.verbatim.push(range),
+      // Noted as the pass reaches it, when it is not laid out whole there.
+      None => {
+        if crate::format::explain::active() {
+          roles.wide_reasons.insert(range.0, reason());
+        }
+        roles.verbatim.push(range)
+      }
     }
   }
   // The innermost statement around each stranded comment.
@@ -2802,6 +2987,12 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
       .filter(|&&(start, end)| start < comment && comment < end)
       .min_by_key(|&&(start, end)| end - start)
     {
+      explain(root, around.0, &text[around.0..around.1], || {
+        format!(
+          "a comment the standard formatter cannot place: {}",
+          text[comment..].lines().next().unwrap_or("").trim()
+        )
+      });
       roles.verbatim.push(around);
     }
   }
@@ -2813,6 +3004,11 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
       .filter(|&&(start, end)| start <= block && block < end)
       .min_by_key(|&&(start, end)| end - start)
     {
+      explain(root, around.0, &text[around.0..around.1], || {
+        "an inline `const` block starting a chain, which the standard formatter keeps as \
+         written"
+          .to_string()
+      });
       roles.verbatim.push(around);
       roles.kept_whole.insert(around.0);
     }

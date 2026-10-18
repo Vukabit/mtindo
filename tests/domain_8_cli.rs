@@ -646,6 +646,41 @@ fn test_cli_dbg_prints_the_split() {
   );
 }
 
+/// `mto debug layout`: each place left as written, where and why, with formatting on
+/// though the folder has it off; nothing written.
+#[test]
+fn test_cli_debug_layout_says_why_code_is_left_as_written() {
+  let env = TestEnvironment::new();
+  let source = "fn f() {\n    #[rustfmt::skip]\n    let  a  =  1;\n    let b   = 2;\n}\n";
+  env.write_file("main.rs", source);
+  let out = env
+    .mto_cmd()
+    .args(["debug", "layout", "main.rs"])
+    .output()
+    .unwrap();
+  assert!(out.status.success());
+  let shown = String::from_utf8(out.stdout).unwrap();
+  assert!(
+    shown.contains("main.rs:2:5  LET_STMT  #[rustfmt::skip]\n    #[rustfmt::skip] let a = 1;"),
+    "{}",
+    shown
+  );
+  assert!(!shown.contains("let b"), "{}", shown);
+  assert_eq!(env.read_file("main.rs"), source);
+
+  env.write_file("plain.rs", "fn g() {}\n");
+  let out = env
+    .mto_cmd()
+    .args(["debug", "layout", "plain.rs"])
+    .output()
+    .unwrap();
+  assert!(out.status.success());
+  assert_eq!(
+    String::from_utf8(out.stdout).unwrap(),
+    "plain.rs: nothing left as written\n"
+  );
+}
+
 #[test]
 fn test_cli_debug_tree_and_tokens() {
   let env = TestEnvironment::new();

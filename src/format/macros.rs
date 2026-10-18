@@ -27,6 +27,13 @@ struct Rule {
   matcher: SyntaxNode,
   transcriber: SyntaxNode,
   blank_after: bool,
+  /// The comments on lines of their own before it, `None` for a blank line between them.
+  pre: Vec<Option<String>>,
+  /// A block comment before it on its line.
+  inline: Option<String>,
+  /// The comment after it (its `;`) on its line; for the last rule, the one after it before
+  /// the `}` (`write_list`'s post-comment).
+  post: Option<String>,
 }
 
 /// A `macro_rules!` definition from its `macro_rules` on (its attributes are laid out on
@@ -45,7 +52,15 @@ pub fn rewrite_macro_rules(
   let again = again
     .descendant_nodes_where(|kind| kind == K::MacroRules)
     .next()?;
-  (rewrite_definition(&again, indent, edition, config)? == laid).then_some(laid)
+  let stable = rewrite_definition(&again, indent, edition, config).as_deref() == Some(&laid);
+  if !stable {
+    super::explain::note("MACRO_RULES", &node.text().to_string(), || {
+      "kept as written: its layout would change again on a second run (code in a rule's \
+       body kept as written, whose lines keep their columns)"
+        .to_string()
+    });
+  }
+  stable.then_some(laid)
 }
 
 /// An item standing as a macro call's argument, formatted as a file of its own would be and
@@ -77,6 +92,14 @@ pub(super) fn format_item(text: &str, indent: usize, config: &FormatConfig) -> O
 /// that do not read as code).
 pub(super) fn macro_failed() {
   MACRO_FAILURE.with(|f| f.set(true));
+}
+
+/// `f` run with the macro calls it fails to lay out not noted.
+pub(super) fn sheltered<T>(f: impl FnOnce() -> T) -> T {
+  let before = MACRO_FAILURE.with(|f| f.get());
+  let out = f();
+  MACRO_FAILURE.with(|f| f.set(before));
+  out
 }
 
 /// `config` with the line width `max_width`, the widths that follow it from
@@ -182,12 +205,30 @@ fn commented_empty_body(
 /// lines of comments aside, the first within `width`, the others within `max_width`, the
 /// last within the line from column `indent`.
 fn fits(code: &str, max_width: usize, indent: usize, width: usize) -> bool {
+  // A line ending inside a comment is not measured (`filter_normal_code` classes a line by
+  // its last character).
+  let mut in_comment = vec![false; code.split('\n').count()];
+  let mut line = 0;
+  for (kind, piece) in parse_tokens(code, Edition::E2021) {
+    let comment = matches!(kind, K::LineComment | K::BlockComment);
+    for _ in piece.matches('\n') {
+      if comment {
+        in_comment[line] = true;
+      }
+      line += 1;
+    }
+    if !piece.trim().is_empty() {
+      in_comment[line] = comment;
+    }
+  }
   let lines: Vec<&str> = code
     .split('\n')
-    .filter(|l| {
+    .zip(&in_comment)
+    .filter(|&(l, &comment)| {
       let t = l.trim_start();
-      !(t.starts_with("//") || t.starts_with("/*") || t.starts_with('*'))
+      !comment && !(t.starts_with("//") || t.starts_with("/*") || t.starts_with('*'))
     })
+    .map(|(l, _)| l)
     .collect();
   let code = lines.join("\n");
   let code = code.strip_suffix('\n').unwrap_or(&code);
@@ -297,14 +338,19 @@ fn rewrite_definition(
     return None;
   }
   let start = super::items::header_start(node)?;
+  // A comment after its `}` is not the definition's.
+  let end = super::imports::code_end(node);
   let elements: Vec<SyntaxElement> = node
     .children_with_tokens_iter()
-    .filter(|e| e.text_range().start as usize >= start)
+    .filter(|e| e.text_range().start as usize >= start && (e.text_range().end as usize) <= end)
     .collect();
   if elements
     .iter()
     .any(|e| e.kind().is_trivia() && e.kind() != K::Whitespace)
   {
+    super::explain::note("MACRO_RULES", &node.text().to_string(), || {
+      "kept as written: a comment in its header".to_string()
+    });
     return None;
   }
   let code: Vec<&SyntaxElement> = elements.iter().filter(|e| !e.kind().is_trivia()).collect();
@@ -325,7 +371,14 @@ fn rewrite_definition(
   if let Some(body) = commented_empty_body(tree, indent, str_width(&header) + 1, config) {
     return Some(format!("{} {}", header, body));
   }
-  let rules = rules(tree)?;
+  let Some(rules) = rules(tree) else {
+    super::explain::note("MACRO_RULES", &node.text().to_string(), || {
+      "kept as written: between its braces, something that is not a rule or a comment \
+       the layout places (a comment inside a rule's head, or across lines)"
+        .to_string()
+    });
+    return None;
+  };
   if rules.is_empty() {
     return Some(format!("{} {{}}", header));
   }
@@ -334,8 +387,33 @@ fn rewrite_definition(
   let arm_width = config.max_width.saturating_sub(arm_indent);
   let mut out = format!("{} {{\n{}", header, " ".repeat(arm_indent));
   for (i, rule) in rules.iter().enumerate() {
-    out.push_str(&rewrite_rule(rule, arm_indent, arm_width, edition, config)?);
+    // Each comment on its line at the rules' indentation, which `out` ends with.
+    for line in &rule.pre {
+      match line {
+        Some(comment) => out.push_str(comment),
+        None => out.truncate(out.len() - arm_indent),
+      }
+      out.push('\n');
+      out.push_str(&" ".repeat(arm_indent));
+    }
+    let used = rule.inline.as_ref().map_or(0, |c| str_width(c) + 1);
+    if let Some(comment) = &rule.inline {
+      out.push_str(comment);
+      out.push(' ');
+    }
+    // Its body indented from the rule's line; the comment narrows its first line.
+    out.push_str(&rewrite_rule(
+      rule,
+      arm_indent,
+      arm_width.checked_sub(used)?,
+      edition,
+      config,
+    )?);
     out.push(';');
+    if let Some(comment) = &rule.post {
+      out.push(' ');
+      out.push_str(comment);
+    }
     if i + 1 < rules.len() {
       out.push('\n');
       if rule.blank_after {
@@ -360,22 +438,37 @@ fn rewrite_rule(
   config: &FormatConfig,
 ) -> Option<String> {
   // Only rules whose matcher is in parentheses are formatted.
+  let failed = |why: &str| {
+    if super::explain::active() {
+      let text = format!("{} => {}", rule.matcher.text(), rule.transcriber.text());
+      super::explain::note("MACRO_RULES", &text, || {
+        format!("kept as written: this rule's {}", why)
+      });
+    }
+    None
+  };
   if rule.matcher.first_token()?.kind() != K::LParen {
-    return None;
+    return failed("matcher is not in parentheses");
   }
   let tab = config.tab_spaces;
   let whole = rule.transcriber.text().to_string();
-  let old_body = transcriber_body(&whole)?.trim();
+  let Some(old_body) = transcriber_body(&whole).map(str::trim) else {
+    return failed("body is not in braces");
+  };
   let block_body = old_body.starts_with('{');
   let prefix_width = if block_body && config.style_edition >= 2024 {
     6
   } else {
     5
   };
-  width.checked_sub(prefix_width)?;
+  if width < prefix_width {
+    return failed("head leaves no room on its line");
+  }
   let mut out = rule.matcher.text().to_string();
   out.push_str(" =>");
-  let (body, names) = replace_names(old_body, edition)?;
+  let Some((body, names)) = replace_names(old_body, edition) else {
+    return failed("body's `$` names cannot be stood in for (`$$`, or one inside a string)");
+  };
   out.push_str(" {");
   let body_indent = if block_body { indent } else { indent + tab };
   let mut inner = adjusted(config, config.max_width.saturating_sub(body_indent));
@@ -386,11 +479,19 @@ fn rewrite_rule(
     Some(formatted) => formatted,
     None => {
       inner = adjusted(&inner, inner.max_width + tab);
-      format_code_block(&body, edition, &inner)?
+      match format_code_block(&body, edition, &inner) {
+        Some(formatted) => formatted,
+        None => {
+          return failed(
+            "body does not format as items or statements (a macro in it not laid out, \
+             or code that does not parse)",
+          );
+        }
+      }
     }
   };
   if !fits(&formatted, inner.max_width, indent, width) {
-    return None;
+    return failed("body is wider than max_width once laid out");
   }
   // Indented as a block's insides, but for lines inside a string.
   let continued = in_string(formatted.trim_end(), edition);
@@ -405,7 +506,7 @@ fn rewrite_rule(
   }
   for (old, new) in &names {
     if old_body.contains(new.as_str()) {
-      return None;
+      return failed("body already holds a name standing in for a `$` name");
     }
     new_body = new_body.replace(new.as_str(), old);
   }
@@ -420,8 +521,10 @@ fn rewrite_rule(
   Some(out)
 }
 
-/// A definition's rules, each `(matcher) => {transcriber}` with an optional `;`; `None`
-/// for anything else between its braces, a comment among them too.
+/// A definition's rules, each `(matcher) => {transcriber}` with an optional `;`, and the
+/// comments around them (`rewrite_macro_def` reads the rules as a list); `None` for
+/// anything else between its braces, a comment inside a rule's head or a block comment
+/// across lines too.
 fn rules(tree: &SyntaxNode) -> Option<Vec<Rule>> {
   let elements: Vec<SyntaxElement> = tree.children_with_tokens_iter().collect();
   let (first, last) = (elements.first()?, elements.last()?);
@@ -434,12 +537,58 @@ fn rules(tree: &SyntaxNode) -> Option<Vec<Rule>> {
   let mut eq = false;
   let mut eq_end = 0u32;
   let mut ended = false;
+  // Comments waiting for the rule after them, and whether a line ended since the last
+  // rule or comment.
+  let mut pending: Vec<Option<String>> = Vec::new();
+  let mut inline: Option<String> = None;
+  let mut broke = true;
   for element in &elements[1..elements.len() - 1] {
     match element {
       SyntaxElement::Token(t) if t.kind() == K::Whitespace => {
-        if !rules.is_empty() && matcher.is_none() && t.text().matches('\n').count() > 1 {
+        let lines = t.text().matches('\n').count();
+        if lines > 0 {
+          broke = true;
+          // A comment on its line before a rule is not inline; one before a blank line
+          // keeps it.
+          if let Some(comment) = inline.take() {
+            pending.push(Some(comment));
+          }
+          if lines > 1 && !pending.is_empty() {
+            pending.push(None);
+          }
+        }
+        if !rules.is_empty()
+          && matcher.is_none()
+          && pending.is_empty()
+          && inline.is_none()
+          && lines > 1
+        {
           rules.last_mut()?.blank_after = true;
         }
+      }
+      SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment) => {
+        let text = t.text().trim_end().to_string();
+        if matcher.is_some() || arrow || eq || text.contains('\n') {
+          return None;
+        }
+        match rules.last_mut() {
+          // After a rule on its line: its comment.
+          Some(rule) if !broke && pending.is_empty() && inline.is_none() => {
+            if rule.post.is_some() {
+              return None;
+            }
+            rule.post = Some(text);
+          }
+          _ if t.kind() == K::BlockComment && broke => inline = Some(text),
+          _ => {
+            if let Some(comment) = inline.take() {
+              pending.push(Some(comment));
+            }
+            pending.push(Some(text));
+          }
+        }
+        broke = false;
+        ended = false;
       }
       SyntaxElement::Token(t) if t.kind() == K::FatArrow && matcher.is_some() && !arrow => {
         arrow = true;
@@ -461,13 +610,21 @@ fn rules(tree: &SyntaxNode) -> Option<Vec<Rule>> {
           return None;
         }
         if arrow {
+          // Blank lines between the comments and the rule go.
+          while pending.last().is_some_and(Option::is_none) {
+            pending.pop();
+          }
           rules.push(Rule {
             matcher: matcher.take()?,
             transcriber: n.clone(),
             blank_after: false,
+            pre: std::mem::take(&mut pending),
+            inline: inline.take(),
+            post: None,
           });
           arrow = false;
           ended = true;
+          broke = false;
         } else if matcher.is_none() {
           matcher = Some(n.clone());
           ended = false;
@@ -480,6 +637,16 @@ fn rules(tree: &SyntaxNode) -> Option<Vec<Rule>> {
   }
   if matcher.is_some() {
     return None;
+  }
+  // Comments after the last rule: one is its comment, on its line.
+  if let Some(comment) = inline.take() {
+    pending.push(Some(comment));
+  }
+  pending.retain(Option::is_some);
+  match (pending.as_slice(), rules.last_mut()) {
+    ([], _) => {}
+    ([Some(comment)], Some(rule)) if rule.post.is_none() => rule.post = Some(comment.clone()),
+    _ => return None,
   }
   Some(rules)
 }

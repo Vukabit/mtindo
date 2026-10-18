@@ -163,6 +163,10 @@ pub fn rewrite_loop(node: &SyntaxNode, shape: Shape) -> Option<String> {
 pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let config = shape.limits.config();
   let head = rewrite_control_head(node, shape.indent, shape.indent + shape.offset, &config)?;
+  // `match scrutinee` within the shape's width too; ` {` may go past it (`rewrite_match`).
+  if !head.text.contains('\n') && str_width(head.text.trim_end()) > shape.width {
+    return None;
+  }
   let arms = node.children_iter().find(|c| c.kind() == K::MatchArmList)?;
   if arms.children_iter().any(|c| c.kind() == K::Attr) {
     return None;
@@ -426,6 +430,21 @@ fn lines(
           let last = last_entry > 0 && t.text_range().start >= last_entry;
           let placed = container.kind() == K::BlockExpr
             && container.parent().is_none_or(|p| p.kind() != K::IfExpr);
+          // Line comments on the lines after one ending the last arm's line: with it, the
+          // arm's post-comment, lined up under it.
+          if last
+            && newlines == 1
+            && t.kind() == K::LineComment
+            && container.kind() == K::MatchArmList
+            && let Some((line, comment)) = arm_comments.last_mut()
+            && *line + 1 == lines.len()
+            && comment.starts_with("//")
+          {
+            comment.push('\n');
+            comment.push_str(text);
+            newlines = 0;
+            continue;
+          }
           if last && newlines > 0 && !placed {
             return None;
           }
@@ -526,7 +545,8 @@ fn lines(
       let arm = arm_lines.iter().position(|&i| i == line)?;
       let gap = spaces.get(arm).copied().flatten().unwrap_or(1);
       lines[line].push_str(&" ".repeat(gap));
-      lines[line].push_str(&comment);
+      let column = str_width(lines[line].rsplit('\n').next().unwrap_or(""));
+      lines[line].push_str(&comment.replace('\n', &format!("\n{}", " ".repeat(column))));
     }
   }
   Some(lines)

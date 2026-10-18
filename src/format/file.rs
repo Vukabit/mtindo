@@ -169,6 +169,9 @@ struct Spans<'a> {
   /// Where an item starts after a block comment before it on its line, in a list whose
   /// layout may put the comment on a line of its own: measured apart.
   after_pre_comments: &'a OffsetSet,
+  /// Statements that are all a match arm's block holds: the standard formatter flattens
+  /// the block, so one too wide fails the statement around the `match`.
+  flattened: &'a OffsetSet,
 }
 
 /// A token, with where it starts.
@@ -340,11 +343,12 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
   // with `\`; the lines inside strings count toward no minimum.
   let mut veto = false;
   let mut kept: Vec<bool> = Vec::with_capacity(lines.len());
-  let mut least: Option<usize> = None;
+  // The lines measured for the least indentation.
+  let mut measured: Vec<usize> = Vec::new();
   // Whether the line before ends with `\` (a string continued past its line break, whose
   // leading whitespace is not the string's).
   let mut continued = first.ends_with('\\');
-  for &(line, starts_in, ends_in) in &lines {
+  for (i, &(line, starts_in, ends_in)) in lines.iter().enumerate() {
     // A line whose first character opens a string counts as one in a string
     // (`LineClasses` takes a line's kind from its first character).
     let opens = !starts_in && line.starts_with('"');
@@ -355,11 +359,24 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
     veto = new_veto;
     continued = line.ends_with('\\');
     if !line.trim().is_empty() && !starts_in && !opens {
-      least = Some(least.map_or(leading(line), |l| l.min(leading(line))));
+      measured.push(i);
+    }
+  }
+  let least_of = |measured: &[usize]| measured.iter().map(|&i| leading(lines[i].0)).min();
+  // At column 0, a measured line starting with a string that would land there would not be
+  // measured on a second run: it is left out now, until none lands there.
+  if indent == 0 {
+    while let Some(least) = least_of(&measured) {
+      let before = measured.len();
+      measured
+        .retain(|&i| !(leading(lines[i].0) == least && lines[i].0.trim_start().starts_with('"')));
+      if measured.len() == before {
+        break;
+      }
     }
   }
   // No line to measure (all inside a string): as written (`.min()?`).
-  let Some(least) = least else {
+  let Some(least) = least_of(&measured) else {
     return snippet.to_string();
   };
   let mut out = first.to_string();
@@ -527,6 +544,58 @@ fn align_list_comments(
     config.max_width,
     list.kind() != SyntaxKind::MatchArmList,
   ))
+}
+
+/// Whether the comment after the whitespace `tokens[i]`, which follows an attribute's `]`
+/// on `line` (the output's line so far), goes to the next line: see where it is called.
+fn attr_comment_moves(
+  tokens: &[Tok<'_>],
+  i: usize,
+  line: &str,
+  tab: usize,
+  config: &FormatConfig,
+) -> bool {
+  let before = &tokens[i - 1].token;
+  if before.kind() != SyntaxKind::RBrack || before.parent().kind() != SyntaxKind::Attr {
+    return false;
+  }
+  let attr = before.parent();
+  let Some(owner) = attr.parent() else {
+    return false;
+  };
+  // The comments up to the next code, and that code.
+  let mut comments: Vec<&str> = Vec::new();
+  let mut after = None;
+  for t in &tokens[i + 1..] {
+    match t.kind {
+      SyntaxKind::LineComment | SyntaxKind::BlockComment => comments.push(t.text.trim_end()),
+      SyntaxKind::Whitespace => {}
+      _ => {
+        after = Some(t);
+        break;
+      }
+    }
+  }
+  let Some(after) = after else {
+    return false;
+  };
+  let indent = width_of(&line[..line.len() - line.trim_start().len()], tab);
+  let next_attribute = after.kind == SyntaxKind::Pound
+    && after.token.parent().kind() == SyntaxKind::Attr
+    && after.token.parent().parent().as_ref() == Some(&owner);
+  if next_attribute {
+    // The comments rewritten, each on a line at the indentation; 1 = the space before.
+    let length: usize = comments.iter().map(|c| c.len()).sum::<usize>()
+      + comments.len().saturating_sub(1) * (1 + indent)
+      + 1;
+    return length > config.max_width;
+  }
+  // Not an item, in a block too: its comment stays (`visit_attrs`).
+  let statement = matches!(owner.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt);
+  statement
+    && comments
+      .first()
+      .is_some_and(|c| width_of(line, tab) + 1 + width_of(c, tab) > config.max_width)
 }
 
 /// Whether a node is a macro call with braces (`m! { .. }`), or a statement of one.
@@ -1475,6 +1544,7 @@ fn overflowing(
     line_comments,
     block_comments,
     after_pre_comments,
+    flattened,
   } = *spans;
   let tab = config.tab_spaces.max(1);
   let mut found = Vec::new();
@@ -1497,16 +1567,24 @@ fn overflowing(
       let idx = attrs.partition_point(|&(start, _)| start <= first);
       idx > 0 && first < attrs[idx - 1].1
     };
-    // The outermost statement holding a chain the line is in, else the innermost.
-    let in_chain = |statement: &(usize, usize, bool)| {
-      chains.iter().any(|&(start, end)| {
-        statement.0 <= start && end <= statement.1 && start < first && first < end
-      })
-    };
-    let owner = open
+    // For each chain the line is in, the innermost statement holding it; the outermost of
+    // those (a chain whose closure holds the line's statement), else the innermost.
+    let owner = chains
       .iter()
-      .position(|s| s.0 < at && in_chain(s))
-      .or_else(|| open.len().checked_sub(1));
+      .filter(|&&(start, end)| start < first && first < end)
+      .filter_map(|&(start, end)| {
+        open
+          .iter()
+          .rposition(|s| s.0 < at && s.0 <= start && end <= s.1)
+      })
+      .min()
+      .or_else(|| open.len().checked_sub(1))
+      .map(|mut owner| {
+        while owner > 0 && flattened.contains(&open[owner].0) {
+          owner -= 1;
+        }
+        owner
+      });
     // A line starting inside a raw string (written across lines), not one in a chain,
     // whose every line is measured.
     let in_raw = raw_strings
@@ -1680,15 +1758,26 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       // Nothing before the first token.
       continue;
     }
+    // A comment after an attribute on its line that the standard formatter puts on the next
+    // line, at the attribute's indentation: before another attribute, when all the comments
+    // between them would run past the line width (`recover_missing_comment_in_span`);
+    // before a statement, when its first line would (`combine_strs_with_missing_comments`).
+    let attr_comment_break = tok.kind == SyntaxKind::Whitespace
+      && !tok.text.contains('\n')
+      && i > 0
+      && !in_verbatim(tok.start)
+      && next.is_some_and(|n| n.kind == SyntaxKind::LineComment && !in_verbatim(n.start))
+      && attr_comment_moves(&tokens, i, &out[out_line_start..], tab, config);
     // Space before what the Rust style starts a line with, written after other code: a
     // line break, the construct measured from the column it was written at.
-    let breaks = tok.kind == SyntaxKind::Whitespace
-      && !tok.text.contains('\n')
-      && code_on_line
-      && !in_verbatim(tok.start)
-      && next.is_some_and(|n| {
-        !in_verbatim(n.start)
-          && (roles.breaks.contains(&n.start)
+    let breaks = attr_comment_break
+      || tok.kind == SyntaxKind::Whitespace
+        && !tok.text.contains('\n')
+        && code_on_line
+        && !in_verbatim(tok.start)
+        && next.is_some_and(|n| {
+          !in_verbatim(n.start)
+            && (roles.breaks.contains(&n.start)
             // A comment kept after `{` that would run past the line goes to the next.
             || n.kind == SyntaxKind::LineComment
               && previous_significant
@@ -1697,7 +1786,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 + 1
                 + width_of(n.text.trim_end(), tab)
                 > config.max_width)
-      });
+        });
     if tok.synthetic && !breaks {
       continue;
     }
@@ -1757,7 +1846,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with("//")))
           && (written == column || after_statement)
       });
-      let indent = if let Some(open) = roles.closers.get(&next.start) {
+      let indent = if attr_comment_break {
+        let line = &out[out_line_start..];
+        width_of(&line[..line.len() - line.trim_start().len()], tab)
+      } else if let Some(open) = roles.closers.get(&next.start) {
         let new = open_indent.get(open).map_or(0, |&(_, new)| new);
         delta = new as isize - written as isize;
         new
@@ -2089,10 +2181,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       && let Some(node) = roles.layable.get(&tok.start)
       && !in_verbatim(tok.start)
       && !roles.wide_reasons.contains_key(&tok.start)
-      && matches!(
+      && (matches!(
         node.kind(),
         SyntaxKind::LetStmt | SyntaxKind::ExprStmt | SyntaxKind::MatchArm
-      )
+      ) || is_item(node.kind()))
     {
       let end = node.text_range().end as usize;
       explain(root, tok.start, &text[tok.start..end], || {
@@ -2303,6 +2395,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   let mut region: Option<usize> = None;
   let mut statements = Vec::new();
+  // Statements the standard formatter does not give up on alone (`flattened` in Spans).
+  let mut flattened: OffsetSet = OffsetSet::default();
   let mut chains = Vec::new();
   let mut raw_strings = Vec::new();
   // Items' headers, by their range, with where their own text starts.
@@ -2394,16 +2488,30 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               }
               // A `let`, an expression statement or a `use` from after its attributes too,
               // which are laid out on their own.
-              None => statements.push((
-                if matches!(node.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt) {
-                  crate::format::items::header_start(node).unwrap_or(range.start as usize)
-                } else if node.kind() == SyntaxKind::Use {
-                  crate::format::imports::body_start(node).unwrap_or(range.start as usize)
-                } else {
-                  range.start as usize
-                },
-                end,
-              )),
+              None => {
+                // A match arm's block holding only this: flattened into the arm, so not one
+                // given up on alone.
+                if crate::format::stmt::is_tail(node)
+                  && node.parent().is_some_and(|block| {
+                    block.children_iter().count() == 1
+                      && block
+                        .parent()
+                        .is_some_and(|p| p.kind() == SyntaxKind::MatchArm)
+                  })
+                {
+                  flattened.insert(range.start as usize);
+                }
+                statements.push((
+                  if matches!(node.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt) {
+                    crate::format::items::header_start(node).unwrap_or(range.start as usize)
+                  } else if node.kind() == SyntaxKind::Use {
+                    crate::format::imports::body_start(node).unwrap_or(range.start as usize)
+                  } else {
+                    range.start as usize
+                  },
+                  end,
+                ))
+              }
             }
           }
           // A `use` from its visibility or `use` on, and an item's header, after their
@@ -2620,7 +2728,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           }
         }
         // Inner attributes in a row, and the comments between them, follow one another with
-        // no blank line.
+        // no blank line around the comments; between them, the comments' own blank lines stay
+        // (`recover_missing_comment_in_span` rewrites them as one comment).
         if matches!(node.kind(), SyntaxKind::SourceFile | SyntaxKind::ItemList) {
           let mut after_inner = false;
           let mut pending: Vec<usize> = Vec::new();
@@ -2629,7 +2738,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               SyntaxElement::Node(n) if n.kind() == SyntaxKind::Attr => {
                 let inner = Attr::cast(n.clone()).is_some_and(|a| a.is_inner());
                 if inner && after_inner {
-                  roles.joined.extend(pending.drain(..));
+                  roles.joined.extend(pending.first().copied());
                   roles.joined.insert(n.text_range().start as usize);
                 }
                 pending.clear();
@@ -2951,6 +3060,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     line_comments: &line_comments,
     block_comments: &block_comments,
     after_pre_comments: &after_pre_comments,
+    flattened: &flattened,
   };
   for (range, width, line) in overflowing(&spans, text, config) {
     if braced_macros.contains(&range) {

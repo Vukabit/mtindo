@@ -113,8 +113,18 @@ pub fn rewrite_control_head(
         )
       })
   };
+  // Line comments between a `let`'s `=` and its value, each on a line of its own.
+  let after_eq = |t: &SyntaxToken| {
+    t.kind() == K::LineComment
+      && t.parent().kind() == K::LetExpr
+      && t
+        .parent()
+        .children_with_tokens_iter()
+        .take_while(|e| e.text_range().start < t.text_range().start)
+        .any(|e| e.kind() == K::Eq)
+  };
   if head.iter().any(|t| {
-    (t.kind().is_trivia() && t.kind() != K::Whitespace && !listed(t))
+    (t.kind().is_trivia() && t.kind() != K::Whitespace && !listed(t) && !after_eq(t))
       || super::items::is_doc(t.kind())
       || t.kind() == K::Pound && !element_attribute(t)
       || t.kind().is_literal() && t.text().contains('\n')
@@ -122,6 +132,12 @@ pub fn rewrite_control_head(
     return None;
   }
   // The condition, pattern and iterator: nothing in them the layout code declines.
+  // A `let` holding comments before its value (placed below): its parts instead.
+  let commented_let = |c: &SyntaxNode| {
+    c.kind() == K::LetExpr
+      && head.iter().any(after_eq)
+      && c.children_iter().all(|p| clean_expression(&p))
+  };
   if children
     .iter()
     .filter(|c| {
@@ -130,7 +146,7 @@ pub fn rewrite_control_head(
         K::Label | K::BlockExpr | K::MatchArmList | K::IfExpr
       )
     })
-    .any(|c| !clean_expression(c))
+    .any(|c| !clean_expression(c) && !commented_let(c))
   {
     return None;
   }
@@ -164,6 +180,29 @@ pub fn rewrite_control_head(
         .nth(1)?;
       let pattern = rewrite(pattern, after.sub_width(3)?)?;
       super::expr::assign_value(&format!("{} in", pattern), iterator, after)?
+    }
+    // `if let pattern =`, then the comments before the value and the value, each on a line
+    // one level in (`rewrite_assign_rhs` with a comment before the right side).
+    _ if head.iter().any(after_eq) => {
+      let condition = children.iter().find(|c| c.kind() != K::Label)?;
+      if condition.kind() != K::LetExpr || keyword != "if" {
+        return None;
+      }
+      let parts = condition.children();
+      let [pattern, value] = parts.as_slice() else {
+        return None;
+      };
+      let pattern = rewrite(pattern, after.offset_left(4)?.sub_width(2)?)?;
+      let nested = shape.block_indent(config.tab_spaces);
+      let pad = format!("\n{}", " ".repeat(nested.indent));
+      let mut text = format!("let {} =", pattern);
+      for comment in head.iter().filter(|t| after_eq(t)) {
+        text.push_str(&pad);
+        text.push_str(comment.text().trim_end());
+      }
+      text.push_str(&pad);
+      text.push_str(&rewrite(value, nested)?);
+      text
     }
     _ => {
       let condition = children.iter().find(|c| c.kind() != K::Label)?;
@@ -728,7 +767,11 @@ pub(super) fn safe(element: &SyntaxElement) -> bool {
     // one among a call's arguments, which the list layout places.
     SyntaxElement::Token(t)
       if matches!(t.kind(), K::LineComment | K::BlockComment)
-        && !t.text().contains('\n')
+        && (!t.text().contains('\n')
+          // A block comment across lines whose later lines start with `*`, among a call's
+          // arguments (a space in under its `/*`).
+          || t.parent().kind() == K::ArgList
+            && t.text().lines().skip(1).all(|l| l.trim_start().starts_with('*')))
         && (super::expr::in_chain_gap(t)
           || matches!(
             t.parent().kind(),
@@ -791,14 +834,19 @@ pub(super) fn safe(element: &SyntaxElement) -> bool {
     SyntaxElement::Node(n) if n.kind() == K::BlockExpr => {
       super::expr::joins(n) || super::expr::one_line_if_block(n)
     }
-    // An element's or a struct literal field's attributes, laid out with it.
+    // An element's, a struct literal field's or a closure parameter's attributes, laid out
+    // with it.
     SyntaxElement::Node(n) => {
       n.kind() != K::Attr
         || n.parent().is_some_and(|p| {
           matches!(
             p.kind(),
             K::ArrayExpr | K::ArgList | K::TupleExpr | K::RecordExprField
-          )
+          ) || p.kind() == K::Param
+            && p
+              .parent()
+              .and_then(|l| l.parent())
+              .is_some_and(|c| c.kind() == K::ClosureExpr)
         })
     }
   }
@@ -1176,6 +1224,17 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
         None => right_side(&head, &expression, indent, shape, tab),
       }
     }
+    // An assignment ending a block, as one ending a statement.
+    _ if is_tail(node)
+      && let Some((left, operator, right)) = assignment(node) =>
+    {
+      let left = rewrite(&left, shape.sub_width(operator.len() + 1)?)?;
+      let head = format!("{} {}", left, operator);
+      // Without the `;` a statement's has: the room it took is left too.
+      right_side(&head, &right, indent, shape, tab)?
+        .strip_suffix(';')
+        .map(str::to_string)
+    }
     _ if is_tail(node) => rewrite(
       node,
       Shape {
@@ -1438,7 +1497,9 @@ fn takes(node: &SyntaxNode) -> bool {
       )
   };
   // An assignment, as a `let`, whatever its sides: its value may go on the next line.
-  if node.kind() == K::ExprStmt && expression_of(node).as_ref().and_then(assignment).is_some() {
+  if node.kind() == K::ExprStmt && expression_of(node).as_ref().and_then(assignment).is_some()
+    || is_tail(node) && assignment(node).is_some()
+  {
     return true;
   }
   // A `let`, whatever its value: its pattern and type may break, and its value go on the

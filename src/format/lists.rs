@@ -124,14 +124,22 @@ pub fn spanned_comments(list: &SyntaxNode, spans: &[(usize, usize)]) -> Option<V
       new_lines,
     });
   }
-  // A block comment across lines is re-indented line by line, which is not done here.
-  let spans = |c: &Option<String>| {
+  // A block comment across lines is re-indented line by line, which is not done here; but
+  // in a comment after an item, one whose later lines all start with `*`, each written a
+  // space in (`rewrite_comment`).
+  let spans = |c: &Option<String>, post: bool| {
     c.as_ref().is_some_and(|c| {
       let mut rest = c.as_str();
       while let Some(at) = rest.find("/*") {
         let after = &rest[at..];
         let end = after.find("*/").map_or(after.len(), |e| e + 2);
-        if after[..end].contains('\n') {
+        if after[..end].contains('\n')
+          && !(post
+            && after[..end]
+              .lines()
+              .skip(1)
+              .all(|l| l.trim_start().starts_with('*')))
+        {
           return true;
         }
         rest = &after[end..];
@@ -139,7 +147,10 @@ pub fn spanned_comments(list: &SyntaxNode, spans: &[(usize, usize)]) -> Option<V
       false
     })
   };
-  if out.iter().any(|c| spans(&c.pre) || spans(&c.post)) {
+  if out
+    .iter()
+    .any(|c| spans(&c.pre, false) || spans(&c.post, true))
+  {
     return None;
   }
   Some(out)
@@ -204,6 +215,10 @@ fn comment_lines(comment: &str, indent: usize) -> String {
       out.push('\n');
       if !line.is_empty() {
         out.push_str(&pad);
+      }
+      // A block comment's later line, a space in under its `/*`.
+      if line.starts_with('*') {
+        out.push(' ');
       }
     }
     out.push_str(line);
@@ -488,7 +503,9 @@ fn write_list(
       }
     };
     let last_line = text.rsplit('\n').next().unwrap_or("");
-    let item_width = str_width(last_line.trim_start()) + usize::from(separate);
+    // A packed list's last item without its comma, which is not the list's separator
+    // there (`item_sep_len`).
+    let item_width = str_width(last_line.trim_start()) + usize::from(separate && !(mixed && last));
     let column = |item_max: Option<usize>| match item_max {
       Some(max) => indent + max + 2,
       None => indent + item_width + 1,

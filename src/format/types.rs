@@ -20,7 +20,7 @@ pub fn alone_in_function_type(comment: &SyntaxToken) -> bool {
   matches!(comment.kind(), K::LineComment | K::BlockComment)
     && !comment.text().contains('\n')
     && comment.parent().kind() == K::ParenthesizedArgList
-    && comment.parent().children_iter().next().is_none()
+    && (comment.parent().children_iter().next().is_none() || before_parameter(comment))
 }
 
 /// `head` and then a right-hand side `rhs` lays out into a shape: after a space on the
@@ -168,15 +168,32 @@ pub fn rewrite_param(param: &SyntaxNode, shape: Shape) -> Option<String> {
     .children_iter()
     .filter(|c| c.kind() == K::Attr)
     .collect();
-  if !attributes.is_empty() {
+  // Its doc comments too, in their order among the attributes, each on a line of its own.
+  let docs = param
+    .children_with_tokens_iter()
+    .any(|e| super::items::is_doc(e.kind()));
+  if !attributes.is_empty() || docs {
     let config = shape.limits.config();
     let pad = " ".repeat(shape.indent);
-    let texts = attributes
-      .iter()
-      .map(|a| super::attrs::rewrite_attr(a, shape.indent, &config))
+    let texts = param
+      .children_with_tokens_iter()
+      .filter_map(|e| match e {
+        // One too wide to lay out stays as written, when on one line.
+        SyntaxElement::Node(a) if a.kind() == K::Attr => Some(
+          super::attrs::rewrite_attr(&a, shape.indent, &config).or_else(|| {
+            let written = a.text().to_string();
+            (!written.contains('\n')).then_some(written)
+          }),
+        ),
+        SyntaxElement::Token(t) if super::items::is_doc(t.kind()) => {
+          Some(Some(t.text().trim_end().to_string()))
+        }
+        _ => None,
+      })
       .collect::<Option<Vec<String>>>()?;
     let joined = texts.join(&format!("\n{}", pad));
-    if !joined.contains('\n')
+    if !docs
+      && !joined.contains('\n')
       && let Some(rest) = shape
         .offset_left(str_width(&joined) + 1)
         .and_then(|s| rewrite_param_after(param, s))
@@ -191,17 +208,24 @@ pub fn rewrite_param(param: &SyntaxNode, shape: Shape) -> Option<String> {
       .parent()
       .and_then(|list| list.parent())
       .is_some_and(|f| f.kind() == K::Fn);
-    let bare = attributes[0]
-      .descendant_nodes_where(|kind| kind == K::TokenTree)
-      .next()
-      .is_none()
-      && !attributes[0]
-        .children_with_tokens_iter()
-        .any(|e| e.kind() == K::Eq)
-      && !attributes[0]
-        .descendant_nodes_where(|kind| kind == K::Meta)
-        .any(|m| m.children_with_tokens_iter().any(|e| e.kind() == K::Eq));
-    if texts.len() == 1 && !joined.contains('\n') && !(in_fn && bare) {
+    let bare = docs
+      || attributes[0]
+        .descendant_nodes_where(|kind| kind == K::TokenTree)
+        .next()
+        .is_none()
+        && !attributes[0]
+          .children_with_tokens_iter()
+          .any(|e| e.kind() == K::Eq)
+        && !attributes[0]
+          .descendant_nodes_where(|kind| kind == K::Meta)
+          .any(|m| m.children_with_tokens_iter().any(|e| e.kind() == K::Eq));
+    // One wider than the line on its own goes on a line of its own.
+    if !docs
+      && texts.len() == 1
+      && !joined.contains('\n')
+      && !(in_fn && bare)
+      && str_width(&joined) <= shape.width
+    {
       return None;
     }
     let rest = rewrite_param_after(
@@ -283,7 +307,19 @@ pub fn rewrite_type(node: &SyntaxNode, shape: Shape) -> Option<String> {
         } else {
           flat(&value, spacing)
         };
-        (str_width(&text) <= shape.width && !text.contains('\n')).then_some(text)
+        if str_width(&text) <= shape.width && !text.contains('\n') {
+          return Some(text);
+        }
+        // Else on lines: its expression one level in, `}` at the line's indentation.
+        let lone = crate::format::expr::lone_expression(&value)?;
+        let inner = shape.block_indent(shape.limits.tab);
+        let inside = crate::format::expr::rewrite(&lone, inner)?;
+        Some(format!(
+          "{{\n{}{}\n{}}}",
+          " ".repeat(inner.indent),
+          inside,
+          " ".repeat(shape.indent)
+        ))
       }
       Some(value) => rewrite(&value, shape),
       None => {
@@ -449,6 +485,23 @@ fn aligned_block_indent(shape: Shape) -> Shape {
   }
 }
 
+/// Whether a block comment on one line stands right before a function type's parameter,
+/// on its line (`Fn(/* name: */ T)`): written before it.
+fn before_parameter(comment: &SyntaxToken) -> bool {
+  if comment.kind() != K::BlockComment || comment.text().contains('\n') {
+    return false;
+  }
+  let mut next = comment.next_sibling_or_token();
+  while let Some(SyntaxElement::Token(t)) = &next {
+    match t.kind() {
+      K::Whitespace if !t.text().contains('\n') => next = t.next_sibling_or_token(),
+      K::BlockComment if !t.text().contains('\n') => next = t.next_sibling_or_token(),
+      _ => return false,
+    }
+  }
+  matches!(next, Some(SyntaxElement::Node(n)) if n.kind() != K::Attr)
+}
+
 /// `:` spaced as the settings ask.
 fn colon_text(spacing: super::shape::Spacing) -> String {
   format!(
@@ -469,6 +522,22 @@ fn commented(node: &SyntaxNode) -> bool {
         }
         SyntaxElement::Node(_) => false,
       })
+}
+
+/// The block comments [`before_parameter`] right before `param`, each followed by a space.
+fn comments_before(param: &SyntaxNode) -> String {
+  let mut comments = Vec::new();
+  let mut previous = param.prev_sibling_or_token();
+  while let Some(SyntaxElement::Token(t)) = &previous {
+    match t.kind() {
+      K::Whitespace => {}
+      K::BlockComment => comments.push(format!("{} ", t.text())),
+      _ => break,
+    }
+    previous = t.prev_sibling_or_token();
+  }
+  comments.reverse();
+  comments.concat()
 }
 
 /// A function type's parameters and return type (`(A, B) -> C`), as the standard
@@ -521,9 +590,13 @@ fn function_type(list: &SyntaxNode, ret: Option<&SyntaxNode>, shape: Shape) -> O
   }
   let texts: Vec<String> = params
     .iter()
-    .map(|p| match p.kind() {
-      K::Param | K::SelfParam => rewrite_param(p, nested),
-      _ => rewrite(p, nested),
+    .map(|p| {
+      let comments = comments_before(p);
+      let text = match p.kind() {
+        K::Param | K::SelfParam => rewrite_param(p, nested),
+        _ => rewrite(p, nested),
+      }?;
+      Some(format!("{}{}", comments, text))
     })
     .collect::<Option<_>>()?;
   let variadic = texts.last().is_some_and(|t| t.ends_with("..."));

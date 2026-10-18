@@ -1147,8 +1147,11 @@ pub(super) fn rewrite_list(
     }
     // Block comments only: on the line when it all fits there (`definitive_tactic` breaks
     // the list for line comments).
-    let line_comment =
-      |c: &Option<String>| c.as_ref().is_some_and(|c| c.trim_start().starts_with("//"));
+    // A comment holding a line comment (after a block one too), or spanning lines.
+    let line_comment = |c: &Option<String>| {
+      c.as_ref()
+        .is_some_and(|c| c.contains('\n') || c.lines().any(|l| l.trim_start().starts_with("//")))
+    };
     if !comments
       .iter()
       .any(|c| line_comment(&c.pre) || line_comment(&c.post))
@@ -1805,6 +1808,7 @@ fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .sub_width(4)?
     .offset_left(1)?;
   // 4 = `|| {`
+  let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
   let param_shape = shape
     .offset_left(prefix[..opening].width() + 1)
     .and_then(|s| s.sub_width(4));
@@ -1815,14 +1819,27 @@ fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
       .iter()
       .any(|c| c.kind() == SyntaxKind::RetType)
   {
+    // A parameter's attributes, each on a line of its own, line up after the `|` too; what
+    // breaks in the parameter itself stays at the closure's indentation.
     let texts: Option<Vec<String>> = params
       .iter()
-      .map(|p| super::types::rewrite_param(p, param_shape))
+      .map(|p| {
+        let text = super::types::rewrite_param(p, param_shape)?;
+        let attributes = p
+          .children_with_tokens_iter()
+          .filter(|e| e.kind() == SyntaxKind::Attr || super::items::is_doc(e.kind()))
+          .count();
+        if attributes == 0 || !text.contains('\n') {
+          return Some(text);
+        }
+        let old = format!("\n{}", " ".repeat(param_shape.indent));
+        let new = format!("\n{}", " ".repeat(column));
+        Some(text.replacen(&old, &new, attributes))
+      })
       .collect();
     if let Some(texts) = texts
       && texts.iter().any(|t| t.contains('\n'))
     {
-      let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
       let sep = format!(",\n{}", " ".repeat(column));
       return Some(format!("{}{}|", &prefix[..=opening], texts.join(&sep)));
     }

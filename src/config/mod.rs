@@ -291,6 +291,7 @@ impl Config {
     config.reorder_imports = flag("reorder_imports", true);
     config.reorder_modules = flag("reorder_modules", true);
     config.force_explicit_abi = flag("force_explicit_abi", true);
+    config.merge_derives = flag("merge_derives", true);
     config.remove_nested_parens = flag("remove_nested_parens", true);
     if let Some(names) = self.get("skip_macro_invocations").and_then(Value::as_list) {
       config.skip_macro_invocations = names.to_vec();

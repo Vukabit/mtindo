@@ -229,8 +229,8 @@ pub fn explicit_abi(root: &SyntaxNode, text: &str) -> Option<String> {
 /// `text` with the comments on lines of their own after a `match`'s last arm, written
 /// without a comma (or with one after a plain block, which goes), moved to the end of the
 /// arm's line, as the standard formatter takes them
-/// for the arm's comments after it: the first after one space, each later one under it, the
-/// blank lines among them dropped. `None` when there are none to move. Not in a
+/// for the arm's comments after it: the first after one space, each later one under it, a
+/// blank line among them kept. `None` when there are none to move. Not in a
 /// `// mto: off` region or a skipped item.
 pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
   let mut edits: Vec<(usize, usize, String)> = Vec::new();
@@ -299,6 +299,9 @@ pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
           continue;
         }
         " ".to_string()
+      } else if space.text().matches('\n').count() > 1 {
+        // A blank line among them stays.
+        format!("\n\n{}", under)
       } else {
         format!("\n{}", under)
       };
@@ -317,6 +320,140 @@ pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
   let mut out = String::with_capacity(text.len());
   let mut at = 0;
   for (start, end, replacement) in edits {
+    out.push_str(&text[at..start]);
+    out.push_str(&replacement);
+    at = end;
+  }
+  out.push_str(&text[at..]);
+  Some(out)
+}
+
+/// `text` with each run of `#[derive(..)]` attributes merged into one, their traits in order
+/// (`merge_derives`); `None` when there is none to merge. A run is of attributes with no
+/// comment between them (`take_while_with_pred`), across a blank line too, which the
+/// standard formatter merges on its second run once it has dropped that line; not one in a
+/// `// mto: off` region, on what is skipped or skips derives, or holding a comment.
+pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
+  let off = off_regions(root);
+  // The traits of a derive, each as written: `None` for any other attribute.
+  let traits = |attr: &SyntaxNode| -> Option<Vec<String>> {
+    let a = Attr::cast(attr.clone())?;
+    if a.is_inner() || a.path() != "derive" {
+      return None;
+    }
+    let tree = attr
+      .descendant_nodes_where(|kind| kind == K::TokenTree)
+      .next()?;
+    if tree.first_token()?.kind() != K::LParen
+      || tree.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
+    {
+      return None;
+    }
+    let inner = tree.text().to_string();
+    let inner = &inner[1..inner.len() - 1];
+    let mut items = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for c in inner.chars() {
+      match c {
+        '(' | '[' | '{' | '<' => depth += 1,
+        ')' | ']' | '}' | '>' => depth = depth.saturating_sub(1),
+        _ => {}
+      }
+      if c == ',' && depth == 0 {
+        items.push(std::mem::take(&mut current));
+      } else {
+        current.push(c);
+      }
+    }
+    items.push(current);
+    let items: Vec<String> = items
+      .into_iter()
+      .map(|i| i.split_whitespace().collect::<Vec<_>>().join(" "))
+      .filter(|i| !i.is_empty())
+      .collect();
+    (!items.is_empty()).then_some(items)
+  };
+  let mut edits: Vec<(usize, usize, String)> = Vec::new();
+  // `rustfmt::skip::attributes(derive)` on what holds them or on what holds that.
+  let skips_derives = |attr: &SyntaxNode| {
+    let text: String = attr.text().to_string().split_whitespace().collect();
+    text.contains("rustfmt::skip::attributes(") && text.contains("derive")
+  };
+  // The ranges of what skips derives, found once.
+  let skipping: Vec<(u32, u32)> = root
+    .descendant_nodes_where(|kind| kind == K::Attr)
+    .filter(|a| skips_derives(a))
+    .filter_map(|a| a.parent())
+    .map(|p| (p.text_range().start, p.text_range().end))
+    .collect();
+  for node in root.descendants_iter() {
+    let range = node.text_range();
+    if node
+      .children_iter()
+      .filter_map(Attr::cast)
+      .any(|a| a.is_rustfmt_skip())
+      || skipping
+        .iter()
+        .any(|&(s, e)| s <= range.start && range.end <= e)
+    {
+      continue;
+    }
+    let elements: Vec<SyntaxElement> = node.children_with_tokens_iter().collect();
+    let mut i = 0;
+    while i < elements.len() {
+      let SyntaxElement::Node(first) = &elements[i] else {
+        i += 1;
+        continue;
+      };
+      let Some(mut all) = (first.kind() == K::Attr).then(|| traits(first)).flatten() else {
+        i += 1;
+        continue;
+      };
+      let mut last = first.clone();
+      let mut count = 1;
+      let mut j = i + 1;
+      loop {
+        // Whitespace with at most one line break, then another derive.
+        let mut k = j;
+        if let Some(SyntaxElement::Token(t)) = elements.get(k)
+          && t.kind() == K::Whitespace
+        {
+          k += 1;
+        }
+        match elements.get(k) {
+          Some(SyntaxElement::Node(n)) if n.kind() == K::Attr => match traits(n) {
+            Some(more) => {
+              all.extend(more);
+              last = n.clone();
+              count += 1;
+              j = k + 1;
+            }
+            None => break,
+          },
+          _ => break,
+        }
+      }
+      let (start, end) = (
+        first.text_range().start as usize,
+        last.text_range().end as usize,
+      );
+      if count > 1 && !off.iter().any(|&(s, e)| s < end && start < e) {
+        edits.push((start, end, format!("#[derive({})]", all.join(", "))));
+      }
+      i = j.max(i + 1);
+    }
+  }
+  if edits.is_empty() {
+    return None;
+  }
+  edits.sort_by_key(|e| e.0);
+  let mut out = String::with_capacity(text.len());
+  let mut at = 0;
+  for (start, end, replacement) in edits {
+    if start < at {
+      continue;
+    }
     out.push_str(&text[at..start]);
     out.push_str(&replacement);
     at = end;
@@ -576,17 +713,24 @@ fn code_start(item: &SyntaxNode) -> usize {
 fn has_comment(run: &[SyntaxNode]) -> bool {
   let comment = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), K::LineComment | K::BlockComment));
   // One inside a `use`'s braces moves with it, and is laid out with its list; so does a block
-  // comment before its `;`, which goes after it, and one between its attributes and `use`,
-  // kept with them.
+  // comment before its `;`, which goes after it, and one between its attributes and its code
+  // (a `use`'s, a module's, an `extern crate`'s), kept with them.
   let commented = |item: &SyntaxNode, from: usize, to: usize| {
-    let body = (item.kind() == K::Use)
-      .then(|| super::imports::body_start(item))
-      .flatten()
-      .unwrap_or(from);
+    let body = match item.kind() {
+      K::Use => super::imports::body_start(item),
+      // A module's or `extern crate`'s between its attributes and its code too.
+      K::Module | K::ExternCrate => super::items::header_start(item),
+      _ => None,
+    }
+    .unwrap_or(from);
     item.descendants_with_tokens_iter().any(|e| {
       matches!(&e, SyntaxElement::Token(t)
         if matches!(t.kind(), K::LineComment | K::BlockComment)
-          && t.text_range().start as usize >= body
+          // One inside a module's attribute (its arguments) counts wherever it is.
+          && (t.text_range().start as usize >= body
+            || item.kind() != K::Use
+              && (t.text_range().start as usize) >= from
+              && &t.parent() != item)
           && (t.text_range().start as usize) < to
           && !(item.kind() == K::Use
             && (t.parent().kind() == K::UseTreeList

@@ -480,13 +480,17 @@ fn test_statements_inside_blocks_in_expressions() {
 
 #[test]
 fn test_statements_left_to_the_whole_file_rules() {
-  // A comment, a closure whose parameters would break: kept as written.
-  for kept in [
-    "fn f() {\n    let x = foo(\n        a, // why\n        b,\n    );\n}\n",
-    "fn f() {\n    let x = foo(\n        a,\n        |S { aaaaaaaa, bbbbbbbbbbbb }| {\n            b\n        },\n    );\n}\n",
-  ] {
-    assert_eq!(formatted(kept), kept);
-  }
+  // A comment: kept as written.
+  let kept = "fn f() {\n    let x = foo(\n        a, // why\n        b,\n    );\n}\n";
+  assert_eq!(formatted(kept), kept);
+  // A closure's struct pattern past `struct_lit_width`: a field per line, one level in from
+  // the column after the `|`, its block on one line after.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let x = foo(\n        a,\n        |S { aaaaaaaa, bbbbbbbbbbbb }| {\n            b\n        },\n    );\n}\n"
+    ),
+    "fn f() {\n    let x = foo(\n        a,\n        |S {\n             aaaaaaaa,\n             bbbbbbbbbbbb,\n         }| { b },\n    );\n}\n"
+  );
 }
 
 /// A statement holding one block laid out to the block's `{`, the block's insides on their

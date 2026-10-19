@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 16
+  supported: 17
   partial: 26
-  missing: 45
+  missing: 44
   not_planned: 3
 ---
 
@@ -680,7 +680,8 @@ Merge multiple derives into a single one.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true, runs of `#[derive(..)]` with no blank
+    line or comment between them merged into one.
 
 ### `newline_style`
 

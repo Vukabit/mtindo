@@ -48,9 +48,13 @@ pub fn is_ident_start(c: char) -> bool {
   }
 }
 
-/// The number of terminal columns `text` occupies, with control characters counting as 0.
+/// The width of `text` as the standard formatter measures it: tabs count 1, other control
+/// characters 0.
 pub fn str_width(text: &str) -> usize {
-  text.chars().map(char_width).sum()
+  text
+    .chars()
+    .map(|c| if c == '\t' { 1 } else { char_width(c) })
+    .sum()
 }
 
 fn in_table(table: &[(u32, u32)], c: char) -> bool {

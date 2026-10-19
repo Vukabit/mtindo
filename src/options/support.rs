@@ -56,7 +56,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("match_arm_leading_pipes", "missing"),
   ("match_block_trailing_comma", "missing"),
   ("max_width", "partial"),
-  ("merge_derives", "missing"),
+  ("merge_derives", "supported"),
   ("merge_imports", "not-planned"),
   ("newline_style", "supported"),
   ("normalize_comments", "missing"),

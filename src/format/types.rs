@@ -180,6 +180,14 @@ pub fn rewrite_param(param: &SyntaxNode, shape: Shape) -> Option<String> {
       matches!(t.kind(), K::LineComment | K::BlockComment)
         && !alone_in_function_type(&t)
         && !in_reference(&t)
+        // A block comment on a line before a function type's argument, written before it.
+        && !(t.kind() == K::BlockComment
+          && !t.text().contains('\n')
+          && t.parent().kind() == K::ParenthesizedArgList)
+        // Among a struct pattern's fields, placed by its list layout.
+        && t.parent().kind() != K::RecordPatFieldList
+        // On a line among a tuple type's elements, placed by its list layout.
+        && !(t.parent().kind() == K::TupleType && !t.text().contains('\n'))
     }
     SyntaxElement::Node(_) => false,
   }) {
@@ -225,28 +233,34 @@ pub fn rewrite_param(param: &SyntaxNode, shape: Shape) -> Option<String> {
     {
       return Some(format!("{} {}", joined, rest));
     }
-    // One attribute on a line that does not fit with the parameter: left as written, as the
-    // standard formatter leaves the signature (found by measuring it), but a bare name's
-    // (`#[name]`) in a function's, which goes on a line of its own.
+    // One attribute that does not fit with the parameter, whose arguments pass
+    // `attr_fn_like_width` (which the standard formatter would break, failing the
+    // signature): left as written (found by measuring it). One wider than the line on its
+    // own goes on a line of its own, as does a bare name's (`#[name]`) in a function's.
+    let first = attributes.first();
+    let wide_arguments = joined
+      .find('(')
+      .zip(joined.rfind(')'))
+      .is_some_and(|(open, close)| {
+        close > open && str_width(&joined[open + 1..close]) > config.attr_fn_like_width
+      });
     let in_fn = param
       .parent()
       .and_then(|list| list.parent())
       .is_some_and(|f| f.kind() == K::Fn);
-    let bare = docs
-      || attributes[0]
-        .descendant_nodes_where(|kind| kind == K::TokenTree)
+    let bare = first.is_some_and(|a| {
+      a.descendant_nodes_where(|kind| kind == K::TokenTree)
         .next()
         .is_none()
-        && !attributes[0]
-          .children_with_tokens_iter()
-          .any(|e| e.kind() == K::Eq)
-        && !attributes[0]
+        && !a.children_with_tokens_iter().any(|e| e.kind() == K::Eq)
+        && !a
           .descendant_nodes_where(|kind| kind == K::Meta)
-          .any(|m| m.children_with_tokens_iter().any(|e| e.kind() == K::Eq));
-    // One wider than the line on its own goes on a line of its own.
+          .any(|m| m.children_with_tokens_iter().any(|e| e.kind() == K::Eq))
+    });
     if !docs
       && texts.len() == 1
       && !joined.contains('\n')
+      && wide_arguments
       && !(in_fn && bare)
       && str_width(&joined) <= shape.width
     {
@@ -533,6 +547,27 @@ fn before_parameter(comment: &SyntaxToken) -> bool {
   matches!(next, Some(SyntaxElement::Node(n)) if n.kind() != K::Attr)
 }
 
+/// Whether a blank line is written between two items of a list.
+fn blank_between(before: &SyntaxNode, after: &SyntaxNode) -> bool {
+  let mut next = before.next_sibling_or_token();
+  while let Some(element) = next {
+    if element.text_range().start >= after.text_range().start {
+      break;
+    }
+    if let SyntaxElement::Token(t) = &element
+      && t.kind() == K::Whitespace
+      && t.text().matches('\n').count() > 1
+    {
+      return true;
+    }
+    next = match &element {
+      SyntaxElement::Token(t) => t.next_sibling_or_token(),
+      SyntaxElement::Node(n) => n.next_sibling_or_token(),
+    };
+  }
+  false
+}
+
 /// `:` spaced as the settings ask.
 fn colon_text(spacing: super::shape::Spacing) -> String {
   format!(
@@ -553,6 +588,12 @@ fn commented(node: &SyntaxNode) -> bool {
             && !alone_in_function_type(&t)
             && !in_reference(&t)
             && !between_bounds(&t)
+            // Among a tuple type's elements, placed by the list layout.
+            && t.parent().kind() != K::TupleType
+            // A block comment on a line before a function type's argument, written before it.
+            && !(t.kind() == K::BlockComment
+              && !t.text().contains('\n')
+              && t.parent().kind() == K::ParenthesizedArgList)
         }
         SyntaxElement::Node(_) => false,
       })
@@ -678,10 +719,21 @@ fn function_type(list: &SyntaxNode, ret: Option<&SyntaxNode>, shape: Shape) -> O
   } else {
     let pad = " ".repeat(nested.indent);
     let comma = if variadic { "" } else { "," };
+    // A blank line written between two parameters stays (`preserve_newline`).
+    let mut joined = texts[0].clone();
+    for (i, text) in texts.iter().enumerate().skip(1) {
+      let blank = blank_between(&params[i - 1], &params[i]);
+      joined.push_str(&format!(
+        ",\n{}{}{}",
+        if blank { "\n" } else { "" },
+        pad,
+        text
+      ));
+    }
     format!(
       "(\n{}{}{}\n{})",
       pad,
-      texts.join(&format!(",\n{}", pad)),
+      joined,
       comma,
       " ".repeat(shape.indent)
     )
@@ -1249,43 +1301,71 @@ fn rewrite_segment(segment: &SyntaxNode, shape: Shape, expression: bool) -> Opti
 /// A tuple struct's field: one attribute on its line, its visibility, then its type.
 fn rewrite_tuple_field(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let spacing = shape.limits.spacing;
+  let ty = node.children_iter().next_back()?;
+  // A line comment among its attributes, before its type, starts a line of its own; any
+  // other would be lost.
+  let leading = |e: &SyntaxElement| {
+    e.kind() == K::LineComment
+      && e.text_range().end <= ty.text_range().start
+      && matches!(e, SyntaxElement::Token(t) if t.parent() == *node)
+  };
+  // One on a line among a tuple type's elements is placed by the tuple's list.
+  let in_tuple = |e: &SyntaxElement| matches!(e, SyntaxElement::Token(t) if t.parent().kind() == K::TupleType && !t.text().contains('\n'));
   if node
     .descendants_with_tokens_iter()
-    .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+    .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment) && !leading(&e) && !in_tuple(&e))
   {
     return None;
   }
-  let ty = node.children_iter().next_back()?;
   if !is_type(ty.kind()) && ty.kind() != K::MacroType {
     return None;
   }
   let mut prefix = String::new();
-  let attributes: Vec<SyntaxNode> = node
-    .children_iter()
-    .filter(|c| c.kind() == K::Attr)
+  let mut attribute_lines: Option<String> = None;
+  // Its attributes and doc comments, in order.
+  let attributes: Vec<SyntaxElement> = node
+    .children_with_tokens_iter()
+    .filter(|e| e.kind() == K::Attr || super::items::is_doc(e.kind()) || leading(e))
     .collect();
+  let docs = attributes
+    .iter()
+    .any(|e| super::items::is_doc(e.kind()) || e.kind() == K::LineComment);
   // Its attributes each on a line of their own (one the standard formatter leaves as
   // written keeps its lines), and the field on their line when they are one line
-  // (`is_attributes_extendable`), else on the next.
+  // (`is_attributes_extendable`), else on the next; a doc comment ends its line.
   if !attributes.is_empty() {
     let config = shape.limits.config();
     let pad = " ".repeat(shape.indent);
-    let texts = attributes
-      .iter()
-      .map(|a| {
-        if super::file::meta_like(a) {
-          super::attrs::rewrite_attr(a, shape.indent, &config)
-        } else {
-          Some(a.text().to_string())
+    let mut texts: Vec<String> = Vec::new();
+    for e in &attributes {
+      let text = match e {
+        SyntaxElement::Token(doc) => doc.text().trim_end().to_string(),
+        SyntaxElement::Node(a) if super::file::meta_like(a) => {
+          super::attrs::rewrite_attr(a, shape.indent, &config)?
         }
-      })
-      .collect::<Option<Vec<_>>>()?;
+        SyntaxElement::Node(a) => a.text().to_string(),
+      };
+      // A line comment written on the line before stays at its end.
+      let same_line = e.kind() == K::LineComment
+        && !texts.is_empty()
+        && matches!(e, SyntaxElement::Token(t) if t
+          .prev_sibling_or_token()
+          .is_some_and(|w| w.kind() != K::Whitespace || !matches!(&w, SyntaxElement::Token(w) if w.text().contains('\n'))));
+      match texts.last_mut() {
+        Some(last) if same_line => {
+          last.push(' ');
+          last.push_str(&text);
+        }
+        _ => texts.push(text),
+      }
+    }
     let joined = texts.join(&format!("\n{}", pad));
-    if joined.contains('\n') {
+    if joined.contains('\n') || docs {
       prefix.push_str(&format!("{}\n{}", joined, pad));
     } else {
       prefix.push_str(&format!("{} ", joined));
     }
+    attribute_lines = Some(joined);
   }
   // Its visibility and restrictions (`pub mut(crate)`): every token before the type.
   let at = ty.text_range().start;
@@ -1303,10 +1383,9 @@ fn rewrite_tuple_field(node: &SyntaxNode, shape: Shape) -> Option<String> {
     prefix.push_str(&format!("{} ", lead));
   }
   // Tokens directly in the field before the type would be lost.
-  if node
-    .children_with_tokens_iter()
-    .any(|e| matches!(e, SyntaxElement::Token(ref t) if !t.kind().is_trivia()))
-  {
+  if node.children_with_tokens_iter().any(
+    |e| matches!(e, SyntaxElement::Token(ref t) if !t.kind().is_trivia() && !super::items::is_doc(t.kind())),
+  ) {
     return None;
   }
   // After attributes on lines of their own, the type starts a line at the field's column.
@@ -1326,14 +1405,24 @@ fn rewrite_tuple_field(node: &SyntaxNode, shape: Shape) -> Option<String> {
     return Some(format!("{}{}", prefix, text));
   }
   // Across lines, as a right-hand side after the prefix and its space (the standard
-  // formatter's `rewrite_struct_field`: `pub  Type<` with two spaces).
-  if !attributes.is_empty() {
-    return None;
+  // formatter's `rewrite_struct_field`: `pub  Type<` with two spaces); after attributes, on
+  // a line of its own below them.
+  let field = |prefix: &str| {
+    if prefix.is_empty() {
+      rewrite(&ty, shape)
+    } else {
+      assign_rhs(prefix, shape, |s| rewrite(&ty, s))
+    }
+  };
+  match attribute_lines {
+    Some(lines) => Some(format!(
+      "{}\n{}{}",
+      lines,
+      " ".repeat(shape.indent),
+      field(&lead)?
+    )),
+    None => field(&prefix),
   }
-  if prefix.is_empty() {
-    return rewrite(&ty, shape);
-  }
-  assign_rhs(&prefix, shape, |s| rewrite(&ty, s))
 }
 
 /// `use<'a, T>`, its arguments as a list in angle brackets: on the line when they fit,

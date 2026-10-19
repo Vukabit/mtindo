@@ -71,6 +71,8 @@ pub struct FormatConfig {
   pub reorder_modules: bool,
   /// Whether `extern` alone is written `extern "C"`.
   pub force_explicit_abi: bool,
+  /// Whether runs of `#[derive(..)]` attributes are merged into one.
+  pub merge_derives: bool,
   /// Whether parentheses directly inside parentheses are dropped: `((a))` is `(a)`.
   pub remove_nested_parens: bool,
   /// The macros whose calls are left as written, by their path as written (`self::m`), or
@@ -127,6 +129,7 @@ impl Default for FormatConfig {
       reorder_imports: true,
       reorder_modules: true,
       force_explicit_abi: true,
+      merge_derives: true,
       remove_nested_parens: true,
       skip_macro_invocations: Vec::new(),
       crate_skipped_macros: Vec::new(),

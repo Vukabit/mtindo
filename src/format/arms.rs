@@ -89,8 +89,10 @@ pub fn rewrite_arm_in(
     None => String::new(),
   };
   let lhs = format!("{}{}", pattern_text, guard_text);
-  // A guard on a line of its own keeps the body off the arm's line.
-  let forbid_same_line = guard_text.contains('\n');
+  // A guard on a line of its own keeps the body off the arm's line, as do a block's inner
+  // attributes (the body's attributes, in `rewrite_match_body`).
+  let forbid_same_line = guard_text.contains('\n')
+    || body.kind() == K::BlockExpr && body.children_iter().any(|c| c.kind() == K::Attr);
   // The columns `lhs`'s last line takes past the arm's indentation.
   let used = if lhs.contains('\n') {
     last_line_width(&lhs).saturating_sub(indent)
@@ -168,6 +170,7 @@ pub fn rewrite_arm_in(
             open,
             tail,
             keep_comma: false,
+            spaced: Vec::new(),
             links: Vec::new(),
           })
         }
@@ -209,6 +212,7 @@ pub fn rewrite_arm_in(
             open,
             tail,
             keep_comma: prefixed,
+            spaced: Vec::new(),
             links: Vec::new(),
           })
         }
@@ -227,6 +231,7 @@ pub fn rewrite_arm_in(
         open: head.open,
         tail: vec![(comma.text_range().start as usize, K::Comma)],
         keep_comma: true,
+        spaced: Vec::new(),
         links: Vec::new(),
       })
     }

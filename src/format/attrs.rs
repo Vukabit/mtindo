@@ -186,6 +186,8 @@ fn commented_derive(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
   let mut names: Vec<Name> = Vec::new();
   let mut before: Vec<(String, bool)> = Vec::new();
   let mut text = String::new();
+  // A block comment on a line after the last name, before `)`: after it on the line.
+  let mut after_last: Option<String> = None;
   let elements: Vec<SyntaxElement> = tree.children_with_tokens();
   let inside = elements.get(1..elements.len().checked_sub(1)?)?;
   for (i, element) in inside.iter().enumerate() {
@@ -214,6 +216,13 @@ fn commented_derive(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
           comment.push_str(&line[kept.min(column)..]);
         }
         before.push((comment, broken));
+      }
+      K::BlockComment
+        if !t.text().contains('\n')
+          && after_last.is_none()
+          && inside[i + 1..].iter().all(|e| e.kind() == K::Whitespace) =>
+      {
+        after_last = Some(t.text().to_string());
       }
       K::Comma => {
         if text.is_empty() {
@@ -258,13 +267,20 @@ fn commented_derive(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
       .all(|(c, broken)| !broken && !c.contains('\n'))
   });
   if lone {
+    let last = after_last
+      .as_ref()
+      .map_or(String::new(), |c| format!(" {}", c));
     let one_line = format!(
-      "#[derive({})]",
-      names.iter().map(item).collect::<Vec<_>>().join(", ")
+      "#[derive({}{})]",
+      names.iter().map(item).collect::<Vec<_>>().join(", "),
+      last
     );
     if indent + str_width(&one_line) + 4 <= config.max_width {
       return Some(one_line);
     }
+  }
+  if after_last.is_some() {
+    return None;
   }
   let inner = indent + config.tab_spaces;
   let pad = " ".repeat(inner);

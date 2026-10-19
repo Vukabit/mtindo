@@ -83,6 +83,12 @@ pub fn locate(source: &str, notes: &[Note]) -> Vec<Option<(usize, usize)>> {
 
 /// Keeps a note when [`collect`] asked for them: `text` is what is left as written.
 pub fn note(kind: &str, text: &str, reason: impl FnOnce() -> String) {
+  if !active() {
+    return;
+  }
+  // Built before the notes are borrowed: building a reason may lay out code, which may
+  // note too.
+  let reason = reason();
   NOTES.with(|notes| {
     if let Some(notes) = notes.borrow_mut().as_mut() {
       let text = text.trim_start();
@@ -104,7 +110,7 @@ pub fn note(kind: &str, text: &str, reason: impl FnOnce() -> String) {
         kind: kind.to_string(),
         text: first.to_string(),
         shown,
-        reason: reason(),
+        reason,
       };
       if !notes.contains(&note) {
         notes.push(note);
@@ -138,6 +144,14 @@ mod tests {
       }]
     );
     assert!(!active());
+    // A reason that notes as it is built.
+    let ((), notes) = collect(|| {
+      note("LET_STMT", "let y = 2;", || {
+        note("CALL_EXPR", "f()", || "inner".to_string());
+        "outer".to_string()
+      });
+    });
+    assert_eq!(notes.len(), 2);
   }
 
   #[test]

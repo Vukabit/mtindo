@@ -39,6 +39,23 @@ fn test_comments_move_with_their_declarations() {
 }
 
 #[test]
+fn test_derives_merged_in_runs() {
+  let source = "#[derive(A)] #[derive(B, C,)]\n#[cfg(x)]\n#[derive(D)]\nstruct S;\n#[derive(A)]\n\n#[derive(B)]\nstruct T;\nfn f() {\n    #[derive(A)]\n    #[derive(B)]\n    enum E {}\n}\n";
+  assert_eq!(
+    formatted(source, &FormatConfig::default()),
+    "#[derive(A, B, C)]\n#[cfg(x)]\n#[derive(D)]\nstruct S;\n#[derive(A, B)]\nstruct T;\nfn f() {\n    #[derive(A, B)]\n    enum E {}\n}\n"
+  );
+  let kept = FormatConfig {
+    merge_derives: false,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted("#[derive(A)]\n#[derive(B)]\nstruct S;\n", &kept),
+    "#[derive(A)]\n#[derive(B)]\nstruct S;\n"
+  );
+}
+
+#[test]
 fn test_empty_statements_dropped() {
   let source = "fn f() {;\n    x();;\n    struct S {};\n}\n";
   let root = crate::syntax::parse(source, crate::syntax::Edition::E2021).syntax_node();

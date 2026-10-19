@@ -81,6 +81,60 @@ fn test_blank_lines_between_variant_fields() {
 }
 
 #[test]
+fn test_blocks_standing_as_statements_and_commented_chains() {
+  // A block standing as a statement, with attributes too, is on lines around a statement given
+  // up on; an `if` chain with a commented block is on lines throughout; a block's last
+  // expression no layout fits is left as written; a chain after a block keeps its links.
+  let c2021 = FormatConfig::default();
+  let c2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let _p = 1;\n\n#[cfg(x)]\n\n{\tErr(anyhow::anyhow!(\n\"Memory profiling.\\n\\n\\\n            To build rust-analyzer with profiling support, pass `--features dhat --profile dev-rel` to `cargo build`\n            when.\"\n\n))\n    }\n    foo();\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let _p = 1;\n\n    #[cfg(x)]\n    {\n        Err(anyhow::anyhow!(\n\"Memory profiling.\\n\\n\\\n            To build rust-analyzer with profiling support, pass `--features dhat --profile dev-rel` to `cargo build`\n            when.\"\n\n))\n    }\n    foo();\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let _p = 1;\n\n\n{\tErr(anyhow::anyhow!(\n\"Memory profiling.\\n\\n\\\n            To build rust-analyzer with profiling support, pass `--features dhat --profile dev-rel` to `cargo build`\n            when.\"\n\n))\n    }\n    foo();\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let _p = 1;\n\n    {\n        Err(anyhow::anyhow!(\n\"Memory profiling.\\n\\n\\\n            To build rust-analyzer with profiling support, pass `--features dhat --profile dev-rel` to `cargo build`\n            when.\"\n\n))\n    }\n    foo();\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let x = g.map(|t| {\n        if a {\n            c\n            // underscore\n        } else if b { e } else { d }\n    });\n    let x = g.map(|t| {\n        if a {\n            c\n            // underscore\n        } else if b {\n            quote!{ _\n    } } else { d }\n    });\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let x = g.map(|t| {\n        if a {\n            c\n            // underscore\n        } else if b {\n            e\n        } else {\n            d\n        }\n    });\n    let x = g.map(|t| {\n        if a {\n            c\n            // underscore\n        } else if b {\n            quote! { _\n            }\n        } else {\n            d\n        }\n    });\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "impl X {\n    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> Serial<Self> {\n    let\n    length\n=\n\tu64::deserialize_reader(reader)?;\trepeat_with(||\nItem::deserialize_reader(reader))\n.take(length.try_into().map_err(|_|\nError::new(  ErrorKind::OutOfMemory,\n\n\"Cannot deserialize a sequence with more than usize::MAX elements in this machine\"\n))?)\t.collect()  }\n}\n",
+      &c2024
+    ),
+    "impl X {\n    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> Serial<Self> {\n        let length = u64::deserialize_reader(reader)?;\n        repeat_with(||\nItem::deserialize_reader(reader))\n.take(length.try_into().map_err(|_|\nError::new(  ErrorKind::OutOfMemory,\n\n\"Cannot deserialize a sequence with more than usize::MAX elements in this machine\"\n))?)\t.collect()\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let x = (||\n        {\n        tt\n        = // FIXME\n\tfoo(1)?;\n        Ok(1)\n    })()\n    .map_err(expect_literal).foo;\n    (|| {\n        tt\n        = // FIXME\n\tfoo(1)?;\n        Ok(1)\n    })().map_err(expect_literal)?.foo();\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    let x = (|| {\n        tt\n        = // FIXME\n\tfoo(1)?;\n        Ok(1)\n    })()\n    .map_err(expect_literal)\n    .foo;\n    (|| {\n        tt\n        = // FIXME\n\tfoo(1)?;\n        Ok(1)\n    })()\n    .map_err(expect_literal)?\n    .foo();\n}\n"
+  );
+  // A block a loop iterates over or tests is not its body: on one line where it fits.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    for site in unsafe { std::slice::from_raw_parts(chunk, CHUNK) } {\n        site.live.store(0, Ordering::Relaxed);\n    }\n    while {\n        a\n    } {\n        b;\n    }\n}\n"
+    ),
+    "fn f() {\n    for site in unsafe { std::slice::from_raw_parts(chunk, CHUNK) } {\n        site.live.store(0, Ordering::Relaxed);\n    }\n    while { a } {\n        b;\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_braced_macros_holding_strings_across_lines() {
   // Re-indented around the string: a line continuing it after `\` moves, one starting
   // inside it otherwise is the string's own and stays.
@@ -146,6 +200,54 @@ fn test_comments_after_arms_in_nested_matches() {
 }
 
 #[test]
+fn test_comments_after_attributes_and_last_statements() {
+  // A comment under one ending a kept attribute's line is the attribute gap's: aligned under it
+  // before the 2024 style, after a blank line from it; before the 2024 style a comment after
+  // a block's last statement goes to the next line when it would start past column 80; from
+  // the 2024 style a block comment after code has its lines trimmed.
+  let c2021 = FormatConfig::default();
+  let c2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "#[derive(A)]\n#[primary_key\n        =  id]  //~^ ERROR: a\n    //~| ERROR: b\nstruct U {\n    id: i32,\n}\n#[derive(A)]\n#[primary_key =  id]  //~^ ERROR: a\n    //~| ERROR: b\nstruct V {\n    id: i32,\n}\n",
+      &c2021
+    ),
+    "#[derive(A)]\n#[primary_key\n        =  id] //~^ ERROR: a\n               //~| ERROR: b\nstruct U {\n    id: i32,\n}\n#[derive(A)]\n#[primary_key =  id] //~^ ERROR: a\n                     //~| ERROR: b\nstruct V {\n    id: i32,\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "#[derive(A)]\n#[primary_key\n        =  id]  //~^ ERROR: a\n    //~| ERROR: b\nstruct U {\n    id: i32,\n}\n#[derive(A)]\n#[primary_key =  id]  //~^ ERROR: a\n    //~| ERROR: b\nstruct V {\n    id: i32,\n}\n",
+      &c2024
+    ),
+    "#[derive(A)]\n#[primary_key\n        =  id] //~^ ERROR: a\n\n//~| ERROR: b\nstruct U {\n    id: i32,\n}\n#[derive(A)]\n#[primary_key =  id] //~^ ERROR: a\n\n//~| ERROR: b\nstruct V {\n    id: i32,\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    console_log_yyyyyyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a1\n}\nfn f() {\n    console_log_yyyyyyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a2\n    foo();\n}\nfn f() {\n    let a = h(|| {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a3\n    });\n}\nfn f() {\n    let a = h(|| {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a4\n        foo();\n    });\n}\nfn f() {\n    if x {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a5\n    }\n}\nfn f() {\n    let a = h(|| {\n        console_log_yyyyyyy(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a6\n    });\n}\nfn f() {\n    let a = h(|| {\n        let x = console_log(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a7\n    });\n}\nfn f() {\n    {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a8\n    }\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    console_log_yyyyyyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec());\n    // a1\n}\nfn f() {\n    console_log_yyyyyyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a2\n    foo();\n}\nfn f() {\n    let a = h(|| {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec());\n        // a3\n    });\n}\nfn f() {\n    let a = h(|| {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // a4\n        foo();\n    });\n}\nfn f() {\n    if x {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec());\n        // a5\n    }\n}\nfn f() {\n    let a = h(|| {\n        console_log_yyyyyyy(\"Blob received {}bytes: {:?}\", len, array.to_vec());\n        // a6\n    });\n}\nfn f() {\n    let a = h(|| {\n        let x = console_log(\"Blob received {}bytes: {:?}\", len, array.to_vec());\n        // a7\n    });\n}\nfn f() {\n    {\n        console_log_yyyyyy!(\"Blob received {}bytes: {:?}\", len, array.to_vec());\n        // a8\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn start_websocket() -> Result<(), JsValue> {\n    let onmessage_callback = Closure::<dyn FnMut(_)>::new(move |e: MessageEvent| {\n        {\n            let onloadend_cb = Closure::<dyn FnMut(_)>::new(move |_e: E| {\n                console_log!(\"Blob received {}bytes: {:?}\", len, array.to_vec()); // here you can for example use the received image/png data\n            });\n        }\n    });\n}\n",
+      &c2021
+    ),
+    "fn start_websocket() -> Result<(), JsValue> {\n    let onmessage_callback = Closure::<dyn FnMut(_)>::new(move |e: MessageEvent| {\n        {\n            let onloadend_cb = Closure::<dyn FnMut(_)>::new(move |_e: E| {\n                console_log!(\"Blob received {}bytes: {:?}\", len, array.to_vec());\n                // here you can for example use the received image/png data\n            });\n        }\n    });\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "trait T {\n    fn a(self) {\n        b\n        }\t/*\n    fn with_map<U, F>(self, f: F) -> WithMap<Self, U, F>\n        where F: FnMut(U) -> Self::SinkItem,\n              Self: Sized;\n\n    fn with_filter<F>(self, f: F);\n     */\n\t/// Transforms.\n\tfn c();\n}\n",
+      &c2024
+    ),
+    "trait T {\n    fn a(self) {\n        b\n    } /*\n    fn with_map<U, F>(self, f: F) -> WithMap<Self, U, F>\n    where F: FnMut(U) -> Self::SinkItem,\n    Self: Sized;\n\n    fn with_filter<F>(self, f: F);\n     */\n    /// Transforms.\n    fn c();\n}\n"
+  );
+}
+
+#[test]
 fn test_comments_among_items_follow_the_items() {
   assert_eq!(
     formatted("fn f() {\n        // first\n  a();\n      /* second */\n  b();\n}\n"),
@@ -199,7 +301,7 @@ fn test_contents_follow_the_line_their_owner_starts_on() {
     formatted(
       "fn f() {\n    let g = |S { aaaaaaaa, bbbbbbbbbbbb }: S,\n             b: u8| {\n  a\n    };\n}\n"
     ),
-    "fn f() {\n    let g = |S { aaaaaaaa, bbbbbbbbbbbb }: S,\n             b: u8| {\n        a\n    };\n}\n"
+    "fn f() {\n    let g = |S {\n                 aaaaaaaa,\n                 bbbbbbbbbbbb,\n             }: S,\n             b: u8| { a };\n}\n"
   );
   // A comment after an argument: the arguments one per line, the comment after its item.
   assert_eq!(
@@ -554,6 +656,75 @@ fn test_long_attribute_values_and_inner_docs() {
 }
 
 #[test]
+fn test_macro_arguments_read_as_the_standard_formatter_reads_them() {
+  // A braced call's later lines from the least indented, the last measured too; a type with a
+  // comma read as one when no expression comes before the comma; a `use` alone as an item; a
+  // `let` outside a condition left as written; a call kept as written, one line or braced,
+  // as a list's last item past the line width.
+  let c2021 = FormatConfig::default();
+  let c2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    if x {\n    abort!  {  item.kind().span(),\n\"a {} b\", item.kind().name(),  }\n\n}\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    if x {\n        abort! {  item.kind().span(),\n        \"a {} b\", item.kind().name(),  }\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let ty = m!(&Closure<dyn  FnMut(T)\n -> Result<R,  E>>);\n    let ty = m!(&Closure<dyn  FnMut(T) -> Result<R,  E>>);\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let ty = m!(&Closure<dyn FnMut(T) -> Result<R, E>>);\n    let ty = m!(&Closure<dyn FnMut(T) -> Result<R, E>>);\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let ty = m!(HashMap<Vec<u8>,  E>);\n    let ty = m!(HashMap<Vec<u8  >,  E>);\n    let ty = m!(HashMap<[u8; 4],  E>);\n    let ty = m!(HashMap<&str,  E>);\n    let ty = m!(HashMap<(A, B),  E>);\n    let ty = m!(HashMap<A::B,  E>);\n    let ty = m!(fn(A,  B));\n    let ty = m!(Box<dyn Fn(A,  B)>);\n    let ty = m!(HashMap<Box<dyn Fn()>,  E>);\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let ty = m!(HashMap<Vec<u8>, E>);\n    let ty = m!(HashMap<Vec<u8>, E>);\n    let ty = m!(HashMap<[u8; 4],  E>);\n    let ty = m!(HashMap<&str,  E>);\n    let ty = m!(HashMap<(A, B),  E>);\n    let ty = m!(HashMap<A::B,  E>);\n    let ty = m!(fn(A, B));\n    let ty = m!(Box<dyn Fn(A, B)>);\n    let ty = m!(HashMap<Box<dyn Fn()>, E>);\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let imports = if a { vec![parse_quote!(  use  diesel::sql_types::*;\n\t)] } else { b };\n    let i = vec![parse_quote!(  use  diesel::sql_types::*;\n\t)];\n    let i = parse_quote!(  use  diesel::sql_types::*;\n\t);\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    let imports = if a {\n        vec![parse_quote!(\n            use diesel::sql_types::*;\n        )]\n    } else {\n        b\n    };\n    let i = vec![parse_quote!(\n        use diesel::sql_types::*;\n    )];\n    let i = parse_quote!(\n        use diesel::sql_types::*;\n    );\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let tokens = Group::new(Delimiter::None, quote!(let\n    None\n\n=  None)).to_token_stream();\n    let t = quote!(let  None =  None);\n    let t = m!(a, let  None =  None);\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let tokens = Group::new(\n        Delimiter::None,\n        quote!(let\n    None\n\n=  None),\n    )\n    .to_token_stream();\n    let t = quote!(let  None =  None);\n    let t = m!(a, let  None =  None);\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    m!(if let  Some(x) =  y { 1 } else { 2 });\n    m!(while let  Some(x) =  y.next() {});\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    m!(if let Some(x) = y { 1 } else { 2 });\n    m!(while let Some(x) = y.next() {});\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    if a {\n        if b {\n            Ok(quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))))\n        } else {\n            c\n        }\n    }\n    foo(quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))));\n    foo(a, quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))));\n    let x = foo(quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))));\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    if a {\n        if b {\n            Ok(\n                quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))),\n            )\n        } else {\n            c\n        }\n    }\n    foo(\n        quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))),\n    );\n    foo(\n        a,\n        quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))),\n    );\n    let x = foo(\n        quote!(self.#field_name.as_ref().map(|x| diesel::ExpressionMethods::eq(#table_name::#column_name, x))),\n    );\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    if a {\n        let  inner_ty\n\t=  inner_of_option_ty(ty);\n    Ok(quote_spanned!\n\n{span=>  std::option::Option<diesel::dsl::Eq<\t#table_name::#column_name,  #inner_ty,\n\t>>  })\n} else\n    {\n        b\n    }\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    if a {\n        let inner_ty = inner_of_option_ty(ty);\n        Ok(\n            quote_spanned! {span=>  std::option::Option<diesel::dsl::Eq<\t#table_name::#column_name,  #inner_ty,\n            >>  },\n        )\n    } else {\n        b\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_match_arm_indent_off_keeps_arms_at_the_match() {
   let config = FormatConfig {
     match_arm_indent: false,
@@ -783,6 +954,49 @@ fn test_tuple_struct_with_where() {
 }
 
 #[test]
+fn test_tuple_type_comments_ranges_closures_and_strings() {
+  // Comments among a tuple type's elements in variants, tuple structs and parameters; a range
+  // broken before `..`; a closure with a comment before its body as written; a string
+  // spanning lines after a binary operator.
+  let c2021 = FormatConfig::default();
+  assert_eq!(
+    formatted_with(
+      "enum V {\n    #[regex(r\"[[:alpha:]][[:alnum:]]*\", variable_definition)]\n    Id((String /* variable name */,\n    String\n\t/* value */)),\n    Equals,\n}\nenum W {\n    Id((String /* variable name */,\n    String\n\t/* value */)),\n    Equals,\n}\nenum X {\n    Id((String /* variable name */, String /* value */)),\n}\n",
+      &c2021
+    ),
+    "enum V {\n    #[regex(r\"[[:alpha:]][[:alnum:]]*\", variable_definition)]\n    Id((String /* variable name */, String /* value */)),\n    Equals,\n}\nenum W {\n    Id((String /* variable name */, String /* value */)),\n    Equals,\n}\nenum X {\n    Id((String /* variable name */, String /* value */)),\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "type A = (String /* variable name */,\n    String\n\t/* value */);\nstruct S(\n    (String /* variable name */,\n    String\n\t/* value */),\n);\nfn f(a: (String /* variable name */,\n    String\n\t/* value */)) {}\n",
+      &c2021
+    ),
+    "type A = (String /* variable name */, String /* value */);\nstruct S((String /* variable name */, String /* value */));\nfn f(a: (String /* variable name */, String /* value */)) {}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "impl X {\n    fn span(&self) -> Span {\n        let x = self.offset_of_buffer_in_file + self.start_buffer_offset - self.last_token_size..self.offset_of_buffer_in_file + self.start_buffer_offset;\n        foo(self.offset_of_buffer_in_file + self.start_buffer_offset - self.last_token_size..self.offset_of_buffer_in_file + self.start_buffer_offset);\n        self.offset_of_buffer_in_file + self.start_buffer - self.last_token_size..self.offset_of_buffer_in_file\n    }\n}\n",
+      &c2021
+    ),
+    "impl X {\n    fn span(&self) -> Span {\n        let x = self.offset_of_buffer_in_file + self.start_buffer_offset - self.last_token_size\n            ..self.offset_of_buffer_in_file + self.start_buffer_offset;\n        foo(\n            self.offset_of_buffer_in_file + self.start_buffer_offset - self.last_token_size\n                ..self.offset_of_buffer_in_file + self.start_buffer_offset,\n        );\n        self.offset_of_buffer_in_file + self.start_buffer - self.last_token_size\n            ..self.offset_of_buffer_in_file\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    foo(|x|   // c\n      x + 1);\n    foo(|x|   /* c */ {\n      a;\n  b\n    });\n    let a =  |x|  // c\n        {   a;  b };\n    foo(|x| {\n        a;   // c\n        b\n    });\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    foo(|x|   // c\n      x + 1);\n    foo(|x|   /* c */ {\n      a;\n  b\n    });\n    let a = |x|  // c\n        {   a;  b };\n    foo(|x| {\n        a; // c\n        b\n    });\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let s = a + \"x\n  y\";\n    let s = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + \"x\n  y\";\n    foo(&(format!(\"a\") + r#\"\nb\n\"#));\n    x == \"a\nb\";\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let s = a + \"x\n  y\";\n    let s = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n        + \"x\n  y\";\n    foo(&(format!(\"a\")\n        + r#\"\nb\n\"#));\n    x == \"a\nb\";\n}\n"
+  );
+}
+
+#[test]
 fn test_type_alias_where_before_value() {
   // A `where` before a type alias's value: the clause, then `= value;` on its line.
   assert_eq!(
@@ -907,5 +1121,57 @@ fn test_what_no_layout_fits_and_macros_kept_as_written() {
       "fn f() {\n    fields.map(|field| { a; { match x { None => { (w, t) = quote!({ _serde::de::SeqAccess::next_element::<#wrapper_ty>(&mut __seq) { } }) } }; } });\n    match res {\n        Ok(_) => {  // first\n            // second\n        }\n        Err(a) => {  // third\n            g();\n        }\n    }\n}\nlazy_static! {\n        static  ref  A:\tMutex<u32> = {\n  Mutex::new(1)\n};\n    pub static ref B: u8 =\n2;\n}\n/// Doc one\n        /// doc two\n#[macro_export]\n\tmacro_rules!\n    m\n{ ($($tt:tt)*) => { if  a() && b() && c() && d() && e() && f() && g() && h() && i() && j() && k() { $($tt)* } } }\t// After.\n"
     ),
     "fn f() {\n    fields.map(|field| { a; { match x { None => { (w, t) = quote!({ _serde::de::SeqAccess::next_element::<#wrapper_ty>(&mut __seq) { } }) } }; } });\n    match res {\n        Ok(_) => { // first\n             // second\n        }\n        Err(a) => {\n            // third\n            g();\n        }\n    }\n}\nlazy_static! {\n    static ref A: Mutex<u32> = { Mutex::new(1) };\n    pub static ref B: u8 = 2;\n}\n/// Doc one\n/// doc two\n#[macro_export]\nmacro_rules!\n    m\n{ ($($tt:tt)*) => { if  a() && b() && c() && d() && e() && f() && g() && h() && i() && j() && k() { $($tt)* } } } // After.\n"
+  );
+}
+
+#[test]
+fn test_widths_tabs_and_continued_strings() {
+  // A tab counts one column; from the 2024 style a string whose lines but the last end with `\`
+  // is kept however wide, its call broken around it; a struct pattern's field moved to the
+  // next line keeps the field's width.
+  let c2021 = FormatConfig::default();
+  let c2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  let cmax = FormatConfig {
+    style_edition: 2024,
+    fn_call_width: 100,
+    chain_width: 100,
+    struct_lit_width: 100,
+    struct_variant_width: 100,
+    array_width: 100,
+    attr_fn_like_width: 100,
+    single_line_if_else_max_width: 100,
+    single_line_let_else_max_width: 100,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    if a {\n        if b {\n            if c {\n                if d {\n                    error_inferred.insert(ty, quote!(::thiserror::#private::Errorrrrrrrr\t+ 'static));\n                }\n            }\n        }\n    }\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    if a {\n        if b {\n            if c {\n                if d {\n                    error_inferred\n                        .insert(ty, quote!(::thiserror::#private::Errorrrrrrrr\t+ 'static));\n                }\n            }\n        }\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let query = format!(\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\");\n    let query = foo(\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\");\n    let query = foo(a, \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\");\n    foo(\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\");\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    let query = format!(\n        \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\"\n    );\n    let query = foo(\n        \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\",\n    );\n    let query = foo(\n        a,\n        \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\",\n    );\n    foo(\n        \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \\\n         FROM\",\n    );\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let bind = \"?\";\n    let\nquery\n\t=\tformat!(  \"SELECT u.id as myuser_id, u.name, u.hair_color, p.id as post_id, p.user_id , p.title, p.body \\\n         FROM users as u LEFT JOIN posts as p on u.id = p.user_id WHERE u.hair_color = {bind}\"\n    );\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    let bind = \"?\";\n    let query = format!(\n        \"SELECT u.id as myuser_id, u.name, u.hair_color, p.id as post_id, p.user_id , p.title, p.body \\\n         FROM users as u LEFT JOIN posts as p on u.id = p.user_id WHERE u.hair_color = {bind}\"\n    );\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    {\n        {\n            if let NameRefContext { kind: NameRefKind::Path(PathCompletionCtx { kind: PathKind::Expr { .. }, path, .. }, ..), .. } = &nameref_ctx && is_in_token_of_for_loop(path) {}\n        }\n    }\n}\n",
+      &cmax
+    ),
+    "fn f() {\n    {\n        {\n            if let NameRefContext {\n                kind:\n                    NameRefKind::Path(PathCompletionCtx { kind: PathKind::Expr { .. }, path, .. }, ..),\n                ..\n            } = &nameref_ctx\n                && is_in_token_of_for_loop(path)\n            {}\n        }\n    }\n}\n"
   );
 }

@@ -28,7 +28,7 @@ The headline figure of each paper:
 <!-- generated: index -->
 | paper | headline |
 |---|---|
-| [compatibility](compatibility.md) | 99.27% of scrambled-corpus lines match |
+| [compatibility](compatibility.md) | 99.37% of scrambled-corpus lines match |
 | [meaning](meaning.md) | 32 exceptions listed, 10 not modelled yet |
 | [fuzzing](fuzzing.md) | 8 targets, 22 kept regression inputs |
 | [performance](performance.md) | 9.702 MB/s formatting on one thread |

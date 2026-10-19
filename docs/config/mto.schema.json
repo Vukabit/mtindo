@@ -388,7 +388,7 @@
       "default": 100
     },
     "merge_derives": {
-      "description": "Merge multiple derives into a single one.\n\nIn mto: missing.",
+      "description": "Merge multiple derives into a single one.\n\nIn mto: supported. With format = true, runs of `#[derive(..)]` with no blank line or comment between them merged into one.",
       "type": "boolean",
       "default": true
     },

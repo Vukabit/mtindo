@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 31
+  supported: 32
   partial: 27
-  missing: 45
+  missing: 44
   not_planned: 3
 ---
 
@@ -608,7 +608,7 @@ behavior, so the column does not apply to them.
 <code>merge_derives</code></a></td>
 <td>rustfmt.toml</td>
 <td>Merge multiple <code>#[derive(...)]</code> into a single one.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#merge_imports">

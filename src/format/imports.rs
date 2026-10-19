@@ -239,14 +239,14 @@ fn list_text(
         return Some(one_line);
       }
     }
-    let body = super::lists::write_vertical(
+    // A blank line written after an item stays (`preserve_newline`).
+    let body = super::lists::write_vertical_kept(
       &texts,
       &comments,
       inner_indent,
       inner_width,
       config.max_width,
       true,
-      false,
     )?;
     let pad = " ".repeat(inner_indent);
     return Some(format!("{{\n{}{}\n{}}}", pad, body, " ".repeat(indent)));

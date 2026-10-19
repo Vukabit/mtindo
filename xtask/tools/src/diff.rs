@@ -149,6 +149,9 @@ struct Score {
   own: Option<String>,
   /// The answer is the input as written, and mto changed it: a file mto breaks.
   broke: bool,
+  /// The standard formatter's answer changes when it runs on it again: the answer scored is
+  /// where its runs settle, which mto, stable, can match (a file to do better on).
+  unsettled: bool,
 }
 
 /// The numbers for one set: files matched of scored, lines matched of the answers' lines.
@@ -471,6 +474,33 @@ pub fn run(args: &[String]) -> ExitCode {
       compare_scores(&dir.join("diff-scores.txt"), &cases, &scores);
     }
   }
+  // Files whose standard answer is not stable: scored against where it settles, listed to
+  // do better on than the standard formatter's first run.
+  let unsettled: Vec<String> = cases
+    .iter()
+    .zip(&scores)
+    .filter(|(_, score)| score.unsettled)
+    .map(|(case, score)| {
+      format!(
+        "{} [{}]{}",
+        case.name,
+        case.set.key(),
+        if score.matches { " (matched)" } else { "" }
+      )
+    })
+    .collect();
+  println!(
+    "files the standard formatter changes again on a second run, scored against where it \
+     settles: {} ({} matched)",
+    unsettled.len(),
+    unsettled
+      .iter()
+      .filter(|l| l.ends_with("(matched)"))
+      .count()
+  );
+  if let Some(dir) = options.broke_log.as_ref().and_then(|log| log.parent()) {
+    let _ = fs::write(dir.join("diff-unsettled.txt"), unsettled.join("\n") + "\n");
+  }
   let own: Vec<String> = cases
     .iter()
     .zip(&scores)
@@ -613,7 +643,21 @@ pub fn show(args: &[String]) -> ExitCode {
     let home = std::env::temp_dir().join("mtindo-diff-show-home");
     let _ = fs::create_dir_all(&home);
     match run_standard(&input, edition_year(edition), &dir, &home) {
-      Answer::Text(text) => (text, "standard"),
+      // Where its runs settle, as the diff scores it.
+      Answer::Text(text) => {
+        let mut text = text;
+        let mut name = "standard";
+        for _ in 0..3 {
+          match run_standard(&text, edition_year(edition), &dir, &home) {
+            Answer::Text(next) if next != text => {
+              text = next;
+              name = "standard, run until it settles";
+            }
+            _ => break,
+          }
+        }
+        (text, name)
+      }
       Answer::Refused(why) | Answer::NotRun(why) => {
         println!("the standard formatter gave no answer: {}", why);
         return ExitCode::from(1);
@@ -1362,10 +1406,33 @@ fn report(
 }
 
 fn score(case: &Case, options: &Options, home: &Path) -> Score {
+  let mut unsettled = false;
   let answer = match &case.expected {
     Some(expected) => expected.clone(),
     None => match reference_output(case, options, home) {
-      Answer::Text(text) => text,
+      // Run again on its own output until it settles (a few times at most): that is the
+      // answer, the first one being one the standard formatter itself would change.
+      Answer::Text(text) => {
+        let mut text = text;
+        for _ in 0..3 {
+          let again = standard_output(
+            &text,
+            case.edition,
+            &case.dir,
+            &options.reference,
+            &options.cache,
+            home,
+          );
+          match again {
+            Answer::Text(next) if next != text => {
+              unsettled = true;
+              text = next;
+            }
+            _ => break,
+          }
+        }
+        text
+      }
       Answer::Refused(_) => {
         return Score {
           skipped: true,
@@ -1435,6 +1502,7 @@ fn score(case: &Case, options: &Options, home: &Path) -> Score {
     meaning,
     own,
     broke,
+    unsettled,
   }
 }
 

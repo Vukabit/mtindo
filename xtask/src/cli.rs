@@ -853,7 +853,7 @@ fn settings() -> Command {
 
 fn status() -> Command {
   Command::new("status").about(
-    "Where the project stands: tree, last green, v1.0 gates, running jobs, latest runs, fuzz crashes",
+    "Where the project stands: tree, last green, v0.1.0 gates, running jobs, latest runs, fuzz crashes",
   )
 }
 

@@ -191,6 +191,11 @@ pub fn empty_uses(
 /// `None` when there is none to give. Not `extern crate`, and not in a `// mto: off`
 /// region.
 pub fn explicit_abi(root: &SyntaxNode, text: &str) -> Option<String> {
+  // No ABI and no `extern` block (`extern crate` is neither): nothing to write. A walk that
+  // makes no nodes, after a look at the text: both hold an `extern` keyword.
+  if !text.contains("extern") || !root.subtree_has(|kind| matches!(kind, K::Abi | K::ExternBlock)) {
+    return None;
+  }
   let off = off_regions(root);
   let mut at: Vec<usize> = Vec::new();
   for token in root.descendants_with_tokens_iter().filter_map(|e| match e {
@@ -334,6 +339,11 @@ pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
 /// standard formatter merges on its second run once it has dropped that line; not one in a
 /// `// mto: off` region, on what is skipped or skips derives, or holding a comment.
 pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
+  // Walking the tree is most of this pass's cost: only a file with a derive written right
+  // after another is walked.
+  if !adjacent_derives(text) {
+    return None;
+  }
   let off = off_regions(root);
   // The traits of a derive, each as written: `None` for any other attribute.
   let traits = |attr: &SyntaxNode| -> Option<Vec<String>> {
@@ -381,13 +391,26 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
     text.contains("rustfmt::skip::attributes(") && text.contains("derive")
   };
   // The ranges of what skips derives, found once.
-  let skipping: Vec<(u32, u32)> = root
-    .descendant_nodes_where(|kind| kind == K::Attr)
-    .filter(|a| skips_derives(a))
-    .filter_map(|a| a.parent())
-    .map(|p| (p.text_range().start, p.text_range().end))
-    .collect();
+  let skipping: Vec<(u32, u32)> = if !text.contains("attributes") {
+    Vec::new()
+  } else {
+    root
+      .descendant_nodes_where(|kind| kind == K::Attr)
+      .filter(|a| skips_derives(a))
+      .filter_map(|a| a.parent())
+      .map(|p| (p.text_range().start, p.text_range().end))
+      .collect()
+  };
   for node in root.descendants_iter() {
+    // Only what holds two attributes or more has derives to merge.
+    if node
+      .children_iter()
+      .filter(|c| c.kind() == K::Attr)
+      .nth(1)
+      .is_none()
+    {
+      continue;
+    }
     let range = node.text_range();
     if node
       .children_iter()
@@ -681,6 +704,61 @@ pub(super) fn sortable(node: &SyntaxNode) -> bool {
       .children_iter()
       .filter_map(Attr::cast)
       .any(|a| a.is_rustfmt_skip() || a.path() == "macro_use")
+}
+
+/// Whether `text` may hold a `#[derive(..)]` followed, past whitespace only, by another:
+/// read from the text alone, so it may say yes where the tree says no, never the reverse.
+fn adjacent_derives(text: &str) -> bool {
+  let bytes = text.as_bytes();
+  let skip_space = |mut at: usize| {
+    while at < bytes.len() && bytes[at].is_ascii_whitespace() {
+      at += 1;
+    }
+    at
+  };
+  // Where a `#[derive` written with any spaces starts at `at`, the `[`'s position.
+  let derive_at = |at: usize| -> Option<usize> {
+    if bytes.get(at) != Some(&b'#') {
+      return None;
+    }
+    let open = skip_space(at + 1);
+    if bytes.get(open) != Some(&b'[') {
+      return None;
+    }
+    let name = skip_space(open + 1);
+    text[name..].starts_with("derive").then_some(open)
+  };
+  let mut from = 0;
+  while let Some(found) = text[from..].find('#') {
+    let at = from + found;
+    from = at + 1;
+    let Some(open) = derive_at(at) else {
+      continue;
+    };
+    // Its closing `]`.
+    let mut depth = 0usize;
+    let mut close = None;
+    for (i, &b) in bytes.iter().enumerate().skip(open) {
+      match b {
+        b'[' => depth += 1,
+        b']' => {
+          depth -= 1;
+          if depth == 0 {
+            close = Some(i);
+            break;
+          }
+        }
+        _ => {}
+      }
+    }
+    let Some(close) = close else {
+      return true;
+    };
+    if derive_at(skip_space(close + 1)).is_some() {
+      return true;
+    }
+  }
+  false
 }
 
 /// Where an item's code ends: before the comments it carries after it.

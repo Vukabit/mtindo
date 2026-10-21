@@ -22,7 +22,7 @@ command in the background. `.dev/` is machine-local and not tracked by git.
 # The hub: every screen, job, incident, metric, profile, log and command
 # in the terminal, laid out by .hub.toml (xtask/hub/SPEC.md)
 cargo xtask tui
-# Where the project stands: v1.0 gates, running jobs, latest runs, incidents
+# Where the project stands: v0.1.0 gates, running jobs, latest runs, incidents
 cargo xtask status
 # The latest runs; one run's record; a detached run's output; stop one
 cargo xtask runs [list | show ID | tail ID | cancel ID]

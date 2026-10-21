@@ -37,6 +37,21 @@ impl<'a> Cursor<'a> {
     }
   }
 
+  /// Consumes ASCII spaces, tabs and line ends, eight spaces at a time where it can: an
+  /// indentation, read faster than character by character.
+  pub(super) fn eat_ascii_spaces(&mut self) {
+    let bytes = self.text.as_bytes();
+    while bytes[self.pos..].starts_with(b"        ") {
+      self.pos += 8;
+    }
+    while bytes
+      .get(self.pos)
+      .is_some_and(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
+    {
+      self.pos += 1;
+    }
+  }
+
   /// The text consumed since byte position `start`.
   pub(super) fn consumed_since(&self, start: usize) -> &'a str {
     &self.text[start..self.pos]

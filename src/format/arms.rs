@@ -32,7 +32,7 @@ pub enum Arm {
 /// one the standard formatter keeps as written whole (a comment among an arm's patterns).
 pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Arm> {
   let leading = node
-    .descendants_with_tokens_iter()
+    .descendants_where(|kind| kind == K::Pipe)
     .any(|e| matches!(&e, crate::syntax::SyntaxElement::Token(t) if super::expr::leading_pipe(t)));
   if leading {
     return None;
@@ -311,15 +311,12 @@ pub fn rewrite_arm_in(
   };
   // Or, laid out whole, ones its body's layout placed: each kept.
   let comments: Vec<String> = node
-    .descendants_with_tokens_iter()
-    .filter(|e| {
-      let at = e.text_range().start as usize;
-      at >= start && at < comment_end && matches!(e.kind(), K::LineComment | K::BlockComment)
+    .token_texts()
+    .filter(|&(kind, _, range)| {
+      let at = range.start as usize;
+      at >= start && at < comment_end && matches!(kind, K::LineComment | K::BlockComment)
     })
-    .map(|e| match e {
-      crate::syntax::SyntaxElement::Token(t) => t.text().trim_end().to_string(),
-      crate::syntax::SyntaxElement::Node(n) => n.text().to_string(),
-    })
+    .map(|(_, text, _)| text.trim_end().to_string())
     .collect();
   // A guard's as written keeps its own.
   let in_guard = |at: usize| {
@@ -331,22 +328,22 @@ pub fn rewrite_arm_in(
   let placed = match &laid {
     Arm::Whole(text) => {
       let body_start = body.text_range().start as usize;
-      node.descendants_with_tokens_iter().all(|e| {
-        let at = e.text_range().start as usize;
+      node.token_texts().all(|(kind, _, range)| {
+        let at = range.start as usize;
         !(at >= start
           && at < body_start
-          && matches!(e.kind(), K::LineComment | K::BlockComment)
+          && matches!(kind, K::LineComment | K::BlockComment)
           && !in_guard(at))
       }) && comments
         .iter()
         .all(|c| text.matches(c.as_str()).count() >= comments.iter().filter(|d| *d == c).count())
     }
     // A head holds no comment but its guard's.
-    Arm::Head(_) => node.descendants_with_tokens_iter().all(|e| {
-      let at = e.text_range().start as usize;
+    Arm::Head(_) => node.token_texts().all(|(kind, _, range)| {
+      let at = range.start as usize;
       !(at >= start
         && at < comment_end
-        && matches!(e.kind(), K::LineComment | K::BlockComment)
+        && matches!(kind, K::LineComment | K::BlockComment)
         && !in_guard(at))
     }),
   };

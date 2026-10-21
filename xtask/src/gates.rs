@@ -47,7 +47,7 @@ pub const GATES: &[Gate] = &[
   ),
   (
     "unsafe",
-    "mtindo denies unsafe code, but for the macOS sync calls in src/durable/apple.rs",
+    "mtindo denies unsafe code, but for the macOS sync calls and the allocator cache",
     check_unsafe,
   ),
 ];
@@ -122,9 +122,9 @@ const NAMING_ALLOWED_SPELLINGS: &[&str] = &[
 /// that run it.
 const NAMING_README_SECTIONS: &[&str] = &["## Credits", "## Development"];
 
-/// The one file of mtindo allowed unsafe code: the `fcntl` calls macOS syncs with, which the
-/// standard library does not offer (see src/durable).
-const UNSAFE_ALLOWED: &str = "src/durable/apple.rs";
+/// The files of mtindo allowed unsafe code: the `fcntl` calls macOS syncs with, which the
+/// standard library does not offer (see src/durable), and the binaries' allocator cache.
+const UNSAFE_ALLOWED: &[&str] = &["src/durable/apple.rs", "src/cache_alloc.rs"];
 
 /// Every gate: (name, what it checks, check). `all` runs them in this order.
 /// A gate: (name, what it checks, check returning the problems found).
@@ -280,7 +280,7 @@ pub fn check_planning(root: &Path) -> Vec<String> {
 }
 
 /// Every crate root of mtindo (the library, `mto`, and the binaries under src/bin) denies
-/// unsafe code, and only [`UNSAFE_ALLOWED`] allows it back.
+/// unsafe code, and only the files of [`UNSAFE_ALLOWED`] allow it back.
 pub fn check_unsafe(root: &Path) -> Vec<String> {
   let src = root.join("src");
   let mut files = Vec::new();
@@ -578,7 +578,7 @@ fn unsafe_problems(path: &str, content: &str) -> Vec<String> {
       path
     ));
   }
-  if path != UNSAFE_ALLOWED {
+  if !UNSAFE_ALLOWED.contains(&path) {
     for (idx, line) in content.lines().enumerate() {
       // Attributes only: not a comment, nor test text naming one.
       let code = line.split("//").next().unwrap_or("").trim_start();
@@ -595,7 +595,7 @@ fn unsafe_problems(path: &str, content: &str) -> Vec<String> {
           "{}:{}: unsafe code is allowed only in {}",
           path,
           idx + 1,
-          UNSAFE_ALLOWED
+          UNSAFE_ALLOWED.join(" and ")
         ));
       }
     }
@@ -721,7 +721,7 @@ mod tests {
   }
 
   #[test]
-  fn test_unsafe_is_denied_but_in_one_file() {
+  fn test_unsafe_is_denied_but_in_its_files() {
     assert!(unsafe_problems("src/lib.rs", "#![deny(unsafe_code)]\npub mod a;\n").is_empty());
     assert_eq!(
       unsafe_problems("src/bin/tool.rs", "fn main() {}\n"),
@@ -729,9 +729,14 @@ mod tests {
     );
     assert_eq!(
       unsafe_problems("src/text/mod.rs", "#![allow(unsafe_code)]\n"),
-      vec!["src/text/mod.rs:1: unsafe code is allowed only in src/durable/apple.rs"]
+      vec![
+        "src/text/mod.rs:1: unsafe code is allowed only in src/durable/apple.rs and \
+         src/cache_alloc.rs"
+      ]
     );
-    assert!(unsafe_problems(UNSAFE_ALLOWED, "#![allow(unsafe_code)]\n").is_empty());
+    for allowed in UNSAFE_ALLOWED {
+      assert!(unsafe_problems(allowed, "#![allow(unsafe_code)]\n").is_empty());
+    }
     // A comment or a string naming it is not an attribute.
     assert!(unsafe_problems("src/a.rs", "// see allow(unsafe_code)\n").is_empty());
     assert!(unsafe_problems("src/a.rs", "let s = \"#![allow(unsafe_code)]\";\n").is_empty());

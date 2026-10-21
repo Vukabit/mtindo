@@ -59,12 +59,12 @@ fn moved_items(text: &str, edition: Edition) -> Option<String> {
       },
       SyntaxElement::Node(node) => {
         if Attr::cast(node.clone()).is_some_and(|a| a.is_inner()) {
-          header.push(node.text());
+          header.push(node.text().to_string());
         } else if Item::cast(node.clone()).is_some_and(|i| i.kind() == ItemKind::MacroRules) {
-          macros.push(node.text());
+          macros.push(node.text().to_string());
           rest.push(None);
         } else {
-          rest.push(Some(node.text()));
+          rest.push(Some(node.text().to_string()));
         }
       }
     }

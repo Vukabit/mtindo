@@ -188,6 +188,7 @@ fn next_token(cursor: &mut Cursor, edition: Edition) -> Lexed {
   };
   match c {
     c if is_whitespace(c) => {
+      cursor.eat_ascii_spaces();
       cursor.eat_while(is_whitespace);
       (SyntaxKind::Whitespace, None)
     }

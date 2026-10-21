@@ -423,7 +423,7 @@ pub fn run(args: &[String]) -> ExitCode {
     println!("  listed but no longer flagged (remove it): {}", entry);
   }
   // The default-settings test pairs mto does not match, but those excused with a reason
-  // (the standard formatter's own bugs): the v1.0 gate wants none left.
+  // (the standard formatter's own bugs): the v0.1.0 gate wants none left.
   let excused = options
     .exceptions
     .as_ref()

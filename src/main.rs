@@ -682,6 +682,10 @@ const USAGE_LINES: &[&str] = &[
   "cargo mto [OPTIONS] [-- <MTO OPTIONS>...]",
 ];
 
+/// Small blocks come from a per-thread cache in front of the system allocator.
+#[global_allocator]
+static GLOBAL: mtindo::cache_alloc::Cached = mtindo::cache_alloc::Cached;
+
 enum CliAction {
   Format {
     paths: Vec<PathBuf>,

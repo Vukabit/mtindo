@@ -16,27 +16,15 @@ use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, TextRange, p
 /// Marks the start of one imported path in a `use`'s canonical tokens.
 const USE_ENTRY: &str = "\u{0}use";
 
-/// Line numbers by byte offset, and the text they index: the text of a tree parsed from
-/// it, whose tokens' texts are slices of it.
-struct LineIndex<'a> {
-  starts: Vec<usize>,
+/// The text of a tree parsed from it, whose tokens' texts are slices of it.
+struct Source<'a> {
   text: &'a str,
   edition: Edition,
 }
 
-impl<'a> LineIndex<'a> {
-  fn new(text: &'a str, edition: Edition) -> LineIndex<'a> {
-    let mut starts = vec![0];
-    starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
-    LineIndex {
-      starts,
-      text,
-      edition,
-    }
-  }
-
-  fn line(&self, offset: usize) -> usize {
-    self.starts.partition_point(|&start| start <= offset)
+impl<'a> Source<'a> {
+  fn new(text: &'a str, edition: Edition) -> Source<'a> {
+    Source { text, edition }
   }
 
   /// The text at `range`, borrowed for as long as the text is.
@@ -45,12 +33,12 @@ impl<'a> LineIndex<'a> {
   }
 }
 
-/// One canonical token, with the line it came from (1-based) for reports. Its text is
-/// borrowed from the source unless a rule rewrote it.
+/// One canonical token, with the byte offset it came from, made a line number only for a
+/// report. Its text is borrowed from the source unless a rule rewrote it.
 #[derive(Clone, Debug)]
 struct Token<'a> {
   text: Cow<'a, str>,
-  line: usize,
+  start: u32,
 }
 
 /// Every rule formatted output breaks; empty when it keeps the input's meaning.
@@ -76,7 +64,7 @@ pub fn verify_format(input: &str, output: &str, edition: Edition) -> Vec<Violati
   }
   let (old_tokens, old_comments) = canonical(&old_tree, input, edition);
   let (new_tokens, new_comments) = canonical(&new_tree, output, edition);
-  if let Some(detail) = first_difference(&old_tokens, &new_tokens) {
+  if let Some(detail) = first_difference(&old_tokens, input, &new_tokens, output) {
     violations.push(Violation {
       rule: Rule::MeaningChanged,
       detail,
@@ -116,23 +104,23 @@ fn canonical<'a>(
   text: &'a str,
   edition: Edition,
 ) -> (Vec<Token<'a>>, Vec<String>) {
-  let lines = LineIndex::new(text, edition);
+  let source = Source::new(text, edition);
   let mut tokens = Vec::new();
   let mut comments = Vec::new();
-  emit_node(root, &lines, &mut tokens, &mut comments);
+  emit_node(root, &source, &mut tokens, &mut comments);
   // doc-text: consecutive doc comments of one kind are one text.
   let mut merged: Vec<Token> = Vec::with_capacity(tokens.len());
+  // Where the last kept token's kind ends; what is joined to it comes after.
+  let mut last_kind = None;
   for token in tokens {
-    if let Some(last) = merged.last_mut()
-      && let (Some((kind, more)), Some((last_kind, _))) = (
-        token.text.split_once('\u{0}'),
-        last.text.split_once('\u{0}'),
-      )
-      && kind == last_kind
+    let kind = token.text.find('\u{0}');
+    if let (Some(last), Some(at), Some(last_at)) = (merged.last_mut(), kind, last_kind)
+      && token.text[..at] == last.text[..last_at]
     {
-      last.text.to_mut().push_str(more);
+      last.text.to_mut().push_str(&token.text[at + 1..]);
       continue;
     }
+    last_kind = kind;
     merged.push(token);
   }
   // comment-text: comments as the multiset of their words.
@@ -173,15 +161,15 @@ fn continued(text: &str) -> String {
 }
 
 /// The arguments of a `#[derive(...)]` attribute, as tokens without commas, or `None`.
-fn derive_arguments<'a>(attr: &SyntaxNode, lines: &LineIndex<'a>) -> Option<Vec<Token<'a>>> {
-  let tokens: Vec<(Cow<'a, str>, usize)> = attr
+fn derive_arguments<'a>(attr: &SyntaxNode, source: &Source<'a>) -> Option<Vec<Token<'a>>> {
+  let tokens: Vec<(Cow<'a, str>, u32)> = attr
     .descendants_with_tokens_iter()
     .filter_map(|e| match e {
       // Each token's canonical text, as everywhere: a doc comment written in the list
       // (`/// x`, which keeps a `\r` in a CRLF file) is its text.
       SyntaxElement::Token(t) if !t.kind().is_trivia() => Some((
-        token_text(&t.parent(), t.kind(), lines.at(t.text_range())),
-        lines.line(t.text_range().start as usize),
+        token_text(&t.parent(), t.kind(), source.at(t.text_range())),
+        t.text_range().start,
       )),
       _ => None,
     })
@@ -197,9 +185,9 @@ fn derive_arguments<'a>(attr: &SyntaxNode, lines: &LineIndex<'a>) -> Option<Vec<
     tokens[4..tokens.len() - 2]
       .iter()
       .filter(|(t, _)| t.as_ref() != ",")
-      .map(|(text, line)| Token {
+      .map(|(text, start)| Token {
         text: text.clone(),
-        line: *line,
+        start: *start,
       })
       .collect(),
   )
@@ -258,7 +246,7 @@ fn doc_text(kind: &str, text: &str) -> String {
 fn emit_element<'a>(
   parent: &SyntaxNode,
   element: &SyntaxElement,
-  lines: &LineIndex<'a>,
+  source: &Source<'a>,
   out: &mut Vec<Token<'a>>,
   notes: &mut Vec<String>,
 ) {
@@ -277,7 +265,7 @@ fn emit_element<'a>(
         while let Some(inner) = sole_expression(&expr) {
           expr = inner;
         }
-        return emit_node(&expr, lines, out, notes);
+        return emit_node(&expr, source, out, notes);
       }
       // block-semicolon: `loop {};` is `loop {}`, and so is any block-like statement
       // before another statement.
@@ -299,7 +287,7 @@ fn emit_element<'a>(
               SyntaxKind::IfExpr | SyntaxKind::MatchExpr | SyntaxKind::BlockExpr
             );
           if looping || (block_like && !ends_block(node)) {
-            return emit_node(expr, lines, out, notes);
+            return emit_node(expr, source, out, notes);
           }
         }
       }
@@ -312,7 +300,7 @@ fn emit_element<'a>(
             SyntaxKind::ReturnExpr | SyntaxKind::BreakExpr | SyntaxKind::ContinueExpr
           )
         {
-          return emit_node(expr, lines, out, notes);
+          return emit_node(expr, source, out, notes);
         }
       }
       // stray-semicolon: the parser wraps a `;` alone among items in an error node.
@@ -330,14 +318,14 @@ fn emit_element<'a>(
       {
         out.push(Token {
           text: text.into(),
-          line: lines.line(node.text_range().start as usize),
+          start: node.text_range().start,
         });
         return;
       }
-      if node.kind() == SyntaxKind::Attr && merged_derive(node, lines, out) {
+      if node.kind() == SyntaxKind::Attr && merged_derive(node, source, out) {
         return;
       }
-      emit_node(node, lines, out, notes);
+      emit_node(node, source, out, notes);
     }
     SyntaxElement::Token(token) => {
       let kind = token.kind();
@@ -365,16 +353,18 @@ fn emit_element<'a>(
           .is_some_and(|p| p.kind() == SyntaxKind::ClosureExpr);
       // A comma straight after an opening delimiter (`[,]`, `m!(,)`) follows no item: it is
       // not a trailing comma, and dropping it changes the tokens.
-      let after_item = previous_significant(element).is_some_and(|k| {
-        !matches!(
-          k,
-          SyntaxKind::LParen | SyntaxKind::LBrack | SyntaxKind::LBrace | SyntaxKind::Lt
-        )
-      });
+      let after_item = || {
+        previous_significant(element).is_some_and(|k| {
+          !matches!(
+            k,
+            SyntaxKind::LParen | SyntaxKind::LBrack | SyntaxKind::LBrace | SyntaxKind::Lt
+          )
+        })
+      };
       if kind == SyntaxKind::Comma
         && !single_tuple(parent)
         && (parent.kind() == SyntaxKind::MatchArm
-          || after_item && next.is_none_or(is_closer)
+          || next.is_none_or(is_closer) && after_item()
           || (closure_params && next == Some(SyntaxKind::Pipe)))
       {
         return;
@@ -397,8 +387,8 @@ fn emit_element<'a>(
         return;
       }
       out.push(Token {
-        text: token_text(parent, kind, lines.at(token.text_range())),
-        line: lines.line(token.text_range().start as usize),
+        text: token_text(parent, kind, source.at(token.text_range())),
+        start: token.text_range().start,
       });
     }
   }
@@ -407,7 +397,7 @@ fn emit_element<'a>(
 /// The node's significant children, after the rewrites that act on a whole node.
 fn emit_node<'a>(
   node: &SyntaxNode,
-  lines: &LineIndex<'a>,
+  source: &Source<'a>,
   out: &mut Vec<Token<'a>>,
   notes: &mut Vec<String>,
 ) {
@@ -432,10 +422,10 @@ fn emit_node<'a>(
       if let [only] = inner.as_slice()
         && matches!(only.kind(), SyntaxKind::ParenExpr | SyntaxKind::Literal)
       {
-        return emit_node(only, lines, out, notes);
+        return emit_node(only, source, out, notes);
       }
     }
-    SyntaxKind::Use => return emit_use(node, lines, out),
+    SyntaxKind::Use => return emit_use(node, source, out),
     // empty-generics: `<>` says nothing, nor does a `:` with no bounds after it.
     SyntaxKind::GenericParamList | SyntaxKind::GenericArgList
       if node.children_iter().next().is_none() =>
@@ -451,7 +441,7 @@ fn emit_node<'a>(
     {
       for element in node.children_with_tokens_iter() {
         if kind_of(&element) == SyntaxKind::Lifetime {
-          emit_element(node, &element, lines, out, notes);
+          emit_element(node, &element, source, out, notes);
         }
       }
       return;
@@ -466,7 +456,7 @@ fn emit_node<'a>(
         .children_iter()
         .filter(|c| c.kind() == SyntaxKind::Name)
       {
-        emit_node(&child, lines, out, notes);
+        emit_node(&child, source, out, notes);
       }
       return;
     }
@@ -479,7 +469,7 @@ fn emit_node<'a>(
       // empty-closure-params: `| |` is `||`.
       out.push(Token {
         text: "||".into(),
-        line: lines.line(node.text_range().start as usize),
+        start: node.text_range().start,
       });
       return;
     }
@@ -499,11 +489,11 @@ fn emit_node<'a>(
         && words(name, "") == words(value, "")
       {
         for attr in &parts[..attrs] {
-          emit_element(node, attr, lines, out, notes);
+          emit_element(node, attr, source, out, notes);
         }
         out.push(Token {
           text: words(name, "").into(),
-          line: lines.line(node.text_range().start as usize),
+          start: node.text_range().start,
         });
         return;
       }
@@ -533,14 +523,14 @@ fn emit_node<'a>(
       if trailing >= 2 || (rest_last && trailing >= 1) {
         let first = patterns[before - trailing];
         for element in &children[..first] {
-          emit_element(node, element, lines, out, notes);
+          emit_element(node, element, source, out, notes);
         }
         out.push(Token {
           text: "..".into(),
-          line: lines.line(node.text_range().start as usize),
+          start: node.text_range().start,
         });
         if let Some(close) = children.last() {
-          emit_element(node, close, lines, out, notes);
+          emit_element(node, close, source, out, notes);
         }
         return;
       }
@@ -551,11 +541,11 @@ fn emit_node<'a>(
         p.kind() == SyntaxKind::MacroCall && words(&p, "").starts_with("vec!")
       }) =>
     {
-      if let Some(tokens) = macro_arguments(node, lines, true) {
+      if let Some(tokens) = macro_arguments(node, source, true) {
         out.extend(tokens);
         return;
       }
-      return emit_tree(node, "[", "]", lines, out, notes);
+      return emit_tree(node, "[", "]", source, out, notes);
     }
     // macro-arguments: a macro call's arguments in parentheses or brackets that read as
     // expressions, as those expressions.
@@ -563,7 +553,7 @@ fn emit_node<'a>(
       if node
         .parent()
         .is_some_and(|p| p.kind() == SyntaxKind::MacroCall)
-        && let Some(tokens) = macro_arguments(node, lines, false) =>
+        && let Some(tokens) = macro_arguments(node, source, false) =>
     {
       out.extend(tokens);
       return;
@@ -579,10 +569,10 @@ fn emit_node<'a>(
         .children_with_tokens_iter()
         .filter(significant)
         .collect();
-      let line = lines.line(node.text_range().start as usize);
+      let start = node.text_range().start;
       out.push(Token {
         text: "{".into(),
-        line,
+        start,
       });
       let mut matcher = true;
       for element in children
@@ -593,30 +583,30 @@ fn emit_node<'a>(
         match element {
           SyntaxElement::Node(arm) if arm.kind() == SyntaxKind::TokenTree => {
             // macro-rules-transcribers: a transcriber that reads as code, as that code.
-            let code = (!matcher).then(|| transcriber(arm, lines)).flatten();
+            let code = (!matcher).then(|| transcriber(arm, source)).flatten();
             match code {
               Some(tokens) => {
                 out.push(Token {
                   text: "{".into(),
-                  line,
+                  start,
                 });
                 out.extend(tokens);
                 out.push(Token {
                   text: "}".into(),
-                  line,
+                  start,
                 });
               }
-              None => emit_tree(arm, "{", "}", lines, out, notes),
+              None => emit_tree(arm, "{", "}", source, out, notes),
             }
             matcher = !matcher;
           }
           SyntaxElement::Token(t) if t.kind() == SyntaxKind::Semi => {}
-          other => emit_element(node, other, lines, out, notes),
+          other => emit_element(node, other, source, out, notes),
         }
       }
       out.push(Token {
         text: "}".into(),
-        line,
+        start,
       });
       return;
     }
@@ -632,11 +622,11 @@ fn emit_node<'a>(
           .collect();
         if inner.len() >= 2 {
           for element in &inner[1..inner.len() - 1] {
-            emit_element(&tree, element, lines, out, notes);
+            emit_element(&tree, element, source, out, notes);
           }
           out.push(Token {
             text: "?".into(),
-            line: lines.line(node.text_range().start as usize),
+            start: node.text_range().start,
           });
           return;
         }
@@ -652,21 +642,21 @@ fn emit_node<'a>(
       // A path from the root names a module from the crate's (`pub(in ::a)` is
       // `pub(in a)`).
       if let ["pub", "(", "in", "::", rest @ ..] = words.as_slice() {
-        let line = lines.line(node.text_range().start as usize);
+        let start = node.text_range().start;
         for text in ["pub", "(", "in"].iter().chain(rest) {
           out.push(Token {
             text: text.to_string().into(),
-            line,
+            start,
           });
         }
         return;
       }
       if let ["pub", "(", "in", target @ ("crate" | "super" | "self"), ")"] = words.as_slice() {
-        let line = lines.line(node.text_range().start as usize);
+        let start = node.text_range().start;
         for text in ["pub", "(", target, ")"] {
           out.push(Token {
             text: text.to_string().into(),
-            line,
+            start,
           });
         }
         return;
@@ -678,14 +668,14 @@ fn emit_node<'a>(
         .children_with_tokens_iter()
         .any(|e| significant(&e) && kind_of(&e) != SyntaxKind::ExternKw);
       if !has_string {
-        let line = lines.line(node.text_range().start as usize);
+        let start = node.text_range().start;
         out.push(Token {
           text: "extern".into(),
-          line,
+          start,
         });
         out.push(Token {
           text: "\"C\"".into(),
-          line,
+          start,
         });
         return;
       }
@@ -699,17 +689,17 @@ fn emit_node<'a>(
         for element in children.iter().filter(|e| significant(e)) {
           match element {
             SyntaxElement::Token(t) if t.kind() == SyntaxKind::ExternKw => {
-              let line = lines.line(t.text_range().start as usize);
+              let start = t.text_range().start;
               out.push(Token {
                 text: "extern".into(),
-                line,
+                start,
               });
               out.push(Token {
                 text: "\"C\"".into(),
-                line,
+                start,
               });
             }
-            other => emit_element(node, other, lines, out, notes),
+            other => emit_element(node, other, source, out, notes),
           }
         }
         return;
@@ -717,26 +707,33 @@ fn emit_node<'a>(
     }
     _ => {}
   }
-  let children: Vec<SyntaxElement> = node
-    .children_with_tokens_iter()
-    .filter(significant)
-    .collect();
   let container = matches!(
     node.kind(),
     SyntaxKind::SourceFile | SyntaxKind::ItemList | SyntaxKind::BlockExpr
   );
+  let impl_items = node.kind() == SyntaxKind::AssocItemList
+    && node.parent().is_some_and(|p| p.kind() == SyntaxKind::Impl);
+  // Most nodes are neither reordered nor sorted: their children are emitted as reached.
+  if !container && !impl_items {
+    for element in node.children_with_tokens_iter().filter(significant) {
+      emit_element(node, &element, source, out, notes);
+    }
+    return;
+  }
+  let children: Vec<SyntaxElement> = node
+    .children_with_tokens_iter()
+    .filter(significant)
+    .collect();
   // impl-item-order: an impl's items compare in sorted order.
-  if node.kind() == SyntaxKind::AssocItemList
-    && node.parent().is_some_and(|p| p.kind() == SyntaxKind::Impl)
-  {
+  if impl_items {
     let mut items: Vec<Vec<Token>> = Vec::new();
     for element in &children {
       if let SyntaxElement::Node(_) = element {
         let mut item = Vec::new();
-        emit_element(node, element, lines, &mut item, notes);
+        emit_element(node, element, source, &mut item, notes);
         items.push(item);
       } else {
-        emit_element(node, element, lines, out, notes);
+        emit_element(node, element, source, out, notes);
       }
     }
     // The braces were emitted in place; the items go between them.
@@ -757,7 +754,7 @@ fn emit_node<'a>(
         && sortable(element) == Some(key)
       {
         let mut item = Vec::new();
-        emit_element(node, element, lines, &mut item, notes);
+        emit_element(node, element, source, &mut item, notes);
         run.push(item);
         i += 1;
       }
@@ -773,7 +770,7 @@ fn emit_node<'a>(
       out.extend(run.into_iter().flatten());
       continue;
     }
-    emit_element(node, element, lines, out, notes);
+    emit_element(node, element, source, out, notes);
     i += 1;
   }
 }
@@ -783,7 +780,7 @@ fn emit_tree<'a>(
   tree: &SyntaxNode,
   open: &'a str,
   close: &'a str,
-  lines: &LineIndex<'a>,
+  source: &Source<'a>,
   out: &mut Vec<Token<'a>>,
   notes: &mut Vec<String>,
 ) {
@@ -791,28 +788,28 @@ fn emit_tree<'a>(
     .children_with_tokens_iter()
     .filter(significant)
     .collect();
-  let line = lines.line(tree.text_range().start as usize);
+  let start = tree.text_range().start;
   out.push(Token {
     text: open.into(),
-    line,
+    start,
   });
   for element in children
     .iter()
     .skip(1)
     .take(children.len().saturating_sub(2))
   {
-    emit_element(tree, element, lines, out, notes);
+    emit_element(tree, element, source, out, notes);
   }
   out.push(Token {
     text: close.into(),
-    line,
+    start,
   });
 }
 
 /// use-trees: a `use` as one entry per imported path, each with the `use`'s attributes and
 /// visibility, sorted.
-fn emit_use<'a>(node: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Token<'a>>) {
-  let line = lines.line(node.text_range().start as usize);
+fn emit_use<'a>(node: &SyntaxNode, source: &Source<'a>, out: &mut Vec<Token<'a>>) {
+  let start = node.text_range().start;
   let mut head = Vec::new();
   let mut paths = Vec::new();
   for child in node.children_with_tokens_iter().filter(significant) {
@@ -822,12 +819,12 @@ fn emit_use<'a>(node: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Token<'a
       }
       SyntaxElement::Node(n) => {
         let mut notes = Vec::new();
-        emit_node(n, lines, &mut head, &mut notes);
+        emit_node(n, source, &mut head, &mut notes);
       }
       SyntaxElement::Token(t) if t.kind() == SyntaxKind::Semi => {}
       SyntaxElement::Token(t) => head.push(Token {
-        text: token_text(node, t.kind(), lines.at(t.text_range())),
-        line,
+        text: token_text(node, t.kind(), source.at(t.text_range())),
+        start,
       }),
     }
   }
@@ -837,12 +834,12 @@ fn emit_use<'a>(node: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Token<'a
   for path in paths {
     out.push(Token {
       text: USE_ENTRY.into(),
-      line,
+      start,
     });
     out.extend(head.iter().cloned());
     out.push(Token {
       text: path.into(),
-      line,
+      start,
     });
   }
 }
@@ -851,7 +848,10 @@ fn emit_use<'a>(node: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Token<'a
 fn ends_block(statement: &SyntaxNode) -> bool {
   let mut next = statement.next_sibling_or_token();
   while let Some(element) = next {
-    if significant(&element) {
+    // A `;` standing alone in the block, which stray-semicolon drops (`return x; ;`).
+    let stray = matches!(&element, SyntaxElement::Token(t)
+      if t.kind() == SyntaxKind::Semi && t.parent().kind() == SyntaxKind::BlockExpr);
+    if significant(&element) && !stray {
       return kind_of(&element) == SyntaxKind::RBrace;
     }
     next = match &element {
@@ -863,23 +863,30 @@ fn ends_block(statement: &SyntaxNode) -> bool {
 }
 
 /// Where two canonical streams first differ, with a little context from each side.
-fn first_difference(old: &[Token], new: &[Token]) -> Option<String> {
+/// `old` and `new` are the streams of `input` and `output`.
+fn first_difference(old: &[Token], input: &str, new: &[Token], output: &str) -> Option<String> {
   let at = old
     .iter()
     .zip(new)
     .position(|(a, b)| a.text != b.text)
     .or_else(|| (old.len() != new.len()).then(|| old.len().min(new.len())))?;
-  let around = |tokens: &[Token]| -> String {
+  let around = |tokens: &[Token], text: &str| -> String {
     let start = at.saturating_sub(4);
     let end = (at + 5).min(tokens.len());
-    let line = tokens.get(at).or(tokens.last()).map_or(0, |t| t.line);
+    // The 1-based line holding the token's start.
+    let line = tokens.get(at).or(tokens.last()).map_or(0, |t| {
+      1 + text.as_bytes()[..t.start as usize]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count()
+    });
     let shown: Vec<&str> = tokens[start..end].iter().map(|t| t.text.as_ref()).collect();
     format!("line {}: `{}`", line, shown.join(" "))
   };
   Some(format!(
     "the tokens differ: input {}, output {}",
-    around(old),
-    around(new)
+    around(old, input),
+    around(new, output)
   ))
 }
 
@@ -959,7 +966,7 @@ fn kind_of(element: &SyntaxElement) -> SyntaxKind {
 /// delimiters for `vec!`, as an array), they read as expressions; `None` otherwise.
 fn macro_arguments<'a>(
   tree: &SyntaxNode,
-  lines: &LineIndex<'_>,
+  source: &Source<'_>,
   array: bool,
 ) -> Option<Vec<Token<'a>>> {
   let whole = tree.text().to_string();
@@ -980,24 +987,24 @@ fn macro_arguments<'a>(
     ),
     _ => return None,
   };
-  let parsed = crate::syntax::parse(&text, lines.edition);
+  let parsed = crate::syntax::parse(&text, source.edition);
   if !parsed.errors().is_empty() {
     return None;
   }
   let root = parsed.syntax_node();
   let list = root.descendant_nodes_where(|k| k == kind).next()?;
-  let inner_lines = LineIndex::new(&text, lines.edition);
+  let inner_source = Source::new(&text, source.edition);
   let mut tokens = Vec::new();
   // Their comments are the file's, counted there.
   let mut comments = Vec::new();
-  emit_node(&list, &inner_lines, &mut tokens, &mut comments);
-  let line = lines.line(tree.text_range().start as usize);
+  emit_node(&list, &inner_source, &mut tokens, &mut comments);
+  let start = tree.text_range().start;
   Some(
     tokens
       .into_iter()
       .map(|t| Token {
         text: Cow::Owned(t.text.into_owned()),
-        line,
+        start,
       })
       .collect(),
   )
@@ -1006,25 +1013,25 @@ fn macro_arguments<'a>(
 /// merge-derives: the first of consecutive `#[derive(...)]` attributes stands for all of
 /// them (their traits, in order, as one list); the others emit nothing. Returns whether
 /// `attr` was handled here.
-fn merged_derive<'a>(attr: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Token<'a>>) -> bool {
-  let Some(own) = derive_arguments(attr, lines) else {
+fn merged_derive<'a>(attr: &SyntaxNode, source: &Source<'a>, out: &mut Vec<Token<'a>>) -> bool {
+  let Some(own) = derive_arguments(attr, source) else {
     return false;
   };
   let previous_is_derive = match previous_significant_node(attr) {
     Some(previous) => {
-      previous.kind() == SyntaxKind::Attr && derive_arguments(&previous, lines).is_some()
+      previous.kind() == SyntaxKind::Attr && derive_arguments(&previous, source).is_some()
     }
     None => false,
   };
   if previous_is_derive {
     return true;
   }
-  let line = lines.line(attr.text_range().start as usize);
+  let start = attr.text_range().start;
   let mut traits = own;
   let mut next = next_significant_node(attr);
   while let Some(node) = next {
     match (node.kind() == SyntaxKind::Attr)
-      .then(|| derive_arguments(&node, lines))
+      .then(|| derive_arguments(&node, source))
       .flatten()
     {
       Some(more) => traits.extend(more),
@@ -1035,7 +1042,7 @@ fn merged_derive<'a>(attr: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Tok
   for text in ["#", "[", "derive", "("] {
     out.push(Token {
       text: text.into(),
-      line,
+      start,
     });
   }
   // Traits are compared as one list without their commas, which is enough to tell
@@ -1044,27 +1051,14 @@ fn merged_derive<'a>(attr: &SyntaxNode, lines: &LineIndex<'a>, out: &mut Vec<Tok
   for text in [")", "]"] {
     out.push(Token {
       text: text.into(),
-      line,
+      start,
     });
   }
   true
 }
 
 fn next_significant(element: &SyntaxElement) -> Option<SyntaxKind> {
-  let mut next = match element {
-    SyntaxElement::Token(t) => t.next_sibling_or_token(),
-    SyntaxElement::Node(n) => n.next_sibling_or_token(),
-  };
-  while let Some(e) = next {
-    if significant(&e) {
-      return Some(kind_of(&e));
-    }
-    next = match &e {
-      SyntaxElement::Token(t) => t.next_sibling_or_token(),
-      SyntaxElement::Node(n) => n.next_sibling_or_token(),
-    };
-  }
-  None
+  element.kinds_after().find(|kind| !kind.is_trivia())
 }
 
 fn next_significant_node(node: &SyntaxNode) -> Option<SyntaxNode> {
@@ -1102,20 +1096,7 @@ fn number(kind: SyntaxKind, text: &str) -> String {
 }
 
 fn previous_significant(element: &SyntaxElement) -> Option<SyntaxKind> {
-  let mut previous = match element {
-    SyntaxElement::Token(t) => t.prev_sibling_or_token(),
-    SyntaxElement::Node(n) => n.prev_sibling_or_token(),
-  };
-  while let Some(e) = previous {
-    if significant(&e) {
-      return Some(kind_of(&e));
-    }
-    previous = match &e {
-      SyntaxElement::Token(t) => t.prev_sibling_or_token(),
-      SyntaxElement::Node(n) => n.prev_sibling_or_token(),
-    };
-  }
-  None
+  element.kinds_before().find(|kind| !kind.is_trivia())
 }
 
 fn previous_significant_node(node: &SyntaxNode) -> Option<SyntaxNode> {
@@ -1237,7 +1218,18 @@ fn token_text<'a>(parent: &SyntaxNode, kind: SyntaxKind, text: &'a str) -> Cow<'
     SyntaxKind::Dot3 if parent.kind() == SyntaxKind::RangePat => "..=".into(),
     SyntaxKind::OuterLineDoc | SyntaxKind::OuterBlockDoc => doc_text("outer", text).into(),
     SyntaxKind::InnerLineDoc | SyntaxKind::InnerBlockDoc => doc_text("inner", text).into(),
+    // An integer already in lowercase and with no float suffix is its own canonical text.
+    SyntaxKind::IntNumber
+      if !text.bytes().any(|b| b.is_ascii_uppercase())
+        && (text.starts_with("0x") || !(text.ends_with("f32") || text.ends_with("f64"))) =>
+    {
+      Cow::Borrowed(text)
+    }
     SyntaxKind::IntNumber | SyntaxKind::FloatNumber => number(kind, text).into(),
+    // A string with no `\` continues no line.
+    SyntaxKind::Str | SyntaxKind::ByteStr | SyntaxKind::CStr if !text.contains('\\') => {
+      Cow::Borrowed(text)
+    }
     SyntaxKind::Str | SyntaxKind::ByteStr | SyntaxKind::CStr => continued(text).into(),
     _ => Cow::Borrowed(text),
   }
@@ -1246,17 +1238,17 @@ fn token_text<'a>(parent: &SyntaxNode, kind: SyntaxKind, text: &'a str) -> Cow<'
 /// A `macro_rules!` transcriber's canonical tokens when it reads as items, or else as
 /// statements in a function, once its metavariables are renamed; `None` when it reads as
 /// neither (or holds a repetition).
-fn transcriber<'a>(arm: &SyntaxNode, lines: &LineIndex<'_>) -> Option<Vec<Token<'a>>> {
+fn transcriber<'a>(arm: &SyntaxNode, source: &Source<'_>) -> Option<Vec<Token<'a>>> {
   let whole = arm.text().to_string();
   let body = whole.get(1..whole.len().checked_sub(1)?)?;
-  let (renamed, _) = crate::syntax::metavariables::replace_names(body.trim(), lines.edition)?;
-  let as_items = crate::syntax::parse(&renamed, lines.edition);
+  let (renamed, _) = crate::syntax::metavariables::replace_names(body.trim(), source.edition)?;
+  let as_items = crate::syntax::parse(&renamed, source.edition);
   let (text, wrapped) = if as_items.errors().is_empty() {
     (renamed, false)
   } else {
     (format!("fn main() {{\n{}\n}}", renamed), true)
   };
-  let parsed = crate::syntax::parse(&text, lines.edition);
+  let parsed = crate::syntax::parse(&text, source.edition);
   if !parsed.errors().is_empty() {
     return None;
   }
@@ -1276,7 +1268,7 @@ fn transcriber<'a>(arm: &SyntaxNode, lines: &LineIndex<'_>) -> Option<Vec<Token<
   {
     return None;
   }
-  let inner = LineIndex::new(&text, lines.edition);
+  let inner = Source::new(&text, source.edition);
   let mut tokens = Vec::new();
   // Its comments are the file's, counted there.
   let mut comments = Vec::new();
@@ -1288,13 +1280,13 @@ fn transcriber<'a>(arm: &SyntaxNode, lines: &LineIndex<'_>) -> Option<Vec<Token<
   } else {
     tokens
   };
-  let line = lines.line(arm.text_range().start as usize);
+  let start = arm.text_range().start;
   Some(
     tokens
       .into_iter()
       .map(|t| Token {
         text: Cow::Owned(t.text.into_owned()),
-        line,
+        start,
       })
       .collect(),
   )

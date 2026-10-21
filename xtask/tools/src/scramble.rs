@@ -470,7 +470,7 @@ fn role_of(item: &SyntaxNode, in_impl: bool) -> Role {
     _ => Role::Stays,
   };
   for attr in item.children_of_kind(K::Attr) {
-    let name = attribute_name(&attr.text());
+    let name = attribute_name(attr.text());
     if name.contains("macro_use") || name.contains("macro_export") {
       return if in_impl { Role::Stays } else { Role::Ends };
     }

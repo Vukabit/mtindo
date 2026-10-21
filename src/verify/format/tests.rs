@@ -16,6 +16,39 @@ fn same(input: &str, output: &str) {
   assert!(back.is_empty(), "{:?}\n{}\n---\n{}", back, output, input);
 }
 
+/// A changed token is reported at its line in each text, counted only for the report.
+#[test]
+fn test_a_changed_token_is_reported_at_its_line() {
+  let found = verify_format(
+    "fn f() {\n  g(1);\n}\n",
+    "\n\nfn f() {\n  g(2);\n}\n",
+    Edition::E2021,
+  );
+  assert_eq!(found.len(), 1, "{:?}", found);
+  assert!(
+    found[0].detail.contains("input line 2:"),
+    "{}",
+    found[0].detail
+  );
+  assert!(
+    found[0].detail.contains("output line 4:"),
+    "{}",
+    found[0].detail
+  );
+  // A stream that ends first is reported at its last token.
+  let found = verify_format("fn f() {}\n", "fn f() {}\nfn g() {}\n", Edition::E2021);
+  assert!(
+    found[0].detail.contains("input line 1:"),
+    "{}",
+    found[0].detail
+  );
+  assert!(
+    found[0].detail.contains("output line 2:"),
+    "{}",
+    found[0].detail
+  );
+}
+
 #[test]
 fn test_a_comma_after_no_item_is_not_trailing() {
   // `Token![,]` is not `Token![]`: the comma follows no item. (Found by laying out macros.)
@@ -161,6 +194,11 @@ fn test_each_allowed_rewrite() {
   // stray-semicolon: an empty statement in a block either way; among items, where a lone
   // `;` is an error, only its removal.
   same("fn f() { a(); ; }\n", "fn f() { a(); }\n");
+  // A stray `;` after a block's last `return` leaves the `return` ending the block.
+  same(
+    "fn f() { if a { return 1; ; } b; }\n",
+    "fn f() { if a { return 1; } b; }\n",
+  );
   assert!(
     verify_format(
       "fn f() {};\nstruct S;\n",

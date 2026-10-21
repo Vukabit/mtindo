@@ -17,138 +17,19 @@ use crate::text::unicode::str_width;
 
 /// A block's braces and what is between them, laid out as [`rewrite_lines`] does.
 pub fn block_body(block: &SyntaxNode, shape: Shape) -> Option<String> {
-  // Only a comment on one line, not a line comment: on the braces' line (`{ /* c */ }`)
-  // where it fits, wherever it was written (the standard formatter's `rewrite_empty_block`);
-  // but a function's body, which the standard formatter visits, closes on the next line.
-  let inside: Vec<SyntaxElement> = block
+  // Laid out from the indentation alone (its insides at `block_inside`, its `}` at the
+  // indentation), but for a comment's place, which weighs the width: kept by those, so the
+  // layouts tried around a block lay it out once.
+  let commented = block
     .children_with_tokens_iter()
-    .skip_while(|e| e.kind() != K::LBrace)
-    .skip(1)
-    .filter(|e| e.kind() != K::RBrace)
-    .collect();
-  if let [SyntaxElement::Token(comment)] = inside
-    .iter()
-    .filter(|e| e.kind() != K::Whitespace)
-    .collect::<Vec<_>>()
-    .as_slice()
-    && comment.kind() == K::BlockComment
-    && block.parent().is_none_or(|p| p.kind() != K::Fn)
-    && !comment.text().contains('\n')
-    && str_width(comment.text()) + 4 <= shape.width
-  {
-    return Some(format!("{{ {} }}", comment.text()));
-  }
-  // Only one comment, written on the `{`'s line: it stays there, `}` on the next line.
-  let significant: Vec<&SyntaxElement> = inside
-    .iter()
-    .filter(|e| e.kind() != K::Whitespace)
-    .collect();
-  if let [SyntaxElement::Token(comment)] = significant.as_slice()
-    && matches!(comment.kind(), K::LineComment | K::BlockComment)
-    && !comment.text().contains('\n')
-    && !inside
-      .iter()
-      .take_while(|e| e.kind() == K::Whitespace)
-      .any(|e| matches!(e, SyntaxElement::Token(t) if t.text().contains('\n')))
-  {
-    return Some(format!(
-      "{{ {}\n{}}}",
-      comment.text().trim_end(),
-      " ".repeat(shape.indent)
-    ));
-  }
-  let inner = shape.block_inside();
-  // Only comments, the first written on the `{`'s line: it stays there, the rest on lines
-  // of their own.
-  let on_brace_line = match significant.first() {
-    Some(SyntaxElement::Token(first))
-      if (first.kind() == K::LineComment
-        || first.kind() == K::BlockComment && !first.text().contains('\n'))
-        && significant
-          .iter()
-          .all(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
-        && !inside
-          .iter()
-          .take_while(|e| e.kind() == K::Whitespace)
-          .any(|e| matches!(e, SyntaxElement::Token(t) if t.text().contains('\n'))) =>
-    {
-      Some(first.text().trim_end().to_string())
-    }
-    _ => None,
+    .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment));
+  let key = Shape {
+    offset: 0,
+    align: 0,
+    width: if commented { shape.width } else { 0 },
+    ..shape
   };
-  let config = shape.limits.config();
-  let lines = lines(block, inner, |node| match node.kind() {
-    K::LetStmt => statement(node, inner, &config).or_else(|| given_up(node, inner)),
-    K::ExprStmt => statement(node, inner, &config)
-      .or_else(|| macro_as_written(node))
-      .or_else(|| given_up(node, inner)),
-    _ if is_tail(node) => statement(node, inner, &config).or_else(|| macro_as_written(node)),
-    K::MacroCall => braced_macro(node, inner).or_else(|| item(node, inner, &config)),
-    K::Use | K::Const | K::Static | K::TypeAlias | K::ExternCrate => item(node, inner, &config),
-    // A function: its header, then its body laid out here; one written on its header's
-    // line only when that header is on one line.
-    K::Fn => attributed(node, inner, &config, || {
-      let body = node.children_iter().find(|c| c.kind() == K::BlockExpr)?;
-      let (head, to) = super::items::rewrite_header(node, inner.indent, &config)?;
-      if to != body.text_range().start as usize {
-        return None;
-      }
-      let text = block_body(&body, inner)?;
-      if head.contains('\n') && text == "{}" {
-        return Some(format!("{}{{\n{}}}", head, " ".repeat(inner.indent)));
-      }
-      Some(format!("{}{}", head, text))
-    }),
-    // Another item with nothing in its body (`struct S {}`, `trait T {}`) or none
-    // (`struct S;`), its header on one line.
-    K::Struct | K::Enum | K::Union | K::Trait | K::Impl | K::Module => {
-      attributed(node, inner, &config, || {
-        let (head, to) = super::items::rewrite_header(node, inner.indent, &config)?;
-        if head.contains('\n') {
-          return None;
-        }
-        let body = node.children_iter().find(|c| {
-          matches!(
-            c.kind(),
-            K::RecordFieldList | K::VariantList | K::AssocItemList | K::ItemList
-          )
-        });
-        match body {
-          Some(body)
-            if to == body.text_range().start as usize
-              && body
-                .children_with_tokens_iter()
-                .all(|e| matches!(e.kind(), K::LBrace | K::RBrace | K::Whitespace)) =>
-          {
-            Some(format!("{}{{}}", head))
-          }
-          None if to == node.text_range().end as usize => Some(head),
-          _ => None,
-        }
-      })
-    }
-    _ => None,
-  })?;
-  if let Some(first) = on_brace_line
-    && lines.first().is_some_and(|line| line.trim() == first)
-  {
-    // Before style edition 2024 the comments right under it (up to a blank line) stand a
-    // column further in.
-    let mut lines = lines;
-    if !shape.limits.style_2024 {
-      for line in lines.iter_mut().skip(1) {
-        if line.trim().is_empty() {
-          break;
-        }
-        line.insert(0, ' ');
-      }
-    }
-    let mut text = close(lines, shape);
-    let end = text[2..].find('\n').map_or(text.len(), |i| i + 2);
-    text.replace_range(1..end, &format!(" {}", first));
-    return Some(text);
-  }
-  Some(close(lines, shape))
+  super::expr::remembered_block(block, key, || block_body_once(block, shape))
 }
 
 /// A block's statements for a `let`'s `else`: on one line (`{ return }`) when `one_line`
@@ -181,7 +62,9 @@ pub fn rewrite_lines(block: &SyntaxNode, shape: Shape) -> Option<String> {
   {
     return None;
   }
-  let whole = flat(block, shape.limits.spacing);
+  // Flat up to its `{` alone.
+  let head = super::expr::code_tokens_through(block, |t| t.kind() == K::LBrace);
+  let whole = super::expr::flat_tokens(&head, shape.limits.spacing);
   let prefix = &whole[..whole.find('{')?];
   // Only a comment on one line, not a line comment: on the block's line (`{ /* c */ }`),
   // as an expression's block is (a control expression's is not).
@@ -367,8 +250,18 @@ pub(super) fn gives_up(
   any_string: bool,
   string_lines: bool,
 ) -> bool {
-  gives_up_whole(node, inner, any_string, string_lines)
-    && hollowed(node).is_none_or(|bare| gives_up_whole(&bare, inner, any_string, string_lines))
+  let commented =
+    |n: &SyntaxNode| n.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment));
+  match hollowed(node) {
+    None => gives_up_whole(node, inner, any_string, string_lines),
+    // Comments only inside its blocks, which the standard formatter lays out apart: the rest
+    // decides (a closure's head too wide gives up the statement whatever its body holds).
+    Some(bare) => {
+      (gives_up_whole(node, inner, any_string, string_lines)
+        || commented(node) && !commented(&bare))
+        && gives_up_whole(&bare, inner, any_string, string_lines)
+    }
+  }
 }
 
 /// A statement or item after its attributes, each on a line of their own; none skipped, and
@@ -437,6 +330,152 @@ fn attributed(
     prefix.push_str(&" ".repeat(shape.indent));
   }
   Some(format!("{}{}", prefix, bare()?))
+}
+
+fn block_body_once(block: &SyntaxNode, shape: Shape) -> Option<String> {
+  // Only a comment on one line, not a line comment: on the braces' line (`{ /* c */ }`)
+  // where it fits, wherever it was written (the standard formatter's `rewrite_empty_block`);
+  // but a function's body, which the standard formatter visits, closes on the next line.
+  let inside: Vec<SyntaxElement> = block
+    .children_with_tokens_iter()
+    .skip_while(|e| e.kind() != K::LBrace)
+    .skip(1)
+    .filter(|e| e.kind() != K::RBrace)
+    .collect();
+  if let [SyntaxElement::Token(comment)] = inside
+    .iter()
+    .filter(|e| e.kind() != K::Whitespace)
+    .collect::<Vec<_>>()
+    .as_slice()
+    && comment.kind() == K::BlockComment
+    && block.parent().is_none_or(|p| p.kind() != K::Fn)
+    && !comment.text().contains('\n')
+    && str_width(comment.text()) + 4 <= shape.width
+  {
+    return Some(format!("{{ {} }}", comment.text()));
+  }
+  // Only one comment, written on the `{`'s line: it stays there, `}` on the next line.
+  let significant: Vec<&SyntaxElement> = inside
+    .iter()
+    .filter(|e| e.kind() != K::Whitespace)
+    .collect();
+  if let [SyntaxElement::Token(comment)] = significant.as_slice()
+    && matches!(comment.kind(), K::LineComment | K::BlockComment)
+    && !comment.text().contains('\n')
+    && !inside
+      .iter()
+      .take_while(|e| e.kind() == K::Whitespace)
+      .any(|e| matches!(e, SyntaxElement::Token(t) if t.text().contains('\n')))
+  {
+    return Some(format!(
+      "{{ {}\n{}}}",
+      comment.text().trim_end(),
+      " ".repeat(shape.indent)
+    ));
+  }
+  let inner = shape.block_inside();
+  // Only comments, the first written on the `{`'s line: it stays there, the rest on lines
+  // of their own.
+  let on_brace_line = match significant.first() {
+    Some(SyntaxElement::Token(first))
+      if (first.kind() == K::LineComment
+        || first.kind() == K::BlockComment && !first.text().contains('\n'))
+        && significant
+          .iter()
+          .all(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+        && !inside
+          .iter()
+          .take_while(|e| e.kind() == K::Whitespace)
+          .any(|e| matches!(e, SyntaxElement::Token(t) if t.text().contains('\n'))) =>
+    {
+      Some(first.text().trim_end().to_string())
+    }
+    _ => None,
+  };
+  let config = shape.limits.config();
+  let lines = lines(block, inner, |node| match node.kind() {
+    K::LetStmt => statement(node, inner, &config).or_else(|| given_up(node, inner)),
+    K::ExprStmt => statement(node, inner, &config)
+      .or_else(|| macro_as_written(node))
+      .or_else(|| given_up(node, inner)),
+    _ if is_tail(node) => statement(node, inner, &config)
+      .or_else(|| macro_as_written(node))
+      // Not a block or control expression, whose head and blocks the standard formatter
+      // lays out apart.
+      .or_else(|| {
+        (!matches!(
+          node.kind(),
+          K::BlockExpr | K::IfExpr | K::MatchExpr | K::WhileExpr | K::ForExpr | K::LoopExpr
+        ))
+        .then(|| given_up(node, inner))
+        .flatten()
+      }),
+    K::MacroCall => braced_macro(node, inner).or_else(|| item(node, inner, &config)),
+    K::Use | K::Const | K::Static | K::TypeAlias | K::ExternCrate => item(node, inner, &config),
+    // A function: its header, then its body laid out here; one written on its header's
+    // line only when that header is on one line.
+    K::Fn => attributed(node, inner, &config, || {
+      let body = node.children_iter().find(|c| c.kind() == K::BlockExpr)?;
+      let (head, to) = super::items::rewrite_header(node, inner.indent, &config)?;
+      if to != body.text_range().start as usize {
+        return None;
+      }
+      let text = block_body(&body, inner)?;
+      if head.contains('\n') && text == "{}" {
+        return Some(format!("{}{{\n{}}}", head, " ".repeat(inner.indent)));
+      }
+      Some(format!("{}{}", head, text))
+    }),
+    // Another item with nothing in its body (`struct S {}`, `trait T {}`) or none
+    // (`struct S;`), its header on one line.
+    K::Struct | K::Enum | K::Union | K::Trait | K::Impl | K::Module => {
+      attributed(node, inner, &config, || {
+        let (head, to) = super::items::rewrite_header(node, inner.indent, &config)?;
+        if head.contains('\n') {
+          return None;
+        }
+        let body = node.children_iter().find(|c| {
+          matches!(
+            c.kind(),
+            K::RecordFieldList | K::VariantList | K::AssocItemList | K::ItemList
+          )
+        });
+        match body {
+          Some(body)
+            if to == body.text_range().start as usize
+              && body
+                .children_with_tokens_iter()
+                .all(|e| matches!(e.kind(), K::LBrace | K::RBrace | K::Whitespace)) =>
+          {
+            Some(format!("{}{{}}", head))
+          }
+          None if to == node.text_range().end as usize => Some(head),
+          _ => None,
+        }
+      })
+    }
+    _ => None,
+  })?;
+  if let Some(first) = on_brace_line
+    && lines.first().is_some_and(|line| line.trim() == first)
+  {
+    // Before style edition 2024 the comments right under it (up to a blank line) stand a
+    // column further in.
+    let mut lines = lines;
+    if !shape.limits.style_2024 {
+      for line in lines.iter_mut().skip(1) {
+        if line.trim().is_empty() {
+          break;
+        }
+        line.insert(0, ' ');
+      }
+    }
+    let mut text = close(lines, shape);
+    let end = text[2..].find('\n').map_or(text.len(), |i| i + 2);
+    text.replace_range(1..end, &format!(" {}", first));
+    return Some(text);
+  }
+  Some(close(lines, shape))
 }
 
 /// A braced macro call standing as a statement: its name, a space and its arguments, their
@@ -550,11 +589,15 @@ fn hollowed(node: &SyntaxNode) -> Option<SyntaxNode> {
         && !between
           .iter()
           .any(|a| matches!(a.kind(), K::BlockExpr | K::TokenTree))
+        // Not an arm's block holding one expression, which the standard formatter flattens
+        // into the arm (`flatten_arm_body`): laid out with the `match`.
+        && !(b.parent().is_some_and(|p| p.kind() == K::MatchArm)
+          && super::expr::lone_expression(b).is_some())
         // The statement itself a chain too.
         && !between.iter().chain([node]).any(|a| {
           matches!(
             a.kind(),
-            K::MethodCallExpr | K::FieldExpr | K::TryExpr | K::AwaitExpr
+            K::MethodCallExpr | K::FieldExpr | K::TryExpr | K::AwaitExpr | K::UseExpr
           )
         })
         && b.children_with_tokens_iter().any(|e| {

@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-19T22:19:50.399Z"
-commit: "86f8bff-dirty.cb3088de"
+generated: "2026-10-20T21:58:46.848Z"
+commit: "83b8cf8-dirty.3087f3bd"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -141,6 +141,7 @@ repeated.
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
 | current |  | 32 | 10 | 22 |
+| 2026-10-17 | 793f665 | 32 | 10 | 22 |
 | 2026-10-17 | c04dd05 | 31 | 10 | 21 |
 | 2026-10-15 | 0cfb09d | 97 | 20 | 77 |
 | 2026-10-15 | acd6789 | 101 | 22 | 79 |

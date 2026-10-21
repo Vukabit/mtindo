@@ -16,6 +16,10 @@ use mtindo::{HelpPalette, color_enabled};
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 30;
 
+/// Small blocks come from a per-thread cache in front of the system allocator.
+#[global_allocator]
+static GLOBAL: mtindo::cache_alloc::Cached = mtindo::cache_alloc::Cached;
+
 enum Parsed {
   Run(Args),
   Exit(u8),

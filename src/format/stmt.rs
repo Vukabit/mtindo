@@ -178,12 +178,12 @@ pub fn rewrite_control_head(
     .start;
   let start = node.text_range().start;
   // Nothing in the head the layout code declines.
+  // A walk in source order: everything before the body's brace, not the body itself.
   let head: Vec<SyntaxToken> = node
     .descendants_with_tokens_iter()
+    .take_while(|e| e.text_range().start < open)
     .filter_map(|e| match e {
-      SyntaxElement::Token(t) if t.text_range().start >= start && t.text_range().start < open => {
-        Some(t)
-      }
+      SyntaxElement::Token(t) if t.text_range().start >= start => Some(t),
       _ => None,
     })
     .collect();
@@ -432,7 +432,7 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
         while let Some(up) = call.parent().filter(|p| {
           matches!(
             p.kind(),
-            K::MethodCallExpr | K::FieldExpr | K::AwaitExpr | K::TryExpr
+            K::MethodCallExpr | K::FieldExpr | K::AwaitExpr | K::UseExpr | K::TryExpr
           ) && p.children_iter().next().as_ref() == Some(&call)
         }) {
           if up.kind() != K::TryExpr {
@@ -820,8 +820,10 @@ pub fn rewrite_hole_head(node: &SyntaxNode, indent: usize, config: &FormatConfig
     while &root != node
       && let Some(up) = root.parent()
     {
-      if matches!(up.kind(), K::MethodCallExpr | K::FieldExpr | K::AwaitExpr)
-        && up.children_iter().next().as_ref() == Some(&root)
+      if matches!(
+        up.kind(),
+        K::MethodCallExpr | K::FieldExpr | K::AwaitExpr | K::UseExpr
+      ) && up.children_iter().next().as_ref() == Some(&root)
         && up.text_range().start as usize <= open
       {
         links.push(up.clone());
@@ -1112,7 +1114,10 @@ pub(super) fn assignment(expression: &SyntaxNode) -> Option<(SyntaxNode, String,
 /// a comment, a block not laid out on one line, a `match`'s arms, a macro in braces, an
 /// attribute, a string spanning lines.
 pub(super) fn clean_expression(node: &SyntaxNode) -> bool {
-  laid_on_lines(node) || safe(&SyntaxElement::Node(node.clone())) && clean_inside(node)
+  super::expr::remembered(node, super::expr::Question::Clean, || {
+    laid_on_lines(node)
+      || safe(&SyntaxElement::Node(node.clone())) && (plainly_clean(node) || clean_inside(node))
+  })
 }
 
 /// Whether a token counts when comparing a layout's tokens with the written ones: not
@@ -1195,7 +1200,9 @@ pub(super) fn safe(element: &SyntaxElement) -> bool {
           // A block comment across lines whose later lines start with `*`, among a call's
           // arguments (a space in under its `/*`).
           || t.parent().kind() == K::ArgList
-            && t.text().lines().skip(1).all(|l| l.trim_start().starts_with('*')))
+            && t.text().lines().skip(1).all(|l| l.trim_start().starts_with('*'))
+          // One between a chain's links, re-indented with them.
+          || t.kind() == K::BlockComment && super::expr::in_chain_gap(t))
         && (super::expr::in_chain_gap(t)
           || matches!(
             t.parent().kind(),
@@ -1284,92 +1291,11 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
 /// [`same_tokens`] for the node's tokens before `end` (an item's comment after its `;` is
 /// not its own).
 pub(super) fn same_tokens_until(node: &SyntaxNode, text: &str, end: usize) -> bool {
-  // As `code_tokens` picks them, read straight from the tree.
+  // As `code_tokens` picks them, read straight from the tree. Most texts are the node's as
+  // written, found faster than their key is hashed.
   let start = header_start(node).unwrap_or(node.text_range().start as usize);
-  if written_as(node, start, text) {
-    return true;
-  }
-  // Inside a function body, where the statement stands, so that tokens split as they do
-  // there (`>>` closing two generic lists).
-  let wrapped = format!("fn f() {{\n{}\n}}", text);
-  let tokens = parse_tokens(&wrapped, Edition::E2021);
-  // Less the parentheses put around a float ending in `.` (`(10.).method()`).
-  let laid: Vec<(SyntaxKind, &str)> = tokens
-    .iter()
-    .skip_while(|&&(kind, _)| kind != K::LBrace)
-    .skip(1)
-    .filter(|&&(kind, _)| compared(kind))
-    .copied()
-    .collect();
-  let mut kept = Vec::with_capacity(laid.len());
-  let mut i = 0;
-  while i < laid.len() {
-    if i + 3 < laid.len()
-      && laid[i].0 == K::LParen
-      && laid[i + 1].0 == K::FloatNumber
-      && laid[i + 1].1.ends_with('.')
-      && laid[i + 2].0 == K::RParen
-      && laid[i + 3].0 == K::Dot
-    {
-      kept.push(laid[i + 1].1);
-      i += 3;
-    } else {
-      kept.push(laid[i].1);
-      i += 1;
-    }
-  }
-  let ours = || kept.iter().map(|text| unindented(text));
-  // All of them, or less those a line drops (a leading `|`, nested parentheses).
-  let dropped = super::expr::dropped_tokens(node, Spacing::default());
-  let dropped = &dropped;
-  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
-  let brackets = &vec_delimiters(node);
-  let theirs = |drop: bool| {
-    node
-      .token_texts()
-      .filter(move |&(kind, _, range)| {
-        (compared(kind) || brackets.iter().any(|b| b.0 == range.start as usize))
-          && range.start as usize >= start
-          && (range.start as usize) < end
-          && !(drop && dropped.contains(&(range.start as usize)))
-      })
-      .map(move |(_, text, range)| {
-        unindented(
-          brackets
-            .iter()
-            .find(|b| b.0 == range.start as usize)
-            .map_or(text, |b| b.1),
-        )
-      })
-  };
-  if !theirs(true).eq(ours()) && !theirs(false).eq(ours()) {
-    return false;
-  }
-  // Every comment kept, each once; one across lines with its lines re-indented.
-  let comment = |kind: SyntaxKind| matches!(kind, K::LineComment | K::BlockComment);
-  let lines = |text: &str| -> String {
-    text
-      .trim_end()
-      .split('\n')
-      .map(str::trim)
-      .collect::<Vec<_>>()
-      .join("\n")
-  };
-  let mut theirs: Vec<String> = node
-    .token_texts()
-    .filter(|&(kind, _, range)| {
-      comment(kind) && range.start as usize >= start && (range.start as usize) < end
-    })
-    .map(|(_, text, _)| lines(text))
-    .collect();
-  let mut ours: Vec<String> = tokens
-    .iter()
-    .filter(|&&(kind, _)| comment(kind))
-    .map(|&(_, text)| lines(text))
-    .collect();
-  theirs.sort_unstable();
-  ours.sort_unstable();
-  theirs == ours
+  written_as(node, start, text)
+    || super::expr::remembered_tokens(node, text, end, || same_tokens_once(node, text, start, end))
 }
 
 /// The shape a statement starting at column `indent` is laid out into.
@@ -1388,6 +1314,10 @@ pub(super) fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Sh
 /// the standard formatter writes for each.
 pub(super) fn vec_delimiters(node: &SyntaxNode) -> Vec<(usize, &'static str)> {
   let mut found = Vec::new();
+  // A path that reads `vec` needs the word.
+  if !node.text().contains("vec") {
+    return found;
+  }
   for call in node.descendant_nodes_where(|kind| kind == K::MacroCall) {
     let named_vec = call
       .children_iter()
@@ -1452,10 +1382,18 @@ fn argument_string(token: &SyntaxToken) -> bool {
     value = parent;
   }
   value.parent().is_some_and(|p| {
-    // The value of a `let`, `const` or `static`, an element, a statement or a block's tail.
+    // The value of a `let`, `const` or `static`, an element, a statement, a block's tail or
+    // a struct literal's field.
     matches!(
       p.kind(),
-      K::LetStmt | K::Const | K::Static | K::ArrayExpr | K::TupleExpr | K::ExprStmt | K::BlockExpr
+      K::LetStmt
+        | K::Const
+        | K::Static
+        | K::ArrayExpr
+        | K::TupleExpr
+        | K::ExprStmt
+        | K::BlockExpr
+        | K::RecordExprField
     ) || p.kind() == K::ArgList
       && p
         .parent()
@@ -1593,10 +1531,20 @@ fn expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
 
 /// The statement's tokens before `expression`, flat.
 fn flat_before(node: &SyntaxNode, expression: &SyntaxNode, spacing: Spacing) -> Option<String> {
-  let start = expression.text_range().start;
-  let head: Vec<SyntaxToken> = code_tokens(node)
-    .into_iter()
-    .filter(|t| t.text_range().start < start)
+  let end = expression.text_range().start;
+  let start = header_start(node).unwrap_or(node.text_range().start as usize);
+  // As [`code_tokens`], stopping at the expression rather than walking through it.
+  let head: Vec<SyntaxToken> = node
+    .descendants_with_tokens_iter()
+    .take_while(|e| e.text_range().start < end)
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t)
+        if !t.kind().is_trivia() && t.text_range().start as usize >= start =>
+      {
+        Some(t)
+      }
+      _ => None,
+    })
     .collect();
   (!head.is_empty()).then(|| flat_tokens(&head, spacing).trim_end().to_string())
 }
@@ -1822,6 +1770,24 @@ fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   (nested_fit(node, indent, config) && same_tokens(node, &text)).then_some(text)
 }
 
+/// Whether nothing below `node` is one [`safe`] would look at twice: no comment, no
+/// attribute and no literal spanning lines, read from the green tree without making handles.
+/// [`clean_inside`] would then let every element through.
+fn plainly_clean(node: &SyntaxNode) -> bool {
+  !node.subtree_has(|kind| kind == K::Attr)
+    && node.token_texts().all(|(kind, text, _)| {
+      !matches!(
+        kind,
+        K::LineComment
+          | K::BlockComment
+          | K::OuterLineDoc
+          | K::InnerLineDoc
+          | K::OuterBlockDoc
+          | K::InnerBlockDoc
+      ) && !(kind.is_literal() && text.contains('\n'))
+    })
+}
+
 /// `head` (`let x =`, `a.b +=`) and then `value`, with its `;`: on the same line when it
 /// fits there, else on the next one, one level in, as the standard formatter's
 /// `choose_rhs` decides.
@@ -1864,6 +1830,95 @@ fn right_side(
     (None, Some(next)) => Some(format!("{}\n{}{};", head, pad, next)),
     (None, None) => None,
   }
+}
+
+/// [`same_tokens_until`] for a text not as written from `start`.
+fn same_tokens_once(node: &SyntaxNode, text: &str, start: usize, end: usize) -> bool {
+  // Inside a function body, where the statement stands, so that tokens split as they do
+  // there (`>>` closing two generic lists).
+  let wrapped = format!("fn f() {{\n{}\n}}", text);
+  let tokens = parse_tokens(&wrapped, Edition::E2021);
+  // Less the parentheses put around a float ending in `.` (`(10.).method()`).
+  let laid: Vec<(SyntaxKind, &str)> = tokens
+    .iter()
+    .skip_while(|&&(kind, _)| kind != K::LBrace)
+    .skip(1)
+    .filter(|&&(kind, _)| compared(kind))
+    .copied()
+    .collect();
+  let mut kept = Vec::with_capacity(laid.len());
+  let mut i = 0;
+  while i < laid.len() {
+    if i + 3 < laid.len()
+      && laid[i].0 == K::LParen
+      && laid[i + 1].0 == K::FloatNumber
+      && laid[i + 1].1.ends_with('.')
+      && laid[i + 2].0 == K::RParen
+      && laid[i + 3].0 == K::Dot
+    {
+      kept.push(laid[i + 1].1);
+      i += 3;
+    } else {
+      kept.push(laid[i].1);
+      i += 1;
+    }
+  }
+  let ours = || kept.iter().map(|text| unindented(text));
+  // All of them, or less those a line drops (a leading `|`, nested parentheses), found only
+  // when all of them differ.
+  let dropped = std::cell::OnceCell::new();
+  let dropped = &dropped;
+  // `vec!(..)` and `vec! {..}` are written `vec![..]`.
+  let brackets = &vec_delimiters(node);
+  let theirs = |drop: bool| {
+    node
+      .token_texts()
+      .filter(move |&(kind, _, range)| {
+        (compared(kind) || brackets.iter().any(|b| b.0 == range.start as usize))
+          && range.start as usize >= start
+          && (range.start as usize) < end
+          && !(drop
+            && dropped
+              .get_or_init(|| super::expr::dropped_tokens(node, Spacing::default()))
+              .contains(&(range.start as usize)))
+      })
+      .map(move |(_, text, range)| {
+        unindented(
+          brackets
+            .iter()
+            .find(|b| b.0 == range.start as usize)
+            .map_or(text, |b| b.1),
+        )
+      })
+  };
+  if !theirs(false).eq(ours()) && !theirs(true).eq(ours()) {
+    return false;
+  }
+  // Every comment kept, each once; one across lines with its lines re-indented.
+  let comment = |kind: SyntaxKind| matches!(kind, K::LineComment | K::BlockComment);
+  let lines = |text: &str| -> String {
+    text
+      .trim_end()
+      .split('\n')
+      .map(str::trim)
+      .collect::<Vec<_>>()
+      .join("\n")
+  };
+  let mut theirs: Vec<String> = node
+    .token_texts()
+    .filter(|&(kind, _, range)| {
+      comment(kind) && range.start as usize >= start && (range.start as usize) < end
+    })
+    .map(|(_, text, _)| lines(text))
+    .collect();
+  let mut ours: Vec<String> = tokens
+    .iter()
+    .filter(|&&(kind, _)| comment(kind))
+    .map(|&(_, text)| lines(text))
+    .collect();
+  theirs.sort_unstable();
+  ours.sort_unstable();
+  theirs == ours
 }
 
 fn statement(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {

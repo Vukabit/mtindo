@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+pub mod cache_alloc;
 pub mod cli;
 pub mod config;
 pub mod doctor;
@@ -67,12 +68,12 @@ pub enum Emit {
   Json,
 }
 
-enum MismatchLine {
-  Context(String),
+enum MismatchLine<'a> {
+  Context(&'a str),
   /// A line of the new text (`+`).
-  Expected(String),
+  Expected(&'a str),
   /// A line of the original (`-`).
-  Resulting(String),
+  Resulting(&'a str),
 }
 
 /// Errors that end a run. Each maps to a process exit code.
@@ -184,11 +185,11 @@ impl FileReport {
 }
 
 /// One changed region, as the standard formatter's diff groups them.
-struct Mismatch {
+struct Mismatch<'a> {
   /// The first line shown, in the new text and in the original.
   line_number: u32,
   line_number_orig: u32,
-  lines: Vec<MismatchLine>,
+  lines: Vec<MismatchLine<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -213,6 +214,16 @@ pub struct RunOptions {
   pub allow_dirty: bool,
   /// `--unguarded`: no build guard for this run.
   pub unguarded: bool,
+}
+
+/// How often a line id occurs in each side of a range, and where: patience diff's table,
+/// indexed by line id and left all zero between uses.
+#[derive(Clone, Copy, Default)]
+struct Seen {
+  in_a: u32,
+  at_a: usize,
+  in_b: u32,
+  at_b: usize,
 }
 
 /// What mto does to a file: layout when `layout = true`, formatting when `format = true`.
@@ -331,35 +342,30 @@ pub fn c_yellow(is_err: bool) -> &'static str {
 /// FILE:LINE:` for each changed region, then its lines, with three lines of context.
 /// `verbose` marks line ends with `⏎`, as the standard formatter's `-v` does.
 pub fn check_diff(old: &str, new: &str, label: &str, verbose: bool) -> String {
+  use std::fmt::Write as _;
   let end = if verbose { "⏎" } else { "" };
+  let (green, reset) = (c_green(), c_reset(false));
+  let red = if color_enabled(false) {
+    "\x1b[1;31m"
+  } else {
+    ""
+  };
   let mut out = String::new();
   for mismatch in mismatches(old, new, 3) {
-    out.push_str(&format!(
-      "Diff in {}:{}:\n",
-      label, mismatch.line_number_orig
-    ));
+    let _ = writeln!(out, "Diff in {}:{}:", label, mismatch.line_number_orig);
     for line in mismatch.lines {
-      match line {
-        MismatchLine::Context(text) => out.push_str(&format!(" {}{}\n", text, end)),
-        MismatchLine::Expected(text) => out.push_str(&format!(
-          "{}+{}{}{}\n",
-          c_green(),
-          text,
-          end,
-          c_reset(false)
-        )),
-        MismatchLine::Resulting(text) => out.push_str(&format!(
-          "{}-{}{}{}\n",
-          if color_enabled(false) {
-            "\x1b[1;31m"
-          } else {
-            ""
-          },
-          text,
-          end,
-          c_reset(false)
-        )),
-      }
+      // Context lines take no colour, so no reset either.
+      let (start, sign, text, stop) = match line {
+        MismatchLine::Context(text) => ("", ' ', text, ""),
+        MismatchLine::Expected(text) => (green, '+', text, reset),
+        MismatchLine::Resulting(text) => (red, '-', text, reset),
+      };
+      out.push_str(start);
+      out.push(sign);
+      out.push_str(text);
+      out.push_str(end);
+      out.push_str(stop);
+      out.push('\n');
     }
   }
   out
@@ -903,6 +909,13 @@ pub fn run_jobs_walking<T>(
   walking(opts, writes, usize::MAX, walk, before_results)
 }
 
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
 /// Lays out and formats `source` as `settings` say, holding back the edits `held` names
 /// (none for an ordinary run). `Err` with the reason when the file is left alone.
 pub fn shape(
@@ -977,13 +990,6 @@ pub fn shape(
     moves,
     found,
   })
-}
-
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
 }
 
 /// Reorders the items of one source file, or explains why the file was left alone.
@@ -1311,20 +1317,40 @@ fn deliver(bug: &report::Bug, reports: Option<&report::Store>) -> String {
 /// The edit script turning `a` into `b`, line by line: Myers' algorithm in linear space (the
 /// bisection of diff-match-patch), on line ids so that lines compare as integers.
 fn diff_ops<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<DiffOp> {
-  let mut ids: HashMap<&'a str, u32> = HashMap::new();
+  // The lines the texts share at either end are kept without being hashed; only the
+  // middle gets ids.
+  let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+  let suffix = a[prefix..]
+    .iter()
+    .rev()
+    .zip(b[prefix..].iter().rev())
+    .take_while(|(x, y)| x == y)
+    .count();
+  let (a_mid, b_mid) = (&a[prefix..a.len() - suffix], &b[prefix..b.len() - suffix]);
+  let mut ids: HashMap<&'a str, u32> = HashMap::with_capacity(a_mid.len() + b_mid.len());
   let mut id = |line: &'a str| {
     let next = ids.len() as u32;
     *ids.entry(line).or_insert(next)
   };
-  let a_ids: Vec<u32> = a.iter().map(|l| id(l)).collect();
-  let b_ids: Vec<u32> = b.iter().map(|l| id(l)).collect();
+  let a_ids: Vec<u32> = a_mid.iter().map(|l| id(l)).collect();
+  let b_ids: Vec<u32> = b_mid.iter().map(|l| id(l)).collect();
+  let mut seen = vec![Seen::default(); ids.len()];
   let mut ops = Vec::with_capacity(a.len().max(b.len()));
-  diff_range(&a_ids, 0, &b_ids, 0, &mut ops);
+  ops.extend((0..prefix).map(|_| DiffOp::Equal));
+  diff_range(&a_ids, prefix, &b_ids, prefix, &mut seen, &mut ops);
+  ops.extend((0..suffix).map(|_| DiffOp::Equal));
   ops
 }
 
 /// Appends the edits turning `a` into `b`, whose lines start at `a_at` and `b_at`.
-fn diff_range(a: &[u32], a_at: usize, b: &[u32], b_at: usize, ops: &mut Vec<DiffOp>) {
+fn diff_range(
+  a: &[u32],
+  a_at: usize,
+  b: &[u32],
+  b_at: usize,
+  seen: &mut [Seen],
+  ops: &mut Vec<DiffOp>,
+) {
   let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
   let suffix = a[prefix..]
     .iter()
@@ -1339,21 +1365,21 @@ fn diff_range(a: &[u32], a_at: usize, b: &[u32], b_at: usize, ops: &mut Vec<Diff
     ops.extend((0..b_mid.len()).map(|j| DiffOp::Insert(b_at + j)));
   } else if b_mid.is_empty() {
     ops.extend((0..a_mid.len()).map(|i| DiffOp::Delete(a_at + i)));
-  } else if let Some(anchors) = patience_anchors(a_mid, b_mid) {
+  } else if let Some(anchors) = patience_anchors(a_mid, b_mid, seen) {
     // Lines found once on each side, in the same order on both, are kept; the gaps
     // between them are diffed on their own.
     let (mut i, mut j) = (0, 0);
     for (x, y) in anchors {
-      diff_range(&a_mid[i..x], a_at + i, &b_mid[j..y], b_at + j, ops);
+      diff_range(&a_mid[i..x], a_at + i, &b_mid[j..y], b_at + j, seen, ops);
       ops.push(DiffOp::Equal);
       (i, j) = (x + 1, y + 1);
     }
-    diff_range(&a_mid[i..], a_at + i, &b_mid[j..], b_at + j, ops);
+    diff_range(&a_mid[i..], a_at + i, &b_mid[j..], b_at + j, seen, ops);
   } else {
     match bisect(a_mid, b_mid) {
       Some((x, y)) => {
-        diff_range(&a_mid[..x], a_at, &b_mid[..y], b_at, ops);
-        diff_range(&a_mid[x..], a_at + x, &b_mid[y..], b_at + y, ops);
+        diff_range(&a_mid[..x], a_at, &b_mid[..y], b_at, seen, ops);
+        diff_range(&a_mid[x..], a_at + x, &b_mid[y..], b_at + y, seen, ops);
       }
       None => {
         ops.extend((0..a_mid.len()).map(|i| DiffOp::Delete(a_at + i)));
@@ -1390,13 +1416,13 @@ fn json_report(name: &str, old: &str, new: &str) -> String {
         MismatchLine::Expected(text) => {
           expected_end = expected_begin + expected_count;
           expected_count += 1;
-          expected.push_str(&text);
+          expected.push_str(text);
           expected.push('\n');
         }
         MismatchLine::Resulting(text) => {
           original_end = original_begin + original_count;
           original_count += 1;
-          original.push_str(&text);
+          original.push_str(text);
           original.push('\n');
         }
         MismatchLine::Context(_) => {}
@@ -1442,7 +1468,7 @@ fn json_string(text: &str) -> String {
 /// The changed regions between `old` and `new` with `context` lines around each: a port of
 /// The standard formatter's diff regions, over mto's own line diff. Lines are split as its
 /// diff splits them, so a final line break leaves an empty last line.
-fn mismatches(old: &str, new: &str, context: usize) -> Vec<Mismatch> {
+fn mismatches<'a>(old: &'a str, new: &'a str, context: usize) -> Vec<Mismatch<'a>> {
   let a: Vec<&str> = old.split('\n').collect();
   let b: Vec<&str> = new.split('\n').collect();
   let (mut line_number, mut line_number_orig) = (1u32, 1u32);
@@ -1458,8 +1484,8 @@ fn mismatches(old: &str, new: &str, context: usize) -> Vec<Mismatch> {
   for op in diff_ops(&a, &b) {
     let change = match op {
       DiffOp::Equal => None,
-      DiffOp::Delete(at) => Some(MismatchLine::Resulting(a[at].to_string())),
-      DiffOp::Insert(at) => Some(MismatchLine::Expected(b[at].to_string())),
+      DiffOp::Delete(at) => Some(MismatchLine::Resulting(a[at])),
+      DiffOp::Insert(at) => Some(MismatchLine::Expected(b[at])),
     };
     match change {
       Some(line) => {
@@ -1474,7 +1500,7 @@ fn mismatches(old: &str, new: &str, context: usize) -> Vec<Mismatch> {
           ));
         }
         while let Some(line) = queue.pop_front() {
-          current.lines.push(MismatchLine::Context(line.to_string()));
+          current.lines.push(MismatchLine::Context(line));
         }
         match line {
           MismatchLine::Resulting(_) => {
@@ -1495,7 +1521,7 @@ fn mismatches(old: &str, new: &str, context: usize) -> Vec<Mismatch> {
           queue.pop_front();
         }
         if since < context {
-          current.lines.push(MismatchLine::Context(line.to_string()));
+          current.lines.push(MismatchLine::Context(line));
         } else if context > 0 {
           queue.push_back(line);
         }
@@ -1517,24 +1543,29 @@ fn mismatches(old: &str, new: &str, context: usize) -> Vec<Mismatch> {
 /// (index in a, index in b), keeping the longest run that is in order on both sides.
 /// `None` when there are none. A text that was only reordered is mostly such lines, which
 /// Myers' algorithm would take quadratic time over.
-fn patience_anchors(a: &[u32], b: &[u32]) -> Option<Vec<(usize, usize)>> {
-  // line -> (count in a, index in a, count in b, index in b)
-  let mut seen: HashMap<u32, (u32, usize, u32, usize)> = HashMap::new();
-  for (i, line) in a.iter().enumerate() {
-    let entry = seen.entry(*line).or_insert((0, i, 0, 0));
-    entry.0 += 1;
+fn patience_anchors(a: &[u32], b: &[u32], seen: &mut [Seen]) -> Option<Vec<(usize, usize)>> {
+  for (i, &line) in a.iter().enumerate() {
+    let entry = &mut seen[line as usize];
+    if entry.in_a == 0 {
+      entry.at_a = i;
+    }
+    entry.in_a += 1;
   }
-  for (j, line) in b.iter().enumerate() {
-    if let Some(entry) = seen.get_mut(line) {
-      entry.2 += 1;
-      entry.3 = j;
+  for (j, &line) in b.iter().enumerate() {
+    let entry = &mut seen[line as usize];
+    if entry.in_a > 0 {
+      entry.in_b += 1;
+      entry.at_b = j;
     }
   }
-  let mut unique: Vec<(usize, usize)> = seen
-    .values()
-    .filter(|(ca, _, cb, _)| *ca == 1 && *cb == 1)
-    .map(|(_, i, _, j)| (*i, *j))
-    .collect();
+  let mut unique: Vec<(usize, usize)> = Vec::new();
+  for &line in a {
+    let entry = seen[line as usize];
+    if entry.in_a == 1 && entry.in_b == 1 {
+      unique.push((entry.at_a, entry.at_b));
+    }
+    seen[line as usize] = Seen::default();
+  }
   if unique.is_empty() {
     return None;
   }

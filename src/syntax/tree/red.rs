@@ -28,6 +28,34 @@ impl SyntaxElement {
       SyntaxElement::Token(token) => token.text_range(),
     }
   }
+
+  /// The kinds of the siblings after this element, nearest first, read from the green tree
+  /// without making handles; none for a root.
+  pub fn kinds_after(&self) -> impl Iterator<Item = SyntaxKind> + '_ {
+    let (siblings, at) = self.siblings();
+    siblings
+      .get(at + 1..)
+      .unwrap_or_default()
+      .iter()
+      .map(|e| e.kind())
+  }
+
+  /// [`Self::kinds_after`] for the siblings before this element, nearest first.
+  pub fn kinds_before(&self) -> impl Iterator<Item = SyntaxKind> + '_ {
+    let (siblings, at) = self.siblings();
+    siblings[..at].iter().rev().map(|e| e.kind())
+  }
+
+  /// The children of this element's parent and where it sits among them; none for a root.
+  fn siblings(&self) -> (&[GreenElement], usize) {
+    match self {
+      SyntaxElement::Token(token) => (token.parent.0.green.children(), token.index as usize),
+      SyntaxElement::Node(node) => match &node.0.parent {
+        Some(parent) => (parent.0.green.children(), node.0.index as usize),
+        None => (&[], 0),
+      },
+    }
+  }
 }
 
 impl fmt::Debug for SyntaxElement {
@@ -464,8 +492,8 @@ impl SyntaxNode {
   }
 
   /// The node's source text.
-  pub fn text(&self) -> String {
-    self.0.green.text().to_string()
+  pub fn text(&self) -> &str {
+    self.0.green.text()
   }
 
   pub fn text_range(&self) -> TextRange {
@@ -517,7 +545,7 @@ impl fmt::Debug for SyntaxNode {
 
 impl fmt::Display for SyntaxNode {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.write_str(&self.text())
+    f.write_str(self.text())
   }
 }
 

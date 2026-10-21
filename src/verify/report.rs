@@ -92,7 +92,7 @@ fn top_level_pieces(text: &str, edition: Edition) -> Vec<String> {
   let mut pieces: Vec<String> = Vec::new();
   for element in tree.children_with_tokens_iter() {
     let (piece, whitespace) = match &element {
-      SyntaxElement::Node(node) => (node.text(), false),
+      SyntaxElement::Node(node) => (node.text().to_string(), false),
       SyntaxElement::Token(token) => (
         token.text().to_string(),
         token.kind() == crate::syntax::SyntaxKind::Whitespace,

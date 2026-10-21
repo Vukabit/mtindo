@@ -143,7 +143,7 @@ refresh = "1h"
 [[widget]]
 id = "gates"
 type = "gauges"
-title = "V1.0 GATES"
+title = "V0.1.0 GATES"
 source = "compat"
 label = "{set | pad:20}"
 value = "lines"
@@ -401,7 +401,7 @@ columns = [
 [[widget]]
 id = "compat-sets"
 type = "gauges"
-title = "MATCHING THE STANDARD FORMATTER (lines; ┊ is the v1.0 bar)"
+title = "MATCHING THE STANDARD FORMATTER (lines; ┊ is the v0.1.0 bar)"
 source = "compat"
 label = "{set | pad:20}"
 value = "lines"

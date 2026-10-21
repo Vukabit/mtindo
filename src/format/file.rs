@@ -62,11 +62,12 @@ type Offsets<V> = HashMap<usize, V, BuildHasherDefault<OffsetHasher>>;
 /// Ranges of the text, as `(start, end)`.
 type Ranges = Vec<(usize, usize)>;
 
-/// Hashes a byte offset with one multiplication. Offsets are only looked up, never iterated
-/// in hash order, and come from the file being formatted, so a hash built to resist
-/// attackers buys nothing here and costs time on every token.
+/// Hashes a byte offset (or a node's identity and shape) with one multiplication per word.
+/// They are only looked up, never iterated in hash order, and come from the file being
+/// formatted, so a hash built to resist attackers buys nothing here and costs time on every
+/// token.
 #[derive(Default)]
-struct OffsetHasher(u64);
+pub(super) struct OffsetHasher(u64);
 
 impl Hasher for OffsetHasher {
   fn finish(&self) -> u64 {
@@ -77,6 +78,18 @@ impl Hasher for OffsetHasher {
     for byte in bytes {
       self.write_u64(u64::from(*byte));
     }
+  }
+
+  fn write_u8(&mut self, n: u8) {
+    self.write_u64(u64::from(n));
+  }
+
+  fn write_u16(&mut self, n: u16) {
+    self.write_u64(u64::from(n));
+  }
+
+  fn write_u32(&mut self, n: u32) {
+    self.write_u64(u64::from(n));
   }
 
   fn write_usize(&mut self, n: usize) {
@@ -172,8 +185,9 @@ struct Spans<'a> {
   breaks: &'a OffsetSet,
   chains: &'a [(usize, usize)],
   raw_strings: &'a [(usize, usize)],
-  /// From the 2024 style, strings whose lines but the last end with `\`, kept however wide
-  /// (`rewrite_string_lit`): no line holding one is measured.
+  /// Raw strings, and from the 2024 style strings whose lines but the last end with `\`,
+  /// kept however wide (`format_expr`, `rewrite_string_lit`): no line holding one is
+  /// measured.
   continued_strings: &'a [(usize, usize)],
   attrs: &'a [(usize, usize)],
   line_comments: &'a [usize],
@@ -232,7 +246,17 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   });
   let edition_before = EDITION.with(|e| e.replace(edition));
   let style_before = STYLE.with(|e| e.replace(config.style_edition));
+  // Whether the text names any macros or attributes to skip, its spaces aside: most do not,
+  // and then nothing needs looking up per call or attribute.
+  let marks_before = SKIP_MARKS.with(|m| {
+    let squeezed: String = source.split_whitespace().collect();
+    m.replace((
+      squeezed.contains("rustfmt::skip::macros("),
+      squeezed.contains("rustfmt::skip::attributes("),
+    ))
+  });
   let out = format_text_with(source, edition, config, strip);
+  SKIP_MARKS.with(|m| m.set(marks_before));
   STYLE.with(|e| e.set(style_before));
   SKIPPED_INVOCATIONS.with(|names| names.replace(before));
   CRATE_SKIPS.with(|names| names.replace(crate_before));
@@ -248,13 +272,9 @@ pub(super) fn edition() -> Edition {
 pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
   // Inside an argument list a path's `::` is two colons, written touching.
   let colons: Vec<(usize, usize)> = attr
-    .descendants_with_tokens_iter()
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if t.kind() == SyntaxKind::Colon => {
-        Some((t.text_range().start as usize, t.text_range().end as usize))
-      }
-      _ => None,
-    })
+    .token_texts()
+    .filter(|(kind, _, _)| *kind == SyntaxKind::Colon)
+    .map(|(_, _, range)| (range.start as usize, range.end as usize))
     .collect();
   let in_path = |start: usize, end: usize| colons.iter().any(|&(s, e)| e == start || s == end);
   let mut previous: Option<SyntaxKind> = None;
@@ -383,7 +403,9 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
     kept.push(veto || new_veto || starts_in && !continued);
     veto = new_veto;
     continued = line.ends_with('\\');
-    if !line.trim().is_empty() && (last || !starts_in && !opens) {
+    // Not one starting inside a string, kept as written: measured, it would pull the others
+    // in again on a second run.
+    if !line.trim().is_empty() && !starts_in && (last || !opens) {
       measured.push(i);
     }
   }
@@ -438,10 +460,9 @@ pub(super) fn reindent_block_comment(
   let mut lines = text.split('\n');
   let first = lines.next().unwrap_or("").trim_end();
   let rest: Vec<&str> = lines.collect();
-  let bare = rest.iter().any(|l| {
-    let t = l.trim_start();
-    !t.is_empty() && !t.starts_with('*')
-  });
+  // A line not starting with `*`, an empty one too (the standard formatter's
+  // `identify_comment` counts it).
+  let bare = rest.iter().any(|l| !l.trim_start().starts_with('*'));
   let mut out = first.to_string();
   if bare && !trimmed {
     // A line inside a string the comment's code opened stays as written, and does not count
@@ -501,6 +522,13 @@ pub(super) fn reindent_block_comment(
 /// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names, or
 /// `skip_macro_invocations` does: left exactly as written.
 pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
+  // Nothing to skip: no setting names a macro and the text skips none.
+  if !SKIP_MARKS.with(|m| m.get().0)
+    && SKIPPED_INVOCATIONS.with(|names| names.borrow().is_empty())
+    && CRATE_SKIPS.with(|names| names.borrow().0.is_empty())
+  {
+    return false;
+  }
   let Some(path) = call.children_iter().find(|c| c.kind() == SyntaxKind::Path) else {
     return false;
   };
@@ -538,6 +566,8 @@ thread_local! {
   static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
   /// The style edition of the text being formatted.
   static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
+  /// Whether the text being formatted names macros, and attributes, to skip.
+  static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
 }
 
 /// Whether the text being formatted is in style edition 2024 or later.
@@ -688,7 +718,10 @@ fn chain_value(node: &SyntaxNode) -> bool {
   };
   let mut value = value;
   while let Some(v) = &value
-    && matches!(v.kind(), SyntaxKind::TryExpr | SyntaxKind::AwaitExpr)
+    && matches!(
+      v.kind(),
+      SyntaxKind::TryExpr | SyntaxKind::AwaitExpr | SyntaxKind::UseExpr
+    )
   {
     value = v.children_iter().next();
   }
@@ -1096,10 +1129,10 @@ fn control_block(node: &SyntaxNode) -> bool {
   })
 }
 
-fn control_comment_lines(root: &SyntaxNode, roles: &mut Roles) {
-  let controls = root.descendant_nodes_where(|kind| {
+fn control_comment_lines(walked: &[SyntaxNode], roles: &mut Roles) {
+  let controls = walked.iter().filter(|node| {
     matches!(
-      kind,
+      node.kind(),
       SyntaxKind::LoopExpr | SyntaxKind::WhileExpr | SyntaxKind::ForExpr | SyntaxKind::IfExpr
     )
   });
@@ -1181,8 +1214,8 @@ fn custom_comment(tok: &Tok) -> bool {
 /// and `else`: the standard formatter writes them at the `}`'s indentation (the visitor's,
 /// once it closes the block), from the first before style edition 2024 and from a blank line
 /// on in it, the ones before aligned under the first.
-fn else_close_comments(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
-  for control in root.descendant_nodes_where(|kind| kind == SyntaxKind::IfExpr) {
+fn else_close_comments(walked: &[SyntaxNode], roles: &mut Roles, config: &FormatConfig) {
+  for control in walked.iter().filter(|n| n.kind() == SyntaxKind::IfExpr) {
     let elements: Vec<SyntaxElement> = control.children_with_tokens_iter().collect();
     let Some(else_at) = elements.iter().position(|e| e.kind() == SyntaxKind::ElseKw) else {
       continue;
@@ -1543,8 +1576,8 @@ fn last_statement_comment(tokens: &[Tok], i: usize) -> bool {
 /// of a file or a body, an item's or a statement's first token after its attributes, and in
 /// a block holding a statement, or a function's body holding anything, each statement, the
 /// tail and the closing brace. Each takes its container's indentation.
-fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
-  // Only these kinds can hold lines: the walk makes no handles for the rest.
+fn line_starts(walked: &[SyntaxNode], roles: &mut Roles, config: &FormatConfig) {
+  // Only these kinds can hold lines.
   let lines = |kind| {
     matches!(
       kind,
@@ -1558,7 +1591,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
         | SyntaxKind::MatchArmList
     )
   };
-  for node in root.descendant_nodes_where(lines) {
+  for node in walked.iter().filter(|n| lines(n.kind())) {
     // Fields of a struct or union definition and an enum's variants are one per line too.
     // A `match`'s arms too.
     let items = matches!(
@@ -1575,7 +1608,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
           || crate::format::items::variant_fields_on_lines(&p)
       });
     // A function's body with anything in it is one of lines too (`fn_single_line` off).
-    let block = block_of_lines(&node);
+    let block = block_of_lines(node);
     if !items && !block {
       continue;
     }
@@ -1920,7 +1953,7 @@ fn line_starts(root: &SyntaxNode, roles: &mut Roles, config: &FormatConfig) {
   }
   // A function's body holding only comments closes on a line of its own, as the standard
   // formatter visits it (`{ /* c */` then `}`).
-  for body in root.descendant_nodes_where(|kind| kind == SyntaxKind::BlockExpr) {
+  for body in walked.iter().filter(|n| n.kind() == SyntaxKind::BlockExpr) {
     if body.parent().is_some_and(|p| p.kind() == SyntaxKind::Fn)
       && body.children_iter().next().is_none()
       && body
@@ -2094,6 +2127,28 @@ fn overflowing(
   let mut at = 0;
   // Statements found too wide by a part of a line they start after its first token.
   let mut nested_found: HashSet<usize> = HashSet::new();
+  // The spans (in order of their starts) each with the farthest end among it and those
+  // before it: one holds a point when the last starting before it reaches past it.
+  let reach = |spans: &[(usize, usize)]| -> Vec<usize> {
+    let mut far = 0;
+    spans
+      .iter()
+      .map(|&(_, end)| {
+        far = far.max(end);
+        far
+      })
+      .collect()
+  };
+  let (chain_reach, raw_reach, continued_reach) =
+    (reach(chains), reach(raw_strings), reach(continued_strings));
+  let inside = |spans: &[(usize, usize)], reach: &[usize], below: usize, past: usize| {
+    let k = spans.partition_point(|&(start, _)| start < below);
+    k > 0 && reach[k - 1] > past
+  };
+  // The chains a line's first token is inside: as lines go on, those starting before it
+  // enter and those ending at or before it leave.
+  let mut next_chain = 0;
+  let mut around: Vec<(usize, usize)> = Vec::new();
   for line in text.split('\n') {
     let line_end = at + line.len();
     let first = at + (line.len() - line.trim_start().len());
@@ -2116,9 +2171,13 @@ fn overflowing(
     };
     // For each chain the line is in, the innermost statement holding it; the outermost of
     // those (a chain whose closure holds the line's statement), else the innermost.
-    let owner = chains
+    while next_chain < chains.len() && chains[next_chain].0 < first {
+      around.push(chains[next_chain]);
+      next_chain += 1;
+    }
+    around.retain(|&(_, end)| end > first);
+    let owner = around
       .iter()
-      .filter(|&&(start, end)| start < first && first < end)
       .filter_map(|&(start, end)| {
         open
           .iter()
@@ -2134,19 +2193,21 @@ fn overflowing(
       });
     // A line starting inside a raw string (written across lines), not one in a chain,
     // whose every line is measured.
-    let in_chain = chains.iter().any(|&(start, end)| start < at && at < end);
-    let in_raw = (raw_strings
-      .iter()
-      .any(|&(start, end)| start < at && at < end)
-      || continued_strings
-        .iter()
-        .any(|&(start, end)| start < line_end && at < end))
+    let in_chain = inside(chains, &chain_reach, at, at);
+    let in_raw = (inside(raw_strings, &raw_reach, at, at)
+      || inside(continued_strings, &continued_reach, line_end, at))
       && !in_chain;
     // A line of a block comment, which the standard formatter does not measure
     // (`filter_normal_code`): one starting in it, with no code after it on the line.
-    let in_comment = block_comments.iter().any(|&(start, end)| {
-      start <= first && first < end && (end >= line_end || text[end..line_end].trim().is_empty())
-    });
+    // Comments are tokens, apart and in order: only the last starting by the line's first
+    // token can hold it.
+    let in_comment = block_comments
+      .partition_point(|&(start, _)| start <= first)
+      .checked_sub(1)
+      .is_some_and(|k| {
+        let end = block_comments[k].1;
+        first < end && (end >= line_end || text[end..line_end].trim().is_empty())
+      });
     if let Some(owner) = owner
       && open[owner].0 < at
       && !open[owner].2
@@ -2180,12 +2241,11 @@ fn overflowing(
           || (breaks.contains(&p) || after_pre_comments.contains(&p) || inner_starts.contains(&p))
             && text.is_char_boundary(p)
         {
-          let part = if from == at {
-            text[at..p].trim_end().to_string()
+          let width = if from == at {
+            width_of(text[at..p].trim_end(), tab)
           } else {
-            format!("{}{}", &text[at..at + indent], text[from..p].trim())
+            width_of(&text[at..at + indent], tab) + width_of(text[from..p].trim(), tab)
           };
-          let width = width_of(&part, tab);
           // A part in a statement starting on the line after its first token is that
           // statement's (the standard formatter gives up on a block's statement alone),
           // but in a chain holding it, measured whole; one starting the statement is its
@@ -2195,9 +2255,7 @@ fn overflowing(
             .iter()
             .take_while(|s| s.0 <= starts)
             .filter(|s| {
-              s.1 > starts
-                && !flattened.contains(&s.0)
-                && !chains.iter().any(|&(cs, ce)| cs < s.0 && s.0 < ce)
+              s.1 > starts && !flattened.contains(&s.0) && !inside(chains, &chain_reach, s.0, s.0)
             })
             .last();
           match nested {
@@ -2503,8 +2561,16 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       let aligned = comment_column.filter(|&(column, _, after_statement, _, last_item)| {
         (newlines == 1 || last_item)
           && (next.kind == SyntaxKind::LineComment
+            // One across lines too, its lines then laid out from the column, when the
+            // comment it lines up under ends a line of code (not one after `*/`).
             || next.kind == SyntaxKind::BlockComment
-              && !next.text.contains('\n')
+              && (!next.text.contains('\n')
+                || out
+                  .lines()
+                  .rev()
+                  .map(str::trim_start)
+                  .find(|l| !l.starts_with("//"))
+                  .is_some_and(|l| !l.starts_with('*') && !l.starts_with("/*")))
               // Not one before code on its line.
               && text[next.start + next.text.len()..]
                 .split('\n')
@@ -3306,9 +3372,29 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let any_skip = root
     .token_texts()
     .any(|(kind, text, _)| kind == SyntaxKind::Ident && matches!(text, "skip" | "rustfmt_skip"));
+  // The nodes the passes after this walk read, in the same order.
+  let mut walked: Vec<SyntaxNode> = Vec::new();
   for element in root.descendants_with_tokens_iter() {
     match &element {
       SyntaxElement::Node(node) => {
+        if matches!(
+          node.kind(),
+          SyntaxKind::SourceFile
+            | SyntaxKind::ItemList
+            | SyntaxKind::AssocItemList
+            | SyntaxKind::ExternItemList
+            | SyntaxKind::VariantList
+            | SyntaxKind::RecordFieldList
+            | SyntaxKind::BlockExpr
+            | SyntaxKind::MatchArmList
+            | SyntaxKind::LoopExpr
+            | SyntaxKind::WhileExpr
+            | SyntaxKind::ForExpr
+            | SyntaxKind::IfExpr
+            | SyntaxKind::Module
+        ) {
+          walked.push(node.clone());
+        }
         let range = node.text_range();
         let skipped = any_skip
           && node.kind() != SyntaxKind::SourceFile
@@ -3338,6 +3424,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             | SyntaxKind::FieldExpr
             | SyntaxKind::TryExpr
             | SyntaxKind::AwaitExpr
+            | SyntaxKind::UseExpr
         ) {
           chains.push((range.start as usize, range.end as usize));
         }
@@ -3736,7 +3823,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
                 .any(|e| e.kind() == SyntaxKind::Bang)
         });
         // Not one of a skipped item's, which keeps its attributes as written too.
-        let owner_skipped = node.kind() == SyntaxKind::Attr
+        let owner_skipped = any_skip
+          && node.kind() == SyntaxKind::Attr
           && node.parent().is_some_and(|p| {
             p.kind() != SyntaxKind::SourceFile
               && p
@@ -3767,16 +3855,10 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           && (node
             .first_token()
             .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
-            || node.text().to_string().contains('\n')
-              && node
-                .text()
-                .to_string()
-                .rsplit('\n')
-                .next()
-                .is_some_and(|last| {
-                  !last.trim().is_empty()
-                    && last.trim().chars().all(|c| matches!(c, ')' | ']' | '}'))
-                })
+            || node.green().text().contains('\n')
+              && node.green().text().rsplit('\n').next().is_some_and(|last| {
+                !last.trim().is_empty() && last.trim().chars().all(|c| matches!(c, ')' | ']' | '}'))
+              })
               && node
                 .parent()
                 .is_some_and(|call| crate::format::expr::unread_macro(&call)))
@@ -3903,6 +3985,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             .rev()
             .skip(1)
             .all(|line| line.ends_with('\\'))
+          // A raw string too, which the standard formatter keeps whatever its width
+          // (`format_expr`).
+          || token.kind() == SyntaxKind::RawStr
         {
           continued_strings.push((start, token.text_range().end as usize));
         }
@@ -3948,19 +4033,24 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         {
           stranded.push(start);
         }
-        // So is one among a pattern's alternatives, or in a `for` loop's head: what stands
-        // in the block around it (a statement, or the block's last expression) is left as
-        // written.
+        // So is one among a pattern's alternatives, in a `for` loop's head, or in a match
+        // arm's head before its `=>` (not inside its guard's condition): what stands in the
+        // block around it (a statement, or the block's last expression) is left as written.
         if matches!(
           token.kind(),
           SyntaxKind::LineComment | SyntaxKind::BlockComment
-        ) && matches!(
+        ) && (matches!(
           token.parent().kind(),
           SyntaxKind::OrPat | SyntaxKind::ForExpr
-        ) && let Some(standing) = token.parent().ancestors_iter().find(|a| {
-          a.parent()
-            .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
-        }) {
+        ) || token.parent().kind() == SyntaxKind::MatchArm
+          && token.parent().children_with_tokens_iter().any(|e| {
+            e.kind() == SyntaxKind::FatArrow && e.text_range().start > token.text_range().start
+          }))
+          && let Some(standing) = token.parent().ancestors_iter().find(|a| {
+            a.parent()
+              .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
+          })
+        {
           let start = crate::format::items::header_start(&standing)
             .unwrap_or(standing.text_range().start as usize);
           explain(
@@ -4023,12 +4113,12 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     roles.verbatim.push((from, text.len()));
   }
   // Where lines start, which the measuring below splits written lines at.
-  line_starts(root, &mut roles, config);
-  control_comment_lines(root, &mut roles);
-  else_close_comments(root, &mut roles, config);
+  line_starts(&walked, &mut roles, config);
+  control_comment_lines(&walked, &mut roles);
+  else_close_comments(&walked, &mut roles, config);
   comment_runs(root, &mut roles);
   // A skipped `mod name;` keeps the indentation its first line is written at.
-  for module in root.descendant_nodes_where(|kind| kind == SyntaxKind::Module) {
+  for module in walked.iter().filter(|n| n.kind() == SyntaxKind::Module) {
     if !module
       .children_iter()
       .any(|c| c.kind() == SyntaxKind::ItemList)
@@ -4194,6 +4284,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
 /// Whether an attribute is one a `#[rustfmt::skip::attributes(..)]` around it (or a file's
 /// `#![..]`) names: left exactly as written.
 fn skipped_attribute(attr: &SyntaxNode) -> bool {
+  if !SKIP_MARKS.with(|m| m.get().1) && CRATE_SKIPS.with(|names| names.borrow().1.is_empty()) {
+    return false;
+  }
   let Some(path) = attr
     .descendant_nodes_where(|kind| kind == SyntaxKind::Path)
     .next()

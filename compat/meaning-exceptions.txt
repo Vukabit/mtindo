@@ -4,7 +4,7 @@
 # listed fails the run; a listed file no longer flagged is reported, to be removed.
 #
 # Lines starting `excused ` are default-settings test pairs mto need not match, each with its
-# reason: the expected file is the standard formatter's bug. The v1.0 gate wants every other
+# reason: the expected file is the standard formatter's bug. The v0.1.0 gate wants every other
 # pair matching; an excused pair mto matches anyway is reported, to be removed.
 
 tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled

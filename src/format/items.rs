@@ -23,6 +23,19 @@ use crate::options::format::FormatConfig;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::text::unicode::str_width;
 
+/// A piece of a type alias, its `where` clauses read into it, for [`commented_type_alias`].
+enum AliasPiece {
+  Head(SyntaxElement),
+  Where,
+  Predicate(SyntaxNode),
+  Comma,
+  /// A line comment, and whether a line break comes before it.
+  Comment(String, bool),
+  Eq,
+  Value(SyntaxNode),
+  Semi,
+}
+
 /// A `const` block standing as an item (`const { f() }`, which the parser takes for a
 /// `const` with no name): its block of one expression on one line, as an expression's is,
 /// when that fits from column `indent`; `None` otherwise.
@@ -135,7 +148,9 @@ pub fn rewrite_field(
   let laid = field_laid(node, indent, config);
   let (text, end) = laid?;
   // Every comment in a tuple type of it kept: one laid out flat would lose them.
-  let kept = node.descendants_with_tokens_iter().all(|e| match e {
+  let mut comments =
+    node.descendants_where(|kind| matches!(kind, K::LineComment | K::BlockComment));
+  let kept = comments.all(|e| match e {
     SyntaxElement::Token(t) if t.parent().kind() == K::TupleType => {
       !matches!(t.kind(), K::LineComment | K::BlockComment) || text.contains(t.text().trim_end())
     }
@@ -313,8 +328,11 @@ fn code_tokens(elements: &[SyntaxElement]) -> Vec<SyntaxToken> {
   elements
     .iter()
     .flat_map(|e| match e {
-      SyntaxElement::Node(n) => n.descendants_with_tokens(),
-      token => vec![token.clone()],
+      SyntaxElement::Node(n) => {
+        Box::new(n.descendants_where(|kind| !kind.is_node() && !kind.is_trivia()))
+          as Box<dyn Iterator<Item = SyntaxElement>>
+      }
+      token => Box::new(std::iter::once(token.clone())),
     })
     .filter_map(|e| match e {
       SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
@@ -333,6 +351,234 @@ fn comma_follows(node: &SyntaxNode) -> bool {
     next = token.next_sibling_or_token();
   }
   false
+}
+
+/// A type alias with a `where` clause and line comments around it, as the standard
+/// formatter writes one: the comments before a `where` and after its predicates on lines of
+/// their own at the alias's indentation, `where` alone, those after `where` and between
+/// predicates one level in, a predicate's own after its comma; comments between the name
+/// and `=` with no `where` before it, the first after the name and the rest one level in,
+/// with `= Type` there too. `None` for one with no such comments, or a block comment.
+fn commented_type_alias(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
+  use AliasPiece as P;
+  if node.kind() != K::TypeAlias
+    || !node.children_iter().any(|c| c.kind() == K::WhereClause)
+    || !node
+      .token_texts()
+      .any(|(kind, _, _)| kind == K::LineComment)
+    || node
+      .token_texts()
+      .any(|(kind, _, _)| kind == K::BlockComment || is_doc(kind))
+  {
+    return None;
+  }
+  let start = header_start(node)?;
+  let mut pieces: Vec<AliasPiece> = Vec::new();
+  let mut line_break = false;
+  let mut after_eq = false;
+  let mut read =
+    |e: SyntaxElement, pieces: &mut Vec<AliasPiece>, after_eq: &mut bool| -> Option<()> {
+      let text = |e: &SyntaxElement| match e {
+        SyntaxElement::Token(t) => t.text().to_string(),
+        SyntaxElement::Node(n) => n.text().to_string(),
+      };
+      match e.kind() {
+        K::Whitespace => line_break |= text(&e).contains('\n'),
+        K::LineComment => {
+          pieces.push(P::Comment(text(&e).trim_end().to_string(), line_break));
+          line_break = false;
+        }
+        kind => {
+          line_break = false;
+          pieces.push(match (kind, &e) {
+            (K::WhereKw, _) => P::Where,
+            (K::Comma, _) => P::Comma,
+            (K::Eq, _) => {
+              *after_eq = true;
+              P::Eq
+            }
+            (K::Semi, _) => P::Semi,
+            (K::WherePred, SyntaxElement::Node(n)) => P::Predicate(n.clone()),
+            (_, SyntaxElement::Node(n)) if *after_eq && super::types::is_type(kind) => {
+              P::Value(n.clone())
+            }
+            _ if *after_eq => return None,
+            _ => P::Head(e.clone()),
+          });
+        }
+      }
+      Some(())
+    };
+  for e in node.children_with_tokens_iter() {
+    if (e.text_range().start as usize) < start {
+      continue;
+    }
+    match &e {
+      SyntaxElement::Node(clause) if clause.kind() == K::WhereClause => {
+        for inner in clause.children_with_tokens_iter() {
+          read(inner, &mut pieces, &mut after_eq)?;
+        }
+      }
+      _ => read(e, &mut pieces, &mut after_eq)?,
+    }
+  }
+  let spacing = Spacing::of(config);
+  let pad = " ".repeat(indent);
+  let inner = indent + config.tab_spaces;
+  let inner_pad = " ".repeat(inner);
+  // 1 = `,`
+  let clause_shape = super::shape::Shape {
+    indent: inner,
+    align: 0,
+    offset: 0,
+    width: config.max_width.checked_sub(inner + 1)?,
+    limits: super::shape::Limits::of(config),
+  };
+  let head: Vec<SyntaxElement> = pieces
+    .iter()
+    .filter_map(|p| match p {
+      P::Head(e) => Some(e.clone()),
+      _ => None,
+    })
+    .collect();
+  let head = flat_tokens(&code_tokens(&head), spacing);
+  let mut out = head.clone();
+  let mut i = pieces.iter().position(|p| !matches!(p, P::Head(_)))?;
+  // The comments from `i` on, up to the next piece of code.
+  let take_comments = |i: &mut usize| -> Vec<(String, bool)> {
+    let mut found = Vec::new();
+    while let Some(P::Comment(text, broken)) = pieces.get(*i) {
+      found.push((text.clone(), *broken));
+      *i += 1;
+    }
+    found
+  };
+  // After the `;`: a comment on its line only, kept after it.
+  let ending = |out: &mut String, at: usize| -> Option<()> {
+    match &pieces[at..] {
+      [] => Some(()),
+      [P::Comment(text, false)] => {
+        out.push(' ');
+        out.push_str(text);
+        Some(())
+      }
+      _ => None,
+    }
+  };
+  let mut seen_where = false;
+  loop {
+    let before = take_comments(&mut i);
+    match pieces.get(i) {
+      Some(P::Where) => {
+        for (comment, _) in &before {
+          out.push_str(&format!("\n{}{}", pad, comment));
+        }
+        out.push_str(&format!("\n{}where", pad));
+        seen_where = true;
+        i += 1;
+        // The predicates, each after the comments before it.
+        loop {
+          for (comment, _) in take_comments(&mut i) {
+            out.push_str(&format!("\n{}{}", inner_pad, comment));
+          }
+          let Some(P::Predicate(predicate)) = pieces.get(i) else {
+            break;
+          };
+          let text = super::types::rewrite_where_predicate(predicate, clause_shape)?;
+          i += 1;
+          let mut comma = false;
+          if matches!(pieces.get(i), Some(P::Comma)) {
+            comma = true;
+            i += 1;
+          }
+          // The last before the item's `;` takes it in its comma's place.
+          let mut k = i;
+          while matches!(pieces.get(k), Some(P::Comment(..))) {
+            k += 1;
+          }
+          let terminator = match pieces.get(k) {
+            Some(P::Semi) => ";",
+            Some(P::Predicate(_)) if !comma => return None,
+            _ => ",",
+          };
+          out.push_str(&format!("\n{}{}{}", inner_pad, text, terminator));
+          if terminator == ";" {
+            // Comments between it and the `;` are not placed here.
+            if k != i {
+              return None;
+            }
+            ending(&mut out, k + 1)?;
+            return Some(out);
+          }
+          // Its own comment, after its comma on its line.
+          if let Some(P::Comment(text, false)) = pieces.get(i) {
+            out.push(' ');
+            out.push_str(text);
+            i += 1;
+          }
+          if !matches!(
+            pieces.get(k),
+            Some(P::Predicate(_)) | Some(P::Comment(_, true))
+          ) {
+            break;
+          }
+          // Comments on lines of their own: before the next predicate, else after the
+          // clause (below).
+          let mut j = i;
+          while matches!(pieces.get(j), Some(P::Comment(..))) {
+            j += 1;
+          }
+          if !matches!(pieces.get(j), Some(P::Predicate(_))) {
+            break;
+          }
+        }
+      }
+      Some(P::Eq) => {
+        let Some(P::Value(value)) = pieces.get(i + 1) else {
+          return None;
+        };
+        let value = format!("= {}", super::expr::flat(value, spacing));
+        if seen_where {
+          // After a clause: each comment on a line of its own, the value on the next.
+          for (comment, _) in &before {
+            out.push_str(&format!("\n{}{}", pad, comment));
+          }
+          if indent + str_width(&value) > config.max_width {
+            return None;
+          }
+          out.push_str(&format!("\n{}{}", pad, value));
+        } else {
+          // After the name: the first comment on its line, the rest and the value one
+          // level in (a `where` after the value puts it there with no comment too).
+          if let Some((first, rest)) = before.split_first() {
+            if first.1 {
+              return None;
+            }
+            out.push(' ');
+            out.push_str(&first.0);
+            for (comment, _) in rest {
+              out.push_str(&format!("\n{}{}", inner_pad, comment));
+            }
+          }
+          if inner + str_width(&value) > config.max_width {
+            return None;
+          }
+          out.push_str(&format!("\n{}{}", inner_pad, value));
+        }
+        i += 2;
+      }
+      Some(P::Semi) => {
+        if !before.is_empty() {
+          return None;
+        }
+        out.push(';');
+        ending(&mut out, i + 1)?;
+        break;
+      }
+      _ => return None,
+    }
+  }
+  (indent + str_width(&head) <= config.max_width).then_some(out)
 }
 
 /// A function with a body and comments only between its return type and the body (`-> T
@@ -1347,6 +1593,9 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   if config.hard_tabs || config.tab_spaces == 0 || !is_item(node.kind()) {
     return None;
   }
+  if let Some(text) = commented_type_alias(node, indent, config) {
+    return Some((text, node.text_range().end as usize));
+  }
   let start = header_start(node)?;
   // A generic const the standard formatter leaves as written.
   if matches!(node.kind(), K::Const | K::Static)
@@ -1601,7 +1850,9 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   // A type alias's comments before its `=`, placed with it (`rewrite_ty`).
   where_comments.extend(alias_comments(node));
   let commented = |n: &SyntaxNode| {
-    n.descendants_with_tokens_iter().any(|e| match e {
+    let mut comments =
+      n.descendants_where(|kind| kind.is_trivia() && kind != K::Whitespace || is_doc(kind));
+    comments.any(|e| match e {
       SyntaxElement::Token(t) => {
         (t.kind().is_trivia()
           && t.kind() != K::Whitespace
@@ -3274,7 +3525,8 @@ fn rewrite_type_alias(
 /// Whether two texts hold the same tokens and comments, in order, but for those a layout
 /// adds or takes away (a list's trailing comma, an arm's braces, a `;`).
 fn same_header_tokens(written: &str, laid: &str) -> bool {
-  let tokens = |text: &str| -> Vec<String> {
+  use std::borrow::Cow;
+  fn tokens(text: &str) -> Vec<Cow<'_, str>> {
     let mut at = 0;
     let all: Vec<(SyntaxKind, &str)> =
       crate::syntax::lexer::tokenize(text, crate::syntax::Edition::E2021)
@@ -3317,27 +3569,26 @@ fn same_header_tokens(written: &str, laid: &str) -> bool {
       .enumerate()
       .filter_map(|(i, &(kind, piece))| {
         if bracket[i] {
-          return Some(
-            if matches!(kind, K::LParen | K::LBrace) {
-              "["
-            } else {
-              "]"
-            }
-            .to_string(),
-          );
+          return Some(Cow::Borrowed(if matches!(kind, K::LParen | K::LBrace) {
+            "["
+          } else {
+            "]"
+          }));
         }
         // A block comment across lines may be re-indented: its lines compared trimmed.
         if kind == K::BlockComment {
-          return Some(piece.lines().map(str::trim).collect::<Vec<_>>().join("\n"));
+          return Some(Cow::Owned(
+            piece.lines().map(str::trim).collect::<Vec<_>>().join("\n"),
+          ));
         }
         (kind != K::Whitespace && super::stmt::compared(kind) || kind == K::LineComment)
-          .then(|| piece.trim_end().to_string())
+          .then(|| Cow::Borrowed(piece.trim_end()))
       })
-      .collect::<Vec<String>>()
-  };
+      .collect()
+  }
   // Less the `::` (two `:` here) a visibility's path from the root drops (`pub(in ::a)`),
   // and the `in` of `pub(in crate)`, an empty `where`, an empty `<>`.
-  let rooted = |mut tokens: Vec<String>| {
+  fn rooted(mut tokens: Vec<Cow<'_, str>>) -> Vec<Cow<'_, str>> {
     let mut i = 0;
     while i + 1 < tokens.len() {
       if tokens[i] == "<" && tokens[i + 1] == ">" {
@@ -3351,7 +3602,7 @@ fn same_header_tokens(written: &str, laid: &str) -> bool {
       if tokens[i] == "where"
         && tokens
           .get(i + 1)
-          .is_none_or(|next| matches!(next.as_str(), "{" | ";" | "="))
+          .is_none_or(|next| matches!(next.as_ref(), "{" | ";" | "="))
       {
         tokens.remove(i);
       }
@@ -3362,7 +3613,7 @@ fn same_header_tokens(written: &str, laid: &str) -> bool {
       if tokens[i] == "in"
         && tokens[i - 1] == "("
         && tokens[i - 2] == "pub"
-        && matches!(tokens[i + 1].as_str(), "crate" | "super" | "self")
+        && matches!(tokens[i + 1].as_ref(), "crate" | "super" | "self")
         && tokens[i + 2] == ")"
       {
         tokens.remove(i);
@@ -3382,7 +3633,7 @@ fn same_header_tokens(written: &str, laid: &str) -> bool {
       i += 1;
     }
     tokens
-  };
+  }
   rooted(tokens(written)) == rooted(tokens(laid))
 }
 

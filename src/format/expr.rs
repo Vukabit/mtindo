@@ -37,10 +37,32 @@ const SPECIAL_MACROS: &[(&str, usize)] = &[
   ("debug_assert_ne!", 2),
 ];
 
+/// A map hashed as offsets are ([`super::file::OffsetHasher`]).
+type Fast<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<super::file::OffsetHasher>>;
+
+/// A macro call read for its arguments: its node, the spacing and whether it is nested in
+/// another macro's.
+type MacroKey = ((usize, u32), Spacing, bool);
+
+/// A macro call's arguments read one by one, as the standard formatter's
+/// `parse_macro_args` reads them: each an expression, else a type (`?name`, a bare trait
+/// object), else a pattern. The arguments as nodes of their own parses, and whether a comma
+/// follows the last; `None` when one is none of these, or a comment is among them.
+/// A macro call's name, its arguments read one by one, its delimiters and whether it is an
+/// array's.
+type MixedArguments = (String, Vec<SyntaxNode>, &'static str, &'static str, bool);
+
 /// A text's display width: wide characters take two columns, as the standard formatter
 /// counts them.
 trait Width {
   fn width(&self) -> usize;
+}
+
+/// The questions [`remembered`] keeps answers to.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum Question {
+  /// [`super::stmt::clean_expression`].
+  Clean,
 }
 
 /// The tactic for a list, as the standard formatter's `definitive_tactic` decides it.
@@ -56,6 +78,7 @@ enum Tactic {
 
 /// Why a macro's arguments are not laid out: the standard formatter cannot read them, and
 /// leaves the call as written; or this formatter does not take them.
+#[derive(Clone)]
 enum Unread {
   AsWritten,
   /// In braces: its name.
@@ -86,6 +109,7 @@ pub struct Link {
 /// comment, make it `None`, left as written.
 /// A macro call's arguments as the standard formatter reads them: parsed as a call's
 /// arguments (in parentheses) or an array's elements (in brackets).
+#[derive(Clone)]
 struct MacroArguments {
   name: String,
   list: SyntaxNode,
@@ -98,8 +122,23 @@ struct MacroArguments {
 /// The rewrites kept while a [`RewriteMemo`] is open, and the trees their nodes are of.
 #[derive(Default)]
 struct Memo {
-  done: HashMap<((usize, u32), Shape), Option<String>>,
-  trees: HashMap<usize, SyntaxNode>,
+  done: Fast<((usize, u32), Shape), Option<String>>,
+  /// Macro calls' arguments as read, by call, spacing and nesting: each read parses them,
+  /// and a call is read again for every layout tried around it.
+  macros: Fast<MacroKey, Result<MacroArguments, Unread>>,
+  /// Macro calls' arguments read one by one ([`macro_mixed_arguments`]), as macros are.
+  mixed: Fast<MacroKey, Option<MixedArguments>>,
+  /// Nodes printed on one line, by node and spacing.
+  flats: Fast<((usize, u32), Spacing), String>,
+  /// Blocks' insides laid out, by block and what of the shape they depend on
+  /// ([`remembered_block`]).
+  blocks: Fast<((usize, u32), Shape), Option<String>>,
+  /// Yes-or-no answers about nodes, by node and which question ([`remembered`]).
+  flags: Fast<((usize, u32), Question), bool>,
+  /// Whether a layout keeps a node's tokens, by node and the layout less its lines'
+  /// indentation ([`remembered_tokens`]).
+  tokens: Fast<((usize, u32), u64), bool>,
+  trees: Fast<usize, SyntaxNode>,
 }
 
 /// While alive, [`rewrite`] on this thread keeps what it returns for each node and shape,
@@ -271,7 +310,10 @@ pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Lin
         pending_tries += 1;
         current = current.children()[0].clone();
       }
-      SyntaxKind::MethodCallExpr | SyntaxKind::FieldExpr | SyntaxKind::AwaitExpr => {
+      SyntaxKind::MethodCallExpr
+      | SyntaxKind::FieldExpr
+      | SyntaxKind::AwaitExpr
+      | SyntaxKind::UseExpr => {
         let children = current.children();
         let receiver = children[0].clone();
         let mut head = String::new();
@@ -322,15 +364,10 @@ pub fn chain(node: &SyntaxNode, spacing: Spacing) -> (SyntaxNode, usize, Vec<Lin
 }
 
 /// The comments between a chain link's receiver's code and the link's `.`, each with
-/// whether it starts on the receiver's last line.
+/// whether it starts on the receiver's last line. The receiver's `?`s stand aside: the
+/// standard formatter writes them all after its code, then the comments among them.
 pub fn chain_comments(link: &SyntaxNode, receiver: &SyntaxNode) -> Vec<(String, bool)> {
-  let Some(from) = receiver
-    .descendants_with_tokens()
-    .iter()
-    .rev()
-    .find(|e| matches!(e, SyntaxElement::Token(t) if !t.kind().is_trivia()))
-    .map(|e| e.text_range().end)
-  else {
+  let Some(from) = last_code_end(receiver, true) else {
     return Vec::new();
   };
   let Some(to) = link
@@ -340,21 +377,29 @@ pub fn chain_comments(link: &SyntaxNode, receiver: &SyntaxNode) -> Vec<(String, 
   else {
     return Vec::new();
   };
-  let mut comments = Vec::new();
-  let mut same_line = true;
-  for (kind, text, range) in link.token_texts() {
-    if range.start < from || range.start >= to {
-      continue;
-    }
-    match kind {
-      SyntaxKind::Whitespace if text.contains('\n') => same_line = false,
-      SyntaxKind::LineComment | SyntaxKind::BlockComment => {
-        comments.push((text.trim_end().to_string(), same_line));
-      }
-      _ => {}
-    }
-  }
-  comments
+  comments_in(link, from, to)
+}
+
+/// The node's code tokens up to the first that `last` takes, with it (all of them if none
+/// does): spaced by [`flat_tokens`], the start of [`flat`]'s text through that token, since a
+/// token's spacing depends on the tokens on either side of it alone.
+pub fn code_tokens_through(
+  node: &SyntaxNode,
+  mut last: impl FnMut(&SyntaxToken) -> bool,
+) -> Vec<SyntaxToken> {
+  let mut done = false;
+  node
+    .descendants_where(|kind| !kind.is_node() && !kind.is_trivia())
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) => Some(t),
+      SyntaxElement::Node(_) => None,
+    })
+    .take_while(|t| {
+      let more = !done;
+      done = done || last(t);
+      more
+    })
+    .collect()
 }
 
 /// A token the standard formatter drops: a [`leading_pipe`], or with
@@ -378,10 +423,11 @@ pub fn dropped(token: &SyntaxToken, spacing: Spacing) -> bool {
   inner.kind() == SyntaxKind::ParenExpr && nested_paren(&inner)
 }
 
-/// Where each token within `node` that a line drops ([`dropped`]) starts.
+/// Where each token within `node` that a line drops ([`dropped`]) starts, looking only at
+/// the kinds it may drop.
 pub fn dropped_tokens(node: &SyntaxNode, spacing: Spacing) -> Vec<usize> {
   node
-    .descendants_with_tokens_iter()
+    .descendants_where(droppable)
     .filter_map(|e| match e {
       SyntaxElement::Token(t) if dropped(&t, spacing) => Some(t.text_range().start as usize),
       _ => None,
@@ -405,15 +451,34 @@ pub fn first_line_width(text: &str) -> usize {
 /// The node's tokens on one line, spaced as the Rust style spaces them ([`super::space`]);
 /// a pair no rule covers keeps a space if it was written with one.
 pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
-  // Only the code tokens are made, with the nodes on the way to them.
-  let tokens: Vec<SyntaxToken> = node
-    .descendants_where(|kind| !kind.is_node() && !kind.is_trivia())
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) => Some(t),
-      SyntaxElement::Node(_) => None,
-    })
-    .collect();
-  flat_tokens(&tokens, spacing)
+  // One code token has nothing to space against: its text, unless [`dropped`] may drop it.
+  let mut code = node.token_texts().filter(|(kind, _, _)| !kind.is_trivia());
+  if let (Some((kind, text, _)), None) = (code.next(), code.next())
+    && !droppable(kind)
+  {
+    return text.to_string();
+  }
+  let key = (node.identity(), spacing);
+  let kept = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .map(|memo| memo.flats.get(&key).cloned())
+  });
+  match kept {
+    None => flat_once(node, spacing),
+    Some(Some(text)) => text,
+    Some(None) => {
+      let text = flat_once(node, spacing);
+      MEMO.with(|memo| {
+        if let Some(memo) = memo.borrow_mut().as_mut() {
+          memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
+          memo.flats.insert(key, text.clone());
+        }
+      });
+      text
+    }
+  }
 }
 
 /// Tokens on one line, spaced as [`flat`] spaces a node's.
@@ -489,17 +554,34 @@ pub fn if_parts(node: &SyntaxNode) -> Option<(SyntaxNode, SyntaxNode, SyntaxNode
 /// layout places it.
 pub fn in_chain_gap(token: &crate::syntax::SyntaxToken) -> bool {
   let at = token.text_range().start;
+  // Among the `?`s before a link (`.b? // c\n?.d`), which the chain places after them all.
+  let parent = token.parent();
+  if parent.kind() == SyntaxKind::TryExpr
+    && parent
+      .ancestors_iter()
+      .skip(1)
+      .find(|a| a.kind() != SyntaxKind::TryExpr)
+      .is_some_and(|up| {
+        matches!(
+          up.kind(),
+          SyntaxKind::MethodCallExpr
+            | SyntaxKind::FieldExpr
+            | SyntaxKind::AwaitExpr
+            | SyntaxKind::UseExpr
+        )
+      })
+  {
+    return true;
+  }
   token.parent().ancestors_iter().any(|link| {
     matches!(
       link.kind(),
-      SyntaxKind::MethodCallExpr | SyntaxKind::FieldExpr | SyntaxKind::AwaitExpr
+      SyntaxKind::MethodCallExpr
+        | SyntaxKind::FieldExpr
+        | SyntaxKind::AwaitExpr
+        | SyntaxKind::UseExpr
     ) && link.children_iter().next().is_some_and(|receiver| {
-      let code_end = receiver
-        .descendants_with_tokens()
-        .iter()
-        .rev()
-        .find(|e| matches!(e, SyntaxElement::Token(t) if !t.kind().is_trivia()))
-        .map(|e| e.text_range().end);
+      let code_end = last_code_end(&receiver, false);
       let dot = link
         .children_with_tokens_iter()
         .find(|e| e.kind() == SyntaxKind::Dot)
@@ -517,6 +599,7 @@ pub fn is_chain(node: &SyntaxNode) -> bool {
       | SyntaxKind::FieldExpr
       | SyntaxKind::TryExpr
       | SyntaxKind::AwaitExpr
+      | SyntaxKind::UseExpr
   )
 }
 
@@ -723,9 +806,9 @@ pub fn lone_expression(block: &SyntaxNode) -> Option<SyntaxNode> {
     }
   }
   let inside = inside?;
-  let quiet = !inside.descendants_with_tokens().iter().any(|e| {
+  let quiet = !inside.subtree_has(|kind| {
     matches!(
-      e.kind(),
+      kind,
       SyntaxKind::Attr
         | SyntaxKind::LineComment
         | SyntaxKind::BlockComment
@@ -793,12 +876,17 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     shape.limits.block_tail = false;
   }
   let key = (node.identity(), shape);
-  let kept = MEMO.with(|memo| {
-    memo
-      .borrow()
-      .as_ref()
-      .map(|memo| memo.done.get(&key).cloned())
-  });
+  // A node this short lays out faster than its lookup.
+  let kept = if node.text_range().len() < 16 {
+    None
+  } else {
+    MEMO.with(|memo| {
+      memo
+        .borrow()
+        .as_ref()
+        .map(|memo| memo.done.get(&key).cloned())
+    })
+  };
   let laid = |node: &SyntaxNode, shape: Shape| {
     let attributes = element_attributes(node)?;
     let text = if lost_field_comment(node) {
@@ -809,7 +897,7 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
     with_attributes(&attributes, text, shape)
   };
   match kept {
-    // Not open.
+    // Not open, or not worth keeping.
     None => laid(node, shape),
     Some(Some(done)) => done,
     Some(None) => {
@@ -890,10 +978,6 @@ pub(super) fn is_macro(node: &SyntaxNode) -> bool {
       .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
 }
 
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
-}
-
 /// Each line of `text` after the first, with its width as the standard formatter's
 /// `filtered_str_fits` counts it (`filter_normal_code`): none for a line that is a comment,
 /// or that ends in a line comment. Each line is read on its own, as the standard
@@ -971,6 +1055,111 @@ pub(super) fn plain_block(block: &SyntaxNode) -> bool {
       .iter()
       .take_while(|e| e.kind() != SyntaxKind::LBrace)
       .all(|e| e.kind().is_trivia())
+}
+
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
+}
+
+/// `ask()`'s answer about `node`, kept while a [`RewriteMemo`] is open: for a question whose
+/// answer depends on the node and its place in the tree alone.
+pub(super) fn remembered(
+  node: &SyntaxNode,
+  question: Question,
+  ask: impl FnOnce() -> bool,
+) -> bool {
+  let key = (node.identity(), question);
+  let kept = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .map(|memo| memo.flags.get(&key).copied())
+  });
+  match kept {
+    None => ask(),
+    Some(Some(answer)) => answer,
+    Some(None) => {
+      let answer = ask();
+      MEMO.with(|memo| {
+        if let Some(memo) = memo.borrow_mut().as_mut() {
+          memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
+          memo.flags.insert(key, answer);
+        }
+      });
+      answer
+    }
+  }
+}
+
+/// `lay()`'s layout of `block`, kept while a [`RewriteMemo`] is open, by the block and
+/// `key`: the part of the shape the layout depends on.
+pub(super) fn remembered_block(
+  block: &SyntaxNode,
+  key: Shape,
+  lay: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+  let key = (block.identity(), key);
+  let kept = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .map(|memo| memo.blocks.get(&key).cloned())
+  });
+  match kept {
+    None => lay(),
+    Some(Some(text)) => text,
+    Some(None) => {
+      let text = lay();
+      MEMO.with(|memo| {
+        if let Some(memo) = memo.borrow_mut().as_mut() {
+          memo.trees.entry(key.0.0).or_insert_with(|| block.clone());
+          memo.blocks.insert(key, text.clone());
+        }
+      });
+      text
+    }
+  }
+}
+
+/// `check()`'s answer to whether `text` keeps `node`'s tokens (up to `end`), kept while a
+/// [`RewriteMemo`] is open by the node and the text less each line's indentation: the
+/// layouts tried around a node differ in that alone, which changes no token (a string's
+/// lines are never re-indented).
+pub(super) fn remembered_tokens(
+  node: &SyntaxNode,
+  text: &str,
+  end: usize,
+  check: impl FnOnce() -> bool,
+) -> bool {
+  use std::hash::{Hash, Hasher};
+  let open = MEMO.with(|memo| memo.borrow().is_some());
+  if !open {
+    return check();
+  }
+  let mut hasher = std::collections::hash_map::DefaultHasher::new();
+  end.hash(&mut hasher);
+  for line in text.split('\n') {
+    // Its indentation's spaces passed over a byte at a time first.
+    let spaces = line.bytes().take_while(|&b| b == b' ').count();
+    line[spaces..].trim_start().hash(&mut hasher);
+  }
+  let key = (node.identity(), hasher.finish());
+  if let Some(answer) = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .and_then(|m| m.tokens.get(&key).copied())
+  }) {
+    return answer;
+  }
+  let answer = check();
+  MEMO.with(|memo| {
+    if let Some(memo) = memo.borrow_mut().as_mut() {
+      memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
+      memo.tokens.insert(key, answer);
+    }
+  });
+  answer
 }
 
 /// An `if` whose branches each hold one expression, on lines: `if cond {`, each branch's
@@ -1164,22 +1353,32 @@ pub(super) fn rewrite_list(
     texts.push(rewrite(item, nested)?);
   }
   // The last item laid out on a line of its own is needed only when it does not overflow
-  // (the standard formatter's items are rewritten lazily).
-  let mut last_failed = false;
-  if let Some(last) = items.last() {
-    match rewrite(last, nested) {
-      Some(text) => texts.push(text),
-      None => {
-        last_failed = true;
-        texts.push(String::new());
-      }
+  // (the standard formatter's items are rewritten lazily): laid out when the layout needs
+  // it, not before, else each level of nested closures would lay out what it holds again.
+  texts.push(String::new());
+  // Whether it failed, once laid out.
+  let mut last_laid: Option<bool> = None;
+  let lay_last = |texts: &mut Vec<String>, last_laid: &mut Option<bool>| -> bool {
+    if let Some(failed) = *last_laid {
+      return failed;
     }
-  }
+    let failed = match items.last().and_then(|last| rewrite(last, nested)) {
+      Some(text) => {
+        if let Some(slot) = texts.last_mut() {
+          *slot = text;
+        }
+        false
+      }
+      None => true,
+    };
+    *last_laid = Some(failed);
+    failed
+  };
   // Comments among the items: one per line, the comments placed around them.
   if let Some(parent) = items.first().and_then(|i| i.parent())
     && let Some(comments) = super::lists::list_comments(&parent, items)
   {
-    if last_failed {
+    if lay_last(&mut texts, &mut last_laid) {
       return None;
     }
     // Block comments only: on the line when it all fits there (`definitive_tactic` breaks
@@ -1369,7 +1568,7 @@ pub(super) fn rewrite_list(
     if overflow && placeholder.is_none() && repeat_macro(&items[last]) {
       return None;
     }
-    if last_failed && placeholder.is_none() {
+    if placeholder.is_none() && lay_last(&mut texts, &mut last_laid) {
       return None;
     }
     let mut probe = texts.clone();
@@ -1377,7 +1576,7 @@ pub(super) fn rewrite_list(
       probe[last] = over.lines().next().unwrap_or("").to_string();
     }
     tactic = definitive(&probe, max_width.min(one_line_width));
-    if last_failed && !(overflow && tactic == Tactic::Horizontal) {
+    if !(overflow && tactic == Tactic::Horizontal) && lay_last(&mut texts, &mut last_laid) {
       return None;
     }
     match (overflow, tactic, placeholder) {
@@ -1535,7 +1734,8 @@ pub(super) fn rewrite_list(
   let string_line = |line: &str| {
     let line = line.trim();
     let line = line.strip_suffix(',').unwrap_or(line);
-    let raw = (line.starts_with("r\"") || line.starts_with("r#")) && line.ends_with(['"', '#']);
+    let raw = (line.starts_with("r\"") || line.starts_with("r#")) && line.ends_with(['"', '#'])
+      || holds_raw_string(line);
     // Or the first line of one continued with `\`, kept with it.
     let plain = shape.limits.style_2024 && line.starts_with('"') && line.ends_with(['"', '\\']);
     raw || plain
@@ -1696,10 +1896,9 @@ fn binary_one_line(
 /// Whether the standard formatter would put the closure's body in a block to overflow it into
 /// `shape`: its `|parameters|` on the line, with a column for the space before `{`. They are
 /// held to the width less 3 (its parameter shape is 4 short, and 1 for the `|`), 4 more
-/// with a struct pattern's `..`; a lone name, or none, is not measured.
-fn block_fits(closure: &SyntaxNode, body: &SyntaxNode, shape: Shape) -> bool {
-  let spacing = shape.limits.spacing;
-  let prefix = flat(closure, spacing).width() - flat(body, spacing).width();
+/// with a struct pattern's `..`; a lone name, or none, is not measured. `prefix` is the
+/// width of its flat text before the body ([`closure_head`]).
+fn block_fits(closure: &SyntaxNode, prefix: usize, shape: Shape) -> bool {
   let params: Vec<SyntaxNode> = closure
     .children()
     .into_iter()
@@ -1780,7 +1979,7 @@ fn braced_macro(node: &SyntaxNode, name: &str, shape: Shape) -> Option<String> {
     return Some(format!("{} {}", name, body));
   }
   let text = tree.text();
-  let body = super::file::preserve_layout(&text, shape.indent, &shape.limits.config());
+  let body = super::file::preserve_layout(text, shape.indent, &shape.limits.config());
   Some(format!("{} {}", name, body))
 }
 
@@ -1794,6 +1993,7 @@ fn breaks_inside(node: &SyntaxNode, limits: Limits) -> bool {
       SyntaxKind::MethodCallExpr
       | SyntaxKind::FieldExpr
       | SyntaxKind::AwaitExpr
+      | SyntaxKind::UseExpr
       | SyntaxKind::TryExpr => chain(d, limits.spacing).2.len() >= 2 && width() > limits.chain,
       SyntaxKind::ArgList => width().saturating_sub(2) > limits.fn_call,
       SyntaxKind::ArrayExpr => width().saturating_sub(2) > limits.array,
@@ -1820,6 +2020,19 @@ fn closure_expression(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
     .then(|| format!("{} {}", prefix, text))
 }
 
+/// A closure's flat text before its body, with the space before the body: what
+/// `flat(closure)` holds before `flat(body)`, from the tokens up to the body's first kept.
+fn closure_head(closure: &SyntaxNode, body: &SyntaxNode, spacing: Spacing) -> String {
+  let at = body.text_range().start;
+  let first = |t: &SyntaxToken| t.text_range().start >= at && !dropped(t, spacing);
+  let tokens = code_tokens_through(closure, first);
+  let mut head = flat_tokens(&tokens, spacing);
+  if let Some(last) = tokens.last().filter(|t| first(t)) {
+    head.truncate(head.len() - last.text().len());
+  }
+  head
+}
+
 /// A closure's `|parameters|` (with `move`, `async` and a return type): flat, when the
 /// standard formatter keeps its parameters on one line.
 fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
@@ -1836,8 +2049,7 @@ fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .filter(|c| c.kind() == SyntaxKind::ParamList)
     .flat_map(|c| c.descendants())
     .any(|d| d.kind() == SyntaxKind::RecordPatFieldList && wide(&d));
-  let whole = flat(node, shape.limits.spacing);
-  let prefix = whole.strip_suffix(&flat(body, shape.limits.spacing))?;
+  let prefix = &closure_head(node, body, shape.limits.spacing);
   // A parameter whose type breaks over lines: the parameters one per line, lined up after
   // the `|` (each laid out in the standard formatter's visually indented `param_shape`).
   let params: Vec<SyntaxNode> = node
@@ -1911,7 +2123,7 @@ fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
   if wide_pattern {
     return None;
   }
-  if block_fits(node, body, shape) {
+  if block_fits(node, prefix.width(), shape) {
     return Some(prefix.trim_end().to_string());
   }
   // Its parameters one per line, each after the first lined up after its `|` (the
@@ -2035,6 +2247,50 @@ fn comma_after(node: &SyntaxNode) -> bool {
   false
 }
 
+/// The comments in `node` from `from` to `to`, each with whether it starts on the line
+/// where `from` is; comments on one line after another stay with it, the space between them
+/// as written, less any `?` there.
+fn comments_in(node: &SyntaxNode, from: u32, to: u32) -> Vec<(String, bool)> {
+  let mut comments: Vec<(String, bool)> = Vec::new();
+  let mut same_line = true;
+  // The space after a comment on its line, while the next may join it.
+  let mut after_comment: Option<String> = None;
+  for (kind, text, range) in node.token_texts() {
+    if range.start < from || range.start >= to {
+      continue;
+    }
+    match kind {
+      SyntaxKind::Whitespace if text.contains('\n') => {
+        same_line = false;
+        after_comment = None;
+      }
+      SyntaxKind::Whitespace => {
+        after_comment = after_comment.map(|mut space| {
+          space.push_str(text);
+          space
+        });
+      }
+      SyntaxKind::Question => {}
+      SyntaxKind::LineComment | SyntaxKind::BlockComment => {
+        let text = text.trim_end();
+        match (after_comment.take(), comments.last_mut()) {
+          // Not after a block comment across lines, which is re-indented on its own.
+          (Some(space), Some((last, _))) if !last.contains('\n') => {
+            last.push_str(&space);
+            last.push_str(text);
+          }
+          _ => comments.push((text.to_string(), same_line)),
+        }
+        if kind == SyntaxKind::BlockComment {
+          after_comment = Some(String::new());
+        }
+      }
+      _ => after_comment = None,
+    }
+  }
+  comments
+}
+
 fn definitive(items: &[String], limit: usize) -> Tactic {
   let total: usize =
     items.iter().map(|i| i.width()).sum::<usize>() + 2 * items.len().saturating_sub(1);
@@ -2043,6 +2299,21 @@ fn definitive(items: &[String], limit: usize) -> Tactic {
   } else {
     Tactic::Vertical
   }
+}
+
+/// Whether [`dropped`] may drop a token of this kind.
+fn droppable(kind: SyntaxKind) -> bool {
+  matches!(
+    kind,
+    SyntaxKind::Pipe
+      | SyntaxKind::Colon2
+      | SyntaxKind::InKw
+      | SyntaxKind::WhereKw
+      | SyntaxKind::Lt
+      | SyntaxKind::Gt
+      | SyntaxKind::LParen
+      | SyntaxKind::RParen
+  )
 }
 
 /// The attributes written just before a list's element, which the parser makes siblings of
@@ -2181,6 +2452,28 @@ fn fits_shape(text: String, shape: Shape) -> Option<String> {
   Some(text)
 }
 
+fn flat_once(node: &SyntaxNode, spacing: Spacing) -> String {
+  // Only the code tokens are made, with the nodes on the way to them.
+  let tokens: Vec<SyntaxToken> = node
+    .descendants_where(|kind| !kind.is_node() && !kind.is_trivia())
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) => Some(t),
+      SyntaxElement::Node(_) => None,
+    })
+    .collect();
+  flat_tokens(&tokens, spacing)
+}
+
+/// Whether `text` fits: its first line in the shape's width, the rest within the line width.
+/// Whether a line of laid-out code holds a raw string, which the standard formatter keeps
+/// whatever its width (`format_expr`): a line holding one is not measured.
+fn holds_raw_string(line: &str) -> bool {
+  (line.contains("r\"") || line.contains("r#"))
+    && crate::syntax::parse_tokens(line, Edition::E2021)
+      .iter()
+      .any(|(kind, _)| *kind == SyntaxKind::RawStr)
+}
+
 /// Whether an `if` stands where the standard formatter may write it on one line: not as a
 /// statement, and as a block's tail only from style edition 2024 (before, a tail is a
 /// statement too).
@@ -2300,6 +2593,25 @@ fn keyword_visibility_in(token: &SyntaxToken) -> bool {
       })
 }
 
+/// Where `node`'s last code token ends (less its `?`s with `tries`), found down its last
+/// children alone: a chain's receiver holds the chain before it, which a walk of all of it
+/// would read once for every link.
+fn last_code_end(node: &SyntaxNode, tries: bool) -> Option<u32> {
+  for element in node.children_with_tokens_iter().rev() {
+    match &element {
+      SyntaxElement::Token(t)
+        if t.kind().is_trivia() || tries && t.kind() == SyntaxKind::Question => {}
+      SyntaxElement::Token(t) => return Some(t.text_range().end),
+      SyntaxElement::Node(n) => {
+        if let Some(end) = last_code_end(n, tries) {
+          return Some(end);
+        }
+      }
+    }
+  }
+  None
+}
+
 /// The shape the overflowing last item gets: after the other items on the opening line.
 fn last_item_shape(
   items: &[SyntaxNode],
@@ -2404,7 +2716,7 @@ fn macro_arguments(
 ) -> Result<MacroArguments, Unread> {
   let read = read_macro_arguments(node, spacing, nested);
   if matches!(read, Err(Unread::AsWritten)) && super::explain::active() {
-    super::explain::note("MACRO_CALL", &node.text().to_string(), || {
+    super::explain::note("MACRO_CALL", node.text(), || {
       "macro arguments not read as expressions or a list, so kept as written".to_string()
     });
   }
@@ -2474,15 +2786,40 @@ fn macro_item_argument(node: &SyntaxNode, shape: Shape) -> Option<String> {
   ))
 }
 
-/// A macro call's arguments read one by one, as the standard formatter's
-/// `parse_macro_args` reads them: each an expression, else a type (`?name`, a bare trait
-/// object), else a pattern. The arguments as nodes of their own parses, and whether a comma
-/// follows the last; `None` when one is none of these, or a comment is among them.
+/// [`macro_mixed_arguments_once`], kept while a [`RewriteMemo`] is open.
 fn macro_mixed_arguments(
   node: &SyntaxNode,
   spacing: Spacing,
   nested: bool,
-) -> Option<(String, Vec<SyntaxNode>, &'static str, &'static str, bool)> {
+) -> Option<MixedArguments> {
+  let key = (node.identity(), spacing, nested);
+  let kept = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .map(|memo| memo.mixed.get(&key).cloned())
+  });
+  match kept {
+    None => macro_mixed_arguments_once(node, spacing, nested),
+    Some(Some(read)) => read,
+    Some(None) => {
+      let read = macro_mixed_arguments_once(node, spacing, nested);
+      MEMO.with(|memo| {
+        if let Some(memo) = memo.borrow_mut().as_mut() {
+          memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
+          memo.mixed.insert(key, read.clone());
+        }
+      });
+      read
+    }
+  }
+}
+
+fn macro_mixed_arguments_once(
+  node: &SyntaxNode,
+  spacing: Spacing,
+  nested: bool,
+) -> Option<MixedArguments> {
   let call = if node.kind() == SyntaxKind::MacroExpr {
     node
       .children_iter()
@@ -2516,7 +2853,7 @@ fn macro_mixed_arguments(
       SyntaxElement::Token(t) if t.kind() == SyntaxKind::Comma => pieces.push(String::new()),
       SyntaxElement::Token(t) if t.kind() == SyntaxKind::Semi => return None,
       SyntaxElement::Token(t) => pieces.last_mut()?.push_str(t.text()),
-      SyntaxElement::Node(n) => pieces.last_mut()?.push_str(&n.text()),
+      SyntaxElement::Node(n) => pieces.last_mut()?.push_str(n.text()),
     }
   }
   let trailing = pieces.len() > 1 && pieces.last()?.trim().is_empty();
@@ -2720,7 +3057,36 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
 }
 
 /// [`macro_arguments`], without the note.
+/// [`read_macro_arguments_once`], kept while a [`RewriteMemo`] is open.
 fn read_macro_arguments(
+  node: &SyntaxNode,
+  spacing: Spacing,
+  nested: bool,
+) -> Result<MacroArguments, Unread> {
+  let key = (node.identity(), spacing, nested);
+  let kept = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .map(|memo| memo.macros.get(&key).cloned())
+  });
+  match kept {
+    None => read_macro_arguments_once(node, spacing, nested),
+    Some(Some(read)) => read,
+    Some(None) => {
+      let read = read_macro_arguments_once(node, spacing, nested);
+      MEMO.with(|memo| {
+        if let Some(memo) = memo.borrow_mut().as_mut() {
+          memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
+          memo.macros.insert(key, read.clone());
+        }
+      });
+      read
+    }
+  }
+}
+
+fn read_macro_arguments_once(
   node: &SyntaxNode,
   spacing: Spacing,
   nested: bool,
@@ -2756,12 +3122,10 @@ fn read_macro_arguments(
   }
   // Comments on a line, which the arguments read again as code place (between the
   // arguments, in a block or another list); the statement's check makes sure each is kept.
-  if tree.descendants_with_tokens().iter().any(|e| match e {
-    SyntaxElement::Token(t) if t.kind().is_trivia() && t.kind() != SyntaxKind::Whitespace => {
-      t.kind() == SyntaxKind::BlockComment && t.text().contains('\n')
-    }
-    _ => false,
-  }) {
+  if tree
+    .token_texts()
+    .any(|(kind, text, _)| kind == SyntaxKind::BlockComment && text.contains('\n'))
+  {
     return Err(Declined);
   }
   let mut inner = tree.text().to_string();
@@ -3184,7 +3548,19 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
       } else {
         result.push_str(&connector);
       }
-      result.push_str(comment);
+      // One across lines keeps its layout, from the links' column.
+      if comment.contains('\n') {
+        let config = shape.limits.config();
+        result.push_str(&super::file::reindent_block_comment(
+          comment,
+          child_shape.indent,
+          config.tab_spaces,
+          &config,
+          false,
+        ));
+      } else {
+        result.push_str(comment);
+      }
     }
     result.push_str(&connector);
     // `|| .. .f()`: a link joined to a root ending in dots keeps its space; before style
@@ -3193,12 +3569,16 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
       t.strip_prefix('.')
         .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
     };
-    let previous_field = result
+    // What the line or link before ends with, from its last `.`, the line break and
+    // indentation after it aside.
+    let before = result.trim_end();
+    let previous_field = before
       .rfind('.')
-      .is_some_and(|at| tuple_field(&result[at..]));
-    if connector.is_empty()
-      && (result.ends_with('.') && r.starts_with('.')
-        || !shape.limits.style_2024 && previous_field && tuple_field(r))
+      .is_some_and(|at| tuple_field(&before[at..]));
+    // The tuple field's space stays on a line of its own too, one column further in (as
+    // the standard formatter writes it, though likely by mistake).
+    if connector.is_empty() && result.ends_with('.') && r.starts_with('.')
+      || !shape.limits.style_2024 && previous_field && tuple_field(r)
     {
       result.push(' ');
     }
@@ -4030,6 +4410,14 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
       SyntaxElement::Node(n) if after_dots => {
         spread = Some(format!("..{}", rewrite(n, v_shape.offset_left(2)?)?));
       }
+      // A pattern's `..` with attributes, which rustc rejects: left as written.
+      SyntaxElement::Node(n)
+        if n.kind() == SyntaxKind::RecordPatField
+          && n.children_iter().any(|c| c.kind() == SyntaxKind::RestPat)
+          && n.children_iter().any(|c| c.kind() == SyntaxKind::Attr) =>
+      {
+        return None;
+      }
       // A pattern's `..` is a field of its own, and ends the list.
       SyntaxElement::Node(n)
         if n.kind() == SyntaxKind::RecordPatField
@@ -4284,6 +4672,20 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     }
     format!("{} {{{}\n{}}}", path, body, " ".repeat(shape.indent))
   };
+  // A literal's line holding a raw string is not measured (the standard formatter keeps the
+  // string whatever its width).
+  if node.kind() == SyntaxKind::RecordExpr {
+    let first_fits = text
+      .lines()
+      .next()
+      .is_some_and(|l| l.width() <= shape.width || holds_raw_string(l));
+    // A line inside a raw string spanning lines is kept as written too.
+    let inside = in_raw_string(&text, shape.limits.style_2024);
+    let later_fit = later_lines(&text).enumerate().all(|(i, (l, w))| {
+      w <= shape.limits.max_width || holds_raw_string(l) || inside.get(i + 1) == Some(&true)
+    });
+    return (first_fits && later_fit).then_some(text);
+  }
   // A pattern's later lines are not measured (`rewrite_struct_pat` returns them as laid
   // out, a field's pattern one level in maybe past the line).
   if node.kind() == SyntaxKind::RecordPat {
@@ -4487,7 +4889,6 @@ fn special_macro(name: &str, style_2024: bool) -> Option<usize> {
     .or_else(|| (style_2024 && name == "trace!").then_some(0))
 }
 
-/// Whether `text` fits: its first line in the shape's width, the rest within the line width.
 fn wrap_str(text: String, shape: Shape) -> Option<String> {
   let mut lines = text.lines();
   if lines.next().is_some_and(|l| l.width() > shape.width) {

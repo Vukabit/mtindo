@@ -66,7 +66,7 @@ fn child_texts(root: &SyntaxNode) -> Vec<(&'static str, String)> {
   root
     .children()
     .iter()
-    .map(|n| (n.kind().name(), n.text()))
+    .map(|n| (n.kind().name(), n.text().to_string()))
     .collect()
 }
 

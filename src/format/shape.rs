@@ -138,7 +138,7 @@ impl Default for Limits {
 
 /// The space an expression is printed into: its line's indentation, how far into the line it
 /// starts past that, and the width left on its first line.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shape {
   pub indent: usize,
   /// Columns past `indent` a type's later lines line up to (the standard formatter's
@@ -196,6 +196,29 @@ impl Shape {
       .limits
       .max_width
       .saturating_sub(self.indent + self.offset + self.width)
+  }
+}
+
+// A shape keys the per-file layout caches: hashing the fields that change within a file,
+// a subset of those compared, keeps each lookup cheap.
+impl std::hash::Hash for Shape {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    let l = &self.limits;
+    state.write_usize(self.indent);
+    state.write_usize(self.offset);
+    state.write_usize(self.width ^ (self.align << 32));
+    state.write_u64(
+      (l.max_width as u64)
+        | u64::from(l.attribute) << 32
+        | u64::from(l.comma_as_written) << 33
+        | u64::from(l.style_2024) << 34
+        | u64::from(l.inside_macro) << 35
+        | u64::from(l.block_tail) << 36
+        | u64::from(l.one_line_chains) << 37
+        | u64::from(l.match_arm_indent) << 38
+        | u64::from(l.trailing_semicolon) << 39
+        | u64::from(l.combine_control_expr) << 40,
+    );
   }
 }
 

@@ -2,7 +2,7 @@
 //! dashboard shows, from the same records:
 //!
 //! - the tree (commit, and a digest of any uncommitted changes) and the last green run;
-//! - the v1.0 gates against their targets, from `compat/compatibility.txt`;
+//! - the v0.1.0 gates against their targets, from `compat/compatibility.txt`;
 //! - jobs running now, and the latest runs;
 //! - incidents by status, and the open ones that fail the suite.
 
@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use crate::common::{sample, tree};
 use crate::runs;
 
-/// The v1.0 bar for the corpus sets: share of files and of lines matching the standard
+/// The v0.1.0 bar for the corpus sets: share of files and of lines matching the standard
 /// formatter.
 const FILES_TARGET: f64 = 99.0;
 
@@ -72,7 +72,7 @@ fn render(root: &Path) -> String {
   let mut out = String::new();
   out.push_str(&format!("tree       {}\n", tree::identity(root)));
   out.push_str(&format!("last green {}\n", last_green(root)));
-  out.push_str("\nV1.0 GATES                     files           lines\n");
+  out.push_str("\nV0.1.0 GATES                   files           lines\n");
   let record = fs::read_to_string(root.join("compat/compatibility.txt")).unwrap_or_default();
   for (set, files, lines) in gates(&record) {
     out.push_str(&format!(

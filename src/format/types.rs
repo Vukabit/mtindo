@@ -1372,7 +1372,7 @@ fn rewrite_tuple_field(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let tokens: Vec<SyntaxToken> = node
     .children_iter()
     .filter(|c| c.kind() != K::Attr && c.text_range().end <= at)
-    .flat_map(|c| c.descendants_with_tokens())
+    .flat_map(|c| c.descendants_where(|kind| !kind.is_node() && !kind.is_trivia()))
     .filter_map(|e| match e {
       SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
       _ => None,

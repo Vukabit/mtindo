@@ -54,7 +54,7 @@ pub fn rewrite_macro_rules(
     .next()?;
   let stable = rewrite_definition(&again, indent, edition, config).as_deref() == Some(&laid);
   if !stable {
-    super::explain::note("MACRO_RULES", &node.text().to_string(), || {
+    super::explain::note("MACRO_RULES", node.text(), || {
       "kept as written: its layout would change again on a second run (code in a rule's \
        body kept as written, whose lines keep their columns)"
         .to_string()
@@ -126,7 +126,7 @@ pub(super) fn lazy_static_body(
         after_static = matches!(element, SyntaxElement::Token(t) if t.text() == "static");
         match element {
           SyntaxElement::Token(t) => source.push_str(t.text()),
-          SyntaxElement::Node(n) => source.push_str(&n.text().to_string()),
+          SyntaxElement::Node(n) => source.push_str(n.text()),
         }
       }
     }
@@ -440,7 +440,7 @@ fn rewrite_definition(
     .iter()
     .any(|e| e.kind().is_trivia() && e.kind() != K::Whitespace)
   {
-    super::explain::note("MACRO_RULES", &node.text().to_string(), || {
+    super::explain::note("MACRO_RULES", node.text(), || {
       "kept as written: a comment in its header".to_string()
     });
     return None;
@@ -464,7 +464,7 @@ fn rewrite_definition(
     return Some(format!("{} {}", header, body));
   }
   let Some(rules) = rules(tree) else {
-    super::explain::note("MACRO_RULES", &node.text().to_string(), || {
+    super::explain::note("MACRO_RULES", node.text(), || {
       "kept as written: between its braces, something that is not a rule or a comment \
        the layout places (a comment inside a rule's head, or across lines)"
         .to_string()

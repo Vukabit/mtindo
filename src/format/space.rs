@@ -262,7 +262,7 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
   if (ka == K::Dot || kb == K::Dot)
     && matches!(
       if ka == K::Dot { pa } else { pb },
-      K::FieldExpr | K::MethodCallExpr | K::AwaitExpr
+      K::FieldExpr | K::MethodCallExpr | K::AwaitExpr | K::UseExpr
     )
   {
     return Some(false);
@@ -446,10 +446,7 @@ fn unreadable_arguments(bang: &SyntaxToken) -> bool {
   let Some(SyntaxElement::Node(tree)) = next else {
     return false;
   };
-  tree
-    .descendants_with_tokens()
-    .iter()
-    .any(|e| matches!(e.kind(), K::FatArrow | K::Pound | K::Dollar))
+  tree.subtree_has(|kind| matches!(kind, K::FatArrow | K::Pound | K::Dollar))
 }
 
 fn word_like(token: &SyntaxToken) -> bool {

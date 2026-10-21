@@ -135,6 +135,17 @@ fn test_blocks_standing_as_statements_and_commented_chains() {
 }
 
 #[test]
+fn test_braced_macro_line_inside_a_string_not_measured() {
+  // A braced call's last line starting inside a string spanning lines is kept as written
+  // and not measured: measured, its column 0 would pull the other lines in again on every
+  // run.
+  assert_eq!(
+    formatted("fn f() {\n    let e = vec!{\n        #[a\n    b = \"x\n}\n)\"]\n};\n}\n"),
+    "fn f() {\n    let e = vec! {\n            #[a\n        b = \"x\n}\n)\"]\n    };\n}\n"
+  );
+}
+
+#[test]
 fn test_braced_macros_holding_strings_across_lines() {
   // Re-indented around the string: a line continuing it after `\` moves, one starting
   // inside it otherwise is the string's own and stays.
@@ -143,6 +154,50 @@ fn test_braced_macros_holding_strings_across_lines() {
       "cfg_if!\n\t{\n\tif #[cfg(x)] {\n            compile_error!(\n                \"one \\\n            two\"  );\n}\n}\nfn g() {\n  m! {\n     let s = \"a\n  b\";\n        x\n  }\n}\n"
     ),
     "cfg_if! {\n    if #[cfg(x)] {\n            compile_error!(\n                \"one \\\n            two\"  );\n}\n}\nfn g() {\n    m! {\n       let s = \"a\n  b\";\n          x\n    }\n}\n"
+  );
+}
+
+#[test]
+fn test_chain_comments_postfix_use_and_type_alias_where_comments() {
+  // Comments among a chain's `?`s go after them all, the first on their line; comments on
+  // one line keep the space between them; a block comment across lines keeps its layout
+  // from the links' column; a tuple field after a tuple field keeps its space on a line of
+  // its own before the 2024 style; `.use` is a link; a block comment holding an empty
+  // line keeps its layout.
+  let c2021 = FormatConfig::default();
+  let c2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn foo() {\n    let x = foo\n        .bar? ?? // comment\n    // comment\n        ? ??\n    // comment\n        ?  ??\n    // comment\n        ???  \n    // comment\n        ? ? ?\n        .baz;\n\n    parent /* comment */ .child;\n    parent /* comment1 */     /* comment2 */ .child;\n    parent /* comment1 */   // comment 2\n            .child;\n    parent /* ???no tries here */ // nor ??? here ????\n    ???.child;\n    parent/*\n        some interesting shaped comment\n    */.child;\n\n    parent /* comment */\n    // another comment\n        .child1(some, args) /* comment */ // again\n    .await /* longer\n         comment\n    */ // more comments!\n        .use // here's a comment that reaches right to the default width limit aaaaaaaaaaaaaaaaaaaa\n    .end;\n\n    parent? /* spacing is interesting */    ?   /* blah */.child;\n\n    // NB: recording the current state of things\n    // but is possibly a bug: issue 6433\n    parent //comment\n           .1 .2 .3;\n}\n",
+      &c2021
+    ),
+    "fn foo() {\n    let x = foo\n        .bar??????????????? // comment\n        // comment\n        // comment\n        // comment\n        // comment\n        .baz;\n\n    parent /* comment */\n        .child;\n    parent /* comment1 */     /* comment2 */\n        .child;\n    parent /* comment1 */   // comment 2\n        .child;\n    parent??? /* ???no tries here */ // nor ??? here ????\n        .child;\n    parent /*\n            some interesting shaped comment\n        */\n        .child;\n\n    parent /* comment */\n        // another comment\n        .child1(some, args) /* comment */ // again\n        .await /* longer\n             comment\n        */ // more comments!\n        .use // here's a comment that reaches right to the default width limit aaaaaaaaaaaaaaaaaaaa\n        .end;\n\n    parent?? /* spacing is interesting */       /* blah */\n        .child;\n\n    // NB: recording the current state of things\n    // but is possibly a bug: issue 6433\n    parent //comment\n        .1\n         .2\n         .3;\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "macro_rules! foo {\n    () => {\n        // comment\n        /*\n\n        */\n    };\n}\nfn f() {\n    let x =   a.b  .use .c;\n}\n",
+      &c2024
+    ),
+    "macro_rules! foo {\n    () => {\n        // comment\n        /*\n\n        */\n    };\n}\nfn f() {\n    let x = a.b.use.c;\n}\n"
+  );
+  // A type alias's `where` clauses with line comments: those before `where` and after the
+  // predicates on lines of their own, `where` alone, those after it one level in.
+  assert_eq!(
+    formatted_with(
+      "type Foo // c1\nwhere\nA: B,\n= E;\n\ntype Foo\nwhere // c2\nA: B,\n= E;\n\ntype Foo<T>\nwhere\nA: B, // c3\n= E;\n\ntype Foo\nwhere\nA: B,\n// c4\n= E;\n\ntype Foo = E // c5\nwhere A: B;\n\ntype Foo = E\nwhere A: B, // c6\nC: D;\n\nimpl X {\n    type Foo // c1\n    where\n    A: B, // c3\n    // c4\n    = E;\n}\n\ntype Foo /* b1 */ where A: B = E;\n",
+      &c2021
+    ),
+    "type Foo\n// c1\nwhere\n    A: B,\n= E;\n\ntype Foo\nwhere\n    // c2\n    A: B,\n= E;\n\ntype Foo<T>\nwhere\n    A: B, // c3\n= E;\n\ntype Foo\nwhere\n    A: B,\n// c4\n= E;\n\ntype Foo\n    = E\n// c5\nwhere\n    A: B;\n\ntype Foo\n    = E\nwhere\n    A: B, // c6\n    C: D;\n\nimpl X {\n    type Foo\n    // c1\n    where\n        A: B, // c3\n    // c4\n    = E;\n}\n\ntype Foo\n/* b1 */\nwhere\n    A: B,\n= E;\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "type Foo = E where A: B;\ntype Foo where A: B = E;\ntype Foo<T> = E where A: B, C: D;\n",
+      &c2021
+    ),
+    "type Foo\n    = E\nwhere\n    A: B;\ntype Foo\nwhere\n    A: B,\n= E;\ntype Foo<T>\n    = E\nwhere\n    A: B,\n    C: D;\n"
   );
 }
 
@@ -811,6 +866,65 @@ fn test_raw_string_arguments() {
 }
 
 #[test]
+fn test_raw_strings_arm_head_comments_closure_heads_and_aligned_block_comments() {
+  let c2021 = FormatConfig::default();
+  let c2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  // A line holding a raw string is not measured, one spanning lines in a struct literal's
+  // field too: the standard formatter keeps raw strings whatever their width.
+  assert_eq!(
+    formatted_with(
+      "pub const DEFAULT_LINTS: &[Lint] = &[  Lint { label:\n        \"aarch64_softfloat_neon\", description:\tr##\"detects code that could be affected by ABI issues on aarch64 softfloat targets\"##,\n\tdefault_severity:\n        Severity::Warning,\nwarn_since:\n\tNone,  deny_since:\nNone,\n},\n    Lint\n    {  label: \"absolute_paths_not_starting_with_crate\",\ndescription:\n    r##\"fully qualified paths that start with a module name\"##,\ndefault_severity: Severity::Allow, warn_since: None, deny_since: None },\n];\n",
+      &c2024
+    ),
+    "pub const DEFAULT_LINTS: &[Lint] = &[\n    Lint {\n        label: \"aarch64_softfloat_neon\",\n        description: r##\"detects code that could be affected by ABI issues on aarch64 softfloat targets\"##,\n        default_severity: Severity::Warning,\n        warn_since: None,\n        deny_since: None,\n    },\n    Lint {\n        label: \"absolute_paths_not_starting_with_crate\",\n        description: r##\"fully qualified paths that start with a module name\"##,\n        default_severity: Severity::Allow,\n        warn_since: None,\n        deny_since: None,\n    },\n];\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "pub const FEATURES: &[Lint] = &[ Lint { label: \"abi_avr_interrupt\", description:\n        r##\"# `abi_avr_interrupt`\n\nThe tracking issue for this feature is: [#69664]\n\n------------------------\n\"##, default_severity: Severity::Allow,\n        warn_since: None,\n        deny_since: None,\n    },\n];\n",
+      &c2024
+    ),
+    "pub const FEATURES: &[Lint] = &[Lint {\n    label: \"abi_avr_interrupt\",\n    description: r##\"# `abi_avr_interrupt`\n\nThe tracking issue for this feature is: [#69664]\n\n------------------------\n\"##,\n    default_severity: Severity::Allow,\n    warn_since: None,\n    deny_since: None,\n}];\n"
+  );
+  // A comment in a match arm's head before its `=>`, not in its guard's condition: the
+  // statement holding the `match` is left as written.
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    match   x {\n        A   =>   1,\n        B(v)\n            // c\n            if v.foo() => {\n                2\n            }\n        _ => {}\n    }\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    match   x {\n        A   =>   1,\n        B(v)\n            // c\n            if v.foo() => {\n                2\n            }\n        _ => {}\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    match   x {\n        A   =>   1,\n        B(v) if v.foo()\n            // c\n            => 2,\n        _ => {}\n    }\n}\nfn g() {\n    match   x {\n        A   =>   1,\n        B(v) if v\n            .foo() // c\n            && v.bar() => 2,\n        _ => {}\n    }\n}\nfn h() {\n    match   x {\n        A   =>   1,\n        // c\n        B(v) /* d */ => 2,\n        _ => {}\n    }\n}\n",
+      &c2024
+    ),
+    "fn f() {\n    match   x {\n        A   =>   1,\n        B(v) if v.foo()\n            // c\n            => 2,\n        _ => {}\n    }\n}\nfn g() {\n    match x {\n        A => 1,\n        B(v) if v\n            .foo() // c\n            && v.bar() =>\n        {\n            2\n        }\n        _ => {}\n    }\n}\nfn h() {\n    match   x {\n        A   =>   1,\n        // c\n        B(v) /* d */ => 2,\n        _ => {}\n    }\n}\n"
+  );
+  // A closure whose head no layout fits gives up its statement, whatever comments its
+  // body holds.
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let migrations_inner =\n|harness:\n        &mut\nHarnessWithOutput<Conn,\n\n_>|\t->  Result<(),\n\tBox<dyn\n\nError\n    +\tSend  +\n    Sync\n    +\t'static>>\n\t{\n    // revert all the migrations\n        let x = 1;\n        Ok(())\n    };\n    let migrations_inner2 =\n|harness:\n        &mut\nHarnessWithOutput<Conn,\n\n_>|\t->  Result<(),\n\tBox<dyn\n\nError\n    +\tSend  +\n    Sync\n    +\t'static>>\n\t{\n        let x = 1;\n        Ok(())\n    };\n}\n",
+      &c2021
+    ),
+    "fn f() {\n    let migrations_inner =\n|harness:\n        &mut\nHarnessWithOutput<Conn,\n\n_>|\t->  Result<(),\n\tBox<dyn\n\nError\n    +\tSend  +\n    Sync\n    +\t'static>>\n\t{\n    // revert all the migrations\n        let x = 1;\n        Ok(())\n    };\n    let migrations_inner2 =\n|harness:\n        &mut\nHarnessWithOutput<Conn,\n\n_>|\t->  Result<(),\n\tBox<dyn\n\nError\n    +\tSend  +\n    Sync\n    +\t'static>>\n\t{\n        let x = 1;\n        Ok(())\n    };\n}\n"
+  );
+  // A block comment across lines under a comment ending a line of code lines up with it,
+  // before the 2024 style, its lines laid out from that column.
+  assert_eq!(
+    formatted_with(
+      "impl X {\n    fn f() {\n        a();\n    } // FIXME: one\n      // two\n/*\n    /// doc\n    fn g() {}\n    */\n    fn h() {}\n}\n",
+      &c2021
+    ),
+    "impl X {\n    fn f() {\n        a();\n    } // FIXME: one\n      // two\n      /*\n      /// doc\n      fn g() {}\n      */\n    fn h() {}\n}\n"
+  );
+}
+
+#[test]
 fn test_repeat_arrays_and_vec() {
   // `[x; n]` breaks as a pair, `vec![x; n]` with each part on a line of its own.
   assert_eq!(
@@ -993,6 +1107,11 @@ fn test_tuple_type_comments_ranges_closures_and_strings() {
       &c2021
     ),
     "fn f() {\n    let s = a + \"x\n  y\";\n    let s = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n        + \"x\n  y\";\n    foo(&(format!(\"a\")\n        + r#\"\nb\n\"#));\n    x == \"a\nb\";\n}\n"
+  );
+  // A pattern's `..` with attributes, which rustc rejects, is left as written.
+  assert_eq!(
+    formatted("fn f() {\n    let S { #[cfg(any())] .. } = ();\n}\n"),
+    "fn f() {\n    let S { #[cfg(any())] .. } = ();\n}\n"
   );
 }
 

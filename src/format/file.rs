@@ -42,6 +42,7 @@ use crate::format::attrs::rewrite_attr;
 use crate::format::expr::{is_statement, lines_block};
 use crate::format::imports::rewrite_use;
 use crate::format::items::{is_item, rewrite_header};
+use crate::format::reorder::PassNodes;
 use crate::format::space::{spacing, wants_space};
 use crate::format::stmt::{
   rewrite_control_head, rewrite_head, rewrite_let_control, rewrite_statement,
@@ -249,11 +250,12 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   // Whether the text names any macros or attributes to skip, its spaces aside: most do not,
   // and then nothing needs looking up per call or attribute.
   let marks_before = SKIP_MARKS.with(|m| {
-    let squeezed: String = source.split_whitespace().collect();
-    m.replace((
-      squeezed.contains("rustfmt::skip::macros("),
-      squeezed.contains("rustfmt::skip::attributes("),
-    ))
+    let mut marks = (false, false);
+    for (at, _) in source.match_indices('(') {
+      marks.0 |= squeezed_ends_with(&source[..at], "rustfmt::skip::macros");
+      marks.1 |= squeezed_ends_with(&source[..at], "rustfmt::skip::attributes");
+    }
+    m.replace(marks)
   });
   let out = format_text_with(source, edition, config, strip);
   SKIP_MARKS.with(|m| m.set(marks_before));
@@ -555,6 +557,11 @@ pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
   })
 }
 
+/// Whether the text being formatted is in style edition 2024 or later.
+pub(super) fn style_2024() -> bool {
+  STYLE.with(|e| e.get()) >= 2024
+}
+
 thread_local! {
   /// `skip_macro_invocations` for the text being formatted.
   static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
@@ -568,11 +575,6 @@ thread_local! {
   static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
   /// Whether the text being formatted names macros, and attributes, to skip.
   static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
-}
-
-/// Whether the text being formatted is in style edition 2024 or later.
-pub(super) fn style_2024() -> bool {
-  STYLE.with(|e| e.get()) >= 2024
 }
 
 /// For a struct's fields, an enum's variants or a match's arms laid out one per line from
@@ -1363,37 +1365,42 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     }
     None => (text, root),
   };
+  let mut nodes = PassNodes::default();
   // Empty statements dropped first, and imports of nothing.
   let stripped = if strip {
-    crate::format::reorder::strip_semicolons(&root, &text)
+    crate::format::reorder::strip_semicolons(&root, &mut nodes, &text)
   } else {
     None
   };
   let (text, root) = match stripped {
     Some(stripped) => {
       let root = parse(&stripped, edition).syntax_node();
+      nodes = PassNodes::default();
       (stripped, root)
     }
     None => (text, root),
   };
-  let stripped = crate::format::reorder::empty_uses(&root, &text, edition, config);
+  let stripped = crate::format::reorder::empty_uses(&root, &mut nodes, &text, edition, config);
   let (text, root) = match stripped {
     Some(stripped) => {
       let root = parse(&stripped, edition).syntax_node();
+      nodes = PassNodes::default();
       (stripped, root)
     }
     None => (text, root),
   };
-  let (text, root) = match crate::format::reorder::last_arm_comments(&root, &text) {
+  let (text, root) = match crate::format::reorder::last_arm_comments(&root, &mut nodes, &text) {
     Some(moved) => {
       let root = parse(&moved, edition).syntax_node();
+      nodes = PassNodes::default();
       (moved, root)
     }
     None => (text, root),
   };
-  let (text, root) = match crate::format::reorder::control_comments(&root, &text) {
+  let (text, root) = match crate::format::reorder::control_comments(&root, &mut nodes, &text) {
     Some(moved) => {
       let root = parse(&moved, edition).syntax_node();
+      nodes = PassNodes::default();
       (moved, root)
     }
     None => (text, root),
@@ -1406,18 +1413,20 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   {
     Some(merged) => {
       let root = parse(&merged, edition).syntax_node();
+      nodes = PassNodes::default();
       (merged, root)
     }
     None => (text, root),
   };
   // Imports and module declarations sorted first; the sorted text is what is formatted.
-  let (text, root) = match crate::format::reorder::reorder(&root, &text, edition, config) {
-    Some(sorted) => {
-      let root = parse(&sorted, edition).syntax_node();
-      (sorted, root)
-    }
-    None => (text, root),
-  };
+  let (text, root) =
+    match crate::format::reorder::reorder(&root, &mut nodes, &text, edition, config) {
+      Some(sorted) => {
+        let root = parse(&sorted, edition).syntax_node();
+        (sorted, root)
+      }
+      None => (text, root),
+    };
   let body = reindent(&root, &text, edition, config);
   // Line endings inside a multi-line string are part of the string: a file whose strings
   // hold line breaks keeps its own endings.
@@ -4387,6 +4396,13 @@ fn skips_itself(root: &SyntaxNode) -> bool {
     .children_iter()
     .filter_map(Attr::cast)
     .any(|a| a.is_inner() && a.is_rustfmt_skip())
+}
+
+/// Whether `text`, its spaces aside, ends with `mark`: read back from its end, without
+/// copying it.
+fn squeezed_ends_with(text: &str, mark: &str) -> bool {
+  let mut chars = text.chars().rev().filter(|c| !c.is_whitespace());
+  mark.chars().rev().all(|c| chars.next() == Some(c))
 }
 
 /// Whether a block of its own (no `unsafe`, `const`, `async` or label) stands as a statement

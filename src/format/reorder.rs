@@ -19,13 +19,52 @@ use crate::order::{UseTree, version_sort};
 use crate::syntax::ast::Attr;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode};
 
+/// The nodes the passes here look at, found in one walk of the tree when a pass first asks
+/// for them: most files no pass changes, and a walk of its own per pass was most of what
+/// the passes cost. A pass that writes new text needs a new one for the tree of that text.
+#[derive(Default)]
+pub struct PassNodes(Option<Vec<SyntaxNode>>);
+
+impl PassNodes {
+  /// The nodes of `root` (itself among them) whose kind `wanted` takes, in source order:
+  /// only of the kinds a pass here walks for.
+  fn of<'a>(
+    &'a mut self,
+    root: &SyntaxNode,
+    wanted: impl Fn(SyntaxKind) -> bool + 'a,
+  ) -> impl Iterator<Item = &'a SyntaxNode> {
+    self
+      .0
+      .get_or_insert_with(|| {
+        root
+          .descendant_nodes_where(|kind| {
+            matches!(
+              kind,
+              K::Use
+                | K::LoopExpr
+                | K::WhileExpr
+                | K::ForExpr
+                | K::IfExpr
+                | K::MatchArmList
+                | K::BlockExpr
+                | K::SourceFile
+                | K::ItemList
+            )
+          })
+          .collect()
+      })
+      .iter()
+      .filter(move |node| wanted(node.kind()))
+  }
+}
+
 /// `text` with the comments between a `loop`, `while`, `for` or `if` head and its block each
 /// on a line of its own at the head's indentation, the block's `{` on the line after them,
 /// as the standard formatter writes them. `None` when there are none. Not in a `// mto: off`
 /// region or a skipped item.
-pub fn control_comments(root: &SyntaxNode, text: &str) -> Option<String> {
+pub fn control_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -> Option<String> {
   let mut edits: Vec<(usize, usize, String)> = Vec::new();
-  let controls = root.descendant_nodes_where(|kind| {
+  let controls = nodes.of(root, |kind| {
     matches!(kind, K::LoopExpr | K::WhileExpr | K::ForExpr | K::IfExpr)
   });
   for control in controls {
@@ -59,7 +98,7 @@ pub fn control_comments(root: &SyntaxNode, text: &str) -> Option<String> {
       || between
         .iter()
         .any(|e| matches!(e, SyntaxElement::Token(t) if t.kind() == K::BlockComment && t.text().contains('\n')))
-      || skipped_within(&control)
+      || skipped_within(control)
     {
       continue;
     }
@@ -126,6 +165,7 @@ pub fn control_comments(root: &SyntaxNode, text: &str) -> Option<String> {
 /// formatter drops too, but which is not nothing).
 pub fn empty_uses(
   root: &SyntaxNode,
+  nodes: &mut PassNodes,
   text: &str,
   edition: Edition,
   config: &FormatConfig,
@@ -136,12 +176,12 @@ pub fn empty_uses(
   let global = edition >= Edition::E2018;
   let version = config.style_edition >= 2024;
   let mut cut: Vec<(usize, usize)> = Vec::new();
-  for node in root.descendant_nodes_where(|kind| kind == K::Use) {
+  for node in nodes.of(root, |kind| kind == K::Use) {
     let Some(tree) = node.children_iter().find(|c| c.kind() == K::UseTree) else {
       continue;
     };
     // From its visibility or `use` on: the comments before it are not its own.
-    let Some(body) = crate::format::imports::body_start(&node) else {
+    let Some(body) = crate::format::imports::body_start(node) else {
       continue;
     };
     let commented = node.token_texts().any(|(kind, _, range)| {
@@ -198,10 +238,13 @@ pub fn explicit_abi(root: &SyntaxNode, text: &str) -> Option<String> {
   }
   let off = off_regions(root);
   let mut at: Vec<usize> = Vec::new();
-  for token in root.descendants_with_tokens_iter().filter_map(|e| match e {
-    SyntaxElement::Token(t) if t.kind() == K::ExternKw => Some(t),
-    _ => None,
-  }) {
+  for token in root
+    .descendants_where(|kind| kind == K::ExternKw)
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) => Some(t),
+      SyntaxElement::Node(_) => None,
+    })
+  {
     let parent = token.parent();
     // An ABI node, or an `extern { .. }` block's own keyword; with no string after it.
     let abi = match parent.kind() {
@@ -237,9 +280,9 @@ pub fn explicit_abi(root: &SyntaxNode, text: &str) -> Option<String> {
 /// for the arm's comments after it: the first after one space, each later one under it, a
 /// blank line among them kept. `None` when there are none to move. Not in a
 /// `// mto: off` region or a skipped item.
-pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
+pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -> Option<String> {
   let mut edits: Vec<(usize, usize, String)> = Vec::new();
-  for list in root.descendant_nodes_where(|kind| kind == K::MatchArmList) {
+  for list in nodes.of(root, |kind| kind == K::MatchArmList) {
     let Some(arm) = list.children_iter().rfind(|c| c.kind() == K::MatchArm) else {
       continue;
     };
@@ -277,7 +320,7 @@ pub fn last_arm_comments(root: &SyntaxNode, text: &str) -> Option<String> {
       || !on_arm_line
         && arm.last_token().is_some_and(|t| t.kind() == K::Comma)
         && !plain_block_body(&arm)
-      || skipped_within(&list)
+      || skipped_within(list)
     {
       continue;
     }
@@ -488,6 +531,7 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
 /// `text` with its runs sorted, or `None` when nothing moves.
 pub fn reorder(
   root: &SyntaxNode,
+  nodes: &mut PassNodes,
   text: &str,
   edition: Edition,
   config: &FormatConfig,
@@ -499,8 +543,8 @@ pub fn reorder(
   let mut off: Option<Vec<(usize, usize)>> = None;
   let mut moves: Vec<(usize, usize, String)> = Vec::new();
   let containers = |kind| matches!(kind, K::SourceFile | K::ItemList | K::BlockExpr);
-  for node in root.descendant_nodes_where(containers) {
-    for run in runs(&node, config.blank_lines_upper_bound > 0) {
+  for node in nodes.of(root, containers) {
+    for run in runs(node, config.blank_lines_upper_bound > 0) {
       let start = run[0].text_range().start as usize;
       let end = run[run.len() - 1].text_range().end as usize;
       if run.len() < 2 || has_comment(&run) {
@@ -627,9 +671,9 @@ pub fn reorder(
 /// `text` without the `;`s standing alone in a block (empty statements), which the standard
 /// formatter drops; `None` when there are none. Not in a `// mto: off` region or a skipped
 /// item.
-pub fn strip_semicolons(root: &SyntaxNode, text: &str) -> Option<String> {
+pub fn strip_semicolons(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -> Option<String> {
   let mut stray: Vec<(usize, usize)> = Vec::new();
-  for block in root.descendant_nodes_where(|kind| kind == K::BlockExpr) {
+  for block in nodes.of(root, |kind| kind == K::BlockExpr) {
     // One after an item (`struct S {};`) the standard formatter keeps.
     let mut after_item = false;
     for element in block.children_with_tokens_iter() {

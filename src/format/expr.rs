@@ -971,9 +971,8 @@ pub(super) fn if_single_line(node: &SyntaxNode, shape: Shape) -> Option<String> 
 pub(super) fn is_macro(node: &SyntaxNode) -> bool {
   matches!(node.kind(), SyntaxKind::MacroExpr | SyntaxKind::MacroCall)
     && node
-      .descendants()
-      .into_iter()
-      .find(|d| d.kind() == SyntaxKind::TokenTree)
+      .descendant_nodes_where(|kind| kind == SyntaxKind::TokenTree)
+      .next()
       .and_then(|tree| tree.first_token())
       .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
 }
@@ -984,7 +983,12 @@ pub(super) fn is_macro(node: &SyntaxNode) -> bool {
 /// formatter's char classes read a raw string's lines (found by measuring it); a `://` is a
 /// link's, not a comment.
 pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
-  let inside = lines_in_block_comments(text);
+  // A text of one line has none after it to read comments across.
+  let inside = if text.contains('\n') {
+    lines_in_block_comments(text)
+  } else {
+    Vec::new()
+  };
   text.split('\n').zip(inside).skip(1).map(|(line, inside)| {
     let trimmed = line.trim_start();
     let comment = trimmed.starts_with("//") || trimmed.starts_with("/*");
@@ -1917,10 +1921,8 @@ fn block_fits(closure: &SyntaxNode, prefix: usize, shape: Shape) -> bool {
       .eq([SyntaxKind::IdentPat]);
   let unmeasured = !returns && (params.is_empty() || lone_name);
   let rest = params.iter().any(|p| {
-    p.descendants().iter().any(|d| {
-      d.kind() == SyntaxKind::RecordPatField
-        && d.children().iter().any(|c| c.kind() == SyntaxKind::RestPat)
-    })
+    p.descendant_nodes_where(|kind| kind == SyntaxKind::RecordPatField)
+      .any(|d| d.children_iter().any(|c| c.kind() == SyntaxKind::RestPat))
   });
   // `prefix` holds the space after the last `|`; with a return type, the space before it
   // is counted where the standard formatter counts one for it.
@@ -1987,21 +1989,21 @@ fn braced_macro(node: &SyntaxNode, name: &str, shape: Shape) -> Option<String> {
 /// line within: a chain of two links or more past `chain_width`, arguments past
 /// `fn_call_width`, array elements past `array_width`, fields past `struct_lit_width`.
 fn breaks_inside(node: &SyntaxNode, limits: Limits) -> bool {
-  node.descendants().iter().any(|d| {
-    let width = || flat(d, limits.spacing).width();
+  node.descendants_iter().any(|d| {
+    let width = || flat(&d, limits.spacing).width();
     match d.kind() {
       SyntaxKind::MethodCallExpr
       | SyntaxKind::FieldExpr
       | SyntaxKind::AwaitExpr
       | SyntaxKind::UseExpr
-      | SyntaxKind::TryExpr => chain(d, limits.spacing).2.len() >= 2 && width() > limits.chain,
+      | SyntaxKind::TryExpr => chain(&d, limits.spacing).2.len() >= 2 && width() > limits.chain,
       SyntaxKind::ArgList => width().saturating_sub(2) > limits.fn_call,
       SyntaxKind::ArrayExpr => width().saturating_sub(2) > limits.array,
       // `{ ` and ` }` aside.
       SyntaxKind::RecordExprFieldList => width().saturating_sub(4) > limits.struct_lit,
       // Laid out on lines whatever their width.
       SyntaxKind::MatchArmList | SyntaxKind::LetElse => true,
-      SyntaxKind::BlockExpr => !joins(d) && !one_line_if_block(d),
+      SyntaxKind::BlockExpr => !joins(&d) && !one_line_if_block(&d),
       _ => false,
     }
   })
@@ -2047,8 +2049,8 @@ fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .children()
     .iter()
     .filter(|c| c.kind() == SyntaxKind::ParamList)
-    .flat_map(|c| c.descendants())
-    .any(|d| d.kind() == SyntaxKind::RecordPatFieldList && wide(&d));
+    .flat_map(|c| c.descendant_nodes_where(|kind| kind == SyntaxKind::RecordPatFieldList))
+    .any(|d| wide(&d));
   let prefix = &closure_head(node, body, shape.limits.spacing);
   // A parameter whose type breaks over lines: the parameters one per line, lined up after
   // the `|` (each laid out in the standard formatter's visually indented `param_shape`).
@@ -2255,10 +2257,7 @@ fn comments_in(node: &SyntaxNode, from: u32, to: u32) -> Vec<(String, bool)> {
   let mut same_line = true;
   // The space after a comment on its line, while the next may join it.
   let mut after_comment: Option<String> = None;
-  for (kind, text, range) in node.token_texts() {
-    if range.start < from || range.start >= to {
-      continue;
-    }
+  for (kind, text, _) in node.token_texts_between(from, to) {
     match kind {
       SyntaxKind::Whitespace if text.contains('\n') => {
         same_line = false;
@@ -2376,9 +2375,8 @@ fn empty_generics(token: &SyntaxToken) -> bool {
 fn empty_macro(node: &SyntaxNode) -> bool {
   match node.kind() {
     SyntaxKind::MacroExpr | SyntaxKind::MacroCall => node
-      .descendants()
-      .into_iter()
-      .find(|d| d.kind() == SyntaxKind::TokenTree)
+      .descendant_nodes_where(|kind| kind == SyntaxKind::TokenTree)
+      .next()
       .is_some_and(|tree| {
         tree
           .children_with_tokens()
@@ -2961,9 +2959,8 @@ fn macro_type_arguments(node: &SyntaxNode, spacing: Spacing) -> Option<MacroArgu
   }
   let list = parsed
     .syntax_node()
-    .descendants()
-    .into_iter()
-    .find(|n| n.kind() == SyntaxKind::GenericArgList)?;
+    .descendant_nodes_where(|kind| kind == SyntaxKind::GenericArgList)
+    .next()?;
   // One holding a comma (`name<A, B>`) the standard formatter reads as an expression up to
   // that comma first, and then fails on the rest: it is left as written. But where a
   // lifetime comes first (`Cow<'a, T>`), or anything else no expression reads comes before
@@ -3181,9 +3178,8 @@ fn read_macro_arguments_once(
   }
   let root = parsed.syntax_node();
   let statement = root
-    .descendants()
-    .into_iter()
-    .find(|n| n.kind() == SyntaxKind::ExprStmt)
+    .descendant_nodes_where(|kind| kind == SyntaxKind::ExprStmt)
+    .next()
     .ok_or(AsWritten)?;
   let expression = statement.children().into_iter().next().ok_or(AsWritten)?;
   let list = match list_kind {
@@ -3976,9 +3972,8 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
   // An attribute inside an argument: left as written, as a statement holding one is. One on
   // an argument goes on a line of its own before it.
   if list
-    .descendants()
-    .iter()
-    .any(|d| d.kind() == SyntaxKind::Attr && d.parent().as_ref() != Some(&list))
+    .descendant_nodes_where(|kind| kind == SyntaxKind::Attr)
+    .any(|d| d.parent().as_ref() != Some(&list))
   {
     return None;
   }
@@ -4894,7 +4889,10 @@ fn wrap_str(text: String, shape: Shape) -> Option<String> {
   if lines.next().is_some_and(|l| l.width() > shape.width) {
     return None;
   }
-  if later_lines(&text).any(|(_, w)| w > shape.limits.max_width) {
+  // No line is wider than its bytes are many.
+  if text.len() > shape.limits.max_width
+    && later_lines(&text).any(|(_, w)| w > shape.limits.max_width)
+  {
     return None;
   }
   Some(text)

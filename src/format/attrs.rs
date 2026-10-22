@@ -119,9 +119,8 @@ fn call(
   }
   let root = parsed.syntax_node();
   let call = root
-    .descendants()
-    .into_iter()
-    .find(|n| n.kind() == K::ExprStmt)?
+    .descendant_nodes_where(|kind| kind == K::ExprStmt)
+    .next()?
     .children()
     .into_iter()
     .next()

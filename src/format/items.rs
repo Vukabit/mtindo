@@ -170,8 +170,9 @@ pub fn rewrite_header(
   let (text, end) = laid_header(node, indent, config)?;
   let start = header_start(node)?;
   let from = node.text_range().start as usize;
-  let written = node.text().to_string();
-  let written = written.get(start.checked_sub(from)?..end.checked_sub(from)?)?;
+  let written = node
+    .text()
+    .get(start.checked_sub(from)?..end.checked_sub(from)?)?;
   same_header_tokens(written, &text).then_some((text, end))
 }
 

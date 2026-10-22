@@ -1,4 +1,4 @@
-use super::{explicit_abi, strip_semicolons};
+use super::{PassNodes, explicit_abi, strip_semicolons};
 use crate::format::file::format_file;
 use crate::options::format::FormatConfig;
 use crate::syntax::Edition;
@@ -60,7 +60,7 @@ fn test_empty_statements_dropped() {
   let source = "fn f() {;\n    x();;\n    struct S {};\n}\n";
   let root = crate::syntax::parse(source, crate::syntax::Edition::E2021).syntax_node();
   assert_eq!(
-    strip_semicolons(&root, source).as_deref(),
+    strip_semicolons(&root, &mut PassNodes::default(), source).as_deref(),
     Some("fn f() {\n    x();\n    struct S {};\n}\n")
   );
 }

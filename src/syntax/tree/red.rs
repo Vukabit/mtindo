@@ -416,6 +416,18 @@ impl SyntaxNode {
     }
   }
 
+  /// [`Self::token_texts`] for the tokens starting at `from` or later and before `to`: the
+  /// tokens are in source order, so these are one run of them, found by binary search.
+  pub fn token_texts_between(&self, from: u32, to: u32) -> TokenTexts<'_> {
+    let tokens = self.0.green.tokens();
+    let low = tokens.partition_point(|t| t.start() < from);
+    let high = low + tokens[low..].partition_point(|t| t.start() < to);
+    TokenTexts {
+      tree: &self.0.green,
+      tokens: tokens[low..high].iter(),
+    }
+  }
+
   /// Every node and token below this node (and the node itself), in source order.
   pub fn descendants_with_tokens(&self) -> Vec<SyntaxElement> {
     self.descendants_with_tokens_iter().collect()

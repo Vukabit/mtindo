@@ -594,10 +594,12 @@ is `mto`. Layout (`layout = true`) does what the standard formatter leaves
 alone: it reorders a file's items (modules, imports, macros, constants, types
 with their impls, functions) into a predictable top-down layout, inside inline
 modules too, and the items of impl blocks when asked; it moves items whole.
-Formatting (`format = true`, a preview) does what the standard formatter does:
-spacing, indentation and line breaks, in the Rust style, changing whitespace
-and the few tokens the Rust style rewrites. Both are opt-in: until an `mto.toml` turns one on, mto leaves
-every file alone and says so. `mto init` writes one.
+Formatting does what the standard formatter does: spacing, indentation and
+line breaks, in the Rust style, changing whitespace and the few tokens the
+Rust style rewrites. Formatting is on by default, so with no configuration
+mto is a drop-in for the standard formatter (`format = false` turns it off);
+layout is opt-in, with `layout = true` in an `mto.toml`. `mto init` writes
+one.
 ## How it works
 *   **Parsed, not guessed:** each file is parsed into a syntax tree that keeps
 every byte. A file with syntax errors is left untouched and reported as
@@ -968,8 +970,9 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   }
   if off > 0 && !opts.quiet {
     eprintln!(
-      "{}{} file(s) left alone: layout and format are off. Run `mto init` to write an \
-             mto.toml with `layout = true`, or set `format = true` (preview).{}",
+      "{}{} file(s) left alone: layout and formatting are off (`format = false`). \
+             Remove `format = false` to format them, or run `mto init` for an mto.toml \
+             with `layout = true`.{}",
       c_yellow(true),
       off,
       c_reset(true)

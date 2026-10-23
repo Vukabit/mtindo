@@ -1210,9 +1210,15 @@ fn split_use(tokens: Vec<Token<'_>>) -> Vec<Vec<Token<'_>>> {
   entries
 }
 
-/// A token's canonical text: doc comments as their text, numbers normalized, `...` in a
-/// range pattern as `..=`.
+/// A token's canonical text: CRLF as LF, doc comments as their text, numbers normalized,
+/// `...` in a range pattern as `..=`.
 fn token_text<'a>(parent: &SyntaxNode, kind: SyntaxKind, text: &'a str) -> Cow<'a, str> {
+  // crlf-in-tokens: rustc reads every CRLF as LF, inside strings and block comments too.
+  if text.contains("\r\n") {
+    return token_text(parent, kind, &text.replace("\r\n", "\n"))
+      .into_owned()
+      .into();
+  }
   match kind {
     // range-pattern: `...` is `..=`.
     SyntaxKind::Dot3 if parent.kind() == SyntaxKind::RangePat => "..=".into(),

@@ -3514,7 +3514,7 @@ fn rewrite_type_alias(
       &texts,
       same_line,
       inner,
-      config.max_width - inner,
+      config.max_width.checked_sub(inner)?,
     )
   };
   // 1 = `;`

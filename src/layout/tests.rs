@@ -51,6 +51,18 @@ fn test_a_final_carriage_return_is_kept_as_written() {
   assert_eq!(arranged(&out), out);
 }
 
+#[test]
+fn test_a_header_ending_in_a_comment_stays_apart() {
+  // Its last line holds a block comment, then a line comment: still a comment, so the blank
+  // line after it stays, or the comment would head the item.
+  let config = LayoutConfig {
+    blank_lines_between_blocks: 0,
+    ..LayoutConfig::default()
+  };
+  let source = "/* a */ // b\n\nfn f() {}\n";
+  assert_eq!(layout(source, &config).unwrap().text, source);
+}
+
 /// An impl for a name two types share goes with the one placed first, whichever was
 /// written first, so a second run leaves it there. Found by the generated-code fuzz target.
 #[test]
@@ -215,6 +227,26 @@ fn test_impl_functions_follow_the_trait() {
   );
   assert_eq!(layout(&once, &config).unwrap().text, once, "stable");
   assert!(crate::verify::verify_layout(source, &once, Edition::E2021).is_empty());
+}
+
+#[test]
+fn test_impl_items_rank_by_their_own_code() {
+  let config = LayoutConfig {
+    reorder_impl_items: true,
+    ..LayoutConfig::default()
+  };
+  // An `impl Trait` alias goes after a plain one, whatever `=` a comment above it holds.
+  let source = "impl S {\n    // a = b\n    type A = impl X;\n\n    type B = u8;\n}\n";
+  let once = layout(source, &config).unwrap().text;
+  assert_eq!(
+    once,
+    "impl S {\n    type B = u8;\n\n    // a = b\n    type A = impl X;\n}\n"
+  );
+  assert_eq!(layout(&once, &config).unwrap().text, once);
+  // A body closed on its last item's line is left as written: a comment ending an item
+  // moved there would no longer end its line.
+  let closed = "impl S {\n    fn f() {} // c\n    type A = u8;}\n";
+  assert_eq!(layout(closed, &config).unwrap().text, closed);
 }
 
 #[test]

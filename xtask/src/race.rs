@@ -1267,8 +1267,11 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
         .and_then(|c| fs::read_to_string(c).ok())
         .unwrap_or_default();
       let mto_file = config_dir.join(format!("layout-{}-{}.toml", n, base));
-      fs::write(&mto_file, format!("layout = true\n{}\n{}", lines, edition))
-        .map_err(|e| e.to_string())?;
+      fs::write(
+        &mto_file,
+        format!("layout = true\nformat = false\n{}\n{}", lines, edition),
+      )
+      .map_err(|e| e.to_string())?;
       let check = if rustfmt_lines.is_empty() {
         (original.config.clone(), false)
       } else {

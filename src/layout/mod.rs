@@ -446,12 +446,23 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
   if !header.is_empty() {
     output.push_str(header);
     if !units.is_empty() || !split.tail.is_empty() {
-      let comment_last = header.trim_end().ends_with("*/")
-        || header
-          .trim_end()
-          .lines()
-          .last()
-          .is_some_and(|l| l.trim_start().starts_with("//"));
+      // By its last token: a line can hold code before its comment, or two comments.
+      let comment_last = crate::syntax::lexer::tokenize(header, Edition::E2021)
+        .iter()
+        .rev()
+        .map(|t| t.kind)
+        .find(|&kind| kind != SyntaxKind::Whitespace)
+        .is_some_and(|kind| {
+          matches!(
+            kind,
+            SyntaxKind::LineComment
+              | SyntaxKind::BlockComment
+              | SyntaxKind::OuterLineDoc
+              | SyntaxKind::InnerLineDoc
+              | SyntaxKind::OuterBlockDoc
+              | SyntaxKind::InnerBlockDoc
+          )
+        });
       output.push_str(if comment_last { &parted } else { &apart });
     }
   }

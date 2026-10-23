@@ -219,7 +219,20 @@ pub fn wrapped(expression: &SyntaxNode, shape: Shape) -> Option<String> {
       .then(|| super::expr::if_single_line(expression, inner))
       .flatten()
       .or_else(|| super::expr::rewrite_if_lines(expression, inner, false))?,
-    _ => rewrite(expression, inner)?,
+    // One the standard formatter gives up on is kept as written, as in any block
+    // ([`given_up`]); on one line only, so a second run weighs the same text. Not one
+    // holding a block, or a closure inside a closure, whose own blocks decide for them:
+    // weighed here too, each level of closures nested in closures would weigh all those
+    // inside it again.
+    _ => rewrite(expression, inner).or_else(|| {
+      let nested = expression
+        .descendant_nodes_where(|kind| matches!(kind, K::ClosureExpr | K::BlockExpr))
+        .any(|n| n.kind() == K::BlockExpr || &n != expression);
+      (!nested)
+        .then(|| given_up(expression, inner))
+        .flatten()
+        .filter(|t| !t.contains('\n'))
+    })?,
   };
   Some(format!(
     "{{\n{}{}\n{}}}",
@@ -522,7 +535,11 @@ fn gives_up_whole(node: &SyntaxNode, inner: Shape, any_string: bool, string_line
     limits: super::shape::Limits::of(&wide),
     ..inner
   };
-  let Some(laid) = statement(node, unlimited, &wide) else {
+  // A statement, or an expression standing alone in a block made for it.
+  let lay = |shape: Shape, config: &crate::options::format::FormatConfig| {
+    statement(node, shape, config).or_else(|| rewrite(node, shape))
+  };
+  let Some(laid) = lay(unlimited, &wide) else {
     return false;
   };
   let max = inner.limits.max_width;
@@ -569,8 +586,7 @@ fn gives_up_whole(node: &SyntaxNode, inner: Shape, any_string: bool, string_line
   }
   // A line past the width with no width to keep to, unless the layout within the width
   // fits (what breaks only for want of room: parameters, generic arguments).
-  past_width(&laid)
-    && statement(node, inner, &inner.limits.config()).is_none_or(|text| past_width(&text))
+  past_width(&laid) && lay(inner, &inner.limits.config()).is_none_or(|text| past_width(&text))
 }
 
 /// The statement again with the insides of each outermost block in it taken out (`{}`),

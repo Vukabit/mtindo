@@ -111,7 +111,10 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
 /// that mto rewrites every one.
 fn generate(project: &Path, files: usize) -> std::io::Result<()> {
   fs::create_dir_all(project)?;
-  fs::write(project.join("mto.toml"), "root = true\nlayout = true\n")?;
+  fs::write(
+    project.join("mto.toml"),
+    "root = true\nlayout = true\nformat = false\n",
+  )?;
   for i in 0..files {
     let folder: PathBuf = project.join(format!("m{}", i / PER_FOLDER));
     if i % PER_FOLDER == 0 {

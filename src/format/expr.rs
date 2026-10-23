@@ -63,6 +63,8 @@ trait Width {
 pub(super) enum Question {
   /// [`super::stmt::clean_expression`].
   Clean,
+  /// [`must_span_lines`].
+  SpansLines,
 }
 
 /// The tactic for a list, as the standard formatter's `definitive_tactic` decides it.
@@ -1883,10 +1885,19 @@ fn binary_one_line(
     result.push(' ');
   }
   let prefix = result.width();
-  let last = rewrite(
-    operands.last()?,
-    shape.offset_left(last_line_width(&result))?,
-  )?;
+  // The last spanning lines must open with `{`, or follow a prefix no wider than the
+  // indentation: one that cannot start with `{` and must span lines is refused unlaid.
+  let last_operand = operands.last()?;
+  if prefix > shape.limits.tab
+    && !matches!(
+      last_operand.kind(),
+      SyntaxKind::BlockExpr | SyntaxKind::RecordExpr | SyntaxKind::MacroExpr
+    )
+    && must_span_lines(last_operand)
+  {
+    return None;
+  }
+  let last = rewrite(last_operand, shape.offset_left(last_line_width(&result))?)?;
   result.push_str(&last);
   if result.contains('\n')
     && !last.starts_with('{')
@@ -2017,9 +2028,15 @@ fn chain_with_links(node: &SyntaxNode) -> bool {
 /// A closure's body after its `|parameters|`, on their line: spanning lines only when it is
 /// block-like (`rewrite_closure_expr`).
 fn closure_expression(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<String> {
+  // One that may not span lines but holds what is always laid out on lines (a `match`'s
+  // arms, a block of statements) is refused before it is laid out: closures nested in
+  // closures would each lay out all the rest only to refuse it, at every level.
+  let multi_line = multi_line_body(body) || shape.limits.inside_macro;
+  if !multi_line && must_span_lines(body) {
+    return None;
+  }
   let text = rewrite(body, shape)?;
-  (!text.contains('\n') || multi_line_body(body) || shape.limits.inside_macro)
-    .then(|| format!("{} {}", prefix, text))
+  (!text.contains('\n') || multi_line).then(|| format!("{} {}", prefix, text))
 }
 
 /// A closure's flat text before its body, with the space before the body: what
@@ -2532,6 +2549,13 @@ fn is_block_expr(node: &SyntaxNode, text: &str) -> bool {
     | SyntaxKind::LoopExpr
     | SyntaxKind::ForExpr
     | SyntaxKind::MatchExpr => text.contains('\n'),
+    // A closure whose body was put in a block here ends like one, as a second run reads it
+    // (where the standard formatter reads the body as written, deciding differently then).
+    SyntaxKind::ClosureExpr
+      if text.contains('\n') && text.trim_end_matches([')', '?']).ends_with('}') =>
+    {
+      true
+    }
     SyntaxKind::ParenExpr
     | SyntaxKind::BinExpr
     | SyntaxKind::IndexExpr
@@ -3024,6 +3048,28 @@ fn multi_line_body(body: &SyntaxNode) -> bool {
   }
 }
 
+/// Whether `node` holds what is always laid out on lines (a `match`'s arms, a block of
+/// statements), so that no layout of it fits on one: asked before laying it out where only
+/// one line would do, as laying it out to find that out is repeated at every level of
+/// closures or operations nested in each other.
+fn must_span_lines(node: &SyntaxNode) -> bool {
+  remembered(node, Question::SpansLines, || {
+    node
+      .descendant_nodes_where(|kind| {
+        matches!(kind, SyntaxKind::MatchArmList | SyntaxKind::BlockExpr)
+      })
+      .any(|n| match n.kind() {
+        SyntaxKind::MatchArmList => n.children_iter().any(|c| c.kind() == SyntaxKind::MatchArm),
+        _ => {
+          super::stmt::laid_on_lines(&n)
+            && n
+              .children_iter()
+              .any(|c| matches!(c.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt))
+        }
+      })
+  })
+}
+
 /// Parentheses holding no comment and no attribute of their own around parenthesized
 /// expression, which drop (`rewrite_paren`): `(((a)))` is `(a)`, `(/* c */((a)))` is
 /// `(/* c */(a))`.
@@ -3312,11 +3358,12 @@ fn rewrite_block(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let prefix = &whole[..whole.find('{')?];
   // 4 = `{ ` and ` }`; the whole within the width, which a string kept as written may not
   // be (`rewrite_single_line_block`).
-  if let Some(text) = shape
-    .offset_left(prefix.width() + 2)
-    .and_then(|s| s.sub_width(2))
-    .and_then(|s| rewrite(&inside, s))
-    .filter(|t| !t.contains('\n') && prefix.width() + 4 + t.width() <= shape.width)
+  if !must_span_lines(&inside)
+    && let Some(text) = shape
+      .offset_left(prefix.width() + 2)
+      .and_then(|s| s.sub_width(2))
+      .and_then(|s| rewrite(&inside, s))
+      .filter(|t| !t.contains('\n') && prefix.width() + 4 + t.width() <= shape.width)
   {
     return Some(format!("{}{{ {} }}", prefix, text));
   }
@@ -3591,6 +3638,14 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
 /// only if it is block-like); a block's statements on lines; an expression too long for the
 /// line put in a block of its own.
 fn rewrite_closure(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  // Kept by its shape: one that fails in its block is tried again in that shape to see
+  // whether it is given up on, which closures nested in closures would repeat at every
+  // level.
+  remembered_block(node, shape, || rewrite_closure_once(node, shape))
+}
+
+/// [`rewrite_closure`], laid out afresh.
+fn rewrite_closure_once(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let body = node.children().into_iter().last()?;
   let prefix = closure_prefix(node, shape)?;
   let body_shape = after_prefix(&prefix, shape)?;
@@ -3814,7 +3869,21 @@ fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
       )
     {
       let text = node.text().to_string();
-      return snippet_fits(&text, shape).then_some(text);
+      // Its closing line where a run would put it: written at another indentation, a run
+      // before laid it out somewhere else, and taking it would weigh this run by that one.
+      let closer = text
+        .rsplit('\n')
+        .next()
+        .filter(|_| text.contains('\n'))
+        .filter(|last| {
+          !last.trim().is_empty()
+            && last
+              .trim()
+              .chars()
+              .all(|c| matches!(c, ')' | ']' | '}' | '?' | ';' | ','))
+        });
+      let placed = closer.is_none_or(|last| last.len() - last.trim_start().len() == shape.indent);
+      return (placed && snippet_fits(&text, shape)).then_some(text);
     }
   }
   laid

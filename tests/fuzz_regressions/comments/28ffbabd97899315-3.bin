@@ -1,0 +1,13 @@
+Þ±³// rustfmt-normalize_comments: false
+// Normalize comments
+
+/* sit amet: */
+fn adipiscing() ->e {}
+
+// Lorem ipsum:
+fn dolor() -> usize {}
+
+//or() -> usize {}
+///////?/////////////
+// Basim slice////
+// Basic sli/

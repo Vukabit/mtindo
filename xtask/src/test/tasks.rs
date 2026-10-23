@@ -579,59 +579,20 @@ fn command(program: &str, args: &[&str]) -> Action {
   )
 }
 
-/// Every fuzz target at the same time, each for [`FUZZ_24H_SECONDS`]; what they find is
-/// filed once all have finished. A target that fails is a problem, with the end of what it
-/// said. Like every fuzz task, it fails if the machine slept (the runner keeps it awake and
-/// checks).
+/// Every fuzz target at the same time, each for [`FUZZ_24H_SECONDS`] and fuzzing on past
+/// its finds (see [`crate::fuzz_soak`]); what they find is filed once all have finished. A target that fails other than by a find is a problem. Like every fuzz
+/// task, it fails if the machine slept (the runner keeps it awake and checks).
 fn fuzz_24h(root: &Path) -> Vec<String> {
-  /// A target's exit code and the end of what it said.
-  type Fuzzed = (i32, Vec<String>);
-  let targets = stems(&root.join("fuzz").join("fuzz_targets"));
   let log = crate::common::log::Logger::new(root, "fuzz");
-  let results: Vec<(String, std::thread::Result<Fuzzed>)> = std::thread::scope(|scope| {
-    let handles: Vec<_> = targets
-      .iter()
-      .map(|target| {
-        let log = &log;
-        (
-          target.clone(),
-          scope.spawn(move || {
-            crate::fuzz::fuzz_target(
-              root,
-              target,
-              &crate::fuzz::Run::for_seconds(FUZZ_24H_SECONDS),
-              log,
-            )
-          }),
-        )
-      })
-      .collect();
-    handles
-      .into_iter()
-      .map(|(target, handle)| (target, handle.join()))
-      .collect()
-  });
-  let filed = crate::fuzz::collect(root, &log);
-  let mut problems = Vec::new();
-  for (target, result) in results {
-    match result {
-      Ok((0, _)) => {}
-      Ok((code, said)) => problems.push(format!(
-        "fuzz target {} failed (exit {}):\n{}",
-        target,
-        code,
-        said.join("\n")
-      )),
-      Err(_) => problems.push(format!("fuzzing {} panicked in the runner", target)),
-    }
-  }
-  if filed > 0 {
-    problems.push(format!(
-      "{} new or reopened incident(s) (cargo xtask incidents)",
-      filed
-    ));
-  }
-  problems
+  let targets = crate::fuzz_soak::targets(root);
+  crate::fuzz_soak::soak(
+    root,
+    &targets,
+    FUZZ_24H_SECONDS,
+    true,
+    crate::fuzz_soak::View::Quiet,
+    &log,
+  )
 }
 
 fn gate(name: &str) -> fn(&Path) -> Vec<String> {

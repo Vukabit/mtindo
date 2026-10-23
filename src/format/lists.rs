@@ -155,9 +155,18 @@ pub fn spanned_comments(list: &SyntaxNode, spans: &[(usize, usize)]) -> Option<V
       false
     })
   };
+  // A comment taken with code beside it (an item's comma after its comments, before the
+  // list's end) would write that code twice, where the standard formatter does.
+  let code = |c: &Option<String>| {
+    c.as_ref().is_some_and(|c| {
+      crate::syntax::lexer::tokenize(c, crate::syntax::Edition::E2021)
+        .iter()
+        .any(|t| !t.kind.is_trivia())
+    })
+  };
   if out
     .iter()
-    .any(|c| spans(&c.pre, false) || spans(&c.post, true))
+    .any(|c| spans(&c.pre, false) || spans(&c.post, true) || code(&c.pre) || code(&c.post))
   {
     return None;
   }

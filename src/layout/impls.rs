@@ -114,7 +114,7 @@ pub(super) fn impl_with_items_ordered(
   };
   let arrange = |units: &[Unit]| -> Result<Vec<Unit>, String> {
     Ok(if config.reorder_impl_items {
-      let key = |u: &Unit| impl_item_rank(u, text);
+      let key = |u: &Unit| impl_item_rank(u, &body);
       place(units, |a, b| {
         let (ka, kb) = (key(a), key(b));
         ka.cmp(&kb).then_with(|| match ka {
@@ -143,6 +143,11 @@ pub(super) fn impl_with_items_ordered(
         .collect()
     })
   };
+  // A body closed on its last item's line is left as written: a comment ending the item
+  // moved there would no longer end its line, and so no longer be the item's.
+  if !text[units.last()?.span.1..close_start].contains('\n') {
+    return None;
+  }
   let arranged = around_held(&units, |u| cx.holds(u.span.0), arrange).ok()?;
   if arranged
     .iter()
@@ -159,7 +164,7 @@ pub(super) fn impl_with_items_ordered(
     if slot > 0 {
       if config.reorder_impl_items {
         let prev = &arranged[slot - 1];
-        let (kp, ku) = (impl_item_rank(prev, text), impl_item_rank(unit, text));
+        let (kp, ku) = (impl_item_rank(prev, &body), impl_item_rank(unit, &body));
         let tight = kp == ku && kp <= 2;
         out.push('\n');
         if !tight {
@@ -188,13 +193,23 @@ fn assoc_list(node: &SyntaxNode) -> Option<SyntaxNode> {
 /// The unit's place in the standard formatter's `reorder_impl_items` order: a plain
 /// associated type 0, an `impl Trait` one 1, a const 2, a macro call 3, anything else 4, a
 /// function 5.
-fn impl_item_rank(unit: &Unit, text: &str) -> u8 {
+fn impl_item_rank(unit: &Unit, body: &SyntaxNode) -> u8 {
   match unit.kind {
     ItemKind::TypeAlias => {
-      let item_text = &text[unit.span.0..unit.span.1];
-      let opaque = item_text
-        .split_once('=')
-        .is_some_and(|(_, ty)| ty.trim_start().starts_with("impl "));
+      // From the tree: a comment above the alias, or a generic default, has a `=` too.
+      let opaque = body
+        .children_iter()
+        .find(|c| {
+          let range = c.text_range();
+          c.kind() == SyntaxKind::TypeAlias
+            && range.start as usize >= unit.span.0
+            && range.end as usize <= unit.span.1
+        })
+        .is_some_and(|alias| {
+          alias
+            .children_iter()
+            .any(|c| c.kind() == SyntaxKind::ImplTraitType)
+        });
       u8::from(opaque)
     }
     ItemKind::ConstDecl => 2,

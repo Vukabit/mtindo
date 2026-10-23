@@ -398,7 +398,7 @@ fn test_cli_config_options_lists_every_setting() {
   assert!(stdout.contains("\nrustfmt.toml ("), "{}", stdout);
   let (code, stdout, _) = mto(&env, &["config", "options", "--toml"]);
   assert_eq!(code, 0);
-  assert!(stdout.contains("# format = false\n"), "{}", stdout);
+  assert!(stdout.contains("# format = true\n"), "{}", stdout);
   assert_eq!(mto(&env, &["config", "options", "extra"]).0, 2);
   assert_eq!(mto(&env, &["--toml", "."]).0, 2);
 }
@@ -957,6 +957,63 @@ fn test_cli_format_works_with_and_without_layout() {
 }
 
 #[test]
+fn test_cli_formats_by_default_and_lays_out_once_opted_in() {
+  let env = TestEnvironment::new();
+  std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
+  let messy = "fn b( ) {}\n\nfn a() {  }\n";
+  env.write_file("main.rs", messy);
+  env.write_file("rustfmt.toml", "max_width = 80\n");
+
+  // No mto.toml: formatted as the standard formatter would, its items left in place.
+  let output = env.mto_cmd().arg("main.rs").output().unwrap();
+  let stderr = String::from_utf8(output.stderr).unwrap();
+  assert_eq!(output.status.code(), Some(0), "{}", stderr);
+  assert!(!stderr.contains("left alone"), "{}", stderr);
+  assert_eq!(
+    std::fs::read_to_string(env.dir.path().join("main.rs")).unwrap(),
+    SOURCE
+  );
+  let output = env.mto_cmd().arg("-").write_stdin(messy).output().unwrap();
+  assert_eq!(String::from_utf8(output.stdout).unwrap(), SOURCE);
+
+  // `format = false` and no layout: nothing changes, and the hint says why.
+  env.write_file("main.rs", messy);
+  env.write_file("mto.toml", "format = false\n");
+  let output = env.mto_cmd().arg("main.rs").output().unwrap();
+  let stderr = String::from_utf8(output.stderr).unwrap();
+  assert_eq!(output.status.code(), Some(0));
+  assert!(
+    stderr.contains("1 file(s) left alone: layout and formatting are off (`format = false`)"),
+    "{}",
+    stderr
+  );
+  assert_eq!(
+    std::fs::read_to_string(env.dir.path().join("main.rs")).unwrap(),
+    messy
+  );
+
+  // An mto.toml without `layout = true` moves no items, and says why a layout setting
+  // does nothing.
+  env.write_file("main.rs", SOURCE);
+  env.write_file("mto.toml", "sort_alphabetically = false\n");
+  let output = env.mto_cmd().args(["--check", "main.rs"]).output().unwrap();
+  let stderr = String::from_utf8(output.stderr).unwrap();
+  assert_eq!(output.status.code(), Some(0));
+  assert!(
+    stderr.contains("`sort_alphabetically` has no effect while layout is off; add `layout = true`"),
+    "{}",
+    stderr
+  );
+
+  // `mto init` turns layout on.
+  std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
+  env.mto_cmd().arg("init").assert().success();
+  let init = std::fs::read_to_string(env.dir.path().join("mto.toml")).unwrap();
+  assert!(init.contains("\nlayout = true\n"), "{}", init);
+  env.mto_cmd().args(["--check", "main.rs"]).assert().code(1);
+}
+
+#[test]
 fn test_cli_help_color_follows_no_color_and_force_color() {
   let env = TestEnvironment::new();
   let (_, forced) = help_output(&env, &["-h"], &[("FORCE_COLOR", "1")]);
@@ -1163,48 +1220,6 @@ fn test_cli_invalid_config_exits_two() {
   env.write_file("main.rs", "fn a() {}\n");
 
   env.mto_cmd().arg("main.rs").assert().failure().code(2);
-}
-
-#[test]
-fn test_cli_layout_is_off_until_opted_in() {
-  let env = TestEnvironment::new();
-  std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
-  env.write_file("main.rs", SOURCE);
-  env.write_file("rustfmt.toml", "max_width = 80\n");
-
-  // No mto.toml: nothing changes, and the hint points at `mto init`.
-  let output = env.mto_cmd().arg("main.rs").output().unwrap();
-  let stderr = String::from_utf8(output.stderr).unwrap();
-  assert_eq!(output.status.code(), Some(0));
-  assert!(
-    stderr.contains("1 file(s) left alone: layout and format are off. Run `mto init`"),
-    "{}",
-    stderr
-  );
-  assert_eq!(
-    std::fs::read_to_string(env.dir.path().join("main.rs")).unwrap(),
-    SOURCE
-  );
-  let output = env.mto_cmd().arg("-").write_stdin(SOURCE).output().unwrap();
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), SOURCE);
-
-  // An mto.toml without `layout = true` still changes nothing, and says why.
-  env.write_file("mto.toml", "sort_alphabetically = false\n");
-  let output = env.mto_cmd().args(["--check", "main.rs"]).output().unwrap();
-  let stderr = String::from_utf8(output.stderr).unwrap();
-  assert_eq!(output.status.code(), Some(0));
-  assert!(
-    stderr.contains("`sort_alphabetically` has no effect while layout is off; add `layout = true`"),
-    "{}",
-    stderr
-  );
-
-  // `mto init` turns it on.
-  std::fs::remove_file(env.dir.path().join("mto.toml")).unwrap();
-  env.mto_cmd().arg("init").assert().success();
-  let init = std::fs::read_to_string(env.dir.path().join("mto.toml")).unwrap();
-  assert!(init.contains("\nlayout = true\n"), "{}", init);
-  env.mto_cmd().args(["--check", "main.rs"]).assert().code(1);
 }
 
 #[test]

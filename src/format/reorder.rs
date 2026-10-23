@@ -49,6 +49,9 @@ impl PassNodes {
                 | K::BlockExpr
                 | K::SourceFile
                 | K::ItemList
+                | K::RecordFieldList
+                | K::TupleFieldList
+                | K::VariantList
             )
           })
           .collect()
@@ -271,6 +274,46 @@ pub fn explicit_abi(root: &SyntaxNode, text: &str) -> Option<String> {
     from = end;
   }
   out.push_str(&text[from..]);
+  Some(out)
+}
+
+/// `text` with a field's or a variant's comma written on a line after it, with only
+/// whitespace between, joined to it, as the standard formatter writes it. `None` when there is
+/// none. Not in a `// mto: off` region or a skipped item.
+pub fn field_commas(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -> Option<String> {
+  let mut gaps: Vec<(usize, usize)> = Vec::new();
+  let lists = nodes.of(root, |kind| {
+    matches!(
+      kind,
+      K::RecordFieldList | K::TupleFieldList | K::VariantList
+    )
+  });
+  for list in lists {
+    let elements: Vec<SyntaxElement> = list.children_with_tokens_iter().collect();
+    for i in 2..elements.len() {
+      if elements[i].kind() == K::Comma
+        && matches!(&elements[i - 1], SyntaxElement::Token(t)
+          if t.kind() == K::Whitespace && t.text().contains('\n'))
+        && matches!(&elements[i - 2], SyntaxElement::Node(_))
+        && !skipped_within(list)
+      {
+        let range = elements[i - 1].text_range();
+        gaps.push((range.start as usize, range.end as usize));
+      }
+    }
+  }
+  let off = off_regions(root);
+  gaps.retain(|&(start, end)| !off.iter().any(|&(s, e)| s < end && start < e));
+  if gaps.is_empty() {
+    return None;
+  }
+  let mut out = String::with_capacity(text.len());
+  let mut at = 0;
+  for (start, end) in gaps {
+    out.push_str(&text[at..start]);
+    at = end;
+  }
+  out.push_str(&text[at..]);
   Some(out)
 }
 

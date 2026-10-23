@@ -99,6 +99,12 @@ cargo xtask toml-test
 # Fuzz one target (default 60 s); what it finds is filed as an incident,
 # its memory over the run kept under .dev/runs/
 cargo xtask fuzz run TARGET [--time SECONDS] [--sanitizer address|none]
+# Every target side by side for 24 hours, each fuzzing on past its finds
+# and keeping every input it fails on (--restart stops a target at a find
+# and starts it again instead); the machine kept awake (display too on a
+# terminal), drawn live on a terminal, a line per target every 30 minutes
+# elsewhere. Start it from your own terminal, not from a tool that may reap it
+cargo xtask fuzz soak [--time SECONDS] [--targets A,B] [--restart]
 # What the fuzz corpora reach, per module of src/, with an HTML report in
 # fuzz/coverage/html/ (a nightly with llvm-tools-preview)
 cargo xtask fuzz coverage [TARGET...]

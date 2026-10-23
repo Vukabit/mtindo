@@ -149,8 +149,9 @@ pub(super) static SETTINGS: &[Setting] = &[
     default_2024: None,
     summary: "Rearrange the items of each file",
     doc: "Turns layout on for the files this mto.toml applies to. Off by default, so \
-              mto changes nothing until a project opts in; `mto init` writes an mto.toml \
-              with it on. An mto.toml without it may still override the standard formatter's settings.",
+              mto moves no items until a project opts in; `mto init` writes an mto.toml \
+              with it on. An mto.toml without it may still set formatting and override the \
+              standard formatter's settings.",
     channels: None,
     hidden: false,
     replaced_by: None,
@@ -159,56 +160,20 @@ pub(super) static SETTINGS: &[Setting] = &[
     name: "format",
     file: File::Mto,
     kind: Kind::Bool,
-    default: "false",
+    default: "true",
     default_2024: None,
-    summary: "Format code in the Rust style (preview)",
-    doc: "Turns formatting on for the files this mto.toml applies to, beside or without \
-              `layout`. A preview. A `let` with an initializer, or an expression statement, \
-              whose expression is a call, method chain (`?` and `.await` too), struct literal, \
-              array, tuple, macro call or `return` is laid out anew (a macro's arguments in \
-              parentheses as a call's, in brackets as an array's, when they read as \
-              expressions; in braces left as written after `name! `), a `let`'s pattern with it, its lines broken and joined as the Rust \
-              style does within `max_width` and the widths `use_small_heuristics` sets (unless \
-              it holds a comment, block or macro, a closure that would break, or a type or \
-              generic arguments that would have to break); any other statement is put on one \
-              line when it fits there with everything in it within its width; so is a `use` \
-              declaration, its lists laid out as `imports_layout` says, unless \
-              it holds a comment, an attribute or a list of one item, which the Rust style \
-              would rewrite; and so is an attribute of a file, body, item, statement, field or \
-              variant whose arguments are names and values, within `attr_fn_like_width` \
-              (`#[derive(...)]` its own way). Items, attributes and statements start lines \
-              of their own, as do the tail and closing brace of a block holding a statement \
-              and of a function's body. An item's header (`pub fn name<T>(a: T) -> R {`, \
-              `impl<T> Trait for Type {`, `pub struct Name {`) is joined onto one line when it \
-              fits (and so is a type alias, const or static), else a function's parameters are put one per line, unless it holds a \
-              comment, a `where` clause, trait bounds or generics that would break. A struct's \
-              fields and an enum's variants are one per line, each on one line with its comma \
-              (a struct-like variant within `struct_variant_width`, else one field per line). \
-              Runs of \
-              `use` items and of `mod name;` declarations \
-              (no blank line between) are sorted as the Rust style sorts them, unless \
-              `reorder_imports` or `reorder_modules` is off or the run holds a comment. Other \
-              lines are not broken or joined yet. The lines \
-              that start items, statements, fields, variants, match arms and list elements are \
-              indented \
-              one level past the line their block or list belongs to (match arms not, with \
-              `match_arm_indent = false`), and closing delimiters at that line's indentation; \
-              the lines that continue them move along with them. Within a line, tokens are \
-              spaced as the Rust style spaces them (`a + b`, `f(x)`, `a::b`, `x: T`), \
-              honoring `spaces_around_ranges`, `space_before_colon`, `space_after_colon` and \
-              `type_punctuation_density`; a pair no rule covers keeps its spacing. Trailing \
-              whitespace is trimmed after code and line comments, blank lines are kept within \
-              `blank_lines_upper_bound` and dropped at the start and end of a container (a \
-              module body keeps its first, an extern block both), lines end as \
-              `newline_style` says and the file ends with one line break, honoring \
-              `tab_spaces` and `hard_tabs`. As the standard formatter does, mto leaves as \
-              written macro bodies, anything marked `#[rustfmt::skip]`, `// mto: off` \
-              regions, `macro_rules!` definitions, attributes whose arguments are not names, \
-              `name = literal` or lists of them, a statement or item with a line longer than \
-              `max_width` (counting the lines of closures, arguments and match arms inside \
-              it), a statement with a comment between a binary operator's operands, and \
-              files that `disable_all_formatting` or `format_generated_files = false` leave \
-              alone. Every change is checked to keep the program's tokens and comments.",
+    summary: "Format code in the Rust style",
+    doc: "Formats the files this mto.toml applies to in the Rust style, as the standard \
+              formatter does with the same settings, beside or without `layout`. On by \
+              default, so mto with no configuration is a drop-in for the standard \
+              formatter; `format = false` turns it off. Formatting changes whitespace and \
+              the few tokens the Rust style rewrites (a trailing comma, the order of \
+              imports). Like the standard formatter, it leaves as written what it would \
+              give up on: macro bodies it cannot read as code, `macro_rules!` definitions, \
+              anything marked `#[rustfmt::skip]`, `// mto: off` regions, a statement or item \
+              that cannot fit within `max_width`, and files that `disable_all_formatting` or \
+              `format_generated_files = false` leave alone. Every change is checked to keep \
+              the program's tokens and comments, and a second run changes nothing.",
     channels: None,
     hidden: false,
     replaced_by: None,

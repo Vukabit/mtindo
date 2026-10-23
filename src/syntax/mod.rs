@@ -193,6 +193,24 @@ mod tests {
   }
 
   #[test]
+  fn test_comparisons_do_not_chain() {
+    for text in [
+      "fn f() { a < b < c; }",
+      "fn f() { a == b != c; }",
+      "fn f() { f(a) < g(b) < h; }",
+    ] {
+      assert!(!parse(text, Edition::E2021).errors().is_empty(), "{}", text);
+    }
+    for text in [
+      "fn f() { a < b && c < d; }",
+      "fn f() { (a < b) < c; }",
+      "fn f() { a < b + c; (a as u8) < b; f::<u8>() < g::<i8>(); }",
+    ] {
+      assert!(parse(text, Edition::E2021).errors().is_empty(), "{}", text);
+    }
+  }
+
+  #[test]
   fn test_is_node_tells_nodes_from_tokens() {
     for text in [include_str!("mod.rs"), include_str!("tree/red.rs")] {
       let root = parse(text, Edition::E2021).syntax_node();
@@ -275,6 +293,25 @@ mod tests {
       for edition in [Edition::E2015, Edition::E2021, Edition::E2024] {
         assert_eq!(parse_tokens(text, edition), tree_tokens(text, edition));
       }
+    }
+  }
+
+  #[test]
+  fn test_three_dots_are_no_range_in_an_expression() {
+    for text in [
+      "fn f() { a...b; }",
+      "fn f() { ...b; }",
+      "fn f() { a.........b; }",
+    ] {
+      assert!(!parse(text, Edition::E2021).errors().is_empty(), "{}", text);
+    }
+    for text in [
+      "fn f() { a..b; ..; a..; a..=b; }",
+      "fn f(x: u8, ...) {}",
+      "fn f() { match x { 1...2 => {} } }",
+      "m!(a...b);",
+    ] {
+      assert!(parse(text, Edition::E2015).errors().is_empty(), "{}", text);
     }
   }
 

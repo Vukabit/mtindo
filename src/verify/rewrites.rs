@@ -127,6 +127,11 @@ pub const REWRITES: &[Rewrite] = &[
     reason: "`Foo { x: x }` is `Foo { x }` (`use_field_init_shorthand`).",
   },
   Rewrite {
+    name: "crlf-in-tokens",
+    reason: "rustc reads every CRLF in a file as LF, inside string literals and block \
+                 comments too, so writing a CRLF there as LF (or LF as CRLF) changes nothing.",
+  },
+  Rewrite {
     name: "string-continuation",
     reason: "A `\\` ending a line inside a string, the line break and the next line's \
                  leading whitespace are not part of the string, so re-indenting it, or \

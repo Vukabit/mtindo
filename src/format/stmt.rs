@@ -917,8 +917,39 @@ pub fn rewrite_hole_head(node: &SyntaxNode, indent: usize, config: &FormatConfig
     .filter(|(kind, _)| !kind.is_trivia())
     .map(|(_, t)| t.to_string())
     .collect();
+  // Or as the layout's tokens are compared, its commas and braces aside (a comma after a
+  // match arm's block, inside the head, goes).
   if written.concat() != ours.concat() {
-    return None;
+    let kept = |tokens: Vec<(SyntaxKind, String)>| -> String {
+      tokens
+        .into_iter()
+        .filter(|(kind, _)| compared(*kind))
+        .map(|(_, t)| t)
+        .collect()
+    };
+    let theirs = kept(
+      node
+        .descendants_with_tokens_iter()
+        .filter_map(|e| match e {
+          SyntaxElement::Token(t)
+            if (t.text_range().start as usize) >= start
+              && (t.text_range().start as usize) < open =>
+          {
+            Some((t.kind(), t.text().to_string()))
+          }
+          _ => None,
+        })
+        .collect(),
+    );
+    let laid = kept(
+      parse_tokens(&head, Edition::E2021)
+        .into_iter()
+        .map(|(kind, t)| (kind, t.to_string()))
+        .collect(),
+    );
+    if theirs != laid {
+      return None;
+    }
   }
   // The tail: the written tokens after `}` up to the body, the links or the end, as laid
   // out, a comma the layout drops left out.
@@ -1870,7 +1901,7 @@ fn same_tokens_once(node: &SyntaxNode, text: &str, start: usize, end: usize) -> 
   let dropped = &dropped;
   // `vec!(..)` and `vec! {..}` are written `vec![..]`.
   let brackets = &vec_delimiters(node);
-  let theirs = |drop: bool| {
+  let theirs = |drop: bool, bracketed: bool| {
     node
       .token_texts()
       .filter(move |&(kind, _, range)| {
@@ -1886,12 +1917,17 @@ fn same_tokens_once(node: &SyntaxNode, text: &str, start: usize, end: usize) -> 
         unindented(
           brackets
             .iter()
+            .filter(|_| bracketed)
             .find(|b| b.0 == range.start as usize)
             .map_or(text, |b| b.1),
         )
       })
   };
-  if !theirs(false).eq(ours()) && !theirs(true).eq(ours()) {
+  // Or with its `vec!` delimiters as written, a statement given up on keeping them.
+  if !theirs(false, true).eq(ours())
+    && !theirs(true, true).eq(ours())
+    && (brackets.is_empty() || !theirs(false, false).eq(ours()))
+  {
     return false;
   }
   // Every comment kept, each once; one across lines with its lines re-indented.

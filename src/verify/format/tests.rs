@@ -169,6 +169,11 @@ fn test_each_allowed_rewrite() {
     "struct S<T> where T: Copy { a: T }\n",
   );
   same("fn f() { vec![1, 2,]; }\n", "fn f() { vec![1, 2]; }\n");
+  // crlf-in-tokens
+  same(
+    "fn f() { g(\"a\r\nb\", r\"c\r\n\"); }\n",
+    "fn f() { g(\"a\nb\", r\"c\n\"); }\n",
+  );
   // closure-body-braces
   same(
     "fn f() { let c = |x| { x + 1 }; }\n",
@@ -380,7 +385,7 @@ fn test_each_allowed_rewrite() {
     )
     .is_empty()
   );
-  assert_eq!(REWRITES.len(), 28);
+  assert_eq!(REWRITES.len(), 29);
 }
 
 #[test]

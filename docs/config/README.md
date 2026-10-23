@@ -79,8 +79,8 @@ keys of `mto.toml` decide where and what mto does:
 *   `layout = true`: Rearrange the items of each file. While it is off, mto's
     other settings but `format` and `ignore_dirs` have no effect, and setting
     one is a warning.
-*   `format = true`: Format code in the Rust style (preview). It does not apply
-    where `disable_all_formatting` is set.
+*   `format = true`: Format code in the Rust style. It does not apply where
+    `disable_all_formatting` is set.
 *   `root = true`: this file is the outermost `mto.toml` read; the search
     upwards for more stops here. Only `mto.toml` and `.mto.toml` may hold it, as
     `true` or `false`.
@@ -371,7 +371,7 @@ behavior, so the column does not apply to them.
 <td><a href="mto.toml.md#format">
 <code>format</code></a></td>
 <td>mto.toml</td>
-<td>Format code in the Rust style (preview)</td>
+<td>Format code in the Rust style</td>
 <td>partial</td>
 </tr>
 <tr>

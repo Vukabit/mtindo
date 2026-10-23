@@ -13,9 +13,9 @@ items it was asked to sort, and the bodies of inline modules, which it lays
 out the same way. Every write is checked first, so the code still means
 what it meant.
 
-`mto` also formats, as a preview: spacing, indentation and line breaks in
-the Rust style, as the standard formatter writes them. See [Formatting
-(preview)](#formatting-preview).
+`mto` also formats, and does by default: spacing, indentation and line
+breaks in the Rust style, as the standard formatter writes them. See
+[Formatting](#formatting).
 
 ## Core Features
 
@@ -71,8 +71,8 @@ repository instead, run `cargo install --path .` in its root.
 ## Turning layout on
 
 Layout is opt-in. Until an `mto.toml` with `layout = true` applies to a file,
-`mto` leaves it alone and says so, so running it on a project that has not
-opted in is always safe. To opt in, run this in the project root:
+`mto` moves none of its items; it only formats it, as the standard formatter
+would. To opt in, run this in the project root:
 
 ```bash
 mto init
@@ -81,27 +81,19 @@ mto init
 It writes an `mto.toml` with `layout = true` and every other setting at its
 default.
 
-## Formatting (preview)
+## Formatting
 
-`format = true` in an `mto.toml` turns on formatting in the Rust style, with
-or without layout. It is a preview. Today it indents, spaces the tokens
-within a line (`a + b`, `f(x)`, `a::b`, `x: T`), keeps blank lines within
-`blank_lines_upper_bound`, trims trailing whitespace after code and line
-comments and writes line endings in the `newline_style`. It puts items,
-attributes and statements on lines of their own. It breaks and joins the
-lines of item headers, attributes, doc comments, `use` declarations, struct
-fields, enum variants and statements of every kind, as the Rust style lays
-them out, where their expressions are calls, method chains, struct
-literals, arrays, tuples, or macro calls whose arguments read as one of
-these. It sorts runs of imports and module declarations. An expression it
-cannot lay out yet, such as a closure or an operator expression that would
-have to break, stays as written; `mto config options` shows how far each
-setting is honored.
+Formatting is on by default: with no configuration, `mto` formats a file in
+the Rust style exactly as the standard formatter does with the same
+settings, so it can take the standard formatter's place in scripts, CI and
+editors. It reads `rustfmt.toml` and honors its settings; `format = false`
+in an `mto.toml` turns formatting off and leaves only layout.
 
-Like the standard formatter, it leaves alone `macro_rules!` definitions,
-macro calls whose arguments are not expressions, anything marked
-`#[rustfmt::skip]`, `// mto: off` regions and a statement or item with a
-line longer than `max_width`.
+Like the standard formatter, it leaves as written what it would give up on:
+`macro_rules!` definitions, macro calls whose arguments are not code,
+anything marked `#[rustfmt::skip]`, `// mto: off` regions and a statement or
+item that cannot fit within `max_width`. `mto config options` shows how far
+each of the standard formatter's settings is honored.
 
 Formatting changes whitespace and the few tokens the Rust style rewrites (a
 trailing comma, the order of imports), and a meaning check runs on every
@@ -307,7 +299,7 @@ values stops the run with exit code `2`, naming the file, line and column.
 `mto --man` documents every setting, the formatting settings and mto's, with
 its legal values and defaults; so does [docs/config/](docs/config/README.md),
 with how far mto honors each one and a JSON Schema of `mto.toml` for editors.
-Without `format = true`, the formatting settings change nothing except the
+With `format = false`, the formatting settings change nothing except the
 style edition.
 
 `mto init` writes an `mto.toml` with layout on and mto's other settings at
@@ -315,7 +307,7 @@ their defaults, each with a comment; without the comments:
 
 ```toml
 layout = true
-format = false
+format = true
 blank_lines_between_blocks = 1
 group_impls = true
 ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv"]

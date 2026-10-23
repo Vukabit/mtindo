@@ -19,16 +19,27 @@ pub struct KeepAwake {
 
 impl KeepAwake {
   pub fn start() -> KeepAwake {
+    KeepAwake::start_with(false)
+  }
+
+  /// [`KeepAwake::start`], with the display kept on too (`caffeinate -d` on macOS), for a
+  /// run someone watches live.
+  pub fn start_watched() -> KeepAwake {
+    KeepAwake::start_with(true)
+  }
+
+  fn start_with(display: bool) -> KeepAwake {
     let pid = std::process::id().to_string();
+    let flags = if display { "-dims" } else { "-ims" };
     let attempts: [(&'static str, &str, Vec<&str>); 2] = [
-      ("caffeinate", "caffeinate", vec!["-ims", "-w", &pid]),
+      ("caffeinate", "caffeinate", vec![flags, "-w", &pid]),
       (
         "systemd-inhibit",
         "systemd-inhibit",
         vec![
           "--what=sleep:idle",
           "--who=mtindo",
-          "--why=cargo xtask test is running",
+          "--why=a long cargo xtask run is in progress",
           "--mode=block",
           "sleep",
           "infinity",

@@ -2,8 +2,8 @@
 paper: "fuzzing"
 title: "Fuzzing"
 status: "measured"
-generated: "2026-10-20T22:53:45.812Z"
-commit: "83b8cf8-dirty.62a21308"
+generated: "2026-10-22T23:31:34.366Z"
+commit: "c4de9df-dirty.ee6f2a62"
 command: "cargo xtask fuzz run TARGET"
 sources:
   - fuzz/fuzz_targets/
@@ -11,7 +11,7 @@ sources:
 seed: "chosen by libFuzzer for each run; not recorded"
 metrics:
   fuzz.targets: 8
-  fuzz.regressions: 27
+  fuzz.regressions: 78
 ---
 
 # Fuzzing
@@ -20,8 +20,8 @@ metrics:
 
 <!-- generated: abstract -->
 8 fuzz targets drive mto's lexer, parser, layout, formatting, meaning check and
-TOML reader with generated inputs. 27 inputs that once failed are kept as
-regression tests, from 3 of the targets; each still passes its target's checks
+TOML reader with generated inputs. 78 inputs that once failed are kept as
+regression tests, from 4 of the targets; each still passes its target's checks
 in every test run.
 <!-- end generated -->
 
@@ -86,10 +86,10 @@ Inputs kept as regression tests, by target:
 <!-- generated: results -->
 | target | kept inputs |
 |---|---:|
-| `comments` | 0 |
-| `format` | 18 |
-| `generated` | 8 |
-| `layout` | 1 |
+| `comments` | 11 |
+| `format` | 36 |
+| `generated` | 19 |
+| `layout` | 12 |
 | `lexer` | 0 |
 | `parser` | 0 |
 | `toml` | 0 |
@@ -105,7 +105,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | kept inputs |
 |---|---|---:|
-| current |  | 27 |
+| current |  | 78 |
+| 2026-10-21 | f76bf49 | 27 |
 | 2026-10-18 | 86f8bff | 22 |
 | 2026-10-17 | 9d9e790 | 21 |
 | 2026-10-17 | 793f665 | 20 |
@@ -130,10 +131,10 @@ status:
 
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
-| `fuzz-crash` | 0 | 0 | 10 | 1 |
+| `fuzz-crash` | 0 | 0 | 17 | 1 |
 | `fuzz-oom` | 0 | 0 | 1 | 0 |
 | `fuzz-timeout` | 0 | 0 | 0 | 0 |
-| `fuzz-slow` | 0 | 0 | 1 | 2 |
+| `fuzz-slow` | 0 | 0 | 4 | 2 |
 | `fuzz-leak` | 0 | 0 | 0 | 0 |
 | `mismatch` | 66 | 0 | 0 | 0 |
 <!-- end generated -->
@@ -145,13 +146,13 @@ sanitizer), and the share of src/ lines its corpus reaches.
 
 | target | inputs/s | peak MB | lines reached % |
 |---|---:|---:|---:|
-| `comments` | 214 | 2355 | 31.03 |
-| `format` | 577 | 1033 | 43.90 |
-| `generated` | 138 | 723 | 47.85 |
-| `layout` | 1764 | 422 | 20.17 |
-| `lexer` | 43884 | 172 | 2.55 |
+| `comments` | 360 | 334 | 31.03 |
+| `format` | 128 | 928 | 43.90 |
+| `generated` | 63 | 348 | 47.85 |
+| `layout` | 943 | 379 | 20.17 |
+| `lexer` | 51609 | 174 | 2.55 |
 | `parser` | 1359 | 352 | 15.60 |
-| `toml` | 54087 | 167 | 4.39 |
+| `toml` | 47672 | 184 | 4.39 |
 | `verify` | 2569 | 253 | 19.63 |
 
 Also: every corpus together reaches 63.65% of the lines of src/ (2026-10-12); in

@@ -449,6 +449,23 @@ fn fuzz() -> Command {
           .default_value("address"),
         ),
     )
+    .subcommand(
+      Command::new("soak")
+        .about("Fuzz every target side by side for 24 hours, kept awake and drawn live on a terminal, then file what they found")
+        .arg(
+          option("time", "SECONDS", "Seconds to fuzz each target")
+            .value_parser(value_parser!(u32))
+            .default_value("86400"),
+        )
+        .arg(
+          option("targets", "A,B", "Only these targets, from fuzz/fuzz_targets/ (default: all)")
+            .value_delimiter(','),
+        )
+        .arg(flag(
+          "restart",
+          "Stop a target at each find and start it again (at most 10 times) instead of fuzzing on past its finds",
+        )),
+    )
     .subcommand(Command::new("collect").about("File whatever is waiting as incidents"))
     .subcommand(
       Command::new("diff")

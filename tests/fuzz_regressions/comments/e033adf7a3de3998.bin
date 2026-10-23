@@ -1,0 +1,31 @@
+_ió»// Opaque type.
+
+    #![feature(type_alias_i:pl_trait)]
+
+impl Foo for Barw{
+type E  = impl afny::typesny_runtime::string_utf16_of;
+pub use ::dafny_runtime::truncate;
+
+pub use ct;
+// use crayeTrai  = Fn(T) -> T;
+
+pub type Adderrr<T> = impl Fn(  T  ) -> T;
+
+pub type Adderrr_without_imt;
+}
+
+pub type Adder<F, T>
+where
+    T: Clone,
+    F: Copy
+    = impl Fn(T) -> T;
+
+pub type Add_impl<F, T>
+where
+    T: Clone,
+    F: Copy
++    = Fn(T) -> T;
+
+pub type Adderrr<T> = impl Fn(  T  ) -> T;
+
+pub type Adderrr_without_impl<T> = Fn(  T  ) -> T;

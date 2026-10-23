@@ -16,6 +16,7 @@ mod diff;
 mod doctor;
 mod fuzz;
 mod fuzz_diff;
+mod fuzz_soak;
 mod gates;
 mod incidents;
 mod io;

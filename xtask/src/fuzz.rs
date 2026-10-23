@@ -12,6 +12,8 @@
 //!
 //! - `cargo xtask fuzz run TARGET [--time SECONDS]`: fuzz one target (60 s by default), then
 //!   file what it found.
+//! - `cargo xtask fuzz soak [--time SECONDS] [--targets A,B]`: every target side by side for
+//!   24 hours (see [`crate::fuzz_soak`]), the machine kept awake, drawn live on a terminal.
 //! - `cargo xtask fuzz collect`: file whatever is waiting.
 //!
 //! Replaying, minimizing and promoting are `cargo xtask incidents` commands.
@@ -57,6 +59,9 @@ pub struct Run {
   /// cargo-fuzz's `--sanitizer`: `address` (the default) or `none`, to tell the
   /// sanitizer's own memory from the target's.
   pub sanitizer: String,
+  /// Fuzz on past each find for the whole time (libFuzzer's fork mode), keeping every
+  /// failing input, instead of stopping at the first.
+  pub keep_going: bool,
 }
 
 impl Run {
@@ -64,6 +69,7 @@ impl Run {
     Run {
       seconds,
       sanitizer: "address".to_string(),
+      keep_going: false,
     }
   }
 }
@@ -79,6 +85,17 @@ pub fn collect(root: &Path, log: &Logger) -> usize {
 /// targets can run at once and [`collect`] once after. Returns libFuzzer's exit code and
 /// the end of what the run said.
 pub fn fuzz_target(root: &Path, target: &str, run: &Run, log: &Logger) -> (i32, Vec<String>) {
+  fuzz_target_tapped(root, target, run, log, None)
+}
+
+/// [`fuzz_target`], with libFuzzer's output also handed to `tap` as it arrives.
+pub fn fuzz_target_tapped(
+  root: &Path,
+  target: &str,
+  run: &Run,
+  log: &Logger,
+  tap: Option<process::Tap>,
+) -> (i32, Vec<String>) {
   let seconds = run.seconds;
   let incoming = incoming(root).join(target);
   if let Err(e) = fs::create_dir_all(&incoming) {
@@ -88,7 +105,7 @@ pub fn fuzz_target(root: &Path, target: &str, run: &Run, log: &Logger) -> (i32, 
     );
   }
   let before: Vec<PathBuf> = staged(&incoming);
-  let args: Vec<String> = vec![
+  let mut args: Vec<String> = vec![
     "+nightly".into(),
     "fuzz".into(),
     "run".into(),
@@ -100,6 +117,19 @@ pub fn fuzz_target(root: &Path, target: &str, run: &Run, log: &Logger) -> (i32, 
     // libFuzzer joins the prefix and the name as given, so it ends with a separator.
     format!("-artifact_prefix={}/", incoming.display()),
   ];
+  if run.keep_going {
+    // One child fuzzes at a time and is started again after it fails; every failing input
+    // is kept where the prefix says.
+    args.extend(
+      [
+        "-fork=1",
+        "-ignore_crashes=1",
+        "-ignore_ooms=1",
+        "-ignore_timeouts=1",
+      ]
+      .map(String::from),
+    );
+  }
   log.info(&format!(
     "fuzzing {} for {}s, sanitizer {}",
     target, seconds, run.sanitizer
@@ -121,8 +151,15 @@ pub fn fuzz_target(root: &Path, target: &str, run: &Run, log: &Logger) -> (i32, 
   let limit = Duration::from_secs(seconds.into()) + process::LONG;
   // The run's memory and CPU, for what libFuzzer's own `rss:` cannot show: its curve.
   let samples = sample::run_path(root, &format!("fuzz-{}-{}", target, run.sanitizer));
-  let (outcome, used) =
-    process::run_sampled(root, "cargo", &args, &asan_options(), limit, Some(&samples));
+  let (outcome, used) = process::run_tapped(
+    root,
+    "cargo",
+    &args,
+    &asan_options(),
+    limit,
+    Some(&samples),
+    tap,
+  );
   let code = outcome.code;
   let mut said = failure_lines(&outcome.output);
   let memory = match used {
@@ -156,9 +193,10 @@ pub fn fuzz_target(root: &Path, target: &str, run: &Run, log: &Logger) -> (i32, 
   }
   said.push(memory);
   // What the run said goes beside each input it left (libFuzzer stops at the first crash).
+  // A run that kept going said little of each, so [`collect`] replays them instead.
   for input in staged(&incoming)
     .into_iter()
-    .filter(|p| !before.contains(p))
+    .filter(|p| !before.contains(p) && !run.keep_going)
   {
     let note = format!(
       "run: cargo {}\nexit: {}\n\n{}\n",
@@ -218,6 +256,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       let run = run_of(sub);
       ExitCode::from(run_target(root, &target, &run, &log) as u8)
     }
+    Some(("soak", sub)) => crate::fuzz_soak::run(root, sub, &log),
     Some(("collect", _)) => {
       let filed = collect(root, &log);
       println!(
@@ -402,6 +441,7 @@ fn run_of(m: &clap::ArgMatches) -> Run {
   Run {
     seconds: m.get_one::<u32>("time").copied().unwrap_or(60),
     sanitizer: crate::cli::text(m, "sanitizer").unwrap_or_else(|| "address".to_string()),
+    keep_going: false,
   }
 }
 

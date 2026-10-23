@@ -36,6 +36,9 @@ pub const TIMED_OUT: i32 = 124;
 /// the pipe open.
 const DRAIN: Duration = Duration::from_secs(2);
 
+/// What [`run_tapped`] hands each piece of the child's output to as it arrives.
+pub type Tap = Box<dyn FnMut(&[u8]) + Send>;
+
 /// What a captured child did.
 #[derive(Debug)]
 pub struct Outcome {
@@ -305,6 +308,20 @@ pub fn run_sampled(
   limit: Duration,
   samples: Option<&Path>,
 ) -> (Outcome, Option<super::sample::Summary>) {
+  run_tapped(root, program, args, env_extra, limit, samples, None)
+}
+
+/// [`run_sampled`], with each piece of the output also handed to `tap` while the child runs,
+/// for a live view of a long run.
+pub fn run_tapped(
+  root: &Path,
+  program: &str,
+  args: &[String],
+  env_extra: &[(String, String)],
+  limit: Duration,
+  samples: Option<&Path>,
+  mut tap: Option<Tap>,
+) -> (Outcome, Option<super::sample::Summary>) {
   let failed = |output: String| {
     (
       Outcome {
@@ -350,6 +367,9 @@ pub fn run_sampled(
         break;
       }
       sink.lock().unwrap().extend_from_slice(&chunk[..n]);
+      if let Some(tap) = tap.as_mut() {
+        tap(&chunk[..n]);
+      }
     }
   });
   let (status, timed_out) = wait(child, limit);

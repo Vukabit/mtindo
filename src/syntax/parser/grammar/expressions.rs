@@ -17,6 +17,9 @@ use crate::syntax::parser::{CompletedMarker, Marker, Parser};
 
 const CAST_BP: u8 = 23;
 
+/// The binding power of `==`, `!=`, `<`, `>`, `<=` and `>=`.
+const COMPARISON_BP: u8 = 9;
+
 /// `let` scrutinees bind tighter than `&&` and `||` (so `let a = b && c` is a chain).
 const LET_SCRUTINEE_BP: u8 = 9;
 
@@ -423,6 +426,8 @@ fn expr_bp(p: &mut Parser, r: Restrictions, min_bp: u8) -> Option<(CompletedMark
     return Some((lhs, true));
   }
   let inner = Restrictions { stmt: false, ..r };
+  // Whether the operator just taken compared: comparisons do not chain (`a < b < c`).
+  let mut compared = false;
   loop {
     if p.at_kw("as") {
       if CAST_BP < min_bp {
@@ -440,7 +445,13 @@ fn expr_bp(p: &mut Parser, r: Restrictions, min_bp: u8) -> Option<(CompletedMark
     if left_bp < min_bp {
       break;
     }
+    let comparison = left_bp == COMPARISON_BP;
+    if comparison && compared {
+      p.error("comparison operators cannot be chained");
+    }
+    compared = comparison;
     let m = lhs.precede(p);
+    no_three_dots(p);
     p.bump(op);
     if matches!(op, SyntaxKind::Dot2 | SyntaxKind::Dot2Eq) {
       if operand_follows(p, r) {
@@ -619,6 +630,14 @@ fn match_expr(p: &mut Parser) -> CompletedMarker {
   header_expr(p, "an expression");
   match_arm_list(p);
   m.complete(p, SyntaxKind::MatchExpr)
+}
+
+/// `...` is no range operator in an expression, as rustc reads it: its first two dots are
+/// not taken for `..`.
+fn no_three_dots(p: &mut Parser) {
+  if p.at(SyntaxKind::Dot3) {
+    p.error("`...` is not a range operator: `..` or `..=`");
+  }
 }
 
 /// True if an operand follows `return`, `break`, a range operator and the like.
@@ -893,6 +912,7 @@ fn unary_expr(p: &mut Parser, r: Restrictions) -> Option<(CompletedMarker, bool)
   }
   if p.at(SyntaxKind::Dot2Eq) || p.at(SyntaxKind::Dot2) {
     let m = p.start();
+    no_three_dots(p);
     if !p.eat(SyntaxKind::Dot2Eq) {
       p.bump(SyntaxKind::Dot2);
     }

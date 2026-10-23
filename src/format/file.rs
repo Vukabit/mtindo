@@ -586,7 +586,13 @@ fn align_list_comments(
   config: &FormatConfig,
 ) -> Option<Vec<Option<usize>>> {
   let items = list_items_of(list);
-  let comments = crate::format::lists::list_comments(list, &items)?;
+  let mut comments = crate::format::lists::list_comments(list, &items)?;
+  // A blank line that is not kept parts no group of aligned comments.
+  if config.blank_lines_upper_bound == 0 {
+    for comment in &mut comments {
+      comment.new_lines = false;
+    }
+  }
   let spacing = crate::format::shape::Spacing::of(config);
   // An arm spanning lines counts all its text, as the standard formatter measures it; one
   // laid out in parts counts past any width.
@@ -1402,6 +1408,14 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
       let root = parse(&moved, edition).syntax_node();
       nodes = PassNodes::default();
       (moved, root)
+    }
+    None => (text, root),
+  };
+  let (text, root) = match crate::format::reorder::field_commas(&root, &mut nodes, &text) {
+    Some(joined) => {
+      let root = parse(&joined, edition).syntax_node();
+      nodes = PassNodes::default();
+      (joined, root)
     }
     None => (text, root),
   };
@@ -2361,6 +2375,8 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   // Where a head laid out across lines ends at a block's `{`: that line's indentation.
   let mut laid_opens: HashMap<usize, usize> = HashMap::new();
   let mut previous_significant: Option<usize> = None;
+  // Where the last token written so far ends.
+  let mut written_end = 0;
   // A line comment that ended a line of code: its column as written and as output.
   // A line comment after code: the column it was written at, the one it is written at,
   // whether it follows a statement's end, and the indentation of its line.
@@ -3318,6 +3334,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         tok.text
       });
     }
+    if tok.kind != SyntaxKind::Whitespace {
+      written_end = out.len();
+    }
     // Two tokens written touching that the Rust style spaces.
     if let Some(next) = next
       && next.kind != SyntaxKind::Whitespace
@@ -3336,8 +3355,13 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       previous_significant = Some(tok.start);
     }
   }
-  // The end of the file gets exactly one line break.
-  let mut out = out.trim_end_matches([' ', '\t', '\n']).to_string();
+  // The end of the file gets exactly one line break; the last token keeps its own end (a
+  // doc comment's two spaces).
+  let end = out
+    .trim_end_matches([' ', '\t', '\n'])
+    .len()
+    .max(written_end);
+  let mut out = out[..end].to_string();
   out.push('\n');
   out
 }

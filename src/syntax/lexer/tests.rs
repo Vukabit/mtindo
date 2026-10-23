@@ -123,6 +123,11 @@ fn test_file_start() {
     significant("\u{feff}#!/bin/x\n", e),
     pairs(&[("BOM", "\u{feff}"), ("SHEBANG", "#!/bin/x")])
   );
+  // Runs to the line break, as rustc reads it: carriage returns before it are its own.
+  assert_eq!(
+    significant("#!/bin/x\r\r\nfn", e),
+    pairs(&[("SHEBANG", "#!/bin/x\r\r"), ("IDENT", "fn")])
+  );
 }
 
 #[test]

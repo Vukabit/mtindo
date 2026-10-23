@@ -229,7 +229,7 @@ impl Config {
       .get("disable_all_formatting")
       .and_then(Value::as_bool)
       .unwrap_or(false);
-    !disabled && self.get("format").and_then(Value::as_bool).unwrap_or(false)
+    !disabled && self.get("format").and_then(Value::as_bool).unwrap_or(true)
   }
 
   /// The formatting settings.

@@ -205,7 +205,11 @@ fn guarded(mto: &Path, crate_dir: &Path, name: &str) -> Result<Figures, String> 
   let fresh = || -> Result<(), String> {
     let _ = fs::remove_dir_all(&copy);
     copy_tree(crate_dir, &copy).map_err(|e| e.to_string())?;
-    fs::write(copy.join("mto.toml"), "root = true\nlayout = true\n").map_err(|e| e.to_string())
+    fs::write(
+      copy.join("mto.toml"),
+      "root = true\nlayout = true\nformat = false\n",
+    )
+    .map_err(|e| e.to_string())
   };
   let check = |timed: bool| -> Result<f64, String> {
     let started = Instant::now();

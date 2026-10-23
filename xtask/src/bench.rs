@@ -31,8 +31,9 @@ use crate::sha256;
 /// S2-1: mto's wall-clock throughput over rustfmt's.
 pub const MIN_SPEEDUP: f64 = 2.0;
 
-/// The settings mto is timed with: layout on, and no configuration from outside the copy.
-const MTO_CONFIG: &str = "layout = true\nroot = true\n";
+/// The settings mto is timed with: layout on, formatting off (it is on by default), and no
+/// configuration from outside the copy.
+const MTO_CONFIG: &str = "layout = true\nformat = false\nroot = true\n";
 
 /// The longest one timed command may run.
 const TIMED_LIMIT: Duration = Duration::from_secs(30 * 60);

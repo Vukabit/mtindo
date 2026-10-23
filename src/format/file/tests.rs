@@ -942,6 +942,95 @@ fn test_repeat_arrays_and_vec() {
 }
 
 #[test]
+fn test_settles_in_one_run() {
+  // Each settles where a second run leaves it (`formatted_with` checks that).
+  let cases: &[(&str, usize, usize, &str)] = &[
+    // A closure body no layout fits kept as written in the block made for it.
+    (
+      "fn f() {\n  let a = || || || || || || || || || || || SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS::fro;\n}\n",
+      47,
+      2,
+      "fn f() {\n  let a = || {\n    || {\n      || {\n        || {\n          || {\n            || {\n              || {\n                || {\n                  || {\n                    || {\n                      || {\n                        SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS::fro\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  };\n}\n",
+    ),
+    // Closures laid out with their blocks weighed, so a binary operator before them breaks once.
+    (
+      "#[test]\nfn test() {\n  SSSSSSSSSSSS||||||||||||||||||||||||SSSSSSSSSSSSSSSSS ::fro;\n}\n",
+      47,
+      2,
+      "#[test]\nfn test() {\n  SSSSSSSSSSSS\n    || || {\n      || {\n        || {\n          || {\n            || {\n              || {\n                || {\n                  || {\n                    || {\n                      || {\n                        || {\n                          SSSSSSSSSSSSSSSSS ::fro\n                        }\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    };\n}\n",
+    ),
+    // A macro holding a string across lines, kept as written only where its closing line sits.
+    (
+      "fn f() {\n        let pos = s.find(1).ok_or(l | _see | format!(\"invalid KEY=value: no found e(Copy,\ne(Debug)]in\"))?;\n}\n",
+      66,
+      8,
+      "fn f() {\n        let pos =\n                s.find(1).ok_or(l | _see | format!(\n                        \"invalid KEY=value: no found e(Copy,\ne(Debug)]in\"\n                ))?;\n}\n",
+    ),
+    // A closure given a block ends like one: the chain after it stays at its indentation.
+    (
+      "const S: u8 = (|a, b| |c, d| self).len(|e, f| |g, h| self, |i, j| |k, l| true)?.iter();\n",
+      21,
+      2,
+      "const S: u8 =\n  (|a, b| {\n    |c, d| self\n  })\n  .len(\n    |e, f| {\n      |g, h| self\n    },\n    |i, j| {\n      |k, l| true\n    },\n  )?\n  .iter();\n",
+    ),
+    // A statement given up on keeps its vec! delimiters as written.
+    (
+      "const MAX: impl Display = //\n {\n     vec!(\"{}\", y[1_000.25]);\n};\n",
+      20,
+      3,
+      "const MAX: impl Display =\n   //\n   {\n      vec!(\"{}\", y[1_000.25]);\n   };\n",
+    ),
+    // A head holding a match whose arms lose their commas.
+    (
+      "fn f() {\n    let\n    y = match match a {\n        a => {\n        },\n        _ => {\n        },\n    } {\n        a => // note\n         a[b],\n        _ => 1,\n    };\n}\n",
+      100,
+      4,
+      "fn f() {\n    let y = match match a {\n        a => {}\n        _ => {}\n    } {\n        a => // note\n         a[b],\n        _ => 1,\n    };\n}\n",
+    ),
+    // A field's comma on the line after it joins it.
+    (
+      "struct Foo {\n    a: i32\n ,   // x\n    // y\n    b: u8\n ,   // z\n}\n",
+      100,
+      4,
+      "struct Foo {\n    a: i32, // x\n    // y\n    b: u8, // z\n}\n",
+    ),
+    // A doc comment ending the file keeps its two spaces.
+    ("//! x  \n", 100, 4, "//! x  \n"),
+  ];
+  for &(source, max_width, tab_spaces, expected) in cases {
+    let config = FormatConfig {
+      max_width,
+      tab_spaces,
+      ..FormatConfig::default()
+    };
+    assert_eq!(formatted_with(source, &config), expected, "{}", source);
+  }
+  // Closures nested a hundred deep, each in a block: laid out once per level, not once per
+  // shape every level around them tries (which took seconds at this depth).
+  let deep = format!(
+    "fn main() {{\n    f(|v| {}{{\n        match v {{\n            _ => 1,\n        }}\n    }});\n}}\n",
+    "|| ".repeat(100)
+  );
+  // On a stack as large as mto runs files on: an unoptimized build needs it at this depth.
+  let started = std::time::Instant::now();
+  std::thread::Builder::new()
+    .stack_size(crate::STACK)
+    .spawn(move || formatted(&deep))
+    .unwrap()
+    .join()
+    .unwrap();
+  assert!(
+    started.elapsed() < std::time::Duration::from_secs(2),
+    "{:?}",
+    started.elapsed()
+  );
+  // An argument's comma after comments that run to the list's end: written once.
+  formatted(
+    "fn f() {\n    g(\n        x,\n        R // a\n\n        // b\n        ,\n        // c\n    );\n}\n",
+  );
+}
+
+#[test]
 fn test_skipped_item_keeps_its_attributes() {
   // A skipped item's attributes stay as written.
   assert_eq!(

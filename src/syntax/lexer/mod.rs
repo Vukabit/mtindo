@@ -251,7 +251,8 @@ fn shebang_len(text: &str, edition: Edition) -> Option<usize> {
       _ => break,
     }
   }
-  Some(2 + tail.lines().next().unwrap_or("").len())
+  // To the line break, as rustc reads it: a carriage return before it is the line's own.
+  Some(2 + tail.find('\n').unwrap_or(tail.len()))
 }
 
 fn token(kind: SyntaxKind, len: usize, error: Option<LexError>) -> Token {

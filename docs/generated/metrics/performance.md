@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-22T23:31:34.366Z"
-commit: "c4de9df-dirty.ee6f2a62"
+generated: "2026-10-23T00:58:35.739Z"
+commit: "fee5ab3-dirty.10ccf4b5"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -180,11 +180,11 @@ timing taken while the machine was busy is not judged:
 | `io.write.batch.plain.ms_per_file` | 0.24 | yes | 2026-10-20 |
 | `perf.scaling.one_thread.mb_per_s` | 4.33 | no | 2026-10-20 |
 | `perf.latency.check.median_ms` | 2.33 | yes | 2026-10-20 |
-| `perf.growth.items.exponent` | 1.08 | yes | 2026-10-21 |
-| `perf.growth.nesting.exponent` | 1.88 | no | 2026-10-21 |
-| `perf.growth.line.exponent` | 1.04 | yes | 2026-10-21 |
-| `perf.growth.chain.exponent` | 1.00 | yes | 2026-10-21 |
-| `perf.growth.match.exponent` | 1.01 | yes | 2026-10-21 |
+| `perf.growth.items.exponent` | 1.09 | yes | 2026-10-23 |
+| `perf.growth.nesting.exponent` | 1.93 | no | 2026-10-23 |
+| `perf.growth.line.exponent` | 0.98 | yes | 2026-10-23 |
+| `perf.growth.chain.exponent` | 0.98 | yes | 2026-10-23 |
+| `perf.growth.match.exponent` | 1.08 | yes | 2026-10-23 |
 <!-- end generated -->
 
 ## 4 Threats to validity

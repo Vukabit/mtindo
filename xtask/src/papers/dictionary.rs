@@ -1,5 +1,5 @@
 //! The data dictionary: every front-matter field and metric a paper may carry, defined once.
-//! `docs/metrics/dictionary.md` is rendered from these tables, and a paper's front matter
+//! `docs/generated/metrics/dictionary.md` is rendered from these tables, and a paper's front matter
 //! may hold nothing they do not define.
 
 /// The front-matter fields. A dotted name is a key under the field its first part names.
@@ -7,7 +7,7 @@ pub const FIELDS: &[Entry] = &[
   Entry {
     name: "paper",
     unit: "text",
-    definition: "The paper's id: its file name under docs/metrics/ without `.md`.",
+    definition: "The paper's id: its file name under docs/generated/metrics/ without `.md`.",
     measured: "Written by `cargo xtask docs metrics`.",
     values: &[],
   },

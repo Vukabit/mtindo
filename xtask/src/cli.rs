@@ -389,12 +389,12 @@ fn docs() -> Command {
     .subcommand_required(true)
     .subcommand(
       Command::new("config")
-        .about("Regenerate docs/config/, the settings reference and mto.toml's JSON Schema, from the settings table")
+        .about("Regenerate docs/generated/config/, the settings reference and mto.toml's JSON Schema, from the settings table")
         .arg(flag("check", "Only compare")),
     )
     .subcommand(
       Command::new("metrics")
-        .about("The metrics papers in docs/metrics/ from the recorded data (compat/, its history, .dev/ when present); runs no suite")
+        .about("The metrics papers in docs/generated/metrics/ from the recorded data (compat/, its history, .dev/ when present); runs no suite")
         .arg(flag("check", "Only compare with the tracked records; fails when a page is out of date")),
     )
 }

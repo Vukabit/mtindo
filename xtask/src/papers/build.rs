@@ -1,4 +1,4 @@
-//! Each page under docs/metrics/: its front matter and generated regions, from the records.
+//! Each page under docs/generated/metrics/: its front matter and generated regions, from the records.
 //! A paper's prose sections are written by hand in its file; only what is built here is
 //! generated.
 

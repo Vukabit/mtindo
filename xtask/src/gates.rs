@@ -32,7 +32,7 @@ pub const GATES: &[Gate] = &[
   ),
   (
     "metrics-docs",
-    "the metrics papers in docs/metrics/ match the tracked records they are generated from",
+    "the metrics papers in docs/generated/metrics/ match the tracked records they are generated from",
     crate::papers::check,
   ),
   (
@@ -92,6 +92,7 @@ const LAYERS: &[(&str, u8)] = &[
 /// fixtures, and fuzz inputs grown from them).
 const NAMING_ALLOWED_PATHS: &[&str] = &[
   "CONTRIBUTING.md",
+  "CREDITS.md",
   "xtask/",
   "compat/",
   "fuzz/",
@@ -100,9 +101,11 @@ const NAMING_ALLOWED_PATHS: &[&str] = &[
   "tests/fuzz_regressions/",
 ];
 
-/// Spellings of the name that do work wherever they appear: its configuration files, the
-/// attributes that tell formatters to skip an item, and the generated table's module.
+/// Spellings of the name that do work wherever they appear: its configuration files, an
+/// editor setting that names it, the attributes that tell formatters to skip an item, and
+/// the generated table's module.
 const NAMING_ALLOWED_SPELLINGS: &[&str] = &[
+  "rust-analyzer.rustfmt.overrideCommand",
   ".rustfmt.toml",
   "rustfmt.toml",
   "rustfmt::skip",

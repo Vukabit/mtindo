@@ -17,7 +17,8 @@ files with the whitespace between their tokens scrambled.
 ### `paper`
 
 - Unit: text.
-- Definition: The paper's id: its file name under docs/metrics/ without `.md`.
+- Definition: The paper's id: its file name under docs/generated/metrics/
+  without `.md`.
 - Measured: Written by `cargo xtask docs metrics`.
 
 ### `title`

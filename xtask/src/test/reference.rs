@@ -1,4 +1,4 @@
-//! The `config-docs` gate: docs/config/, the settings reference, is what `cargo xtask docs
+//! The `config-docs` gate: docs/generated/config/, the settings reference, is what `cargo xtask docs
 //! config` writes from the settings table now. Like the `man` gate it runs code that links
 //! mtindo, here `xtask-tools docs-config --check`, which renders every file of the
 //! reference and compares it with the one on disk; a file that differs or is missing is a
@@ -52,7 +52,7 @@ fn problems(code: i32, stdout: &str, stderr: &str) -> Vec<String> {
   }
   let said = stderr.trim();
   vec![format!(
-    "cannot check docs/config/ (exit code {}){}{}",
+    "cannot check docs/generated/config/ (exit code {}){}{}",
     code,
     if said.is_empty() { "" } else { ": " },
     said
@@ -67,20 +67,20 @@ mod tests {
   fn test_a_failure_to_check_says_why() {
     assert_eq!(
       problems(101, "", "error: could not compile `mtindo`\n"),
-      ["cannot check docs/config/ (exit code 101): error: could not compile `mtindo`"]
+      ["cannot check docs/generated/config/ (exit code 101): error: could not compile `mtindo`"]
     );
   }
 
   #[test]
   fn test_stale_files_are_the_problems() {
-    assert!(problems(0, "docs/config matches the settings table\n", "").is_empty());
-    let stdout = "docs/config/README.md is stale; run `cargo xtask docs config`\n\
-                  docs/config/mto.schema.json is stale; run `cargo xtask docs config`\n";
+    assert!(problems(0, "docs/generated/config matches the settings table\n", "").is_empty());
+    let stdout = "docs/generated/config/README.md is stale; run `cargo xtask docs config`\n\
+                  docs/generated/config/mto.schema.json is stale; run `cargo xtask docs config`\n";
     assert_eq!(
       problems(1, stdout, ""),
       [
-        "docs/config/README.md is stale; run `cargo xtask docs config`",
-        "docs/config/mto.schema.json is stale; run `cargo xtask docs config`",
+        "docs/generated/config/README.md is stale; run `cargo xtask docs config`",
+        "docs/generated/config/mto.schema.json is stale; run `cargo xtask docs config`",
       ]
     );
   }

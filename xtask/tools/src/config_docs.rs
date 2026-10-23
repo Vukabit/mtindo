@@ -1,4 +1,4 @@
-//! `docs-config [--check]`: the settings reference in docs/config/, a dictionary of every key
+//! `docs-config [--check]`: the settings reference in docs/generated/config/, a dictionary of every key
 //! mto reads from a configuration file. It is written from the settings table
 //! (`mtindo::options`, which `mto --man` and `mto config print` read too), each key's status
 //! in compat/capabilities.txt, and the rustfmt releases pinned in
@@ -21,7 +21,7 @@ use mtindo::options::{self, Channels, Choice, File, Kind, Setting, Stability};
 pub const COMMAND: &str = "cargo xtask docs config";
 
 /// Where the reference is written, from the repository root.
-pub const DIR: &str = "docs/config";
+pub const DIR: &str = "docs/generated/config";
 
 /// A rustfmt release the settings table follows.
 #[derive(Clone, Debug, PartialEq, Eq)]

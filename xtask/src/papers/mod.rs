@@ -1,11 +1,11 @@
-//! `cargo xtask docs metrics`: the metrics papers under `docs/metrics/`, one per category
+//! `cargo xtask docs metrics`: the metrics papers under `docs/generated/metrics/`, one per category
 //! of measurement, generated from the data the suites record.
 //!
 //! A paper is Markdown with YAML front matter. The front matter (the machine data) and the
 //! body's generated regions, each between `<!-- generated: NAME -->` and
 //! `<!-- end generated -->`, are written here; the rest of the page is prose written by hand
 //! and never touched. Every front-matter field must be defined in the data dictionary
-//! ([`dictionary`], rendered as `docs/metrics/dictionary.md`); writing one it does not
+//! ([`dictionary`], rendered as `docs/generated/metrics/dictionary.md`); writing one it does not
 //! define is an error.
 //!
 //! Nothing is measured here. Most regions are read from tracked records (compat/, the fuzz
@@ -30,7 +30,7 @@ use crate::common::log::{Logger, timestamp};
 use crate::common::tree;
 
 /// Where the papers live.
-pub const DIR: &str = "docs/metrics";
+pub const DIR: &str = "docs/generated/metrics";
 
 /// The line that ends a generated region.
 const END: &str = "<!-- end generated -->";
@@ -229,7 +229,7 @@ impl Stamp {
   }
 }
 
-/// The `metrics-docs` gate: every page under docs/metrics/ matches what its tracked records
+/// The `metrics-docs` gate: every page under docs/generated/metrics/ matches what its tracked records
 /// give, apart from its local regions and its stamp.
 pub fn check(root: &Path) -> Vec<String> {
   let pages = match build::all(root, false) {
@@ -509,7 +509,7 @@ mod tests {
 
   fn page(regions: Vec<Region>) -> Page {
     Page {
-      path: "docs/metrics/x.md".to_string(),
+      path: "docs/generated/metrics/x.md".to_string(),
       title: "X".to_string(),
       front: Some(
         Front::new("x", "X", "measured")

@@ -4,7 +4,7 @@ exclude = ["fuzz"]
 
 [package]
 name = "mtindo"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Lays out the items of Rust files in a predictable order, safely: std only, verified before every write"
@@ -13,7 +13,7 @@ repository = "https://github.com/Vukabit/mtindo"
 readme = "README.md"
 keywords = ["formatter", "layout", "rust", "cli", "cargo-subcommand"]
 categories = ["development-tools", "command-line-utilities"]
-include = ["/src", "/Cargo.toml", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/LICENSE-UNICODE"]
+include = ["/src", "/Cargo.toml", "/README.md", "/CREDITS.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/LICENSE-UNICODE"]
 
 [[bin]]
 name = "mto"

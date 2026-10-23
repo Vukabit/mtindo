@@ -54,7 +54,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "capabilities" => capabilities::run(root, m),
     "corpus" => corpus::run(root, m),
     "diff" => diff::run(root, m),
-    // docs/config/ is written by xtask-tools from the settings table; the metrics papers
+    // docs/generated/config/ is written by xtask-tools from the settings table; the metrics papers
     // here, from the recorded data.
     "docs" if m.subcommand_name() == Some("metrics") => papers::run(root, m),
     "docs" => {

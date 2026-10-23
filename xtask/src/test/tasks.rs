@@ -329,7 +329,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
   ));
   tasks.push(Task::new(
     "config-docs",
-    "docs/config/, the settings reference, matches the settings table (cargo xtask docs config)",
+    "docs/generated/config/, the settings reference, matches the settings table (cargo xtask docs config)",
     "gates",
     Action::Check(super::reference::check_reference),
   ));

@@ -758,7 +758,7 @@ label = "write papers"
 key = "W"
 on = "metrics"
 run = "cargo xtask docs metrics"
-toast = "wrote docs/metrics/ from the recorded data"
+toast = "wrote docs/generated/metrics/ from the recorded data"
 
 [[action]]
 id = "suite"

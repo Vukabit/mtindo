@@ -75,8 +75,8 @@ cargo xtask corpus bench [--markdown]
 # rustfmt on its own tests, the corpus and the corpus with scrambled
 # whitespace; fails below compat/compatibility.txt, --update records
 cargo xtask diff [--update] [--markdown]
-# Regenerate the metrics papers in docs/metrics/ from the recorded data
-# (compat/ and its history, .dev/ when present); runs no suite. --check
+# Regenerate the metrics papers in docs/generated/metrics/ from the recorded
+# data (compat/ and its history, .dev/ when present); runs no suite. --check
 # only compares, as the metrics-docs gate does
 cargo xtask docs metrics [--check]
 # Move every corpus pin to its repository's current HEAD
@@ -88,7 +88,7 @@ cargo xtask race [--rounds N] [--filter TEXT]
 # Regenerate src/options/rustfmt.rs, rustfmt's settings table, from the
 # releases pinned in compat/rustfmt-surface.txt; --check only compares
 cargo xtask settings [--check]
-# Regenerate docs/config/, the settings reference and mto.toml's JSON
+# Regenerate docs/generated/config/, the settings reference and mto.toml's JSON
 # Schema, from the settings table; --check only compares (the config-docs
 # task of cargo xtask test fails while it is stale)
 cargo xtask docs config [--check]

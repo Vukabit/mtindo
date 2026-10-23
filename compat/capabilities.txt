@@ -178,7 +178,7 @@ flag    cargo-fmt:--package                              supported    # as cargo
 flag    cargo-fmt:--quiet                                supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
 flag    cargo-fmt:--verbose                              supported    # lists the targets, as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
 flag    cargo-fmt:--version                              supported    # as cargo fmt takes it (src/bin/cargo-mto.rs; src/config/workspace.rs; tests/domain_8_cli.rs)
-flag    rustfmt:--backup                                 not-planned  # S2-11: mto keeps copies itself (history from N5); --backup says so (tests/domain_8_cli.rs)
+flag    rustfmt:--backup                                 not-planned  # S2-11: every run that writes files is recorded in history
 flag    rustfmt:--check                                  supported    # rustfmt's `Diff in FILE:LINE:` format and exit code (tests/domain_8_cli.rs; src/lib.rs ports make_diff's tests)
 flag    rustfmt:--color                                  supported    # always, never, auto (tests/domain_8_cli.rs)
 flag    rustfmt:--config                                 supported    # sets and checks any key, as rustfmt does (tests/domain_8_cli.rs)

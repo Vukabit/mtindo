@@ -2,10 +2,54 @@
 //!
 //! The guard starts the system's own tool and stops it when dropped: `caffeinate -ims` on
 //! macOS (tied to this process with `-w`, so it also ends if the runner is killed), or
-//! `systemd-inhibit --what=sleep:idle` on Linux. Elsewhere, or without those tools, nothing
-//! keeps the machine awake; callers still detect sleep with [`asleep_seconds`].
+//! `systemd-inhibit --what=sleep:idle` on Linux. On Windows it asks the system itself
+//! (`SetThreadExecutionState`), for as long as the thread that started it runs, and ends
+//! with the process. Elsewhere, or without those tools, nothing keeps the machine awake;
+//! callers still detect sleep with [`asleep_seconds`].
 //!
-//! Neither tool can stop a laptop sleeping when its lid is closed.
+//! None of them can stop a laptop sleeping when its lid is closed.
+
+/// Windows' own way of staying awake: no tool to start, a request the system keeps for the
+/// calling thread.
+#[cfg(windows)]
+mod windows {
+  /// The state holds until changed, not for this call alone.
+  const ES_CONTINUOUS: u32 = 0x8000_0000;
+
+  const ES_DISPLAY_REQUIRED: u32 = 0x0000_0002;
+
+  const ES_SYSTEM_REQUIRED: u32 = 0x0000_0001;
+
+  #[link(name = "kernel32")]
+  unsafe extern "system" {
+    fn SetThreadExecutionState(flags: u32) -> u32;
+  }
+
+  /// Asks the system to stay awake, the display too when `display`; whether it agreed.
+  pub fn hold(display: bool) -> bool {
+    let display = if display { ES_DISPLAY_REQUIRED } else { 0 };
+    // SAFETY: a plain Win32 call with flags only; it returns 0 on failure.
+    unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | display) != 0 }
+  }
+
+  /// Lets the system sleep again.
+  pub fn release() {
+    // SAFETY: as in `hold`.
+    unsafe {
+      SetThreadExecutionState(ES_CONTINUOUS);
+    }
+  }
+}
+
+/// No such request elsewhere: the tools above are used instead.
+#[cfg(not(windows))]
+mod windows {
+  pub fn hold(_display: bool) -> bool {
+    false
+  }
+
+  pub fn release() {}
+}
 
 use std::process::{Child, Command, Stdio};
 use std::time::{Instant, SystemTime};
@@ -14,6 +58,8 @@ use super::process;
 
 pub struct KeepAwake {
   child: Option<Child>,
+  /// Windows was asked to stay awake, and is told it may sleep again on drop.
+  execution_state: bool,
   how: &'static str,
 }
 
@@ -29,6 +75,17 @@ impl KeepAwake {
   }
 
   fn start_with(display: bool) -> KeepAwake {
+    if windows::hold(display) {
+      return KeepAwake {
+        child: None,
+        execution_state: true,
+        how: if display {
+          "SetThreadExecutionState (system and display)"
+        } else {
+          "SetThreadExecutionState (system)"
+        },
+      };
+    }
     let pid = std::process::id().to_string();
     let flags = if display { "-dims" } else { "-ims" };
     let attempts: [(&'static str, &str, Vec<&str>); 2] = [
@@ -60,12 +117,14 @@ impl KeepAwake {
       if let Ok(child) = child {
         return KeepAwake {
           child: Some(child),
+          execution_state: false,
           how,
         };
       }
     }
     KeepAwake {
       child: None,
+      execution_state: false,
       how: "nothing (no caffeinate or systemd-inhibit)",
     }
   }
@@ -78,6 +137,9 @@ impl KeepAwake {
 
 impl Drop for KeepAwake {
   fn drop(&mut self) {
+    if self.execution_state {
+      windows::release();
+    }
     if let Some(child) = self.child.as_mut() {
       let _ = child.kill();
       let _ = child.wait();

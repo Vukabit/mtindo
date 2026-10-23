@@ -10,9 +10,9 @@ ran and passed. `cargo xtask test -h` lists every group, task, flag and
 environment variable. Each run is logged, with every task's full output, to
 `.dev/logs/test.log`, and each green run is added to
 `.dev/logs/last-green.tsv` with the exact tree it ran on. While it runs, the
-machine is kept awake (`caffeinate` on macOS, `systemd-inhibit` on Linux), and
-a fuzz task fails if the machine slept anyway, since sleep would cut its
-fuzzing short.
+machine is kept awake (`caffeinate` on macOS, `systemd-inhibit` on Linux,
+`SetThreadExecutionState` on Windows), and a fuzz task fails if the machine
+slept anyway, since sleep would cut its fuzzing short.
 
 Every `cargo xtask` command leaves a run record in `.dev/runs/` (its tree,
 start, end, how it ended, and its memory and CPU over time); `--detach` runs any

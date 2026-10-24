@@ -358,7 +358,8 @@ pub fn move_id(source: &str, moved: &Move) -> MoveId {
 
 /// Finds edits of `files` to hold back until `test` passes. `test` writes the texts it is
 /// given, one per file, and runs the command: `None` when no more checks may run. The texts
-/// with nothing held back are known to break the build, as `first` says.
+/// with nothing held back are known to break the build, as `first` says; the sources, with
+/// everything held back, are known to pass it (the check before the run did).
 pub fn narrow(
   files: &mut [File],
   first: Tried,
@@ -529,8 +530,10 @@ pub fn narrow(
     }
   }
   let full: Vec<String> = files.iter().map(|f| f.text(&Held::default())).collect();
-  let passed = test(&full).is_some_and(|t| !t.broke);
-  done(found, full, passed, ran_out)
+  match test(&full) {
+    Some(tried) => done(found, full, !tried.broke, ran_out),
+    None => hold_all(files, found),
+  }
 }
 
 fn done(found: Vec<Found>, texts: Vec<String>, passed: bool, ran_out: bool) -> Narrowed {
@@ -558,8 +561,8 @@ fn hold(files: &mut [File], mut first: Found, tried: Tried, found: &mut Vec<Foun
   found.push(first);
 }
 
-/// The checks ran out with no file narrowed down: every file is held back whole, and
-/// whether that builds is not known.
+/// The checks ran out: every file still changed is held back whole, edits not checked are
+/// not written, and what is left is the sources, known to pass.
 fn hold_all(files: &mut [File], mut found: Vec<Found>) -> Narrowed {
   let mut texts = Vec::new();
   for (i, file) in files.iter_mut().enumerate() {
@@ -572,7 +575,7 @@ fn hold_all(files: &mut [File], mut found: Vec<Found>) -> Narrowed {
   Narrowed {
     found,
     texts,
-    passed: false,
+    passed: true,
     ran_out: true,
   }
 }

@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-23T00:58:35.739Z"
-commit: "fee5ab3-dirty.10ccf4b5"
+generated: "2026-10-24T12:06:55.314Z"
+commit: "fe064d8-dirty.43322d71"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -176,8 +176,8 @@ timing taken while the machine was busy is not judged:
 | `doctor.narrow.n100.k1.checks` | 15.50 | yes | 2026-10-20 |
 | `doctor.narrow.n100.k3.checks` | 49.60 | yes | 2026-10-20 |
 | `doctor.narrow.found_rate` | 1 | yes | 2026-10-20 |
-| `io.write.batch.history.ms_per_file` | 0.61 | yes | 2026-10-20 |
-| `io.write.batch.plain.ms_per_file` | 0.24 | yes | 2026-10-20 |
+| `io.write.batch.history.ms_per_file` | 1.95 | not judged | 2026-10-23 |
+| `io.write.batch.plain.ms_per_file` | 0.75 | not judged | 2026-10-23 |
 | `perf.scaling.one_thread.mb_per_s` | 4.33 | no | 2026-10-20 |
 | `perf.latency.check.median_ms` | 2.33 | yes | 2026-10-20 |
 | `perf.growth.items.exponent` | 1.09 | yes | 2026-10-23 |

@@ -39,7 +39,7 @@ fn main() -> ExitCode {
     Some("lexdiff") => lexdiff::run(&root, &args[1..]),
     Some("parsecheck") => parsecheck::run(&root, &args[1..]),
     Some("corpus-check") => corpus::run(&root, &args[1..]),
-    Some("docs-config") => config_docs::run(&root, &args[1..]),
+    Some("docs") => config_docs::run(&root, &args[1..]),
     Some("corpus-speed") => corpus::speed(&args[1..]),
     Some("toml-test") => toml_test::run(&args[1..]),
     Some("diff") => diff::run(&args[1..]),

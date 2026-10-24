@@ -757,8 +757,8 @@ id = "papers"
 label = "write papers"
 key = "W"
 on = "metrics"
-run = "cargo xtask docs metrics"
-toast = "wrote docs/generated/metrics/ from the recorded data"
+run = "cargo xtask docs"
+toast = "wrote docs/generated/ from the tables and the recorded data"
 
 [[action]]
 id = "suite"

@@ -6,6 +6,7 @@ pub mod manual;
 pub mod modules;
 pub mod options;
 pub mod report;
+pub mod spec;
 
 /// `cargo mto`'s options: (group, flags, value, help). Its parser, its help and the manual
 /// read this table. Help lists the groups in the order they first appear here, and each
@@ -63,7 +64,7 @@ pub const CARGO_MTO_OPTIONS: &[(&str, &str, &str, &str)] = &[
     "output",
     "-v, --verbose",
     "",
-    "List the targets, and name each file as it is laid out",
+    "List the targets, and name each file as it is formatted",
   ),
   ("general", "-h, --help", "", "Show this help and exit"),
   ("general", "--version", "", "Print mto's version and exit"),

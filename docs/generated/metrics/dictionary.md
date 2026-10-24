@@ -19,13 +19,13 @@ files with the whitespace between their tokens scrambled.
 - Unit: text.
 - Definition: The paper's id: its file name under docs/generated/metrics/
   without `.md`.
-- Measured: Written by `cargo xtask docs metrics`.
+- Measured: Written by `cargo xtask docs`.
 
 ### `title`
 
 - Unit: text.
 - Definition: The paper's title, as its first heading shows it.
-- Measured: Written by `cargo xtask docs metrics`.
+- Measured: Written by `cargo xtask docs`.
 
 ### `status`
 
@@ -33,14 +33,13 @@ files with the whitespace between their tokens scrambled.
 - Definition: `measured` when the paper's figures come from recorded data;
   `planned` when the repository records no data for it yet and the paper only
   describes the planned method.
-- Measured: Written by `cargo xtask docs metrics`.
+- Measured: Written by `cargo xtask docs`.
 
 ### `generated`
 
 - Unit: UTC timestamp (ISO 8601).
-- Definition: When `cargo xtask docs metrics` last changed the page. A
-  regeneration that changes nothing else keeps it, and the staleness gate does
-  not compare it.
+- Definition: When `cargo xtask docs` last changed the page. A regeneration that
+  changes nothing else keeps it, and the staleness gate does not compare it.
 - Measured: The clock of the machine that ran the command.
 
 ### `commit`
@@ -97,7 +96,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: The start of the SHA-256 of the corpus pin list: one `NAME COMMIT`
   line, ending in a line feed, for each repository of compat/corpus.txt that is
   not opt-in, in file order. Equal fingerprints mean the same corpus files.
-- Measured: Computed from compat/corpus.txt by `cargo xtask docs metrics`.
+- Measured: Computed from compat/corpus.txt by `cargo xtask docs`.
 
 ### `seed`
 
@@ -205,7 +204,7 @@ files with the whitespace between their tokens scrambled.
 - Unit: repositories.
 - Definition: Repositories of compat/corpus.txt that the corpus sets read: every
   pin that is not opt-in.
-- Measured: Counted from compat/corpus.txt by `cargo xtask docs metrics`.
+- Measured: Counted from compat/corpus.txt by `cargo xtask docs`.
 
 ### `meaning.exceptions.<set>`
 
@@ -228,7 +227,7 @@ files with the whitespace between their tokens scrambled.
 - Unit: files.
 - Definition: Entries whose reason says the rewrite is `equivalent` or `not
   modelled`: the formatter kept the meaning in a way the check cannot see yet.
-- Measured: Classified from each entry's reason by `cargo xtask docs metrics`.
+- Measured: Classified from each entry's reason by `cargo xtask docs`.
 
 ### `meaning.exceptions.other`
 
@@ -236,13 +235,13 @@ files with the whitespace between their tokens scrambled.
 - Definition: Every other entry: the formatter changes the meaning or writes
   invalid code, or a test pair's expected file differs from its input beyond
   formatting.
-- Measured: Classified from each entry's reason by `cargo xtask docs metrics`.
+- Measured: Classified from each entry's reason by `cargo xtask docs`.
 
 ### `fuzz.targets`
 
 - Unit: targets.
 - Definition: Fuzz targets: the `.rs` files directly in fuzz/fuzz_targets/.
-- Measured: Counted by `cargo xtask docs metrics`.
+- Measured: Counted by `cargo xtask docs`.
 
 ### `fuzz.regressions`
 
@@ -251,7 +250,7 @@ files with the whitespace between their tokens scrambled.
   the target folders under tests/fuzz_regressions/. Each runs through its
   target's checks in `cargo test --test fuzz_regressions`.
 - Measured: Kept by `cargo xtask incidents promote`; counted by `cargo xtask
-  docs metrics`.
+  docs`.
 
 ### `corpus.lex.mb_per_s`
 

@@ -1,10 +1,13 @@
-//! The configuration part of the manual (`mto --man`), generated from the settings table so
-//! it cannot fall behind: every key, its file, type, legal values, defaults and description.
+//! The manual (`mto --man`, and `docs/generated/manual.md`): hand-written chapters, wrapped
+//! here, and the command line and configuration generated from the tables the parser and
+//! the settings checks read, so it cannot fall behind: every flag, command and exit code, and
+//! every key with its file, type, legal values, defaults and description.
 
+use super::spec::{COMMANDS, EXIT_CODES, Group, USAGE_LINES, flag_name, flags_of, spec_of};
 use crate::options::{self, Channels, File, Kind, Setting, Stability};
 
 /// How configuration is found and merged; kept beside the code in `config` that does it.
-/// The settings reference in docs/config/ reads it too.
+/// The settings reference in docs/generated/config/ reads it too.
 pub const LOOKUP: &str = "\
 mto reads the settings for each folder it formats from, lowest precedence first:
 
@@ -45,6 +48,212 @@ cannot set user settings, and the user configuration cannot set project ones.";
 /// The widest a manual line is wrapped to.
 pub const WIDTH: usize = 80;
 
+/// The manual's chapter on the build guard and `mto doctor`.
+const DOCTOR: &str = r#"## The build guard: mto doctor
+
+mto proves that each file it writes holds what it held, but not that the
+project still builds: a reordered item can meet a macro or a build script
+that depends on where it was. The build guard checks.
+
+```bash
+mto doctor on                    # guard with cargo check
+mto doctor on -- cargo test -q   # or with any command
+mto doctor                       # whether it is on, and what it holds
+mto doctor off
+```
+
+It is off until you turn it on. Turned on, mto runs one command: the one
+given to `mto doctor on`, else `cargo check` over the whole workspace and all
+its targets. Turned off, it runs none. The setting lives in the user config,
+under `[doctor]`, so no project can turn it on or change its command.
+
+A run that writes files is guarded unless it names a single file, which is
+how editors call mto, or reads stdin; `--unguarded` skips the guard for one
+run. A guarded run:
+
+1. Runs the command in the project's folder (the nearest above holding
+   `.git`, else `Cargo.toml`) while it lays out and formats the files in
+   memory. Nothing is written until it ends.
+2. Writes the files, then runs the command again.
+3. Compares the two. When the command passed before and fails now, the run
+   broke the build. Errors are compared by their code and message
+   (`error[E0425]: cannot find value in this scope`), not their lines, which
+   formatting moves. A command that prints no errors the compiler's way is
+   judged by its exit code alone.
+
+A run that broke the build is taken apart. Its edits are the moves of items
+(each item layout put somewhere else) and the changes formatting made (each
+run of changed lines). mto narrows them down, running the command on each
+candidate: first to the files that still break the build, then, within them,
+one edit at a time until the build passes. It holds back as few edits as it
+can find: the item stays where it was, the lines stay as they were written.
+Every other edit is written. The run's record in history ends with what was
+written, so `mto restore` undoes the run as usual.
+
+```text
+$ mto .
+Formatted: ./src/lib.rs
+Formatted: ./src/main.rs
+doctor: before ✓  after ✗ error[E0433]: failed to resolve
+doctor: 14 files, 23 edits: 9 checks
+doctor: held back 1 edit:
+  ./src/lib.rs: moved: mod generated (line 40, now before struct A)
+doctor: the rest is written; check ✓
+report: ~/.local/state/mtindo/doctor/reports/0192f3a1.md
+```
+
+The report says what each held edit was, the errors it caused, and how to
+keep it for good without the guard: `// mto: pin` above a moved item,
+`// mto: off` and `// mto: on` around changed lines. It goes when its run is
+pruned from history, unless an edit it held is still held.
+
+A narrowing runs the command at most `doctor.max_checks` times. Past that,
+every changed file is held back whole, as no check can show what else is safe
+to write: the files stay as they were before the run, and mto says so. When the build still fails with every edit held back, the
+failure was not mto's (the command is flaky, or reads something else that
+changed): the files are put back as they were, and mto says so (exit code
+5).
+
+A command that already fails before the run cannot guard it, as a crate that
+does not build hides what an edit would break after it: mto writes nothing,
+says why, and exits with code 5. Fix the build, give the guard a command that
+passes, or pass `--unguarded`.
+
+Held edits are remembered, in the doctor's folder next to history, so the
+next run holds them back again without running the command. A hold lapses
+when mto's build changes (the one `mto --version` names, which changes
+between releases too) or the text it is about does; the guard then checks
+again.
+
+```bash
+mto doctor holds        # every held edit, with how to keep it for good
+mto doctor release 2    # drop one; release all drops every one
+```
+
+While a narrowing runs, the files hold its candidates, each recorded in the
+run's history first. If it is cut short, the next run of mto puts the files
+back as they were before the run, before anything else.
+
+`mto doctor RUN` narrows down a run already made, guarded or not: RUN is
+`last`, `last~N` or a handle from `mto history`. Its files must still hold
+what it wrote. The command is the one after `--`, else the guard's; with the
+guard off and no command given, it stops and says how to give one.
+"#;
+
+/// The manual's opening: what mto is and how it works. Hand-written Markdown, wrapped by
+/// [`prose`].
+const INTRO: &str = r#"# mtindo (mto)
+
+`mtindo` is a formatter for Rust source files, with no dependencies. Its
+command is `mto`.
+
+Formatting does what the standard formatter does: spacing, indentation and
+line breaks in the Rust style, changing only whitespace and the few tokens
+the style rewrites. It is on by default, so with no configuration `mto` can
+take the standard formatter's place; `format = false` in an `mto.toml` turns
+it off.
+
+Layout does what the standard formatter leaves alone: it reorders a file's
+items (modules, imports, macros, constants, types with their impls,
+functions) into a predictable top-down order, inside inline modules too, and
+the items of impl blocks when asked. It moves items whole. Layout is opt-in,
+with `layout = true` in an `mto.toml`; `mto init` writes one.
+
+## How it works
+
+- **Parsed, not guessed:** each file is parsed into a syntax tree that keeps
+  every byte. A file with syntax errors is left untouched and reported as
+  skipped, as is one nesting more than 1024 levels deep, which mto does not
+  follow that far.
+- **Checked before every write:** layout may change only the order of items
+  and the blank lines between them, each item keeping its text and its
+  comments; formatting may change only whitespace and the tokens the Rust
+  style rewrites, and every comment must survive. Anything else stops the
+  write (exit code 4), and mto keeps a bug report, named in one line:
+  `mto report` shows and saves it (`report.save = false` prints it whole
+  instead).
+- **Settled in one run:** formatting mto's output again changes nothing.
+- **Every level:** layout's rules apply inside inline `mod name { ... }`
+  blocks, at every level; the items of impl blocks are ordered only when
+  asked (`reorder_impl_items`, `impl_method_order`).
+- **Keeps to the Rust style:** imports and `mod` declarations sort exactly as
+  the standard formatter sorts them for the style edition, and blank lines
+  stay within its bounds, so formatting never undoes the layout.
+- **Impls stay with their type:** `impl Type` and `impl Trait for Type`
+  blocks are kept directly beneath the type they implement, its own impls
+  first, then trait impls by trait name.
+- **Visibility, then name:** items of the same kind are ordered by visibility
+  (`visibility_order`), then by name (`name_sort`); modules by name alone, as
+  the standard formatter orders them.
+- **Order-sensitive items stay put:** the file header (shebang, `//!`,
+  `#![...]`), the order of `macro_rules!` definitions, `#[macro_use]`
+  modules, `extern crate` and item-position macro calls are never moved past
+  each other, and a macro never ends up below an item that followed it.
+  `#[rustfmt::skip]` items and items under `// mto: pin` keep their place,
+  and `#[cfg]` variants of one item move together.
+- **Atomic writes:** a file is replaced by renaming a temp file beside it,
+  on disk before the rename. Permissions are kept, and symlinked files stay
+  symlinks.
+- **History:** every run that writes files is recorded with each file's
+  contents before it; `mto restore last` undoes the last one.
+- **Check mode for CI:** `--check` prints a diff for every file that would
+  change, and exits with code 1 if there are any.
+- **Stdin and stdout:** `mto -` reads source from stdin and writes the
+  result to stdout.
+
+## Installation
+
+From a clone of the repository:
+
+```bash
+cargo install --path .
+```
+"#;
+
+/// The manual's chapter on how writes are kept safe and how to keep text in place.
+const SAFETY: &str = r#"## Safety and history
+
+A file is written in steps:
+
+1. The new text is checked against the original before anything is written.
+2. With history on (the default), the file's contents before are stored in
+   the history folder (`mto config path` shows it), each content once however
+   many runs share it, and the file is added to the run's record.
+3. The new text is written to a temp file beside the original, and an atomic
+   rename replaces the original.
+
+Each step reaches the disk before the next, so a run cut short anywhere, even
+by a power cut, leaves each file as it was or as written, and `mto restore`
+can undo it. With `sync = "batch"` under `[safety]` (the default),
+everything a run wrote is flushed to disk once, when it ends;
+`sync = "full"` flushes each file before the next. Unchanged files are never
+rewritten.
+
+Each run that writes files is recorded under an id, shown by a short handle:
+
+```bash
+mto history            # this project's runs, newest first
+mto history show last  # one run's files, and where each stands now
+mto restore last       # undo this project's last run
+mto restore 3f9a src/lib.rs
+```
+
+A restore puts back only files that still hold what the run wrote; `--force`
+restores changed and missing files too. A restore is a run of its own, so it
+can be undone. Runs are pruned after each run by the user config's
+`[history]` settings, or with `mto history prune`, and the build guard's
+reports of the runs pruned go with them.
+
+With history off (`--no-history`, or `enabled = false` under `[history]`),
+there is no undo, so mto leaves alone any file git sees uncommitted changes
+in (exit code 3), unless `--allow-dirty` (or `allow_dirty = true` under
+`[safety]`). git is used only if it is installed.
+
+Text between `// mto: off` and `// mto: on` is never moved or changed. An
+item directly under `// mto: on` stays inside the region; a region with no
+`// mto: on` runs to the end of the file.
+"#;
+
 /// The configuration chapter of the manual, in the manual's Markdown.
 pub fn configuration() -> String {
   let mut out = String::from("## Configuration\n");
@@ -67,9 +276,8 @@ pub fn configuration() -> String {
       "These go in `rustfmt.toml`, `.rustfmt.toml`, `mto.toml` or `.mto.toml`, \
              as the standard formatter {} documents them. mto reads and checks them all, \
              on every channel, so an existing `rustfmt.toml` works unchanged; the \
-             standard formatter's own stability is noted for reference. Until mto \
-             formats code, only `edition`, `style_edition` and `version` change what it \
-             does.",
+             standard formatter's own stability is noted for reference. \
+             `mto config options` shows how far mto honors each.",
       options::RUSTFMT_VERSION
     ),
     "",
@@ -101,6 +309,88 @@ pub fn configuration() -> String {
     ));
   }
   out
+}
+
+/// The full manual (`mto --man`, and `docs/generated/manual.md`): the hand-written
+/// chapters, and the command line, exit codes and configuration generated from the tables
+/// the parser and the settings checks read.
+pub fn render() -> String {
+  let mut out = prose(INTRO);
+  out.push_str("## Command line\n```text\n");
+  for line in USAGE_LINES {
+    out.push_str(line);
+    out.push('\n');
+  }
+  out.push_str("```\n");
+  out.push_str(&wrap(
+    "`<PATH>`: a single `.rs` file or a directory. Directories are traversed \
+     recursively, skipping `ignore_dirs`, symlinked entries, and folders that hold a \
+     repository of their own (`.git`), which are named in a note; name one to format it. \
+     Running `mto` with no arguments prints the short help.",
+    "*   ",
+  ));
+  out.push_str(&wrap(
+    "`mto -`: Read source from stdin and write the result to stdout; \
+     `--stdin-filepath` says where it belongs.",
+    "*   ",
+  ));
+  for group in Group::SHOWN {
+    let heading = group.heading();
+    out.push_str(&format!(
+      "### {}{} (`{}`)\n",
+      heading[..1].to_uppercase(),
+      &heading[1..],
+      group.command()
+    ));
+    for spec in flags_of(group) {
+      out.push_str(&wrap(
+        &format!("`{}`: {}.", flag_name(spec), spec.help),
+        "*   ",
+      ));
+    }
+  }
+  out.push_str("### Commands\n");
+  for command in COMMANDS {
+    let usage = format!("mto {} {}", command.name, command.args);
+    out.push_str(&wrap(
+      &format!("`{}`: {}", usage.trim_end(), command.about),
+      "*   ",
+    ));
+    for (_, after, flags) in command.options {
+      for flag in *flags {
+        let spec = spec_of(*flag);
+        out.push_str(&wrap(
+          &format!("`{}` (after `{}`): {}.", flag_name(spec), after, spec.help),
+          "    *   ",
+        ));
+      }
+    }
+  }
+  out.push_str("## Cargo\n");
+  out.push_str(&wrap(
+    "`cargo mto` formats the targets of the current package or workspace, as `cargo fmt` \
+     does: every member when run from the workspace root, else the current package. Each \
+     target's root file (library, binaries, examples, tests, benches, build script, as \
+     Cargo discovers them) brings the modules it declares. The manifests are read \
+     directly; Cargo is not run. Options after `--` go to `mto`.",
+    "",
+  ));
+  for (_, flags, value, help) in super::CARGO_MTO_OPTIONS {
+    let name = if value.is_empty() {
+      flags.to_string()
+    } else {
+      format!("{} {}", flags, value)
+    };
+    out.push_str(&wrap(&format!("`cargo mto {}`: {}.", name, help), "*   "));
+  }
+  out.push_str("## Exit codes\n");
+  for (code, meaning) in EXIT_CODES {
+    out.push_str(&wrap(&format!("`{}`: {}.", code, meaning), "*   "));
+  }
+  out.push_str(&configuration());
+  out.push_str(&prose(SAFETY));
+  out.push_str(&prose(DOCTOR));
+  spaced(&out)
 }
 
 /// `text` wrapped to [`WIDTH`], the first line after `lead` and the others indented to
@@ -204,6 +494,67 @@ fn entry(setting: &Setting) -> String {
       }
       out.push_str(&wrap(&text, "    *   "));
     }
+  }
+  out
+}
+
+/// Hand-written Markdown wrapped to [`WIDTH`]: each paragraph, `- ` item and numbered item
+/// re-flowed, so the source may break its lines anywhere; headings and code blocks as
+/// written.
+fn prose(text: &str) -> String {
+  let mut out = String::new();
+  let mut items: Vec<String> = Vec::new();
+  let mut code = false;
+  let flush = |items: &mut Vec<String>, out: &mut String| {
+    if !items.is_empty() {
+      out.push_str(&wrap_block(&items.join("\n")));
+      items.clear();
+    }
+  };
+  for line in text.lines() {
+    let fence = line.starts_with("```");
+    if fence || code || line.starts_with('#') {
+      flush(&mut items, &mut out);
+      code ^= fence;
+      out.push_str(line);
+      out.push('\n');
+      continue;
+    }
+    let trimmed = line.trim();
+    let starts_item = trimmed.starts_with("- ")
+      || trimmed
+        .split_once(". ")
+        .is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+    if trimmed.is_empty() {
+      flush(&mut items, &mut out);
+      out.push('\n');
+    } else if let Some(last) = items.last_mut().filter(|_| !starts_item) {
+      last.push(' ');
+      last.push_str(trimmed);
+    } else {
+      items.push(trimmed.to_string());
+    }
+  }
+  flush(&mut items, &mut out);
+  out
+}
+
+/// The manual with a blank line before every heading, so sections and entries stand apart
+/// in a terminal. Code blocks are left as they are.
+fn spaced(manual: &str) -> String {
+  let mut out = String::new();
+  let mut in_code = false;
+  for line in manual.lines() {
+    if line.starts_with("```") {
+      in_code = !in_code;
+    }
+    let heading =
+      !in_code && line.starts_with('#') && line.trim_start_matches('#').starts_with(' ');
+    if heading && !out.is_empty() && !out.ends_with("\n\n") {
+      out.push('\n');
+    }
+    out.push_str(line);
+    out.push('\n');
   }
   out
 }

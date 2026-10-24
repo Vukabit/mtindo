@@ -204,7 +204,7 @@ pub struct RunOptions {
   pub files_with_diff: bool,
   /// `-q`: only errors and what was asked for.
   pub quiet: bool,
-  /// `-v`: name each file as it is laid out.
+  /// `-v`: name each file as it is formatted.
   pub verbose: bool,
   /// `--skip-children`: a file argument is that file alone, not its modules.
   pub skip_children: bool,

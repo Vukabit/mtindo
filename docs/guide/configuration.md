@@ -40,7 +40,8 @@ mto config options --toml  # the same, as a commented file
 Every setting, the formatting settings and mto's own, is documented with its
 legal values and defaults in the
 [settings reference](../generated/config/README.md), which also has a JSON
-Schema of `mto.toml` for editors, and in the manual (`mto --man`).
+Schema of `mto.toml` for editors, and in the
+[manual](../generated/manual.md) (`mto --man`).
 
 ## mto.toml
 

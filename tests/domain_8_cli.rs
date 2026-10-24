@@ -811,6 +811,40 @@ fn test_cli_doctor_holds_back_what_breaks_the_build() {
   assert!(stdout.contains("mto runs no command"), "{}", stdout);
 }
 
+/// Out of checks (`doctor.max_checks`), every changed file is held back whole: the files are
+/// as before the run, which the check before passed, and the run ends without an error.
+#[cfg(unix)]
+#[test]
+fn test_cli_doctor_out_of_checks_holds_back_whole_files() {
+  const LIB: &str = "struct A;\nfn b() {}\nmod generated {}\n";
+  let env = TestEnvironment::new();
+  env.write_file("src/lib.rs", LIB);
+  env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
+  env.write_file(
+    "check.sh",
+    "m=$(grep -n 'mod generated' src/lib.rs | cut -d: -f1)\n\
+     a=$(grep -n 'struct A' src/lib.rs | cut -d: -f1)\n\
+     if [ \"$m\" -lt \"$a\" ]; then\n\
+     echo 'error[E0433]: failed to resolve: generated' >&2; exit 1; fi\n",
+  );
+  env.write_file(
+    ".home/.config/mtindo/config.toml",
+    "[doctor]\nenabled = true\ncommand = [\"sh\", \"check.sh\"]\nmax_checks = 1\n",
+  );
+  let (code, _, stderr) = mto(&env, &["."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(
+    stderr.contains(
+      "doctor: out of checks (doctor.max_checks = 1); every file is as it was, and nothing \
+       is written"
+    ),
+    "{}",
+    stderr
+  );
+  assert_eq!(env.read_file("src/lib.rs"), LIB);
+  assert_eq!(env.read_file("src/other.rs"), "fn z() {}\nstruct Y;\n");
+}
+
 /// A build guard whose command already fails before the run has no baseline: it cannot tell
 /// what the run would break, so nothing is written and mto says why (exit code 5);
 /// `--unguarded` writes as usual.
@@ -1190,9 +1224,6 @@ fn test_cli_history_prune_and_removed_flags() {
     mto(&env, &["history", "prune", "--older-than", "soon"]).0,
     2
   );
-  let (code, _, stderr) = mto(&env, &["--restore", "a", "b"]);
-  assert_eq!(code, 2);
-  assert!(stderr.contains("mto restore last"), "{}", stderr);
   assert_eq!(mto(&env, &["--force", "main.rs"]).0, 2);
 }
 
@@ -1384,7 +1415,7 @@ fn test_cli_skip_children_setting_leaves_modules_out() {
 }
 
 #[test]
-fn test_cli_stdin_filepath_and_backup() {
+fn test_cli_stdin_filepath() {
   let env = TestEnvironment::new();
   env.write_file(
     "sub/mto.toml",
@@ -1403,10 +1434,6 @@ fn test_cli_stdin_filepath_and_backup() {
     "{}",
     stdout
   );
-
-  let output = env.mto_cmd().args(["--backup", "x.rs"]).output().unwrap();
-  assert_eq!(output.status.code(), Some(2));
-  assert!(String::from_utf8_lossy(&output.stderr).contains("--backup is not needed"));
 }
 
 #[test]

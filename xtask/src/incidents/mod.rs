@@ -740,21 +740,35 @@ fn signature(kind: &str, target: &str, key: &str) -> String {
   sha256::hex_digest(format!("{}\0{}\0{}", kind, target, key).as_bytes())[..16].to_string()
 }
 
-/// The incident's title: the panic's message, libFuzzer's error, or the first line that
-/// is not a note in parentheses; else what its kind means.
+/// The incident's title: the panic's message, libFuzzer's error, how long a replay took,
+/// or the first line that is not a note in parentheses nor cargo's; else what its kind
+/// means.
 fn title_of(kind: &str, said: &str) -> String {
   let lines: Vec<&str> = said.lines().collect();
+  let cargo = |l: &str| {
+    ["Finished ", "Running ", "Compiling ", "Blocking "]
+      .iter()
+      .any(|word| l.trim_start().starts_with(word))
+  };
   let line = lines
     .iter()
     .position(|l| l.contains("panicked at "))
     .and_then(|i| lines.get(i + 1))
     .or_else(|| lines.iter().find(|l| l.contains("ERROR: libFuzzer")))
+    .map(|l| l.trim().to_string())
+    // libFuzzer's `Executed <input> in 7729 ms`, which is all a slow input's replay says.
+    .or_else(|| {
+      lines.iter().find_map(|l| {
+        let (_, took) = l.trim().strip_prefix("Executed ")?.rsplit_once(" in ")?;
+        Some(format!("took {} on its replay", took))
+      })
+    })
     .or_else(|| {
       lines
         .iter()
-        .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('('))
+        .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('(') && !cargo(l))
+        .map(|l| l.trim().to_string())
     })
-    .map(|l| l.trim().to_string())
     .unwrap_or_else(|| {
       KINDS
         .iter()
@@ -874,6 +888,28 @@ mod tests {
       regression_test: "tests/fuzz_regressions/format/e88529f2".to_string(),
     };
     assert_eq!(Incident::from_toml(&incident.to_toml()), Some(incident));
+  }
+
+  #[test]
+  fn test_a_title_says_what_failed() {
+    assert_eq!(title_of("fuzz-crash", SAID), "meaning changed:");
+    // A slow input filed with its replay for what it said: how long the replay took, not
+    // cargo's lines before it.
+    let replayed = "(found as slow-unit-4f82; what its run said was not kept: this is a replay)\n\
+      \x20   Finished `release` profile [optimized + debuginfo] target(s) in 0.00s\n\
+      \x20    Running `fuzz/target/release/format input`\n\
+      INFO: Seed: 4095231043\n\
+      Executed /x/.incoming/format/slow-unit-4f82 in 7729 ms\n";
+    assert_eq!(
+      title_of("fuzz-slow", replayed),
+      "took 7729 ms on its replay"
+    );
+    let built = "    Finished `release` profile in 0.01s\nerror: no such target\n";
+    assert_eq!(title_of("fuzz-crash", built), "error: no such target");
+    assert_eq!(
+      title_of("fuzz-slow", "(a note)\n"),
+      "a fuzz target was slow on one input"
+    );
   }
 
   #[test]

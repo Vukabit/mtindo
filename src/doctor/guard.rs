@@ -243,7 +243,20 @@ pub fn finish(
       ),
     );
   }
-  say(guard, "doctor: the rest is written; check ✓");
+  if narrowed.ran_out {
+    // Out of checks, what is left unchecked is not written: every file is as before the
+    // run, which the check before passed.
+    say(
+      guard,
+      &format!(
+        "doctor: out of checks (doctor.max_checks = {}); every file is as it was, and \
+         nothing is written",
+        guard.max_checks
+      ),
+    );
+  } else {
+    say(guard, "doctor: the rest is written; check ✓");
+  }
   write_report(
     guard,
     &run,

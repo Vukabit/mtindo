@@ -76,7 +76,7 @@ pub fn header_gives_up(node: &SyntaxNode, indent: usize, config: &FormatConfig) 
     return None;
   }
   let mut wide = config.clone();
-  wide.max_width = 100_000;
+  wide.max_width = super::shape::UNLIMITED;
   let (text, to) = rewrite_header(node, indent, &wide)?;
   text
     .split('\n')
@@ -2598,12 +2598,26 @@ fn mixed_variants(list: &SyntaxNode, indent: usize, config: &FormatConfig) -> bo
           spacing,
         )) <= config.struct_variant_width + 4
       });
-    let text = flat_tokens(
-      &code_tokens(&[SyntaxElement::Node(variant.clone())]),
-      spacing,
-    );
-    // The `<` leaves a column for the comma.
-    !attributed && fields_fit && indent + str_width(&text) < config.max_width
+    // Without the commas written before a closing delimiter, which go on one line.
+    let tokens = code_tokens(&[SyntaxElement::Node(variant.clone())]);
+    let kept: Vec<SyntaxToken> = tokens
+      .iter()
+      .enumerate()
+      .filter(|(i, t)| {
+        t.kind() != K::Comma
+          || !tokens
+            .get(i + 1)
+            .is_some_and(|n| matches!(n.kind(), K::RParen | K::RBrace | K::RBrack | K::Gt))
+      })
+      .map(|(_, t)| t.clone())
+      .collect();
+    let text = flat_tokens(&kept, spacing);
+    // The `<` leaves a column for the comma; a tuple variant takes one more, as its fields
+    // are laid out in one column less than the line.
+    let tuple = variant
+      .children_iter()
+      .any(|c| c.kind() == K::TupleFieldList);
+    !attributed && fields_fit && indent + str_width(&text) + usize::from(tuple) < config.max_width
   };
   let variants: Vec<SyntaxNode> = list
     .children_iter()

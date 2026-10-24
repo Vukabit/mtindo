@@ -54,7 +54,7 @@ directory is walked.
 * `--stdin-filepath <PATH>`: With `-`, where the source belongs, for its
   settings and in messages.
 * `-d, --dry-run`: List the files that would change without writing to disk.
-* `-R, --recursive`: Lay out every `.rs` file under the current directory.
+* `-R, --recursive`: Format every `.rs` file under the current directory.
 * `--follow-links`: Also follow symlinked files and directories.
 * `--no-history`: Do not record this run, so it cannot be restored.
 * `--allow-dirty`: With history off, rewrite files that have uncommitted
@@ -112,8 +112,9 @@ and `-v`, as `cargo fmt` does, and `--no-history` and `--allow-dirty`.
 | 0 | Success |
 | 1 | `--check` found files that would change; `mto restore` skipped files |
 | 2 | Bad arguments or configuration |
-| 3 | A file could not be read, written or parsed, or the git guard kept it |
+| 3 | A file could not be read, written or parsed, or has uncommitted changes |
 | 4 | A bug in mto, kept as a report; the file is unchanged |
-| 5 | The build guard's command failed with every edit held back |
+| 5 | The guard's command failed before the run, or with every edit held back |
 
-Every flag and command, with its details, is in the manual (`mto --man`).
+Every flag and command, with its details, is in the
+[manual](../generated/manual.md) (`mto --man`).

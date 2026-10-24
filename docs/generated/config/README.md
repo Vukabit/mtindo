@@ -1,6 +1,6 @@
 ---
 title: mto settings reference
-generated_by: cargo xtask docs config
+generated_by: cargo xtask docs
 standard_formatter:
   stable:
     version: "1.10.0"
@@ -16,16 +16,16 @@ keys:
 in_mto:
   supported: 32
   partial: 27
-  missing: 44
-  not_planned: 3
+  missing: 43
+  not_planned: 4
 ---
 
 # mto settings reference
 
 Every key mto reads from a configuration file: its type, legal values, defaults,
 and how far mto honors it. These pages are generated from mto's settings table,
-the one `mto --man` and `mto config print` read, by `cargo xtask docs config`;
-change the table, not the pages.
+the one `mto --man` and `mto config print` read, by `cargo xtask docs`; change
+the table, not the pages.
 
 ## The files
 
@@ -564,7 +564,7 @@ behavior, so the column does not apply to them.
 <code>make_backup</code></a></td>
 <td>rustfmt.toml</td>
 <td>Backup changed files.</td>
-<td>missing</td>
+<td>not planned</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#match_arm_blocks">

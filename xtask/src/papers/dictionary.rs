@@ -8,14 +8,14 @@ pub const FIELDS: &[Entry] = &[
     name: "paper",
     unit: "text",
     definition: "The paper's id: its file name under docs/generated/metrics/ without `.md`.",
-    measured: "Written by `cargo xtask docs metrics`.",
+    measured: "Written by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
     name: "title",
     unit: "text",
     definition: "The paper's title, as its first heading shows it.",
-    measured: "Written by `cargo xtask docs metrics`.",
+    measured: "Written by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
@@ -24,13 +24,13 @@ pub const FIELDS: &[Entry] = &[
     definition: "`measured` when the paper's figures come from recorded data; `planned` \
       when the repository records no data for it yet and the paper only describes the \
       planned method.",
-    measured: "Written by `cargo xtask docs metrics`.",
+    measured: "Written by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
     name: "generated",
     unit: "UTC timestamp (ISO 8601)",
-    definition: "When `cargo xtask docs metrics` last changed the page. A regeneration \
+    definition: "When `cargo xtask docs` last changed the page. A regeneration \
       that changes nothing else keeps it, and the staleness gate does not compare it.",
     measured: "The clock of the machine that ran the command.",
     values: &[],
@@ -93,7 +93,7 @@ pub const FIELDS: &[Entry] = &[
     definition: "The start of the SHA-256 of the corpus pin list: one `NAME COMMIT` line, \
       ending in a line feed, for each repository of compat/corpus.txt that is not opt-in, \
       in file order. Equal fingerprints mean the same corpus files.",
-    measured: "Computed from compat/corpus.txt by `cargo xtask docs metrics`.",
+    measured: "Computed from compat/corpus.txt by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
@@ -196,7 +196,7 @@ pub const METRICS: &[Entry] = &[
     unit: "repositories",
     definition: "Repositories of compat/corpus.txt that the corpus sets read: every pin \
       that is not opt-in.",
-    measured: "Counted from compat/corpus.txt by `cargo xtask docs metrics`.",
+    measured: "Counted from compat/corpus.txt by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
@@ -220,7 +220,7 @@ pub const METRICS: &[Entry] = &[
     unit: "files",
     definition: "Entries whose reason says the rewrite is `equivalent` or `not modelled`: \
       the formatter kept the meaning in a way the check cannot see yet.",
-    measured: "Classified from each entry's reason by `cargo xtask docs metrics`.",
+    measured: "Classified from each entry's reason by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
@@ -228,14 +228,14 @@ pub const METRICS: &[Entry] = &[
     unit: "files",
     definition: "Every other entry: the formatter changes the meaning or writes invalid \
       code, or a test pair's expected file differs from its input beyond formatting.",
-    measured: "Classified from each entry's reason by `cargo xtask docs metrics`.",
+    measured: "Classified from each entry's reason by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
     name: "fuzz.targets",
     unit: "targets",
     definition: "Fuzz targets: the `.rs` files directly in fuzz/fuzz_targets/.",
-    measured: "Counted by `cargo xtask docs metrics`.",
+    measured: "Counted by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
@@ -244,8 +244,7 @@ pub const METRICS: &[Entry] = &[
     definition: "Inputs found by fuzzing and kept as regression tests: the files in the \
       target folders under tests/fuzz_regressions/. Each runs through its target's checks \
       in `cargo test --test fuzz_regressions`.",
-    measured: "Kept by `cargo xtask incidents promote`; counted by `cargo xtask docs \
-      metrics`.",
+    measured: "Kept by `cargo xtask incidents promote`; counted by `cargo xtask docs`.",
     values: &[],
   },
   Entry {

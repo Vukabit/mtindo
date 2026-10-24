@@ -40,8 +40,8 @@ pub(super) static SETTINGS: &[Setting] = &[
     default: "64",
     default_2024: None,
     summary: "The most times one narrowing runs the command",
-    doc: "Past this many runs of the command, a narrowing holds back every edit of the \
-              files it has narrowed down to.",
+    doc: "Past this many runs of the command, a narrowing holds back every changed file \
+              whole, so the files stay as they were before the run.",
     channels: None,
     hidden: false,
     replaced_by: None,

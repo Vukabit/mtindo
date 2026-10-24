@@ -10,11 +10,13 @@
 //!   places; everything else, blank lines included, stays where it was.
 //!
 //! Pinned items (`// mto: pin`, `#[rustfmt::skip]`, `// mto: off` regions) keep their
-//! places, as everywhere.
+//! places, as everywhere. An impl whose order would lift an item above a `macro_rules!` in
+//! its body is left as written.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use super::order::macro_moved_past_user;
 use super::{Cx, Unit, around_held, split_container};
 use crate::options::layout::{ItemKind, LayoutConfig};
 use crate::syntax::ast::Item;
@@ -149,10 +151,12 @@ pub(super) fn impl_with_items_ordered(
     return None;
   }
   let arranged = around_held(&units, |u| cx.holds(u.span.0), arrange).ok()?;
-  if arranged
-    .iter()
-    .zip(units.iter())
-    .all(|(a, b)| a.index == b.index)
+  // A `macro_rules!` in the body is visible only below it: nothing after it moves up.
+  if macro_moved_past_user(&arranged)
+    || arranged
+      .iter()
+      .zip(units.iter())
+      .all(|(a, b)| a.index == b.index)
   {
     return None;
   }

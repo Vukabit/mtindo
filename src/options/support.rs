@@ -50,7 +50,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("imports_layout", "partial"),
   ("indent_style", "missing"),
   ("inline_attribute_width", "missing"),
-  ("make_backup", "missing"),
+  ("make_backup", "not-planned"),
   ("match_arm_blocks", "missing"),
   ("match_arm_indent", "supported"),
   ("match_arm_leading_pipes", "missing"),

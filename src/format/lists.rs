@@ -222,6 +222,22 @@ pub fn write_vertical_kept(
   )
 }
 
+/// `comment` without the blank lines right under its first line, when that line is a
+/// comment of its own (`// a`, `/* a */`); as written otherwise.
+fn close_first_gap(comment: &str) -> String {
+  let trimmed = comment.trim();
+  let Some((first, rest)) = trimmed.split_once('\n') else {
+    return comment.to_string();
+  };
+  let first = first.trim();
+  let whole = first.starts_with("//") || first.starts_with("/*") && first.ends_with("*/");
+  if !whole {
+    return comment.to_string();
+  }
+  let rest = rest.trim_start_matches(|c: char| c.is_whitespace());
+  format!("{}\n{}", first, rest)
+}
+
 /// A comment's lines, each trimmed, the later ones indented to `indent`
 /// (`light_rewrite_comment` for line comments).
 fn comment_lines(comment: &str, indent: usize) -> String {
@@ -446,6 +462,8 @@ fn write_list(
   for (i, (text, c)) in texts.iter().zip(comments).enumerate() {
     let last = i + 1 == texts.len();
     let separate = separator && (!last || trailing);
+    // Whether the item goes on the line of the item before.
+    let mut joined = false;
     if mixed {
       let total =
         str_width(text) + comment_len(&c.pre) + comment_len(&c.post) + usize::from(separate);
@@ -457,6 +475,7 @@ fn write_list(
       } else if line_len > 0 {
         out.push(' ');
         line_len += 1;
+        joined = true;
       }
       line_len += total;
       prev_post = c.post.is_some();
@@ -470,7 +489,15 @@ fn write_list(
       out.push_str(&pad);
     }
     if let Some(pre) = &c.pre {
-      out.push_str(&comment_lines(pre, indent));
+      // Written after the item before, the comment's first line ends that item's line: a
+      // second run reads it as that item's, and a blank line under it as one between items,
+      // which a packed list drops. Dropped from the first, for a stable layout.
+      let pre = if joined {
+        close_first_gap(pre)
+      } else {
+        pre.clone()
+      };
+      out.push_str(&comment_lines(&pre, indent));
       // The item with its comments, each counted six columns wider, as the standard
       // formatter's `total_item_width` counts them.
       let counted = |c: &Option<String>| c.as_ref().map_or(0, |c| c.trim().len().max(4) + 6);

@@ -54,17 +54,22 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "capabilities" => capabilities::run(root, m),
     "corpus" => corpus::run(root, m),
     "diff" => diff::run(root, m),
-    // docs/generated/config/ is written by xtask-tools from the settings table; the metrics papers
-    // here, from the recorded data.
-    "docs" if m.subcommand_name() == Some("metrics") => papers::run(root, m),
+    // The settings reference and the manual are written by xtask-tools, which links mtindo;
+    // the metrics papers here, from the recorded data.
     "docs" => {
-      let check = m.subcommand().is_some_and(|(_, sub)| cli::on(sub, "check"));
+      let check = cli::on(m, "check");
       let args = if check {
         vec!["--check".to_string()]
       } else {
         Vec::new()
       };
-      forward(root, "docs-config", args)
+      let tables = forward(root, "docs", args);
+      let papers = papers::run(root, check);
+      if tables == ExitCode::SUCCESS {
+        papers
+      } else {
+        tables
+      }
     }
     "doctor" => doctor::run(root, m),
     "fuzz" => fuzz::run(root, m),

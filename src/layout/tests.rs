@@ -103,6 +103,36 @@ fn test_code_only_valid_in_an_older_edition_still_parses() {
   assert_eq!(arranged(source), "fn async() {}\n\nfn dyn() {}\n");
 }
 
+/// Comments ending an item's line move with it, the ones the tree leaves out too (a block
+/// comment followed by another), in an impl, a module and the file.
+#[test]
+fn test_comments_ending_an_items_line_move_with_it() {
+  let config = LayoutConfig {
+    reorder_impl_items: true,
+    ..LayoutConfig::default()
+  };
+  let cases = [
+    (
+      "impl S {\n    const B: u8 = 0;\n    const A: u8 = 0; /* x */ // y\n}\n",
+      "impl S {\n    const A: u8 = 0; /* x */ // y\n    const B: u8 = 0;\n}\n",
+    ),
+    (
+      "mod m {\n    const B: u8 = 0;\n    const A: u8 = 0; /* x */ // y\n}\n",
+      "mod m {\n    const A: u8 = 0; /* x */ // y\n\n    const B: u8 = 0;\n}\n",
+    ),
+    (
+      "const B: u8 = 0; /* x */ /* z */\nconst A: u8 = 0;\n",
+      "const A: u8 = 0;\n\nconst B: u8 = 0; /* x */ /* z */\n",
+    ),
+  ];
+  for (source, expected) in cases {
+    let laid = layout(source, &config).unwrap();
+    assert_eq!(laid.text, expected);
+    let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
+    assert!(violations.is_empty(), "{:?}", violations);
+  }
+}
+
 #[test]
 fn test_crlf_and_bom_come_back() {
   let source = "\u{feff}fn b() {}\r\nfn a() {}\r\n";
@@ -249,6 +279,24 @@ fn test_impl_items_rank_by_their_own_code() {
   assert_eq!(layout(closed, &config).unwrap().text, closed);
 }
 
+/// Reordering impl items must not lift a const above a `macro_rules!` in the body.
+#[test]
+fn test_impl_items_stay_below_a_macro_definition() {
+  let config = LayoutConfig {
+    reorder_impl_items: true,
+    ..LayoutConfig::default()
+  };
+  let source = "impl S {\n    fn f() {}\n\n    macro_rules! m {\n        () => {};\n    }\n\n    const A: u8 = 0;\n}\n";
+  let laid = layout(source, &config).unwrap();
+  assert!(
+    laid.text.find("const A").unwrap() > laid.text.find("macro_rules!").unwrap(),
+    "{}",
+    laid.text
+  );
+  let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
+  assert!(violations.is_empty(), "{:?}", violations);
+}
+
 #[test]
 fn test_impls_under_a_type() {
   let source = "impl Display for Foo {}\nimpl Foo { fn b() {} }\nimpl Clone for Foo {}\nimpl Foo { fn a() {} }\nstruct Foo;\nimpl fmt::Debug for Foo {}\n";
@@ -334,6 +382,10 @@ fn test_inline_modules_are_laid_out_at_every_level() {
   assert_eq!(arranged(one_line), one_line);
   let skipped = "#[rustfmt::skip]\nmod m {\n    fn b() {}\n    fn a() {}\n}\n";
   assert_eq!(arranged(skipped), skipped);
+  // So is a body closed on its last item's line: a comment ending an item moved there would
+  // no longer end its line.
+  let closed = "mod m {\n    fn b() {} /* c */\n\n    fn a() {\n}  }\n";
+  assert_eq!(arranged(closed), closed);
 }
 
 /// Items compared under any `type_order` (empty, partial, full) and the settings that keep

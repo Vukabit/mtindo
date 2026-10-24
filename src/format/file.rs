@@ -229,8 +229,29 @@ pub fn block_of_lines(node: &SyntaxNode) -> bool {
 }
 
 /// The file formatted; the input itself when it cannot be formatted safely.
+///
+/// Two things can make a second run differ, as the standard formatter's does: a statement
+/// kept as written, around which the code is weighed by its written lines, which the first
+/// run rewrites; and a comment among a list's items, placed by where it was written, which
+/// the first run moves. So when either is in the file, the output is formatted again, at
+/// most twice, and the form it settles on is the one written.
 pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> String {
-  format_text(source, edition, config, true)
+  KEPT.with(|k| k.set(false));
+  let mut out = format_text(source, edition, config, true);
+  if out != source && commented_list(source, edition) {
+    note_kept();
+  }
+  for _ in 0..2 {
+    if !KEPT.with(|k| k.replace(false)) {
+      break;
+    }
+    let again = format_text(&out, edition, config, true);
+    if again == out {
+      break;
+    }
+    out = again;
+  }
+  out
 }
 
 /// [`format_file`]; a macro's body keeps its empty statements (`strip`), which a macro may
@@ -334,6 +355,11 @@ pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
     previous = Some(kind);
   }
   true
+}
+
+/// Notes that a statement or item was kept as written, for [`format_file`].
+pub(super) fn note_kept() {
+  KEPT.with(|k| k.set(true));
 }
 
 /// A braced macro call's arguments as the standard formatter's `trim_left_preserve_layout`
@@ -562,21 +588,6 @@ pub(super) fn style_2024() -> bool {
   STYLE.with(|e| e.get()) >= 2024
 }
 
-thread_local! {
-  /// `skip_macro_invocations` for the text being formatted.
-  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
-    const { std::cell::RefCell::new(Vec::new()) };
-  /// The crate root's skipped macros and attributes, for the text being formatted.
-  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
-    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
-  /// The edition of the text being formatted.
-  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
-  /// The style edition of the text being formatted.
-  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
-  /// Whether the text being formatted names macros, and attributes, to skip.
-  static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
-}
-
 /// For a struct's fields, an enum's variants or a match's arms laid out one per line from
 /// column `indent`, the spaces before each item's comment after it on its line, as a list's
 /// are aligned (`write_list`); `None` where there is none.
@@ -691,6 +702,23 @@ fn attr_comment_moves(
     && comments
       .first()
       .is_some_and(|c| width_of(line, tab) + 1 + width_of(c, tab) > config.max_width)
+}
+
+thread_local! {
+  /// `skip_macro_invocations` for the text being formatted.
+  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
+    const { std::cell::RefCell::new(Vec::new()) };
+  /// The crate root's skipped macros and attributes, for the text being formatted.
+  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
+    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
+  /// The edition of the text being formatted.
+  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
+  /// The style edition of the text being formatted.
+  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
+  /// Whether the text being formatted names macros, and attributes, to skip.
+  static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
+  /// Whether a statement or item was kept as written since [`format_file`] last looked.
+  static KEPT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Whether a node is a macro call with braces (`m! { .. }`), or a statement of one.
@@ -878,6 +906,36 @@ fn commented_block(node: &SyntaxNode) -> bool {
       .descendants_where(|kind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment))
       .next()
       .is_some()
+}
+
+/// Whether a comment stands among the items of a list: arguments, parameters, fields,
+/// variants, elements, generics or a `use` list.
+fn commented_list(source: &str, edition: Edition) -> bool {
+  if !source.contains("//") && !source.contains("/*") {
+    return false;
+  }
+  let root = parse_cached(source, edition).syntax_node();
+  root
+    .descendants_where(|kind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment))
+    .any(|comment| {
+      let SyntaxElement::Token(token) = comment else {
+        return false;
+      };
+      token
+        .parent()
+        .ancestors_iter()
+        .find(|a| is_container(a.kind()) || is_generics(a.kind()))
+        .is_some_and(|list| {
+          !matches!(
+            list.kind(),
+            SyntaxKind::ItemList
+              | SyntaxKind::AssocItemList
+              | SyntaxKind::ExternItemList
+              | SyntaxKind::BlockExpr
+              | SyntaxKind::MatchArmList
+          )
+        })
+    })
 }
 
 /// Where a container's child (of `kind`, at `range`, a node or not) starts, if it is
@@ -1505,6 +1563,13 @@ fn is_generated(text: &str, config: &FormatConfig) -> bool {
     })
 }
 
+fn is_generics(kind: SyntaxKind) -> bool {
+  matches!(
+    kind,
+    SyntaxKind::GenericArgList | SyntaxKind::GenericParamList
+  )
+}
+
 /// The list and the index of the item a token ends (a field's or variant's comma, an arm's
 /// comma or last `}`), for a comment after it.
 fn item_before(token: &SyntaxToken) -> Option<(SyntaxNode, usize)> {
@@ -2019,7 +2084,7 @@ fn list_items_of(list: &SyntaxNode) -> Vec<SyntaxNode> {
 /// macro in braces, a string spanning lines.
 fn missing_part(node: &SyntaxNode, config: &FormatConfig) -> String {
   let mut wide = config.clone();
-  wide.max_width = 100_000;
+  wide.max_width = crate::format::shape::UNLIMITED;
   let shape = crate::format::shape::Shape {
     align: 0,
     indent: 0,
@@ -2603,9 +2668,17 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with("//")))
           && (written == column || after_statement || last_item)
       });
+      // An attribute's comment at the attribute's indentation, from the line it starts
+      // (one spanning lines ends further in).
       let indent = if attr_comment_break {
-        let line = &out[out_line_start..];
-        width_of(&line[..line.len() - line.trim_start().len()], tab)
+        let start = tokens[i - 1].token.parent().text_range().start as usize;
+        match lines.binary_search_by_key(&start, |&(at, _, _)| at) {
+          Ok(at) => lines[at].2,
+          Err(_) => {
+            let line = &out[out_line_start..];
+            width_of(&line[..line.len() - line.trim_start().len()], tab)
+          }
+        }
       } else if let Some(open) = roles.closers.get(&next.start) {
         let new = open_indent.get(open).map_or(0, |&(_, new)| new);
         delta = new as isize - written as isize;
@@ -2929,7 +3002,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                   let why = roles.wide_reasons.get(&tok.start).cloned().unwrap_or_default();
                   format!("{}; its header could not be laid out", why)
                 });
+                {
+                note_kept();
                 gave_up.borrow_mut().push((tok.start, end));
+              }
               } else if laid.is_none()
                 && let Some(end) = crate::format::items::header_gives_up(node, indent, config)
               {
@@ -2937,7 +3013,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 explain(root, tok.start, &text[tok.start..end], || {
                   "its header fits no layout within max_width: left as written".to_string()
                 });
+                {
+                note_kept();
                 gave_up.borrow_mut().push((tok.start, end));
+              }
               }
               // An empty body after a header on one line closes up (`{}`); after one across
               // lines its `}` goes on a line of its own.
@@ -3058,7 +3137,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         "no layout fits within max_width (or a string in it spans lines): left as written"
           .to_string()
       });
-      gave_up.borrow_mut().push((tok.start, end));
+      {
+        note_kept();
+        gave_up.borrow_mut().push((tok.start, end));
+      }
     }
     // One the layout above could not lay out: its written lines kept, re-indented.
     if crate::format::explain::active()
@@ -3124,7 +3206,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
             width, config.max_width
           )
         });
-        gave_up.borrow_mut().push((tok.start, end));
+        {
+          note_kept();
+          gave_up.borrow_mut().push((tok.start, end));
+        }
       }
     }
     if let Some(&base) = roles.openers.get(&tok.start) {

@@ -328,8 +328,8 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     Action::Check(super::manual::check_manual),
   ));
   tasks.push(Task::new(
-    "config-docs",
-    "docs/generated/config/, the settings reference, matches the settings table (cargo xtask docs config)",
+    "generated-docs",
+    "docs/generated/config/ and the manual match the tables they are written from (cargo xtask docs)",
     "gates",
     Action::Check(super::reference::check_reference),
   ));

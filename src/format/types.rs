@@ -58,7 +58,7 @@ pub fn assign_rhs(
   // The next line's text must fit there (`filtered_str_fits`).
   let fits = |text: &str| {
     first_line_width(text) <= next_shape.width
-      && super::expr::later_lines(text).all(|(_, w)| w <= shape.limits.max_width)
+      && !super::expr::later_line_past(text, shape.limits.max_width)
   };
   match (same, next) {
     (Some(same), Some(next)) if !fits(&next) => Some(format!("{} {}", head, same)),

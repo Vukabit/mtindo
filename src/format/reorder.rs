@@ -423,7 +423,9 @@ pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -
 /// (`merge_derives`); `None` when there is none to merge. A run is of attributes with no
 /// comment between them (`take_while_with_pred`), across a blank line too, which the
 /// standard formatter merges on its second run once it has dropped that line; not one in a
-/// `// mto: off` region, on what is skipped or skips derives, or holding a comment.
+/// `// mto: off` region, on what is skipped or skips derives, or holding a comment. A run
+/// with a derive whose arguments are not a list of paths stays as written whole, as the
+/// standard formatter keeps attributes it cannot read (`format_derive`).
 pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
   // Walking the tree is most of this pass's cost: only a file with a derive written right
   // after another is walked.
@@ -431,8 +433,9 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
     return None;
   }
   let off = off_regions(root);
-  // The traits of a derive, each as written: `None` for any other attribute.
-  let traits = |attr: &SyntaxNode| -> Option<Vec<String>> {
+  // The traits of a derive, each as written, and whether each is a path (with arguments
+  // or a value, as a meta item may have): `None` for any other attribute.
+  let traits = |attr: &SyntaxNode| -> Option<(Vec<String>, bool)> {
     let a = Attr::cast(attr.clone())?;
     if a.is_inner() || a.path() != "derive" {
       return None;
@@ -468,7 +471,8 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
       .map(|i| i.split_whitespace().collect::<Vec<_>>().join(" "))
       .filter(|i| !i.is_empty())
       .collect();
-    (!items.is_empty()).then_some(items)
+    let read = items.iter().all(|item| meta_item(item));
+    (!items.is_empty()).then_some((items, read))
   };
   let mut edits: Vec<(usize, usize, String)> = Vec::new();
   // `rustfmt::skip::attributes(derive)` on what holds them or on what holds that.
@@ -515,7 +519,8 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
         i += 1;
         continue;
       };
-      let Some(mut all) = (first.kind() == K::Attr).then(|| traits(first)).flatten() else {
+      let Some((mut all, mut read)) = (first.kind() == K::Attr).then(|| traits(first)).flatten()
+      else {
         i += 1;
         continue;
       };
@@ -532,8 +537,9 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
         }
         match elements.get(k) {
           Some(SyntaxElement::Node(n)) if n.kind() == K::Attr => match traits(n) {
-            Some(more) => {
+            Some((more, also)) => {
               all.extend(more);
+              read &= also;
               last = n.clone();
               count += 1;
               j = k + 1;
@@ -547,7 +553,7 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
         first.text_range().start as usize,
         last.text_range().end as usize,
       );
-      if count > 1 && !off.iter().any(|&(s, e)| s < end && start < e) {
+      if count > 1 && read && !off.iter().any(|&(s, e)| s < end && start < e) {
         edits.push((start, end, format!("#[derive({})]", all.join(", "))));
       }
       i = j.max(i + 1);
@@ -928,6 +934,29 @@ fn has_comment(run: &[SyntaxNode]) -> bool {
         };
       }
       false
+    })
+}
+
+/// Whether a derive's argument, its spaces collapsed, reads as a meta item: a path, alone or
+/// followed by arguments in parentheses or by `= value`.
+fn meta_item(item: &str) -> bool {
+  let path = match (item.find('('), item.find('=')) {
+    (Some(open), _) if item.ends_with(')') => &item[..open],
+    (None, Some(equals)) => &item[..equals],
+    (None, None) => item,
+    _ => return false,
+  };
+  let path = path.trim();
+  let path = path.strip_prefix("::").unwrap_or(path);
+  !path.is_empty()
+    && path.split("::").all(|segment| {
+      let segment = segment.trim();
+      let name = segment.strip_prefix("r#").unwrap_or(segment);
+      name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_alphanumeric() || c == '_')
     })
 }
 

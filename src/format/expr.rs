@@ -65,6 +65,8 @@ pub(super) enum Question {
   Clean,
   /// [`must_span_lines`].
   SpansLines,
+  /// [`may_overflow`].
+  Overflows,
 }
 
 /// The tactic for a list, as the standard formatter's `definitive_tactic` decides it.
@@ -137,6 +139,14 @@ struct Memo {
   blocks: Fast<((usize, u32), Shape), Option<String>>,
   /// Yes-or-no answers about nodes, by node and which question ([`remembered`]).
   flags: Fast<((usize, u32), Question), bool>,
+  /// Whether the standard formatter gives up on a statement, by statement, the shape inside
+  /// its block and how its strings count ([`remembered_gives_up`]).
+  gave_up: Fast<((usize, u32), Shape, bool, bool), bool>,
+  /// The fewest columns a node takes on one line, by node ([`one_line_floor`]).
+  floors: Fast<(usize, u32), usize>,
+  /// Nodes laid out on one line with all the room they want ([`rewrite`]), by node and
+  /// limits: wherever that much room is left, they lay out the same.
+  roomy: Fast<((usize, u32), Limits), String>,
   /// Whether a layout keeps a node's tokens, by node and the layout less its lines'
   /// indentation ([`remembered_tokens`]).
   tokens: Fast<((usize, u32), u64), bool>,
@@ -218,7 +228,7 @@ pub fn assign_value(head: &str, value: &SyntaxNode, shape: Shape) -> Option<Stri
   // `filtered_str_fits`).
   let next_fits = |next: &str| {
     first_line_width(next) <= next_shape.width
-      && later_lines(next).all(|(_, w)| w <= next_shape.limits.max_width)
+      && !later_line_past(next, next_shape.limits.max_width)
   };
   match (same, next) {
     (Some(same), Some(next)) if !next_fits(&next) => Some(format!("{} {}", head, same)),
@@ -877,7 +887,32 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
   if node.kind() != SyntaxKind::IfExpr {
     shape.limits.block_tail = false;
   }
-  let key = (node.identity(), shape);
+  // With room to spare, a node on one line is that line whatever the indentation or the
+  // room: the layouts tried around it differ in those alone, and with closures and
+  // operations nested in each other there are as many as the levels around it. On lines
+  // too it lays out the same whatever the room, which no line comes near.
+  let roomy = shape.width >= UNLIMITED / 2 && (node.text_range().len() as usize) < UNLIMITED / 8;
+  let key = (
+    node.identity(),
+    if roomy {
+      Shape {
+        width: UNLIMITED,
+        ..shape
+      }
+    } else {
+      shape
+    },
+  );
+  if roomy
+    && let Some(line) = MEMO.with(|memo| {
+      memo
+        .borrow()
+        .as_ref()
+        .and_then(|memo| memo.roomy.get(&(key.0, shape.limits)).cloned())
+    })
+  {
+    return Some(line);
+  }
   // A node this short lays out faster than its lookup.
   let kept = if node.text_range().len() < 16 {
     None
@@ -908,6 +943,9 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
         if let Some(memo) = memo.borrow_mut().as_mut() {
           memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
           memo.done.insert(key, done.clone());
+          if roomy && let Some(line) = done.as_ref().filter(|t| !t.contains('\n')) {
+            memo.roomy.insert((key.0, shape.limits), line.clone());
+          }
         }
       });
       done
@@ -924,6 +962,150 @@ pub fn rewrite_or_written(node: &SyntaxNode, shape: Shape) -> Option<String> {
       .then(|| wrap_str(node.text().to_string().trim().to_string(), shape))
       .flatten()
   })
+}
+
+/// A closure's `|parameters|` (with `move`, `async` and a return type): flat, when the
+/// standard formatter keeps its parameters on one line.
+pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
+  let body = &node.children().into_iter().last()?;
+  // A struct pattern among its parameters past `struct_lit_width`, which the standard
+  // formatter breaks a field per line, its fields one level in from the column after the
+  // `|`.
+  let wide = |fields: &SyntaxNode| {
+    flat(fields, shape.limits.spacing).width().saturating_sub(4) > shape.limits.struct_lit
+  };
+  let wide_pattern = node
+    .children()
+    .iter()
+    .filter(|c| c.kind() == SyntaxKind::ParamList)
+    .flat_map(|c| c.descendant_nodes_where(|kind| kind == SyntaxKind::RecordPatFieldList))
+    .any(|d| wide(&d));
+  let prefix = &closure_head(node, body, shape.limits.spacing);
+  // A parameter whose type breaks over lines: the parameters one per line, lined up after
+  // the `|` (each laid out in the standard formatter's visually indented `param_shape`).
+  let params: Vec<SyntaxNode> = node
+    .children()
+    .into_iter()
+    .filter(|c| c.kind() == SyntaxKind::ParamList)
+    .flat_map(|list| list.children())
+    .collect();
+  let opening = prefix.find('|')?;
+  // Room for `|| {` and a column more, however short the closure (the standard formatter's
+  // `rewrite_closure_fn_decl`).
+  shape
+    .offset_left(prefix[..opening].width())?
+    .sub_width(4)?
+    .offset_left(1)?;
+  // 4 = `|| {`
+  let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
+  let param_shape = shape
+    .offset_left(prefix[..opening].width() + 1)
+    .and_then(|s| s.sub_width(4));
+  // A struct pattern breaks from the column after the `|` (`block_indent` keeps the
+  // visual alignment); a tuple pattern's list from the closure's indentation (`block`
+  // drops it).
+  let shape_of = |p: &SyntaxNode, s: Shape| {
+    if p
+      .children_iter()
+      .next()
+      .is_some_and(|c| c.kind() == SyntaxKind::RecordPat)
+    {
+      Shape {
+        indent: column,
+        offset: 0,
+        ..s
+      }
+    } else {
+      s
+    }
+  };
+  if !params.is_empty()
+    && let Some(param_shape) = param_shape
+    && !node
+      .children()
+      .iter()
+      .any(|c| c.kind() == SyntaxKind::RetType)
+  {
+    // A parameter's attributes, each on a line of its own, line up after the `|` too; what
+    // breaks in the parameter itself stays at the closure's indentation.
+    let texts: Option<Vec<String>> = params
+      .iter()
+      .map(|p| {
+        let text = super::types::rewrite_param(p, shape_of(p, param_shape))?;
+        let attributes = p
+          .children_with_tokens_iter()
+          .filter(|e| e.kind() == SyntaxKind::Attr || super::items::is_doc(e.kind()))
+          .count();
+        if attributes == 0 || !text.contains('\n') {
+          return Some(text);
+        }
+        let old = format!("\n{}", " ".repeat(param_shape.indent));
+        let new = format!("\n{}", " ".repeat(column));
+        Some(text.replacen(&old, &new, attributes))
+      })
+      .collect();
+    if let Some(texts) = texts
+      && texts.iter().any(|t| t.contains('\n'))
+    {
+      let sep = format!(",\n{}", " ".repeat(column));
+      return Some(format!("{}{}|", &prefix[..=opening], texts.join(&sep)));
+    }
+  }
+  if wide_pattern {
+    return None;
+  }
+  if block_fits(node, prefix.width(), shape) {
+    return Some(prefix.trim_end().to_string());
+  }
+  // Its parameters one per line, each after the first lined up after its `|` (the
+  // standard formatter's vertical tactic, visually indented); not with a return type.
+  let params: Vec<SyntaxNode> = node
+    .children()
+    .into_iter()
+    .filter(|c| c.kind() == SyntaxKind::ParamList)
+    .flat_map(|list| list.children())
+    .collect();
+  if params.len() < 2 {
+    return None;
+  }
+  let ret = node
+    .children()
+    .into_iter()
+    .find(|c| c.kind() == SyntaxKind::RetType);
+  let opening = prefix.find('|')?;
+  let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
+  let mut text = prefix[..=opening].to_string();
+  for (i, param) in params.iter().enumerate() {
+    let param = flat(param, shape.limits.spacing);
+    // Room for its `,` or the closing `|` and ` {`.
+    if column + param.width() + 4 > shape.limits.max_width {
+      return None;
+    }
+    if i > 0 {
+      text.push_str(",\n");
+      // A blank line written before it, after the comma, stays.
+      let blank = params[i]
+        .prev_sibling_or_token()
+        .is_some_and(|e| matches!(&e, SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace && t.text().matches('\n').count() > 1));
+      if blank {
+        text.push('\n');
+      }
+      text.push_str(&" ".repeat(column));
+    }
+    text.push_str(&param);
+  }
+  text.push('|');
+  // A return type on a line of its own, at the closure's indentation and the columns up to
+  // its `|` (`rewrite_closure_fn_decl`'s `argument_offset`).
+  if let Some(ret) = ret {
+    let at = shape.indent + prefix[..=opening].width();
+    let ret = flat(&ret, shape.limits.spacing);
+    if at + ret.width() + 2 > shape.limits.max_width {
+      return None;
+    }
+    text.push_str(&format!("\n{}{}", " ".repeat(at), ret));
+  }
+  Some(text)
 }
 
 /// Whether a block's last expression gains a `;` on a line of its own: a `return`, `break`
@@ -977,6 +1159,13 @@ pub(super) fn is_macro(node: &SyntaxNode) -> bool {
       .next()
       .and_then(|tree| tree.first_token())
       .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
+}
+
+/// Whether a line of `text` after the first is past `max` as [`later_lines`] counts it:
+/// none is when none has more bytes than that, as no character is wider than its bytes.
+pub(super) fn later_line_past(text: &str, max: usize) -> bool {
+  text.split('\n').skip(1).any(|line| line.len() > max)
+    && later_lines(text).any(|(_, width)| width > max)
 }
 
 /// Each line of `text` after the first, with its width as the standard formatter's
@@ -1053,6 +1242,10 @@ pub(super) fn multi_line_condition(node: &SyntaxNode, shape: Shape) -> bool {
   .is_some_and(|head| head.text.trim_end().contains('\n'))
 }
 
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
+}
+
 /// Whether a block is a plain one: no `unsafe`, `async`, `const` or label before its `{`.
 pub(super) fn plain_block(block: &SyntaxNode) -> bool {
   block.kind() == SyntaxKind::BlockExpr
@@ -1061,10 +1254,6 @@ pub(super) fn plain_block(block: &SyntaxNode) -> bool {
       .iter()
       .take_while(|e| e.kind() != SyntaxKind::LBrace)
       .all(|e| e.kind().is_trivia())
-}
-
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
 }
 
 /// `ask()`'s answer about `node`, kept while a [`RewriteMemo`] is open: for a question whose
@@ -1123,6 +1312,38 @@ pub(super) fn remembered_block(
         }
       });
       text
+    }
+  }
+}
+
+/// `ask()`'s answer to whether the standard formatter gives up on `node` in `inner`, kept
+/// while a [`RewriteMemo`] is open: a statement in a closure is asked again for each layout
+/// tried around the closures holding it, each time laying it out with no width to keep to.
+pub(super) fn remembered_gives_up(
+  node: &SyntaxNode,
+  inner: Shape,
+  strings: (bool, bool),
+  ask: impl FnOnce() -> bool,
+) -> bool {
+  let key = (node.identity(), inner, strings.0, strings.1);
+  let kept = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .map(|memo| memo.gave_up.get(&key).copied())
+  });
+  match kept {
+    None => ask(),
+    Some(Some(answer)) => answer,
+    Some(None) => {
+      let answer = ask();
+      MEMO.with(|memo| {
+        if let Some(memo) = memo.borrow_mut().as_mut() {
+          memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
+          memo.gave_up.insert(key, answer);
+        }
+      });
+      answer
     }
   }
 }
@@ -1770,7 +1991,10 @@ pub(super) fn rewrite_list(
     };
     // A line inside a raw string spanning lines is not measured: kept as written
     // (`format_expr`), where a plain string's lines are (`rewrite_string_lit`).
-    (fits(&[]) || fits(&in_raw_string(&text, shape.limits.style_2024))).then_some(text)
+    (!later_line_past(&text, shape.limits.max_width)
+      || fits(&[])
+      || fits(&in_raw_string(&text, shape.limits.style_2024)))
+    .then_some(text)
   }
 }
 
@@ -2035,6 +2259,10 @@ fn closure_expression(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
   if !multi_line && must_span_lines(body) {
     return None;
   }
+  // So is one too wide for the line however it is laid out.
+  if !multi_line && !may_overflow(body) && one_line_floor(body) > shape.width {
+    return None;
+  }
   let text = rewrite(body, shape)?;
   (!text.contains('\n') || multi_line).then(|| format!("{} {}", prefix, text))
 }
@@ -2050,150 +2278,6 @@ fn closure_head(closure: &SyntaxNode, body: &SyntaxNode, spacing: Spacing) -> St
     head.truncate(head.len() - last.text().len());
   }
   head
-}
-
-/// A closure's `|parameters|` (with `move`, `async` and a return type): flat, when the
-/// standard formatter keeps its parameters on one line.
-fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let body = &node.children().into_iter().last()?;
-  // A struct pattern among its parameters past `struct_lit_width`, which the standard
-  // formatter breaks a field per line, its fields one level in from the column after the
-  // `|`.
-  let wide = |fields: &SyntaxNode| {
-    flat(fields, shape.limits.spacing).width().saturating_sub(4) > shape.limits.struct_lit
-  };
-  let wide_pattern = node
-    .children()
-    .iter()
-    .filter(|c| c.kind() == SyntaxKind::ParamList)
-    .flat_map(|c| c.descendant_nodes_where(|kind| kind == SyntaxKind::RecordPatFieldList))
-    .any(|d| wide(&d));
-  let prefix = &closure_head(node, body, shape.limits.spacing);
-  // A parameter whose type breaks over lines: the parameters one per line, lined up after
-  // the `|` (each laid out in the standard formatter's visually indented `param_shape`).
-  let params: Vec<SyntaxNode> = node
-    .children()
-    .into_iter()
-    .filter(|c| c.kind() == SyntaxKind::ParamList)
-    .flat_map(|list| list.children())
-    .collect();
-  let opening = prefix.find('|')?;
-  // Room for `|| {` and a column more, however short the closure (the standard formatter's
-  // `rewrite_closure_fn_decl`).
-  shape
-    .offset_left(prefix[..opening].width())?
-    .sub_width(4)?
-    .offset_left(1)?;
-  // 4 = `|| {`
-  let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
-  let param_shape = shape
-    .offset_left(prefix[..opening].width() + 1)
-    .and_then(|s| s.sub_width(4));
-  // A struct pattern breaks from the column after the `|` (`block_indent` keeps the
-  // visual alignment); a tuple pattern's list from the closure's indentation (`block`
-  // drops it).
-  let shape_of = |p: &SyntaxNode, s: Shape| {
-    if p
-      .children_iter()
-      .next()
-      .is_some_and(|c| c.kind() == SyntaxKind::RecordPat)
-    {
-      Shape {
-        indent: column,
-        offset: 0,
-        ..s
-      }
-    } else {
-      s
-    }
-  };
-  if !params.is_empty()
-    && let Some(param_shape) = param_shape
-    && !node
-      .children()
-      .iter()
-      .any(|c| c.kind() == SyntaxKind::RetType)
-  {
-    // A parameter's attributes, each on a line of its own, line up after the `|` too; what
-    // breaks in the parameter itself stays at the closure's indentation.
-    let texts: Option<Vec<String>> = params
-      .iter()
-      .map(|p| {
-        let text = super::types::rewrite_param(p, shape_of(p, param_shape))?;
-        let attributes = p
-          .children_with_tokens_iter()
-          .filter(|e| e.kind() == SyntaxKind::Attr || super::items::is_doc(e.kind()))
-          .count();
-        if attributes == 0 || !text.contains('\n') {
-          return Some(text);
-        }
-        let old = format!("\n{}", " ".repeat(param_shape.indent));
-        let new = format!("\n{}", " ".repeat(column));
-        Some(text.replacen(&old, &new, attributes))
-      })
-      .collect();
-    if let Some(texts) = texts
-      && texts.iter().any(|t| t.contains('\n'))
-    {
-      let sep = format!(",\n{}", " ".repeat(column));
-      return Some(format!("{}{}|", &prefix[..=opening], texts.join(&sep)));
-    }
-  }
-  if wide_pattern {
-    return None;
-  }
-  if block_fits(node, prefix.width(), shape) {
-    return Some(prefix.trim_end().to_string());
-  }
-  // Its parameters one per line, each after the first lined up after its `|` (the
-  // standard formatter's vertical tactic, visually indented); not with a return type.
-  let params: Vec<SyntaxNode> = node
-    .children()
-    .into_iter()
-    .filter(|c| c.kind() == SyntaxKind::ParamList)
-    .flat_map(|list| list.children())
-    .collect();
-  if params.len() < 2 {
-    return None;
-  }
-  let ret = node
-    .children()
-    .into_iter()
-    .find(|c| c.kind() == SyntaxKind::RetType);
-  let opening = prefix.find('|')?;
-  let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
-  let mut text = prefix[..=opening].to_string();
-  for (i, param) in params.iter().enumerate() {
-    let param = flat(param, shape.limits.spacing);
-    // Room for its `,` or the closing `|` and ` {`.
-    if column + param.width() + 4 > shape.limits.max_width {
-      return None;
-    }
-    if i > 0 {
-      text.push_str(",\n");
-      // A blank line written before it, after the comma, stays.
-      let blank = params[i]
-        .prev_sibling_or_token()
-        .is_some_and(|e| matches!(&e, SyntaxElement::Token(t) if t.kind() == SyntaxKind::Whitespace && t.text().matches('\n').count() > 1));
-      if blank {
-        text.push('\n');
-      }
-      text.push_str(&" ".repeat(column));
-    }
-    text.push_str(&param);
-  }
-  text.push('|');
-  // A return type on a line of its own, at the closure's indentation and the columns up to
-  // its `|` (`rewrite_closure_fn_decl`'s `argument_offset`).
-  if let Some(ret) = ret {
-    let at = shape.indent + prefix[..=opening].width();
-    let ret = flat(&ret, shape.limits.spacing);
-    if at + ret.width() + 2 > shape.limits.max_width {
-      return None;
-    }
-    text.push_str(&format!("\n{}{}", " ".repeat(at), ret));
-  }
-  Some(text)
 }
 
 /// A closure's body put in a block of its own (`rewrite_closure_with_block`); not a call,
@@ -2246,8 +2330,9 @@ fn closure_with_block(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
       .children_with_tokens_iter()
       .any(|e| e.kind() == SyntaxKind::AsyncKw);
   // A macro called with nothing the standard formatter puts in no block (found by
-  // measuring it).
-  if vetoed || asynchronous || empty_macro(body) {
+  // measuring it). Nor a `let` expression, which in a block would be a statement.
+  let binding = left.kind() == SyntaxKind::LetExpr;
+  if vetoed || asynchronous || binding || empty_macro(body) {
     return None;
   }
   let block = super::block::wrapped(body, shape)?;
@@ -2459,7 +2544,7 @@ fn fits_shape(text: String, shape: Shape) -> Option<String> {
   if !text.contains('\n') {
     return Some(text);
   }
-  if later_lines(&text).any(|(_, w)| w > shape.limits.max_width)
+  if later_line_past(&text, shape.limits.max_width)
     || last_line_width(&text) > shape.indent + shape.offset + shape.width
   {
     return None;
@@ -3032,6 +3117,25 @@ fn macro_type_arguments(node: &SyntaxNode, spacing: Spacing) -> Option<MacroArgu
     })
 }
 
+/// Whether `node` holds what may be kept as written past the line width (a literal, a
+/// macro call, a comment, an attribute), so that a layout of it on one line may be wider
+/// than the room it was given.
+fn may_overflow(node: &SyntaxNode) -> bool {
+  remembered(node, Question::Overflows, || {
+    node.subtree_has(|kind| {
+      kind.is_literal()
+        || matches!(
+          kind,
+          SyntaxKind::MacroCall
+            | SyntaxKind::MacroExpr
+            | SyntaxKind::LineComment
+            | SyntaxKind::BlockComment
+            | SyntaxKind::Attr
+        )
+    })
+  })
+}
+
 /// Whether a closure's body may span lines without a block of its own: a struct literal, a
 /// block (not a `const` one), a `match` or a `loop`, seen through `&`, `?`, a unary
 /// operator and a cast (the standard formatter's `allow_multi_line`).
@@ -3049,24 +3153,27 @@ fn multi_line_body(body: &SyntaxNode) -> bool {
 }
 
 /// Whether `node` holds what is always laid out on lines (a `match`'s arms, a block of
-/// statements), so that no layout of it fits on one: asked before laying it out where only
-/// one line would do, as laying it out to find that out is repeated at every level of
-/// closures or operations nested in each other.
+/// statements, a string spanning lines), so that no layout of it fits on one: asked before
+/// laying it out where only one line would do, as laying it out to find that out is
+/// repeated at every level of closures or operations nested in each other.
 fn must_span_lines(node: &SyntaxNode) -> bool {
   remembered(node, Question::SpansLines, || {
     node
-      .descendant_nodes_where(|kind| {
-        matches!(kind, SyntaxKind::MatchArmList | SyntaxKind::BlockExpr)
-      })
-      .any(|n| match n.kind() {
-        SyntaxKind::MatchArmList => n.children_iter().any(|c| c.kind() == SyntaxKind::MatchArm),
-        _ => {
-          super::stmt::laid_on_lines(&n)
-            && n
-              .children_iter()
-              .any(|c| matches!(c.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt))
-        }
-      })
+      .token_texts()
+      .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+      || node
+        .descendant_nodes_where(|kind| {
+          matches!(kind, SyntaxKind::MatchArmList | SyntaxKind::BlockExpr)
+        })
+        .any(|n| match n.kind() {
+          SyntaxKind::MatchArmList => n.children_iter().any(|c| c.kind() == SyntaxKind::MatchArm),
+          _ => {
+            super::stmt::laid_on_lines(&n)
+              && n
+                .children_iter()
+                .any(|c| matches!(c.kind(), SyntaxKind::LetStmt | SyntaxKind::ExprStmt))
+          }
+        })
   })
 }
 
@@ -3097,6 +3204,46 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
       | SyntaxKind::TuplePat
       | SyntaxKind::TupleStructPat
   ) && parent.children().len() == 1
+}
+
+/// The fewest columns `node` takes on one line, however it is laid out: its code tokens'
+/// widths with no space between them, leaving out every token a layout may drop or trade
+/// for none (brackets, separators, what [`dropped`] drops).
+fn one_line_floor(node: &SyntaxNode) -> usize {
+  let key = node.identity();
+  let kept = MEMO.with(|memo| {
+    memo
+      .borrow()
+      .as_ref()
+      .and_then(|memo| memo.floors.get(&key).copied())
+  });
+  if let Some(floor) = kept {
+    return floor;
+  }
+  let floor = node
+    .token_texts()
+    .filter(|(kind, _, _)| {
+      !kind.is_trivia()
+        && !droppable(*kind)
+        && !matches!(
+          kind,
+          SyntaxKind::LBrace
+            | SyntaxKind::RBrace
+            | SyntaxKind::LBrack
+            | SyntaxKind::RBrack
+            | SyntaxKind::Comma
+            | SyntaxKind::Semi
+        )
+    })
+    .map(|(_, text, _)| text.width())
+    .sum();
+  MEMO.with(|memo| {
+    if let Some(memo) = memo.borrow_mut().as_mut() {
+      memo.trees.entry(key.0).or_insert_with(|| node.clone());
+      memo.floors.insert(key, floor);
+    }
+  });
+  floor
 }
 
 /// [`macro_arguments`], without the note.
@@ -3357,8 +3504,9 @@ fn rewrite_block(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let whole = flat(node, shape.limits.spacing);
   let prefix = &whole[..whole.find('{')?];
   // 4 = `{ ` and ` }`; the whole within the width, which a string kept as written may not
-  // be (`rewrite_single_line_block`).
+  // be (`rewrite_single_line_block`). One that cannot fit is not laid out to find that out.
   if !must_span_lines(&inside)
+    && prefix.width() + 4 + one_line_floor(&inside) <= shape.width
     && let Some(text) = shape
       .offset_left(prefix.width() + 2)
       .and_then(|s| s.sub_width(2))
@@ -4415,14 +4563,31 @@ fn rewrite_range(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let whole = flat(node, shape.limits.spacing);
   let children = node.children();
   let breaks = breaks_inside(node, shape.limits);
+  // A macro call in it is written as its own layout writes it (as written when its
+  // arguments do not parse), which the flat text would space anew.
+  let called = node.subtree_has(|kind| kind == SyntaxKind::MacroCall);
   if let [start, end] = children.as_slice() {
-    if whole.width() <= shape.width && !breaks {
+    if whole.width() <= shape.width && !breaks && !called {
       return Some(whole);
     }
     let start_text = flat(start, shape.limits.spacing);
     let end_text = flat(end, shape.limits.spacing);
     let infix = whole.strip_prefix(&start_text)?.strip_suffix(&end_text)?;
     return rewrite_pair(start, end, infix, shape);
+  }
+  if called && let [operand] = children.as_slice() {
+    let operand_text = flat(operand, shape.limits.spacing);
+    let (before, after) = if operand.text_range().start == node.text_range().start {
+      ("", whole.strip_prefix(&operand_text)?)
+    } else {
+      (whole.strip_suffix(&operand_text)?, "")
+    };
+    let text = shape
+      .offset_left(before.width())
+      .and_then(|s| s.sub_width(after.width()))
+      .and_then(|s| rewrite(operand, s))?;
+    let laid = format!("{}{}{}", before, text, after);
+    return (!laid.contains('\n') && laid.width() <= shape.width && !breaks).then_some(laid);
   }
   (whole.width() <= shape.width && !breaks).then_some(whole)
 }
@@ -4744,10 +4909,12 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
       .next()
       .is_some_and(|l| l.width() <= shape.width || holds_raw_string(l));
     // A line inside a raw string spanning lines is kept as written too.
-    let inside = in_raw_string(&text, shape.limits.style_2024);
-    let later_fit = later_lines(&text).enumerate().all(|(i, (l, w))| {
-      w <= shape.limits.max_width || holds_raw_string(l) || inside.get(i + 1) == Some(&true)
-    });
+    let later_fit = !later_line_past(&text, shape.limits.max_width) || {
+      let inside = in_raw_string(&text, shape.limits.style_2024);
+      later_lines(&text).enumerate().all(|(i, (l, w))| {
+        w <= shape.limits.max_width || holds_raw_string(l) || inside.get(i + 1) == Some(&true)
+      })
+    };
     return (first_fits && later_fit).then_some(text);
   }
   // A pattern's later lines are not measured (`rewrite_struct_pat` returns them as laid
@@ -4958,10 +5125,7 @@ fn wrap_str(text: String, shape: Shape) -> Option<String> {
   if lines.next().is_some_and(|l| l.width() > shape.width) {
     return None;
   }
-  // No line is wider than its bytes are many.
-  if text.len() > shape.limits.max_width
-    && later_lines(&text).any(|(_, w)| w > shape.limits.max_width)
-  {
+  if later_line_past(&text, shape.limits.max_width) {
     return None;
   }
   Some(text)

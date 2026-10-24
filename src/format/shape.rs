@@ -2,6 +2,10 @@
 
 use crate::options::format::FormatConfig;
 
+/// The line width that stands for none: a node is laid out in it to see what it takes with
+/// all the room it wants.
+pub const UNLIMITED: usize = 100_000;
+
 /// The width limits of the Rust style: the line width, one indentation level, and the widths
 /// above which a list, chain or literal is no longer kept on one line. [`Limits::default`]
 /// is the standard formatter's at its defaults.

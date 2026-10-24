@@ -1603,7 +1603,7 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
         // as a `let`'s value is placed.
         let left = rewrite(&left, shape.sub_width(operator.len() + 1)?)?;
         let head = format!("{} {}", left, operator);
-        return right_side(&head, &right, indent, shape, tab);
+        return right_side(&head, &right, indent, shape, tab, true);
       }
       // A block-like statement may end without its `;`.
       let semi = node
@@ -1621,7 +1621,7 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
       let head = let_head(node, &expression, shape)?;
       match node.children_iter().find(|c| c.kind() == K::LetElse) {
         Some(otherwise) => let_else(&head, &expression, &otherwise, indent, shape),
-        None => right_side(&head, &expression, indent, shape, tab),
+        None => right_side(&head, &expression, indent, shape, tab, true),
       }
     }
     // An assignment ending a block, as one ending a statement.
@@ -1630,10 +1630,8 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
     {
       let left = rewrite(&left, shape.sub_width(operator.len() + 1)?)?;
       let head = format!("{} {}", left, operator);
-      // Without the `;` a statement's has: the room it took is left too.
-      right_side(&head, &right, indent, shape, tab)?
-        .strip_suffix(';')
-        .map(str::to_string)
+      // Without the `;` a statement's has, nor room for it.
+      right_side(&head, &right, indent, shape, tab, false)
     }
     _ if is_tail(node) => rewrite(
       node,
@@ -1673,7 +1671,7 @@ fn let_else(
   let block = otherwise
     .children_iter()
     .find(|c| c.kind() == K::BlockExpr)?;
-  let assigned = right_side(head, value, indent, shape, shape.limits.tab)?;
+  let assigned = right_side(head, value, indent, shape, shape.limits.tab, true)?;
   let assigned = assigned.strip_suffix(';')?;
   let same_line = if assigned.contains('\n') {
     let last = assigned.rsplit('\n').next().unwrap_or("");
@@ -1819,8 +1817,8 @@ fn plainly_clean(node: &SyntaxNode) -> bool {
     })
 }
 
-/// `head` (`let x =`, `a.b +=`) and then `value`, with its `;`: on the same line when it
-/// fits there, else on the next one, one level in, as the standard formatter's
+/// `head` (`let x =`, `a.b +=`) and then `value`, with its `;` when `semi`: on the same line
+/// when it fits there, else on the next one, one level in, as the standard formatter's
 /// `choose_rhs` decides.
 fn right_side(
   head: &str,
@@ -1828,37 +1826,41 @@ fn right_side(
   indent: usize,
   shape: Shape,
   tab: usize,
+  semi: bool,
 ) -> Option<String> {
+  let end = if semi { ";" } else { "" };
   // `last_line_used` counts a later line's columns past `indent`, as a `let` pattern
   // spanning lines leaves them.
   let head_width = last_line_used(head, indent) + 1;
-  let same_shape = shape.offset_left(head_width).and_then(|s| s.sub_width(1));
+  let same_shape = shape
+    .offset_left(head_width)
+    .and_then(|s| s.sub_width(end.len()));
   let same_line = same_shape.and_then(|s| super::expr::rewrite_or_written(value, s));
   // On one line where it is, when it fits there.
   if let (Some(same), Some(s)) = (&same_line, same_shape)
     && !same.contains('\n')
     && str_width(same) <= s.width
   {
-    return Some(format!("{} {};", head, same));
+    return Some(format!("{} {}{}", head, same, end));
   }
-  let next_shape = shape.block_indent(tab).sub_width(1);
+  let next_shape = shape.block_indent(tab).sub_width(end.len());
   let next_line = next_shape.and_then(|s| super::expr::rewrite_or_written(value, s));
   let pad = " ".repeat(indent + tab);
-  // The next line's first line within its shape, room for the `;` kept (the standard
+  // The next line's first line within its shape, room for any `;` kept (the standard
   // formatter's `filtered_str_fits`).
   let next_fits = |next: &str| {
     next_shape.is_some_and(|s| {
       super::expr::first_line_width(next) <= s.width
-        && super::expr::later_lines(next).all(|(_, w)| w <= s.limits.max_width)
+        && !super::expr::later_line_past(next, s.limits.max_width)
     })
   };
   match (same_line, next_line) {
-    (Some(same), Some(next)) if !next_fits(&next) => Some(format!("{} {};", head, same)),
+    (Some(same), Some(next)) if !next_fits(&next) => Some(format!("{} {}{}", head, same, end)),
     (Some(same), Some(next)) if prefer_next_line(&same, &next) => {
-      Some(format!("{}\n{}{};", head, pad, next))
+      Some(format!("{}\n{}{}{}", head, pad, next, end))
     }
-    (Some(same), _) => Some(format!("{} {};", head, same)),
-    (None, Some(next)) => Some(format!("{}\n{}{};", head, pad, next)),
+    (Some(same), _) => Some(format!("{} {}{}", head, same, end)),
+    (None, Some(next)) => Some(format!("{}\n{}{}{}", head, pad, next, end)),
     (None, None) => None,
   }
 }
@@ -1901,33 +1903,57 @@ fn same_tokens_once(node: &SyntaxNode, text: &str, start: usize, end: usize) -> 
   let dropped = &dropped;
   // `vec!(..)` and `vec! {..}` are written `vec![..]`.
   let brackets = &vec_delimiters(node);
-  let theirs = |drop: bool, bracketed: bool| {
-    node
-      .token_texts()
-      .filter(move |&(kind, _, range)| {
-        (compared(kind) || brackets.iter().any(|b| b.0 == range.start as usize))
-          && range.start as usize >= start
-          && (range.start as usize) < end
-          && !(drop
-            && dropped
-              .get_or_init(|| super::expr::dropped_tokens(node, Spacing::default()))
-              .contains(&(range.start as usize)))
-      })
-      .map(move |(_, text, range)| {
-        unindented(
-          brackets
-            .iter()
-            .filter(|_| bracketed)
-            .find(|b| b.0 == range.start as usize)
-            .map_or(text, |b| b.1),
-        )
-      })
+  let selected = move |drop: bool| {
+    node.token_texts().filter(move |&(kind, _, range)| {
+      (compared(kind) || brackets.iter().any(|b| b.0 == range.start as usize))
+        && range.start as usize >= start
+        && (range.start as usize) < end
+        && !(drop
+          && dropped
+            .get_or_init(|| super::expr::dropped_tokens(node, Spacing::default()))
+            .contains(&(range.start as usize)))
+    })
   };
-  // Or with its `vec!` delimiters as written, a statement given up on keeping them.
-  if !theirs(false, true).eq(ours())
-    && !theirs(true, true).eq(ours())
-    && (brackets.is_empty() || !theirs(false, false).eq(ours()))
-  {
+  let theirs = |drop: bool| {
+    selected(drop).map(move |(_, text, range)| {
+      unindented(
+        brackets
+          .iter()
+          .find(|b| b.0 == range.start as usize)
+          .map_or(text, |b| b.1),
+      )
+    })
+  };
+  // Or each `vec!` with its delimiters as written or as brackets, both of a call alike: a
+  // statement given up on keeps them, and the block around it writes brackets elsewhere.
+  let each = || {
+    let mut chosen: Vec<Option<bool>> = vec![None; brackets.len() / 2];
+    let mut laid = ours();
+    for (_, text, range) in selected(false) {
+      let Some(next) = laid.next() else {
+        return false;
+      };
+      let written = unindented(text) == next;
+      match brackets.iter().position(|b| b.0 == range.start as usize) {
+        Some(at) => {
+          let bracket = brackets[at].1 == next;
+          if !written && !bracket {
+            return false;
+          }
+          if written != bracket {
+            match chosen[at / 2] {
+              Some(was) if was != bracket => return false,
+              _ => chosen[at / 2] = Some(bracket),
+            }
+          }
+        }
+        None if !written => return false,
+        None => {}
+      }
+    }
+    laid.next().is_none()
+  };
+  if !theirs(false).eq(ours()) && !theirs(true).eq(ours()) && (brackets.is_empty() || !each()) {
     return false;
   }
   // Every comment kept, each once; one across lines with its lines re-indented.

@@ -167,6 +167,18 @@ pub(super) fn compare(
   }
 }
 
+/// True if some unit that came after a `macro_rules!` now comes before it.
+pub(super) fn macro_moved_past_user(units: &[Unit]) -> bool {
+  let mut latest: Option<usize> = None;
+  for unit in units {
+    if defines_macros(unit) && latest.is_some_and(|l| l > unit.index) {
+      return true;
+    }
+    latest = latest.max(Some(unit.index));
+  }
+  false
+}
+
 /// A `macro_rules!`, or a `#[macro_use]` module, whose macros are visible after it.
 fn defines_macros(unit: &Unit) -> bool {
   unit.defines_macros
@@ -212,18 +224,6 @@ fn kind_rank(kind: &ItemKind, config: &LayoutConfig) -> usize {
     Some(at) => at,
     None => config.type_order.len() + kind.clone() as usize,
   }
-}
-
-/// True if some unit that came after a `macro_rules!` now comes before it.
-fn macro_moved_past_user(units: &[Unit]) -> bool {
-  let mut latest: Option<usize> = None;
-  for unit in units {
-    if defines_macros(unit) && latest.is_some_and(|l| l > unit.index) {
-      return true;
-    }
-    latest = latest.max(Some(unit.index));
-  }
-  false
 }
 
 /// Two names in the order of `name_sort`.

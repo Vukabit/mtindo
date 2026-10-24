@@ -1,5 +1,5 @@
 //! mto's own surface, read from the repository so it cannot drift from the code:
-//! `flag:` items from `FLAGS` and `command:` items from `COMMANDS` in `src/main.rs`, and
+//! `flag:` items from `FLAGS` and `command:` items from `COMMANDS` in `src/cli/spec.rs`, and
 //! `config:` items from mto's own settings table, `SETTINGS` in `src/options/mto.rs`
 //! (rustfmt's keys are tracked as `option` items).
 
@@ -15,7 +15,7 @@ pub fn commands(main: &str) -> Result<Vec<String>, String> {
     .map(|rest| rest.trim_end_matches(',').trim_end_matches('"').to_string())
     .collect();
   if names.is_empty() {
-    return Err("COMMANDS in src/main.rs lists nothing".to_string());
+    return Err("COMMANDS in src/cli/spec.rs lists nothing".to_string());
   }
   Ok(names)
 }
@@ -43,14 +43,14 @@ pub fn flags(main: &str) -> Result<Vec<String>, String> {
     .map(|rest| rest.trim_end_matches(',').trim_end_matches('"').to_string())
     .collect();
   if flags.is_empty() {
-    return Err("FLAGS in src/main.rs lists nothing".to_string());
+    return Err("FLAGS in src/cli/spec.rs lists nothing".to_string());
   }
   Ok(flags)
 }
 
 pub fn surface(root: &Path) -> Result<Vec<String>, String> {
-  let main = fs::read_to_string(root.join("src").join("main.rs"))
-    .map_err(|e| format!("cannot read src/main.rs: {}", e))?;
+  let main = fs::read_to_string(root.join("src").join("cli").join("spec.rs"))
+    .map_err(|e| format!("cannot read src/cli/spec.rs: {}", e))?;
   let table = fs::read_to_string(root.join("src").join("options").join("mto.rs"))
     .map_err(|e| format!("cannot read src/options/mto.rs: {}", e))?;
   let mut items = Vec::new();

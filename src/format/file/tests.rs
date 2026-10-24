@@ -20,6 +20,76 @@ fn formatted_with(source: &str, config: &FormatConfig) -> String {
 }
 
 #[test]
+fn test_a_closure_whose_head_leaves_no_room_is_kept_in_a_block() {
+  // `|SSSS:f|o` at the width exactly: the standard formatter gives up on it there and
+  // keeps it as written, in the block it puts it in, so the operation breaks before it.
+  let config = FormatConfig {
+    max_width: 21,
+    tab_spaces: 2,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with("fn t() {\nS | R || || || || |SSSS:f|o\n}\n", &config),
+    "fn t() {\n  S | R\n    || || {\n      || {\n        || {\n          |SSSS:f|o\n        }\n      }\n    }\n}\n"
+  );
+}
+
+#[test]
+fn test_a_closure_with_a_let_body_keeps_it_out_of_a_block() {
+  // In a block the `let` would be a statement.
+  let config = FormatConfig {
+    max_width: 47,
+    tab_spaces: 2,
+    ..FormatConfig::default()
+  };
+  formatted_with("fn t(){||let x =d||1}\n", &config);
+}
+
+#[test]
+fn test_a_comment_after_an_attribute_across_lines_moves_to_its_indentation() {
+  let config = FormatConfig {
+    max_width: 43,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "mod m {\n    #![f(\n     |B)] // Mirnoti xxxxxxxxx Wt cf c i t r xxxxxxxxxxx\n    #![c]\n}\n",
+      &config
+    ),
+    "mod m {\n    #![f(\n     |B)]\n    // Mirnoti xxxxxxxxx Wt cf c i t r xxxxxxxxxxx\n    #![c]\n}\n"
+  );
+}
+
+#[test]
+fn test_an_arm_body_too_wide_for_its_line_goes_in_a_block() {
+  // A `match` whose head does not fit after `=>`, or would span more lines there than on
+  // the next line: in a block of its own on the next line.
+  let narrow = FormatConfig {
+    max_width: 21,
+    tab_spaces: 2,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "const S: T = match b {\nFFFFFFFFFFFFF => match a {\n_ => a,\n},\n_ => a,\n};\n",
+      &narrow
+    ),
+    "const S: T = match b\n{\n  FFFFFFFFFFFFF => {\n    match a {\n      _ => a,\n    }\n  }\n  _ => a,\n};\n"
+  );
+  let config = FormatConfig {
+    max_width: 60,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    match x {\n        (None, Some(t_cast_cast_cast)) => match self.expr_ty.kind() {\n            TyKind::FnDef(..) => {\n                a\n            }\n            _ => b,\n        },\n        _ => c,\n    }\n}\n",
+      &config
+    ),
+    "fn f() {\n    match x {\n        (None, Some(t_cast_cast_cast)) => {\n            match self.expr_ty.kind() {\n                TyKind::FnDef(..) => a,\n                _ => b,\n            }\n        }\n        _ => c,\n    }\n}\n"
+  );
+}
+
+#[test]
 fn test_arm_comments_aligned() {
   // Comments after arms aligned in their group, an arm's comma counted in its width; one
   // after a block's `}` one space after it.
@@ -28,6 +98,22 @@ fn test_arm_comments_aligned() {
       "fn f() {\n    match x {\n        A => {\n            a();\n        }\t// Pop\n        EMPTY => return,  // w\n        NOTIFIED => return, // u\n        PARKED => {}   // g\n        _ => panic!(),\n    }\n}\n"
     ),
     "fn f() {\n    match x {\n        A => {\n            a();\n        } // Pop\n        EMPTY => return,    // w\n        NOTIFIED => return, // u\n        PARKED => {}        // g\n        _ => panic!(),\n    }\n}\n"
+  );
+}
+
+#[test]
+fn test_arms_keep_their_doc_comments() {
+  let config = FormatConfig {
+    tab_spaces: 7,
+    max_width: 101,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn o() {match(){\n/// d\n#[a]\n/// e\n()=>o,  //\n /** x */\n_ => {}\n }}\n",
+      &config
+    ),
+    "fn o() {\n       match () {\n              /// d\n              #[a]\n              /// e\n              () => o, //\n              /** x */\n              _ => {}\n       }\n}\n"
   );
 }
 
@@ -780,6 +866,13 @@ fn test_macro_arguments_read_as_the_standard_formatter_reads_them() {
 }
 
 #[test]
+fn test_macros_in_ranges_keep_their_arguments() {
+  // Arguments that do not parse stay as written, spaces and all.
+  let kept = "fn main() {\n    a..format!(        na, issue =  );\n    let x = ..format!(        na, issue =  );\n}\n";
+  assert_eq!(formatted(kept), kept);
+}
+
+#[test]
 fn test_match_arm_indent_off_keeps_arms_at_the_match() {
   let config = FormatConfig {
     match_arm_indent: false,
@@ -945,6 +1038,39 @@ fn test_repeat_arrays_and_vec() {
 fn test_settles_in_one_run() {
   // Each settles where a second run leaves it (`formatted_with` checks that).
   let cases: &[(&str, usize, usize, &str)] = &[
+    // An enum with a variant on lines and one on a line has its struct variants on lines, a
+    // tuple variant measured with the column its fields leave and without the commas
+    // written in it.
+    (
+      "mod a {\n    mod b {\n        enum State {\n            A { x: [[usize; 4]; 4] },\n            C(HashMap<(u8, i32), [char; 4]>),\n        }\n    }\n}\n",
+      54,
+      7,
+      "mod a {\n       mod b {\n              enum State {\n                     A {\n                            x: [[usize; 4]; 4],\n                     },\n                     C(\n                            HashMap<\n                                   (u8, i32),\n                                   [char; 4],\n                            >,\n                     ),\n              }\n       }\n}\n",
+    ),
+    // A block holding a statement given up on, its `vec!` as written, and another `vec!`
+    // laid out with brackets: laid out whole.
+    (
+      "pub\n const MAX:&usize = {\n    vec!(\"{}\",&mut (1_000.25));\n    for 5..=10 in run(2e3, 2e3)[Bar::B] {\n         vec!(\"{}\",a);\n    }\n};\n",
+      20,
+      4,
+      "pub const MAX:\n    &usize = {\n    vec!(\"{}\",&mut (1_000.25));\n    for 5..=10 in\n        run(\n            2e3,\n            2e3,\n        )[Bar::B]\n    {\n        vec![\n            \"{}\",\n            a,\n        ];\n    }\n};\n",
+    ),
+    // A value whose place hangs on a statement kept as written settles where a second run
+    // puts it.
+    (
+      "const SIZE:i32 = if if len(b, b, b)[b] {\n    Ok(())\n}\n{\n     {\n    }\n      let mut a: i32 = [Bar::default(),\n      self];\n};\n",
+      30,
+      6,
+      "const SIZE: i32 =\n      if if len(b, b, b)[b] {\n            Ok(())\n      } {\n            {}\n            let mut a: i32 = [\n            Bar::default(),\n            self,\n      ];\n      };\n",
+    ),
+    // Packed, a comment written after the item before loses the blank line under its first
+    // line, as a second run reads it; one further down is kept.
+    (
+      "fn f() {\n    g(\n        x,\n\n        // one\n\n        // two\n\n        // three\n        y,\n    );\n}\n",
+      100,
+      4,
+      "fn f() {\n    g(\n        x, // one\n        // two\n\n        // three\n        y,\n    );\n}\n",
+    ),
     // A closure body no layout fits kept as written in the block made for it.
     (
       "fn f() {\n  let a = || || || || || || || || || || || SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS::fro;\n}\n",
@@ -1005,11 +1131,12 @@ fn test_settles_in_one_run() {
     };
     assert_eq!(formatted_with(source, &config), expected, "{}", source);
   }
-  // Closures nested a hundred deep, each in a block: laid out once per level, not once per
-  // shape every level around them tries (which took seconds at this depth).
+  // Closures nested 160 deep, each in a block: laid out once per level, not once per shape
+  // every level around them tries (over two minutes at this depth). The bound leaves room
+  // for slow machines, which the old cost was far past.
   let deep = format!(
     "fn main() {{\n    f(|v| {}{{\n        match v {{\n            _ => 1,\n        }}\n    }});\n}}\n",
-    "|| ".repeat(100)
+    "|| ".repeat(160)
   );
   // On a stack as large as mto runs files on: an unoptimized build needs it at this depth.
   let started = std::time::Instant::now();
@@ -1020,7 +1147,55 @@ fn test_settles_in_one_run() {
     .join()
     .unwrap();
   assert!(
-    started.elapsed() < std::time::Duration::from_secs(2),
+    started.elapsed() < std::time::Duration::from_secs(30),
+    "{:?}",
+    started.elapsed()
+  );
+  // Closures nested 130 deep without blocks, around an operand too wide for any line: each
+  // tried in a block on one line, and the statement measured with no line width, at every
+  // level (over six seconds at this depth, optimized).
+  let chained = format!(
+    "fn f() {{\n  x = a || {}b * {};\n}}\n",
+    "|| ".repeat(130),
+    "c".repeat(140)
+  );
+  let config = FormatConfig {
+    max_width: 139,
+    tab_spaces: 1,
+    ..FormatConfig::default()
+  };
+  let started = std::time::Instant::now();
+  std::thread::Builder::new()
+    .stack_size(crate::STACK)
+    .spawn(move || formatted_with(&chained, &config))
+    .unwrap()
+    .join()
+    .unwrap();
+  assert!(
+    started.elapsed() < std::time::Duration::from_secs(30),
+    "{:?}",
+    started.elapsed()
+  );
+  // Closures nested 100 deep around a string spanning lines: none tried on its line, where
+  // the string's lines could never go (over seven seconds at this depth, optimized).
+  let stringed = format!(
+    "fn f() {{\n  x = {}m(h, r#\"\nq\n\"#);\n}}\n",
+    "a * || ".repeat(100)
+  );
+  let config = FormatConfig {
+    max_width: 47,
+    tab_spaces: 2,
+    ..FormatConfig::default()
+  };
+  let started = std::time::Instant::now();
+  std::thread::Builder::new()
+    .stack_size(crate::STACK)
+    .spawn(move || formatted_with(&stringed, &config))
+    .unwrap()
+    .join()
+    .unwrap();
+  assert!(
+    started.elapsed() < std::time::Duration::from_secs(30),
     "{:?}",
     started.elapsed()
   );
@@ -1109,6 +1284,21 @@ fn test_super_let() {
       "#![feature(super_let)]\nfn main() {\n    super let x =(\n            &1,\n\n            ) else { 3};\n}\n"
     ),
     "#![feature(super_let)]\nfn main() {\n    super let x = (&1,) else { 3 };\n}\n"
+  );
+}
+
+#[test]
+fn test_tail_assignments_keep_no_room_for_a_semicolon() {
+  let config = FormatConfig {
+    max_width: 38,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    aaaa = bbbbbbbbbbbbbbbbbbbbbbbbbbb\n}\nfn g() {\n    aaaa = bbbbbbbbbbbbbbbbbbbbbbbbbbb;\n}\n",
+      &config
+    ),
+    "fn f() {\n    aaaa = bbbbbbbbbbbbbbbbbbbbbbbbbbb\n}\nfn g() {\n    aaaa =\n        bbbbbbbbbbbbbbbbbbbbbbbbbbb;\n}\n"
   );
 }
 

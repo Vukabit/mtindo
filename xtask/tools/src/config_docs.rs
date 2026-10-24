@@ -1,9 +1,10 @@
-//! `docs-config [--check]`: the settings reference in docs/generated/config/, a dictionary of every key
-//! mto reads from a configuration file. It is written from the settings table
-//! (`mtindo::options`, which `mto --man` and `mto config print` read too), each key's status
-//! in compat/capabilities.txt, and the rustfmt releases pinned in
-//! compat/rustfmt-surface.txt, so it cannot disagree with them; `--check` only compares, for
-//! the `config-docs` gate.
+//! `docs [--check]`: what docs/generated/ holds that is written from mtindo's own tables. The
+//! settings reference in docs/generated/config/, a dictionary of every key mto reads from a
+//! configuration file, is written from the settings table (`mtindo::options`, which
+//! `mto --man` and `mto config print` read too), each key's status in compat/capabilities.txt,
+//! and the rustfmt releases pinned in compat/rustfmt-surface.txt; the manual,
+//! docs/generated/manual.md, is `mto --man`. Neither can disagree with what it is written
+//! from; `--check` only compares, for the `generated-docs` gate.
 //!
 //! The reference is public: its Markdown keeps within the docs gate's 80 columns, and it
 //! names rustfmt only by its file names, as the naming gate asks, so the table's text and the
@@ -18,10 +19,13 @@ use mtindo::cli::manual::{self, wrap, wrap_block};
 use mtindo::options::{self, Channels, Choice, File, Kind, Setting, Stability};
 
 /// The command that writes the reference, named in it and in the stale message.
-pub const COMMAND: &str = "cargo xtask docs config";
+pub const COMMAND: &str = "cargo xtask docs";
 
 /// Where the reference is written, from the repository root.
 pub const DIR: &str = "docs/generated/config";
+
+/// Where the manual is written, from the repository root.
+pub const MANUAL: &str = "docs/generated/manual.md";
 
 /// A rustfmt release the settings table follows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,43 +71,52 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
     [] => false,
     [flag] if flag == "--check" => true,
     _ => {
-      eprintln!("docs-config: takes only --check");
+      eprintln!("docs: takes only --check");
       return ExitCode::from(2);
     }
   };
-  let files = match generate(root) {
-    Ok(files) => files,
+  let mut files: Vec<(String, String)> = match generate(root) {
+    Ok(files) => files
+      .into_iter()
+      .map(|(name, text)| (format!("{}/{}", DIR, name), text))
+      .collect(),
     Err(e) => {
       eprintln!("{}", e);
       return ExitCode::from(1);
     }
   };
-  let dir = root.join(DIR);
+  files.push((MANUAL.to_string(), manual::render()));
   if check {
     let stale: Vec<&str> = files
       .iter()
-      .filter(|(name, text)| fs::read_to_string(dir.join(name)).ok().as_ref() != Some(text))
-      .map(|(name, _)| *name)
+      .filter(|(path, text)| fs::read_to_string(root.join(path)).ok().as_ref() != Some(text))
+      .map(|(path, _)| path.as_str())
       .collect();
     if stale.is_empty() {
-      println!("{} matches the settings table", DIR);
+      println!(
+        "{} and {} match the tables they are written from",
+        DIR, MANUAL
+      );
       return ExitCode::SUCCESS;
     }
-    for name in stale {
-      println!("{}/{} is stale; run `{}`", DIR, name, COMMAND);
+    for path in stale {
+      println!("{} is stale; run `{}`", path, COMMAND);
     }
     return ExitCode::from(1);
   }
-  if let Err(e) = fs::create_dir_all(&dir) {
+  if let Err(e) = fs::create_dir_all(root.join(DIR)) {
     eprintln!("cannot create {}: {}", DIR, e);
     return ExitCode::from(1);
   }
-  for (name, text) in &files {
-    if let Err(e) = fs::write(dir.join(name), text) {
-      eprintln!("cannot write {}/{}: {}", DIR, name, e);
+  for (path, text) in &files {
+    if fs::read_to_string(root.join(path)).ok().as_ref() == Some(text) {
+      continue;
+    }
+    if let Err(e) = fs::write(root.join(path), text) {
+      eprintln!("cannot write {}: {}", path, e);
       return ExitCode::from(1);
     }
-    println!("wrote {}/{}", DIR, name);
+    println!("wrote {}", path);
   }
   ExitCode::SUCCESS
 }
@@ -996,7 +1009,7 @@ source  nightly  rustfmt 1.11.0-nightly, rust-lang/rust 32d, released 2026-10-10
     let (settings, sources) = fixture();
     let page = page(File::Format, &settings, &sources);
     assert!(page.starts_with(
-      "---\ntitle: rustfmt.toml settings\ngenerated_by: cargo xtask docs config\n\
+      "---\ntitle: rustfmt.toml settings\ngenerated_by: cargo xtask docs\n\
        standard_formatter:\n  stable:\n    version: \"1.10.0\"\n    released: \
        \"2026-10-01\"\n  nightly:\n    version: \"1.11.0-nightly\"\n    released: \
        \"2026-10-10\"\nkeys:\n  total: 3\n  hidden: 1\nin_mto:\n  supported: 0\n  \

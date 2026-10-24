@@ -176,6 +176,8 @@ fn test_out_of_checks_files_are_held_back_whole() {
     })
   });
   assert!(narrowed.ran_out);
+  // As before the run, which the check before passed.
+  assert!(narrowed.passed);
   assert_eq!(narrowed.found[0].edit, Edit::All);
   assert_eq!(narrowed.texts[0], files[0].source);
 }

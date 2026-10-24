@@ -95,10 +95,10 @@ newest runs and puts back each file that still holds what the run last wrote
 
 `doctor.max_checks` (default 64) limits how many times one narrowing runs
 the command; the checks before and after the run do not count. When the
-budget runs out, the files being narrowed are marked held back whole, but no
-further check can run to confirm a passing set. The narrowing then ends
-without a pass, so mto puts every file back as it was before the run, says
-the build still fails with every edit held back, and exits with code 5.
+budget runs out, no further check can confirm what else is safe to write, so
+every changed file is held back whole (`hold_all`). That leaves the sources,
+which the check before passed, so the narrowing ends with a pass: nothing is
+written, mto says it ran out of checks, and the run exits as usual.
 
 ## Ending a narrowing
 

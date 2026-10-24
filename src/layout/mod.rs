@@ -39,6 +39,7 @@ pub use classify::import_group_of_text;
 
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
 use crate::syntax::ast::{Attr, Item};
+use crate::syntax::lexer::tokenize;
 use crate::syntax::{Edition, Parse, SyntaxElement, SyntaxKind, SyntaxNode, parse_cached};
 use crate::text::source::normalize;
 
@@ -340,8 +341,8 @@ fn longest_increasing(values: &[usize]) -> HashSet<usize> {
 }
 
 /// The text of an inline module (`start..end` of `item`) with its body laid out, or `None`
-/// when it is not one, the body is empty or on one line with its braces, or the body cannot
-/// be laid out (it is then left as written).
+/// when it is not one, the body is empty, starts on its opening brace's line or ends on its
+/// closing brace's, or the body cannot be laid out (it is then left as written).
 fn module_with_body_laid_out(
   item: &Item,
   text: &str,
@@ -369,6 +370,11 @@ fn module_with_body_laid_out(
   let last = elements.iter().rfind(|e| significant(e))?.text_range().end as usize;
   let leading = &text[open_end..first];
   if !leading.contains('\n') {
+    return None;
+  }
+  // A body closed on its last item's line is left as written, as an impl's is: a comment
+  // ending the item moved there would no longer end its line.
+  if !text[last..close_start].contains('\n') {
     return None;
   }
   let indent = &leading[leading.rfind('\n')? + 1..];
@@ -647,6 +653,25 @@ fn split_container(
       continue;
     }
     if comment {
+      // On the line of the item before, after the comments the tree gives it (a block
+      // comment followed by another), and with only comments after it there: it ends that
+      // item's line, so it moves with it. One with code after it belongs to neither.
+      let line_end = text[end..].find('\n').map_or(text.len(), |at| end + at);
+      let ends_line = !text[start..end].contains('\n')
+        && tokenize(&text[end..line_end], Edition::E2021)
+          .iter()
+          .all(|t| t.kind.is_trivia());
+      if loose.contains(&start)
+        && ends_line
+        && pending.is_empty()
+        && let Some(previous) = units.last_mut()
+        && previous.span.1 == text[..start].trim_end().len()
+      {
+        previous.text.push_str(&text[previous.span.1..end]);
+        previous.span.1 = end;
+        last_item_end = Some(end);
+        continue;
+      }
       pending.push((start, end));
       continue;
     }

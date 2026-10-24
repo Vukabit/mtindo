@@ -58,9 +58,10 @@ The [documentation index](docs/README.md) lists every page. The guide:
 * [CI and editors](docs/guide/ci-and-editors.md): `--check`, JSON output,
   hooks and rust-analyzer.
 
-`mto --man` prints the full manual, and the
-[settings reference](docs/generated/config/README.md) documents every
-setting with its legal values.
+The [manual](docs/generated/manual.md) (`mto --man`) documents every
+command, flag and setting, and the
+[settings reference](docs/generated/config/README.md) every setting with its
+legal values.
 
 ## Where it's headed
 

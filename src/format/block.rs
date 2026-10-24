@@ -149,15 +149,25 @@ pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
     if arm.kind() != K::MatchArm {
       return None;
     }
-    // Its attributes each on a line of their own; none with a comment among them.
+    // Its attributes and doc comments each on a line of their own, in their order; none
+    // with a comment among them, nor a doc comment across lines.
     let attributes: Vec<SyntaxNode> = arm
       .children_iter()
       .filter(|c| c.kind() == K::Attr)
       .collect();
-    if !attributes.is_empty()
-      && arm.children_with_tokens_iter().any(|e| {
-        matches!(e.kind(), K::LineComment | K::BlockComment)
-          && e.text_range().start < super::items::header_start(arm).unwrap_or(0) as u32
+    let code = super::items::header_start(arm).unwrap_or(0) as u32;
+    let before: Vec<SyntaxElement> = arm
+      .children_with_tokens_iter()
+      .filter(|e| e.text_range().start < code)
+      .collect();
+    let documented = before.iter().any(|e| super::items::is_doc(e.kind()));
+    if (!attributes.is_empty() || documented)
+      && before
+        .iter()
+        .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+      || before.iter().any(|e| {
+        matches!(e, SyntaxElement::Token(t) if super::items::is_doc(t.kind())
+          && t.text().trim_end().contains('\n'))
       })
     {
       return None;
@@ -171,12 +181,20 @@ pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
       return None;
     }
     let mut prefix = String::new();
-    for attribute in &attributes {
-      prefix.push_str(&super::attrs::rewrite_attr(
-        attribute,
-        inner.indent,
-        &config,
-      )?);
+    for element in &before {
+      match element {
+        SyntaxElement::Node(attribute) if attribute.kind() == K::Attr => {
+          prefix.push_str(&super::attrs::rewrite_attr(
+            attribute,
+            inner.indent,
+            &config,
+          )?);
+        }
+        SyntaxElement::Token(doc) if super::items::is_doc(doc.kind()) => {
+          prefix.push_str(doc.text().trim_end());
+        }
+        _ => continue,
+      }
       prefix.push('\n');
       prefix.push_str(&" ".repeat(inner.indent));
     }
@@ -245,7 +263,11 @@ pub fn wrapped(expression: &SyntaxNode, shape: Shape) -> Option<String> {
 /// A statement in a block the standard formatter gives up on, as written (`push_rewrite`
 /// given nothing): see [`gives_up`].
 pub(super) fn given_up(node: &SyntaxNode, inner: Shape) -> Option<String> {
-  gives_up(node, inner, true, true).then(|| node.text().to_string().trim().to_string())
+  let kept = gives_up(node, inner, true, true).then(|| node.text().to_string().trim().to_string());
+  if kept.is_some() {
+    super::file::note_kept();
+  }
+  kept
 }
 
 /// Whether the standard formatter gives up on a statement at `inner`'s indentation: its
@@ -265,16 +287,19 @@ pub(super) fn gives_up(
 ) -> bool {
   let commented =
     |n: &SyntaxNode| n.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment));
-  match hollowed(node) {
-    None => gives_up_whole(node, inner, any_string, string_lines),
-    // Comments only inside its blocks, which the standard formatter lays out apart: the rest
-    // decides (a closure's head too wide gives up the statement whatever its body holds).
-    Some(bare) => {
-      (gives_up_whole(node, inner, any_string, string_lines)
-        || commented(node) && !commented(&bare))
-        && gives_up_whole(&bare, inner, any_string, string_lines)
+  super::expr::remembered_gives_up(node, inner, (any_string, string_lines), || {
+    match hollowed(node) {
+      None => gives_up_whole(node, inner, any_string, string_lines),
+      // Comments only inside its blocks, which the standard formatter lays out apart: the
+      // rest decides (a closure's head too wide gives up the statement whatever its body
+      // holds).
+      Some(bare) => {
+        (gives_up_whole(node, inner, any_string, string_lines)
+          || commented(node) && !commented(&bare))
+          && gives_up_whole(&bare, inner, any_string, string_lines)
+      }
     }
-  }
+  })
 }
 
 /// A statement or item after its attributes, each on a line of their own; none skipped, and
@@ -529,7 +554,7 @@ fn gives_up_whole(node: &SyntaxNode, inner: Shape, any_string: bool, string_line
     return false;
   }
   let mut wide = inner.limits.config();
-  wide.max_width = 100_000;
+  wide.max_width = super::shape::UNLIMITED;
   let unlimited = Shape {
     width: wide.max_width - inner.indent,
     limits: super::shape::Limits::of(&wide),
@@ -582,6 +607,11 @@ fn gives_up_whole(node: &SyntaxNode, inner: Shape, any_string: bool, string_line
         .any(|&(from, to)| from <= range.start && range.end <= to)
   });
   if spanning {
+    return true;
+  }
+  // A closure whose `|parameters|` leave its body too little room, however short the body
+  // (`rewrite_closure_fn_decl` fails).
+  if node.kind() == K::ClosureExpr && super::expr::closure_prefix(node, inner).is_none() {
     return true;
   }
   // A line past the width with no width to keep to, unless the layout within the width

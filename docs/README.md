@@ -28,10 +28,10 @@ Generated from the code and the recorded measurements; never edited by hand.
 
 * [Settings](generated/config/README.md): every setting, its values and
   default, and a JSON Schema of `mto.toml`.
+* [Manual](generated/manual.md): every command, flag, setting and value, as
+  `mto --man` prints it.
 * [Metrics](generated/metrics/README.md): compatibility, speed, memory,
   fuzzing and more, as measured.
-
-`mto --man` prints the full manual: every command, flag, setting and value.
 
 ## Design
 

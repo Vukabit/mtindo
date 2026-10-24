@@ -45,6 +45,12 @@ fn test_derives_merged_in_runs() {
     formatted(source, &FormatConfig::default()),
     "#[derive(A, B, C)]\n#[cfg(x)]\n#[derive(D)]\nstruct S;\n#[derive(A, B)]\nstruct T;\nfn f() {\n    #[derive(A, B)]\n    enum E {}\n}\n"
   );
+  // A run with a derive of anything but meta items stays as written whole.
+  let unread = "#[derive(Eq)]\n#[derive(Copy, C; mod m;)]\nenum E {}\n\n#[derive(A)]\n#[derive(B)]\n#[derive(x = 1)]\nenum F {}\n";
+  assert_eq!(
+    formatted(unread, &FormatConfig::default()),
+    "#[derive(Eq)]\n#[derive(Copy, C; mod m;)]\nenum E {}\n\n#[derive(A, B, x = 1)]\nenum F {}\n"
+  );
   let kept = FormatConfig {
     merge_derives: false,
     ..FormatConfig::default()

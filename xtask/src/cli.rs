@@ -385,18 +385,8 @@ fn diff() -> Command {
 
 fn docs() -> Command {
   Command::new("docs")
-    .about("Regenerate the generated documentation")
-    .subcommand_required(true)
-    .subcommand(
-      Command::new("config")
-        .about("Regenerate docs/generated/config/, the settings reference and mto.toml's JSON Schema, from the settings table")
-        .arg(flag("check", "Only compare")),
-    )
-    .subcommand(
-      Command::new("metrics")
-        .about("The metrics papers in docs/generated/metrics/ from the recorded data (compat/, its history, .dev/ when present); runs no suite")
-        .arg(flag("check", "Only compare with the tracked records; fails when a page is out of date")),
-    )
+    .about("Regenerate everything under docs/generated/: the settings reference and mto.toml's JSON Schema from the settings table, the manual from mto --man, and the metrics papers from the recorded data (compat/, its history, .dev/ when present); runs no suite")
+    .arg(flag("check", "Only compare; fails when a page is out of date"))
 }
 
 fn doctor() -> Command {

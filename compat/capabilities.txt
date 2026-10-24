@@ -53,7 +53,7 @@ option  imports_indent                                   missing
 option  imports_layout                                   partial      # with format = true, for use declarations; Horizontal leaves a list too wide for its line as written (src/format/imports/tests.rs)
 option  indent_style                                     missing
 option  inline_attribute_width                           missing
-option  make_backup                                      missing
+option  make_backup                                      not-planned  # every run that writes files is recorded in history; `mto restore` undoes it
 option  match_arm_blocks                                 missing
 option  match_arm_indent                                 supported    # with format = true (src/format/file/tests.rs)
 option  match_arm_leading_pipes                          missing

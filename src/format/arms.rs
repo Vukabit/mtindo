@@ -125,8 +125,24 @@ pub fn rewrite_arm_in(
   }
   let body = &body;
   let mut one_line_comment = false;
-  let laid = match body.kind() {
-    K::BlockExpr => {
+  // Block-like, the arm's line keeps their head when it fits there; a comma follows them.
+  // Written so, with a comma after them (one taken out of its block is laid out whole
+  // below: the pass would write the block's `}`). One whose head spans lines is laid out
+  // whole below when it can be, where the standard formatter weighs it against the next
+  // line.
+  let control_head = (matches!(body.kind(), K::MatchExpr | K::LoopExpr)
+    && !forbid_same_line
+    && written_comma.is_some()
+    && *body == written_body)
+    .then(|| rewrite_control_head(body, indent, indent + used + 4, config))
+    .flatten();
+  let whole = control_head
+    .as_ref()
+    .is_some_and(|head| head.text.contains('\n'))
+    && clean_expression(body);
+  let control_head = control_head.filter(|_| !whole);
+  let laid = match (body.kind(), control_head) {
+    (K::BlockExpr, _) => {
       let prefixed = body
         .children_with_tokens_iter()
         .any(|e| matches!(e.kind(), K::UnsafeKw | K::ConstKw | K::AsyncKw));
@@ -218,14 +234,8 @@ pub fn rewrite_arm_in(
         }
       }
     }
-    // Block-like, the arm's line keeps their head; a comma follows them.
-    // Written so, with a comma after them (one taken out of its block is laid out whole
-    // below: the pass would write the block's `}`).
-    K::MatchExpr | K::LoopExpr
-      if !forbid_same_line && written_comma.is_some() && *body == written_body =>
-    {
+    (_, Some(head)) => {
       let comma = written_comma.as_ref()?;
-      let head = rewrite_control_head(body, indent, indent + used + 4, config)?;
       Arm::Head(Head {
         text: format!("{}{}{}", lhs, arrow, head.text),
         open: head.open,

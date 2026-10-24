@@ -95,16 +95,15 @@ pub fn render(report: &Report) -> String {
     }
     return out;
   }
-  out.push_str(&format!(
-    "\n## Held back ({})\n\nEvery other edit of the run is written, and the check \
-     passes with them.\n",
-    narrowed.found.len()
-  ));
+  out.push_str(&format!("\n## Held back ({})\n", narrowed.found.len()));
   if narrowed.ran_out {
     out.push_str(
       "\nThe checks ran out (`doctor.max_checks`) before every edit was narrowed \
-       down, so some files are held back whole.\n",
+       down, so every changed file is held back whole: the files are as they were \
+       before the run, which the check before passed.\n",
     );
+  } else {
+    out.push_str("\nEvery other edit of the run is written, and the check passes with them.\n");
   }
   for (n, found) in narrowed.found.iter().enumerate() {
     let (what, shown) = found.what.split_once('\n').unwrap_or((&found.what, ""));

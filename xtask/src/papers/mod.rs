@@ -1,4 +1,4 @@
-//! `cargo xtask docs metrics`: the metrics papers under `docs/generated/metrics/`, one per category
+//! `cargo xtask docs`: the metrics papers under `docs/generated/metrics/`, one per category
 //! of measurement, generated from the data the suites record.
 //!
 //! A paper is Markdown with YAML front matter. The front matter (the machine data) and the
@@ -39,7 +39,7 @@ const END: &str = "<!-- end generated -->";
 const NO_LOCAL: &str = "No machine-local records were found when this page was generated.";
 
 /// The command that regenerates the papers, for messages.
-const REGENERATE: &str = "cargo xtask docs metrics";
+const REGENERATE: &str = "cargo xtask docs";
 
 /// The prose a new paper starts with in each hand-written section.
 const UNWRITTEN: &str = "_Not written yet._";
@@ -264,12 +264,9 @@ pub fn quote(text: &str) -> String {
   format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// `cargo xtask docs metrics [--check]`.
-pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
-  let Some(("metrics", sub)) = m.subcommand() else {
-    unreachable!("clap knows the subcommands")
-  };
-  if crate::cli::on(sub, "check") {
+/// The metrics papers of `cargo xtask docs [--check]`.
+pub fn run(root: &Path, only_compare: bool) -> ExitCode {
+  if only_compare {
     let problems = check(root);
     for problem in &problems {
       println!("{}", problem);

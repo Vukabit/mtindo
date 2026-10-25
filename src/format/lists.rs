@@ -23,14 +23,7 @@ pub struct ItemComments {
 /// spanning lines).
 pub fn list_comments(list: &SyntaxNode, items: &[SyntaxNode]) -> Option<Vec<ItemComments>> {
   // No comment anywhere in the list (a walk that makes no nodes): none around its items.
-  if items.is_empty()
-    || !list.subtree_has(|kind| {
-      matches!(
-        kind,
-        crate::syntax::SyntaxKind::LineComment | crate::syntax::SyntaxKind::BlockComment
-      )
-    })
-  {
+  if items.is_empty() || !super::expr::holds_comment(list) {
     return None;
   }
   // An item's code, without the comments attached to either end of it; from the

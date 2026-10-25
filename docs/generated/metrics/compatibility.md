@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-24T12:25:27.998Z"
-commit: "d8b6f59-dirty.5a2acfef"
+generated: "2026-10-25T10:01:20.186Z"
+commit: "9662ecb-dirty.ebe0c261"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -193,7 +193,7 @@ does not check this part, and it may describe a newer run than the record.
 
 <!-- generated: last-run -->
 From the last `cargo xtask diff` run recorded on the machine that generated this
-page (2026-10-24), which need not be the run the record above was made from.
+page (2026-10-25), which need not be the run the record above was made from.
 Scored files by the share of their expected lines mto's output keeps:
 
 | set | every line | 99% or more | 90% to 99% | under 90% |

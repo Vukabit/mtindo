@@ -9,6 +9,8 @@
 //! or a string spanning lines is left to the whole-file rules, which keep its lines as
 //! written; its attributes, and comments before it, are laid out on their own.
 
+use std::cell::Cell;
+
 use SyntaxKind as K;
 
 use super::expr::{flat, flat_tokens, is_chain, prefer_next_line, rewrite};
@@ -17,6 +19,16 @@ use super::shape::{Limits, Shape, Spacing};
 use crate::options::format::FormatConfig;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, parse_tokens};
 use crate::text::unicode::str_width;
+
+/// Ends a deferral however the layout inside it ends, a panic too: the next file's
+/// statements are checked again.
+struct Deferral;
+
+impl Drop for Deferral {
+  fn drop(&mut self) {
+    DEFERRED.with(|deferred| deferred.set(None));
+  }
+}
 
 /// A statement's head laid out by [`rewrite_head`].
 pub struct Head {
@@ -1322,6 +1334,15 @@ pub(super) fn same_tokens(node: &SyntaxNode, text: &str) -> bool {
 /// [`same_tokens`] for the node's tokens before `end` (an item's comment after its `;` is
 /// not its own).
 pub(super) fn same_tokens_until(node: &SyntaxNode, text: &str, end: usize) -> bool {
+  // Inside a statement that will be checked whole, put off to its check ([`statement`]).
+  if DEFERRED.with(|deferred| {
+    deferred
+      .get()
+      .map(|skipped| deferred.set(Some(skipped + 1)))
+      .is_some()
+  }) {
+    return true;
+  }
   // As `code_tokens` picks them, read straight from the tree. Most texts are the node's as
   // written, found faster than their key is hashed.
   let start = header_start(node).unwrap_or(node.text_range().start as usize);
@@ -1799,21 +1820,39 @@ fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
 }
 
 /// Whether nothing below `node` is one [`safe`] would look at twice: no comment, no
-/// attribute and no literal spanning lines, read from the green tree without making handles.
-/// [`clean_inside`] would then let every element through.
+/// attribute and no literal spanning lines. [`clean_inside`] would then let every element
+/// through.
 fn plainly_clean(node: &SyntaxNode) -> bool {
-  !node.subtree_has(|kind| kind == K::Attr)
-    && node.token_texts().all(|(kind, text, _)| {
-      !matches!(
-        kind,
-        K::LineComment
-          | K::BlockComment
-          | K::OuterLineDoc
-          | K::InnerLineDoc
-          | K::OuterBlockDoc
-          | K::InnerBlockDoc
-      ) && !(kind.is_literal() && text.contains('\n'))
-    })
+  let plain = |kind: SyntaxKind, text: &str| {
+    !matches!(
+      kind,
+      K::LineComment
+        | K::BlockComment
+        | K::OuterLineDoc
+        | K::InnerLineDoc
+        | K::OuterBlockDoc
+        | K::InnerBlockDoc
+    ) && !(kind.is_literal() && text.contains('\n'))
+  };
+  // Kept while a [`RewriteMemo`](super::expr::RewriteMemo) is open, as
+  // [`super::expr::holds_comment`] is.
+  super::expr::remembered(node, super::expr::Question::PlainlyClean, || {
+    if !super::expr::large(node) {
+      return !node.subtree_has(|kind| kind == K::Attr)
+        && node.token_texts().all(|(kind, text, _)| plain(kind, text));
+    }
+    node.kind() != K::Attr
+      && node.children_with_tokens_iter().all(|e| match e {
+        SyntaxElement::Token(t) => plain(t.kind(), t.text()),
+        SyntaxElement::Node(n) => plainly_clean(&n),
+      })
+  })
+}
+
+thread_local! {
+  /// While a statement is laid out to be checked whole, how many checks of what it holds
+  /// were put off to its own.
+  static DEFERRED: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 /// `head` (`let x =`, `a.b +=`) and then `value`, with its `;` when `semi`: on the same line
@@ -1986,11 +2025,39 @@ fn statement(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<
   if !clean(node, config) {
     return None;
   }
-  if !takes(node) {
-    return on_one_line(node, indent, config).filter(|text| same_tokens(node, text));
+  let lay = || {
+    if takes(node) {
+      laid_out(node, indent, config)
+    } else {
+      on_one_line(node, indent, config)
+    }
+  };
+  // Inside another statement, which checks this one with all it holds; or one holding a
+  // comment, where a check failing is how a layout that misplaces it is turned down, and
+  // so decides how what holds it is laid out.
+  if DEFERRED.with(Cell::get).is_some() || super::expr::holds_comment(node) {
+    return lay().filter(|text| same_tokens(node, text));
   }
-  let text = laid_out(node, indent, config)?;
-  same_tokens(node, &text).then_some(text)
+  // The statements and expressions inside it are checked with it, once, rather than each
+  // on its own at every level of blocks around it. Without comments every layout of a part
+  // keeps its tokens, so no check put off would have failed and the layout is the one each
+  // check would have led to; and a text keeps the tokens of all it holds only if each part
+  // keeps its own. One that fails all the same, with checks put off, is laid out again
+  // checking each, as though none had been.
+  let failed = super::macros::macro_failure();
+  let deferral = Deferral;
+  DEFERRED.with(|deferred| deferred.set(Some(0)));
+  let text = lay();
+  let skipped = DEFERRED.with(Cell::get).unwrap_or(0);
+  drop(deferral);
+  let text = text?;
+  let kept = same_tokens(node, &text);
+  if kept || skipped == 0 {
+    return kept.then_some(text);
+  }
+  super::macros::set_macro_failure(failed);
+  super::expr::forget_rewrites();
+  lay().filter(|text| same_tokens(node, text))
 }
 
 /// Whether the layout code takes the statement whole: a `let` with an initializer, an

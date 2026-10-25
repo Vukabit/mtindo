@@ -89,6 +89,10 @@ pub fn rewrite_lines(block: &SyntaxNode, shape: Shape) -> Option<String> {
     ..shape
   });
   let body = block_body(block, after)?;
+  // A plain block is its body, not copied again.
+  if prefix.is_empty() {
+    return Some(body);
+  }
   Some(format!("{}{}", prefix, body))
 }
 
@@ -536,12 +540,23 @@ fn braced_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
   Some(format!("{}! {}", name, body))
 }
 
-/// The lines of a block, closed: `{}` when there are none.
+/// The lines of a block, closed: `{}` when there are none. Written into one string made to
+/// size: a block's lines hold all the blocks inside it, copied again at each level.
 fn close(lines: Vec<String>, shape: Shape) -> String {
   if lines.is_empty() {
     return "{}".to_string();
   }
-  format!("{{\n{}\n{}}}", lines.join("\n"), " ".repeat(shape.indent))
+  let size = lines.iter().map(|line| line.len() + 1).sum::<usize>() + shape.indent + 3;
+  let mut text = String::with_capacity(size);
+  text.push('{');
+  for line in &lines {
+    text.push('\n');
+    text.push_str(line);
+  }
+  text.push('\n');
+  text.extend(std::iter::repeat_n(' ', shape.indent));
+  text.push('}');
+  text
 }
 
 /// [`gives_up`], for all the statement holds.

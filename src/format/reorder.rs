@@ -725,21 +725,20 @@ pub fn strip_semicolons(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) ->
   for block in nodes.of(root, |kind| kind == K::BlockExpr) {
     // One after an item (`struct S {};`) the standard formatter keeps.
     let mut after_item = false;
-    for element in block.children_with_tokens_iter() {
-      match &element {
-        SyntaxElement::Token(t) if t.kind() == K::Semi => {
+    // Read from the green tree, without a handle for each child.
+    for (kind, range, node) in block.child_spans() {
+      match kind {
+        K::Semi if !node => {
           if !after_item {
-            let range = t.text_range();
             stray.push((range.start as usize, range.end as usize));
           }
           after_item = false;
         }
-        SyntaxElement::Token(t) if t.kind().is_trivia() => {}
-        SyntaxElement::Node(n) => {
-          after_item =
-            !matches!(n.kind(), K::ExprStmt | K::LetStmt) && !n.kind().name().ends_with("_EXPR");
+        _ if !node && kind.is_trivia() => {}
+        _ if node => {
+          after_item = !matches!(kind, K::ExprStmt | K::LetStmt) && !kind.name().ends_with("_EXPR");
         }
-        SyntaxElement::Token(_) => after_item = false,
+        _ => after_item = false,
       }
     }
   }

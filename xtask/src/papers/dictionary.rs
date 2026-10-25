@@ -389,7 +389,9 @@ pub const METRICS: &[Entry] = &[
     name: "perf.scaling.one_thread.mb_per_s",
     unit: "MB/s (10^6 bytes per second)",
     definition: "Bytes over seconds for every 8th corpus file laid out and formatted in \
-      process by one thread: the fastest of three passes.",
+      process by one thread: the fastest of three passes. From 2026-10-25 with the allocator \
+      the mto binaries install (`cache_alloc`), as mto runs; before, with the system's, \
+      about 12 to 17% slower.",
     measured: "`cargo xtask perf scaling`.",
     values: &[],
   },

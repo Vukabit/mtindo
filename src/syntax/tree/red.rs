@@ -1,8 +1,9 @@
 //! Navigable handles over the green tree. A [`SyntaxNode`] knows its offset in the file and
 //! its parent; both are worked out while walking down from the root.
 
+use std::cell::RefCell;
 use std::fmt;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use crate::syntax::SyntaxKind;
 use crate::syntax::tree::green::{GreenElement, GreenNode};
@@ -191,6 +192,19 @@ struct Frame {
   /// The index and offset of its next child.
   next: usize,
   offset: u32,
+}
+
+/// The handles made for a tree's nodes, by node, each kept while it is alive: a node's
+/// handle is handed out again rather than made anew on every walk, as formatting a file
+/// would make each about six times. A node sits in one place in its tree, so its handle is
+/// the same wherever it is reached from.
+#[derive(Default)]
+pub struct Handles(RefCell<Vec<Weak<NodeData>>>);
+
+impl fmt::Debug for Handles {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "Handles")
+  }
 }
 
 struct NodeData {
@@ -540,12 +554,24 @@ impl SyntaxNode {
   }
 
   fn make_node(&self, green: GreenNode, index: u32, offset: u32) -> SyntaxNode {
-    SyntaxNode(Rc::new(NodeData {
+    let (handles, id, _) = green.handles();
+    if let Some(alive) = handles.0.borrow().get(id).and_then(Weak::upgrade) {
+      return SyntaxNode(alive);
+    }
+    let node = Rc::new(NodeData {
       green,
       parent: Some(self.clone()),
       index,
       offset,
-    }))
+    });
+    let (handles, id, nodes) = node.green.handles();
+    let mut handles = handles.0.borrow_mut();
+    if handles.len() < nodes {
+      handles.resize(nodes, Weak::new());
+    }
+    handles[id] = Rc::downgrade(&node);
+    drop(handles);
+    SyntaxNode(node)
   }
 }
 

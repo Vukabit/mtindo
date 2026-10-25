@@ -186,6 +186,16 @@ pub(super) fn macro_failed() {
   MACRO_FAILURE.with(|f| f.set(true));
 }
 
+/// Whether a macro call failed since it was last cleared ([`macro_failed`]).
+pub(super) fn macro_failure() -> bool {
+  MACRO_FAILURE.with(Cell::get)
+}
+
+/// Sets what [`macro_failure`] answers, as it was before a layout taken back.
+pub(super) fn set_macro_failure(failed: bool) {
+  MACRO_FAILURE.with(|f| f.set(failed));
+}
+
 /// `f` run with the macro calls it fails to lay out not noted.
 pub(super) fn sheltered<T>(f: impl FnOnce() -> T) -> T {
   let before = MACRO_FAILURE.with(|f| f.get());

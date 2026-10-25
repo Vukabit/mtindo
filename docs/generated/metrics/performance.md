@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-24T12:38:16.990Z"
-commit: "d8b6f59-dirty.91456eec"
+generated: "2026-10-25T10:01:20.186Z"
+commit: "9662ecb-dirty.ebe0c261"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -168,9 +168,9 @@ timing taken while the machine was busy is not judged:
 | `speed.mto.laid_out.mb_per_s` | 159.65 | no | 2026-10-24 |
 | `speed.mto.as_fetched.mb_per_s` | 143.69 | yes | 2026-10-24 |
 | `speed.layout.one_thread.mb_per_s` | 80.80 | yes | 2026-10-24 |
-| `memst.serde.allocs` | 4.46M | no | 2026-10-20 |
-| `memst.serde.bytes` | 754.85M | no | 2026-10-20 |
-| `memst.serde.peak_live` | 49.27M | no | 2026-10-20 |
+| `memst.serde.allocs` | 1.92M | no | 2026-10-25 |
+| `memst.serde.bytes` | 495.41M | no | 2026-10-25 |
+| `memst.serde.peak_live` | 46.91M | no | 2026-10-25 |
 | `doctor.held.cost.x` | 1.12 | yes | 2026-10-20 |
 | `doctor.narrow.n10.k1.checks` | 9.70 | yes | 2026-10-20 |
 | `doctor.narrow.n100.k1.checks` | 15.50 | yes | 2026-10-20 |
@@ -178,13 +178,13 @@ timing taken while the machine was busy is not judged:
 | `doctor.narrow.found_rate` | 1 | yes | 2026-10-20 |
 | `io.write.batch.history.ms_per_file` | 0.66 | yes | 2026-10-24 |
 | `io.write.batch.plain.ms_per_file` | 0.28 | yes | 2026-10-24 |
-| `perf.scaling.one_thread.mb_per_s` | 6.15 | no | 2026-10-24 |
-| `perf.latency.check.median_ms` | 2.04 | yes | 2026-10-24 |
-| `perf.growth.items.exponent` | 1.02 | yes | 2026-10-24 |
-| `perf.growth.nesting.exponent` | 2.08 | no | 2026-10-24 |
-| `perf.growth.line.exponent` | 0.98 | yes | 2026-10-24 |
-| `perf.growth.chain.exponent` | 0.96 | yes | 2026-10-24 |
-| `perf.growth.match.exponent` | 0.99 | yes | 2026-10-24 |
+| `perf.scaling.one_thread.mb_per_s` | 7.50 | no | 2026-10-25 |
+| `perf.latency.check.median_ms` | 2.08 | yes | 2026-10-25 |
+| `perf.growth.items.exponent` | 1.03 | yes | 2026-10-25 |
+| `perf.growth.nesting.exponent` | 1.26 | yes | 2026-10-25 |
+| `perf.growth.line.exponent` | 1.00 | yes | 2026-10-25 |
+| `perf.growth.chain.exponent` | 0.97 | yes | 2026-10-25 |
+| `perf.growth.match.exponent` | 1.03 | yes | 2026-10-25 |
 <!-- end generated -->
 
 ## 4 Threats to validity

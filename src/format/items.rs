@@ -173,7 +173,8 @@ pub fn rewrite_header(
   let written = node
     .text()
     .get(start.checked_sub(from)?..end.checked_sub(from)?)?;
-  same_header_tokens(written, &text).then_some((text, end))
+  // Most headers are laid out as written, holding the same tokens without reading them.
+  (written == text || same_header_tokens(written, &text)).then_some((text, end))
 }
 
 /// A macro call standing as an item or statement, its arguments in parentheses or brackets,

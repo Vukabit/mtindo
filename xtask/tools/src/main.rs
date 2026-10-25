@@ -32,6 +32,11 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+// The allocator the mto binaries install, so that what is measured in process here (the
+// perf benches above all) runs as mto does.
+#[global_allocator]
+static GLOBAL: mtindo::cache_alloc::Cached = mtindo::cache_alloc::Cached;
+
 fn main() -> ExitCode {
   let args: Vec<String> = env::args().skip(1).collect();
   let root = project_root();

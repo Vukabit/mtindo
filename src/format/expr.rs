@@ -12,6 +12,11 @@ use super::space;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, TextRange};
 use crate::text::unicode::str_width;
 
+/// The longest layout kept the first time it is asked for. A longer one is kept from the
+/// second: most are asked for once, and keeping one copies it, which for the blocks nested
+/// in each other at every level adds up to each level's text once a level.
+const KEPT_AT_ONCE: usize = 4096;
+
 /// Format-like macros, with how many arguments come before the format string (the standard
 /// formatter's `SPECIAL_CASE_MACROS`).
 const SPECIAL_MACROS: &[(&str, usize)] = &[
@@ -67,6 +72,10 @@ pub(super) enum Question {
   SpansLines,
   /// [`may_overflow`].
   Overflows,
+  /// [`holds_comment`].
+  Commented,
+  /// [`super::stmt::plainly_clean`].
+  PlainlyClean,
 }
 
 /// The tactic for a list, as the standard formatter's `definitive_tactic` decides it.
@@ -150,7 +159,25 @@ struct Memo {
   /// Whether a layout keeps a node's tokens, by node and the layout less its lines'
   /// indentation ([`remembered_tokens`]).
   tokens: Fast<((usize, u32), u64), bool>,
+  /// The keys of [`Memo::done`] (`false`) and [`Memo::blocks`] (`true`) asked once of a
+  /// layout too long to keep on its first asking ([`worth_keeping`]).
+  seen: Fast<((usize, u32), Shape, bool), ()>,
   trees: Fast<usize, SyntaxNode>,
+}
+
+impl Memo {
+  /// Whether a layout made for `key` is to be kept: one short enough, or asked for before.
+  /// Asked again, a longer one is laid out once more and kept then, so none is laid out more
+  /// than twice.
+  fn worth_keeping(
+    &mut self,
+    key: ((usize, u32), Shape),
+    blocks: bool,
+    text: &Option<String>,
+  ) -> bool {
+    text.as_ref().is_none_or(|text| text.len() <= KEPT_AT_ONCE)
+      || self.seen.insert((key.0, key.1, blocks), ()).is_some()
+  }
 }
 
 /// While alive, [`rewrite`] on this thread keeps what it returns for each node and shape,
@@ -942,7 +969,9 @@ pub fn rewrite(node: &SyntaxNode, shape: Shape) -> Option<String> {
       MEMO.with(|memo| {
         if let Some(memo) = memo.borrow_mut().as_mut() {
           memo.trees.entry(key.0.0).or_insert_with(|| node.clone());
-          memo.done.insert(key, done.clone());
+          if memo.worth_keeping(key, false, &done) {
+            memo.done.insert(key, done.clone());
+          }
           if roomy && let Some(line) = done.as_ref().filter(|t| !t.contains('\n')) {
             memo.roomy.insert((key.0, shape.limits), line.clone());
           }
@@ -1118,6 +1147,31 @@ pub(super) fn ends_with_semi(node: &SyntaxNode, limits: Limits) -> bool {
     )
 }
 
+/// Forgets every rewrite kept while a [`RewriteMemo`] is open, which stays open: those of a
+/// layout taken back may have been checked less than the one tried next must be.
+pub(super) fn forget_rewrites() {
+  // Taken out first, so the trees are not dropped while the memo is borrowed.
+  let kept = MEMO.with(|memo| memo.borrow_mut().as_mut().map(std::mem::take));
+  drop(kept);
+}
+
+/// Whether a line or block comment stands anywhere in `node`, kept while a [`RewriteMemo`]
+/// is open: asked of the same blocks and lists for each layout tried around them, and of
+/// each level of blocks nested in each other.
+pub(super) fn holds_comment(node: &SyntaxNode) -> bool {
+  let comment =
+    |kind: SyntaxKind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment);
+  remembered(node, Question::Commented, || {
+    if !large(node) {
+      return node.subtree_has(comment);
+    }
+    node.children_with_tokens_iter().any(|e| match e {
+      SyntaxElement::Token(t) => comment(t.kind()),
+      SyntaxElement::Node(n) => holds_comment(&n),
+    })
+  })
+}
+
 /// An `if` with an `else` on one line, wherever it stands (see [`rewrite_if_one_line`]).
 pub(super) fn if_single_line(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let (condition, then, otherwise) = if_parts(node)?;
@@ -1161,6 +1215,13 @@ pub(super) fn is_macro(node: &SyntaxNode) -> bool {
       .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
 }
 
+/// Whether a node is large enough that an answer about all it holds is better read from
+/// its children's, kept, than from its tokens: asked of each level of nested blocks, a
+/// walk of each would go over the innermost once a level.
+pub(super) fn large(node: &SyntaxNode) -> bool {
+  node.text_range().len() >= 512
+}
+
 /// Whether a line of `text` after the first is past `max` as [`later_lines`] counts it:
 /// none is when none has more bytes than that, as no character is wider than its bytes.
 pub(super) fn later_line_past(text: &str, max: usize) -> bool {
@@ -1192,6 +1253,10 @@ pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
       },
     )
   })
+}
+
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
 }
 
 /// Whether `node` is a struct literal with a comment between a field's attribute and the
@@ -1240,10 +1305,6 @@ pub(super) fn multi_line_condition(node: &SyntaxNode, shape: Shape) -> bool {
     &shape.limits.config(),
   )
   .is_some_and(|head| head.text.trim_end().contains('\n'))
-}
-
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
 }
 
 /// Whether a block is a plain one: no `unsafe`, `async`, `const` or label before its `{`.
@@ -1308,7 +1369,9 @@ pub(super) fn remembered_block(
       MEMO.with(|memo| {
         if let Some(memo) = memo.borrow_mut().as_mut() {
           memo.trees.entry(key.0.0).or_insert_with(|| block.clone());
-          memo.blocks.insert(key, text.clone());
+          if memo.worth_keeping(key, true, &text) {
+            memo.blocks.insert(key, text.clone());
+          }
         }
       });
       text
@@ -1486,11 +1549,11 @@ pub(super) fn rewrite_if_lines(node: &SyntaxNode, shape: Shape, nested: bool) ->
   // and one whose `{}` would pass the line width (the standard formatter's block width).
   let alone = breaks_brace && !condition.contains('\n');
   let past = !breaks_brace && column + 3 + condition.width() + 3 > shape.limits.max_width;
-  text.push_str(&if otherwise.is_some() || nested || alone || past {
+  let then_text = if otherwise.is_some() || nested || alone || past {
     apart(then_text)
   } else {
     then_text
-  });
+  };
   let else_text = if before_else.is_empty() {
     " else ".to_string()
   } else {
@@ -1504,21 +1567,27 @@ pub(super) fn rewrite_if_lines(node: &SyntaxNode, shape: Shape, nested: bool) ->
     }
     format!("{}\n{}else ", lines, pad)
   };
-  match otherwise {
-    None => {}
+  let else_branch = match otherwise {
+    None => None,
     Some(next) if next.kind() == SyntaxKind::IfExpr => {
       let line = Shape {
         offset: 0,
         width: shape.limits.max_width.checked_sub(shape.indent)?,
         ..shape
       };
-      text.push_str(&else_text);
-      text.push_str(&rewrite_if_lines(next, line, true)?);
+      Some(rewrite_if_lines(next, line, true)?)
     }
-    Some(block) => {
-      text.push_str(&else_text);
-      text.push_str(&apart(branch(block)?));
-    }
+    Some(block) => Some(apart(branch(block)?)),
+  };
+  // Joined in one string made to size: each branch may hold the blocks nested in it.
+  let size = else_branch
+    .as_ref()
+    .map_or(0, |b| else_text.len() + b.len());
+  text.reserve(then_text.len() + size);
+  text.push_str(&then_text);
+  if let Some(branch) = else_branch {
+    text.push_str(&else_text);
+    text.push_str(&branch);
   }
   Some(text)
 }
@@ -1798,9 +1867,9 @@ pub(super) fn rewrite_list(
     if placeholder.is_none() && lay_last(&mut texts, &mut last_laid) {
       return None;
     }
-    let mut probe = texts.clone();
+    let mut probe: Vec<&str> = texts.iter().map(String::as_str).collect();
     if let Some(over) = &placeholder {
-      probe[last] = over.lines().next().unwrap_or("").to_string();
+      probe[last] = over.lines().next().unwrap_or("");
     }
     tactic = definitive(&probe, max_width.min(one_line_width));
     if !(overflow && tactic == Tactic::Horizontal) && lay_last(&mut texts, &mut last_laid) {
@@ -1870,15 +1939,30 @@ pub(super) fn rewrite_list(
   } else {
     ""
   };
-  let body = match tactic {
-    // Attribute and macro arguments keep a written trailing comma on one line too.
-    Tactic::Horizontal if comma_as_written => {
-      format!("{}{}", texts.join(", "), trailing)
+  // The body written after `ident` and `open`, in the string a list on one line ends in: an
+  // item overflowing it may hold the blocks nested in it, not copied again.
+  let size = texts.iter().map(|text| text.len() + 2).sum::<usize>();
+  let mut out = String::with_capacity(ident.len() + open.len() + size + close.len() + 1);
+  out.push_str(ident);
+  out.push_str(open);
+  let from = out.len();
+  match tactic {
+    Tactic::Horizontal => {
+      for (i, text) in texts.iter().enumerate() {
+        if i > 0 {
+          out.push_str(", ");
+        }
+        out.push_str(text);
+      }
+      // Attribute and macro arguments keep a written trailing comma on one line too.
+      if comma_as_written {
+        out.push_str(trailing);
+      }
     }
-    Tactic::Horizontal => texts.join(", "),
     Tactic::Vertical => {
       let sep = format!(",\n{}", " ".repeat(nested.indent));
-      format!("{}{}", texts.join(&sep), trailing)
+      out.push_str(&texts.join(&sep));
+      out.push_str(trailing);
     }
     Tactic::Mixed => {
       let mut lines: Vec<String> = Vec::new();
@@ -1902,31 +1986,32 @@ pub(super) fn rewrite_list(
       }
       lines.push(line);
       let sep = format!(",\n{}", " ".repeat(nested.indent));
-      format!("{}{}", lines.join(&sep), trailing)
+      out.push_str(&lines.join(&sep));
+      out.push_str(trailing);
     }
     Tactic::Special(before) => {
-      let mut body = String::new();
       for (i, text) in texts.iter().enumerate() {
         if i > 0 {
-          body.push(',');
+          out.push(',');
           if i < before || i > before + 1 {
-            body.push(' ');
+            out.push(' ');
           } else {
-            body.push('\n');
-            body.push_str(&" ".repeat(nested.indent));
+            out.push('\n');
+            out.push_str(&" ".repeat(nested.indent));
           }
         }
-        body.push_str(text);
+        out.push_str(text);
       }
-      format!("{}{}", body, trailing)
+      out.push_str(trailing);
     }
-  };
+  }
+  let body = &out[from..];
   // wrap_items: on the opening line when it is horizontal and its first line fits.
   let available = shape.width.saturating_sub(used);
   let extend = if body.is_empty() {
     2
   } else {
-    first_line_width(&body) + 1
+    first_line_width(body) + 1
   };
   // Inside a macro's arguments, before style edition 2024, a list whose items went on one line
   // stays there when it fits, whatever its tactic (the standard formatter's `wrap_items`).
@@ -1936,10 +2021,9 @@ pub(super) fn rewrite_list(
       && !body.is_empty()
       && !body.contains('\n')
       && body.width() + 2 <= available;
-  let text = if single {
-    format!("{}{}{}{}", ident, open, body, close)
-  } else if body.is_empty() {
-    format!("{}{}{}", ident, open, close)
+  let text = if single || body.is_empty() {
+    out.push_str(close);
+    out
   } else {
     format!(
       "{}{}\n{}{}\n{}{}",
@@ -2392,10 +2476,15 @@ fn comments_in(node: &SyntaxNode, from: u32, to: u32) -> Vec<(String, bool)> {
   comments
 }
 
-fn definitive(items: &[String], limit: usize) -> Tactic {
+fn definitive<S: AsRef<str>>(items: &[S], limit: usize) -> Tactic {
+  // Lines found first, before measuring an item that spans them, which may hold the
+  // blocks nested in it.
+  if items.iter().any(|i| i.as_ref().contains('\n')) {
+    return Tactic::Vertical;
+  }
   let total: usize =
-    items.iter().map(|i| i.width()).sum::<usize>() + 2 * items.len().saturating_sub(1);
-  if total <= limit && !items.iter().any(|i| i.contains('\n')) {
+    items.iter().map(|i| i.as_ref().width()).sum::<usize>() + 2 * items.len().saturating_sub(1);
+  if total <= limit {
     Tactic::Horizontal
   } else {
     Tactic::Vertical
@@ -5004,21 +5093,22 @@ fn rustc_rejects(list: &SyntaxNode) -> bool {
       )
     })
   };
+  // In one walk over the nodes of the kinds these look at.
   if list
-    .descendant_nodes_where(|kind| kind == SyntaxKind::LetExpr)
-    .any(|n| bare_let(&n))
-    || list
-      .descendant_nodes_where(|kind| kind == SyntaxKind::BinExpr)
-      .any(|n| comparison(&n) && n.children_iter().any(|c| comparison(&c)))
-    || list
-      .descendant_nodes_where(|kind| kind == SyntaxKind::Path)
-      .any(|p| bare_qualified(&p))
-    || list
-      .descendant_nodes_where(|kind| kind == SyntaxKind::RangeExpr)
-      .any(|n| {
-        n.children_iter()
-          .any(|c| c.kind() == SyntaxKind::RangeExpr && (has_start(&n) || has_start(&c)))
-      })
+    .descendant_nodes_where(|kind| {
+      matches!(
+        kind,
+        SyntaxKind::LetExpr | SyntaxKind::BinExpr | SyntaxKind::Path | SyntaxKind::RangeExpr
+      )
+    })
+    .any(|n| match n.kind() {
+      SyntaxKind::LetExpr => bare_let(&n),
+      SyntaxKind::BinExpr => comparison(&n) && n.children_iter().any(|c| comparison(&c)),
+      SyntaxKind::Path => bare_qualified(&n),
+      _ => n
+        .children_iter()
+        .any(|c| c.kind() == SyntaxKind::RangeExpr && (has_start(&n) || has_start(&c))),
+    })
   {
     return true;
   }

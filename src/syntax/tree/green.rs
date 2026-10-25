@@ -22,6 +22,8 @@ pub struct Arena {
   /// Every token, in the order of the text: a node's are a slice of them, read without
   /// going down the tree.
   tokens: Vec<GreenElement>,
+  /// The handles made for its nodes, while any is alive.
+  handles: super::red::Handles,
 }
 
 /// Builds an [`Arena`] bottom-up: every open node's children sit on one shared stack, and a
@@ -97,6 +99,7 @@ impl ArenaBuilder {
         nodes: self.nodes,
         elements: self.elements,
         tokens: self.tokens,
+        handles: super::red::Handles::default(),
       }),
       element: root,
     }
@@ -168,6 +171,15 @@ impl GreenNode {
       arena: self.arena.clone(),
       element,
     }
+  }
+
+  /// The handles made for this tree's nodes, and this node's place among them.
+  pub(super) fn handles(&self) -> (&super::red::Handles, usize, usize) {
+    (
+      &self.arena.handles,
+      self.element.at as usize,
+      self.arena.nodes.len(),
+    )
   }
 
   /// This node as one of its parent's children.

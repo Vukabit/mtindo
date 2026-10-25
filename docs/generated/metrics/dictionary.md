@@ -383,7 +383,9 @@ files with the whitespace between their tokens scrambled.
 
 - Unit: MB/s (10^6 bytes per second).
 - Definition: Bytes over seconds for every 8th corpus file laid out and
-  formatted in process by one thread: the fastest of three passes.
+  formatted in process by one thread: the fastest of three passes. From
+  2026-10-25 with the allocator the mto binaries install (`cache_alloc`), as mto
+  runs; before, with the system's, about 12 to 17% slower.
 - Measured: `cargo xtask perf scaling`.
 
 ### `perf.latency.check.median_ms`

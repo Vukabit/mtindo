@@ -241,8 +241,9 @@ pub fn format_file(source: &str, edition: Edition, config: &FormatConfig) -> Str
   if out != source && commented_list(source, edition) {
     note_kept();
   }
-  for _ in 0..2 {
-    if !KEPT.with(|k| k.replace(false)) {
+  for round in 0..2 {
+    // Formatting a text the first run left as it was gives back the same again.
+    if !KEPT.with(|k| k.replace(false)) || round == 0 && out == source {
       break;
     }
     let again = format_text(&out, edition, config, true);
@@ -902,10 +903,7 @@ fn commented_block(node: &SyntaxNode) -> bool {
     && !crate::format::expr::joins(node)
     && !crate::format::expr::one_line_if_block(node)
     && node.children_iter().any(|c| c.kind() != SyntaxKind::Label)
-    && node
-      .descendants_where(|kind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment))
-      .next()
-      .is_some()
+    && crate::format::expr::holds_comment(node)
 }
 
 /// Whether a comment stands among the items of a list: arguments, parameters, fields,

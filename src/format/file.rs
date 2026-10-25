@@ -2707,8 +2707,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       // indented as the comment would have been.
       let shown = match aligned {
         _ if roles.kept_indent.contains(&next.start) => written,
-        _ if let Some(open) = roles.else_close.get(&next.start) => {
+        _ if roles.else_close.contains_key(&next.start) => {
           comment_column = None;
+          let open = &roles.else_close[&next.start];
           open_indent.get(open).map_or(indent, |&(_, new)| new)
         }
         Some((_, column, _, _, true)) => column,

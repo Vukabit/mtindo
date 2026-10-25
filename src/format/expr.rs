@@ -3712,9 +3712,14 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
       .sub_width(shape.rhs_overhead() + last.tries)
       .and_then(|s| rewrite_link(last, s))
   };
+  let last_text = last_text.or_else(|| {
+    all_in_one_line
+      .then(own_line)
+      .flatten()
+      .filter(|t| t.contains('\n'))
+  });
   let last_text = match last_text {
     Some(t) => t,
-    None if all_in_one_line && let Some(t) = own_line().filter(|t| t.contains('\n')) => t,
     None => match rewrite_link(last, last_shape) {
       Some(t) => t,
       None => rewrite_link(
@@ -4067,30 +4072,29 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
       // cannot read returns it (`return_macro_parse_failure_fallback`): spanning lines, its
       // later lines re-indented keeping their layout when its last line only closes
       // delimiters, else where they were.
-      // An item alone (`items!(const _: u8 = 0;)`), on a line of its own.
-      Err(Unread::AsWritten) if let Some(text) = macro_item_argument(node, shape) => {
-        return Some(text);
-      }
-      Err(Unread::AsWritten)
-        if let Some((name, items, open, close, array)) =
-          macro_mixed_arguments(node, shape.limits.spacing, shape.limits.inside_macro) =>
-      {
-        let width = if array {
-          shape.limits.array
-        } else {
-          shape.limits.fn_call
-        };
-        let shape = Shape {
-          limits: Limits {
-            comma_as_written: true,
-            inside_macro: true,
-            ..shape.limits
-          },
-          ..shape
-        };
-        return rewrite_list(&name, &items, shape, width, open, close);
-      }
       Err(Unread::AsWritten) => {
+        // An item alone (`items!(const _: u8 = 0;)`), on a line of its own.
+        if let Some(text) = macro_item_argument(node, shape) {
+          return Some(text);
+        }
+        if let Some((name, items, open, close, array)) =
+          macro_mixed_arguments(node, shape.limits.spacing, shape.limits.inside_macro)
+        {
+          let width = if array {
+            shape.limits.array
+          } else {
+            shape.limits.fn_call
+          };
+          let shape = Shape {
+            limits: Limits {
+              comma_as_written: true,
+              inside_macro: true,
+              ..shape.limits
+            },
+            ..shape
+          };
+          return rewrite_list(&name, &items, shape, width, open, close);
+        }
         super::macros::macro_failed();
         // From its name to its arguments' closing delimiter: the comments an item carries
         // before it and its `;` are not the call's.
@@ -4395,10 +4399,11 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
     // (`MetaItemKind::NameValue`).
     SyntaxKind::BinExpr
       if shape.limits.attribute
-        && let Some((left, operator, right)) = super::stmt::assignment(node)
-        && operator == "="
-        && right.kind() == SyntaxKind::Literal =>
+        && super::stmt::assignment(node).is_some_and(|(_, operator, right)| {
+          operator == "=" && right.kind() == SyntaxKind::Literal
+        }) =>
     {
+      let (left, _, right) = super::stmt::assignment(node)?;
       let left = flat(&left, shape.limits.spacing);
       Some(format!("{} = {}", left, flat(&right, shape.limits.spacing)))
     }

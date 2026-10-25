@@ -1625,9 +1625,8 @@ fn laid_out(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<S
       }
     }
     // An assignment ending a block, as one ending a statement.
-    _ if is_tail(node)
-      && let Some((left, operator, right)) = assignment(node) =>
-    {
+    _ if is_tail(node) && assignment(node).is_some() => {
+      let (left, operator, right) = assignment(node)?;
       let left = rewrite(&left, shape.sub_width(operator.len() + 1)?)?;
       let head = format!("{} {}", left, operator);
       // Without the `;` a statement's has, nor room for it.

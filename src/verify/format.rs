@@ -414,6 +414,14 @@ fn emit_node<'a>(
       }
     }
   }
+  // A macro call's arguments that read as expressions (bar `vec!`'s, read as an array's),
+  // read before the match: its arms cannot keep what their conditions read.
+  let read = (node.kind() == SyntaxKind::TokenTree
+    && node
+      .parent()
+      .is_some_and(|p| p.kind() == SyntaxKind::MacroCall && !words(&p, "").starts_with("vec!")))
+  .then(|| macro_arguments(node, source, false))
+  .flatten();
   match node.kind() {
     SyntaxKind::ParenExpr => {
       // nested-parens: `((a))` is `(a)`.
@@ -549,13 +557,8 @@ fn emit_node<'a>(
     }
     // macro-arguments: a macro call's arguments in parentheses or brackets that read as
     // expressions, as those expressions.
-    SyntaxKind::TokenTree
-      if node
-        .parent()
-        .is_some_and(|p| p.kind() == SyntaxKind::MacroCall)
-        && let Some(tokens) = macro_arguments(node, source, false) =>
-    {
-      out.extend(tokens);
+    SyntaxKind::TokenTree if read.is_some() => {
+      out.extend(read.into_iter().flatten());
       return;
     }
     // macro-rules-arms: each arm's matcher and transcriber in any delimiters, and the

@@ -49,7 +49,7 @@ const STALE_AFTER: Duration = Duration::from_secs(30);
 const SUPERVISE: &str = "XTASK_SUPERVISE";
 
 /// Commands that run without a record: they only read records or print help.
-const UNRECORDED: &[&str] = &["help", "-h", "--help", "status", "runs", "metrics", "tui"];
+const UNRECORDED: &[&str] = &["help", "-h", "--help", "status", "runs", "metrics"];
 
 /// Set by the SIGINT handler: the terminal's Ctrl-C, which the child gets too.
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);

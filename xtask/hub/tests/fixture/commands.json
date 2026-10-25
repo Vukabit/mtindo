@@ -1,6 +1,0 @@
-{"name": "tool", "about": null, "subcommand_required": true, "args": [], "commands": [
-  {"name": "build", "about": "Build it", "subcommand_required": false, "commands": [], "args": [
-    {"id": "release", "long": "release", "short": null, "value": null, "help": "Optimized", "required": false, "multiple": false, "takes_value": false, "choices": [], "default": null},
-    {"id": "target", "long": null, "short": null, "value": "TARGET", "help": "What to build", "required": true, "multiple": false, "takes_value": true, "choices": [], "default": null},
-    {"id": "jobs", "long": "jobs", "short": "j", "value": "N", "help": "Workers", "required": false, "multiple": false, "takes_value": true, "choices": [], "default": "4"}]},
-  {"name": "test", "about": "Test it", "subcommand_required": false, "commands": [], "args": []}]}

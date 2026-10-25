@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-20T21:58:46.848Z"
-commit: "83b8cf8-dirty.3087f3bd"
+generated: "2026-10-24T12:25:27.998Z"
+commit: "d8b6f59-dirty.5a2acfef"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -13,13 +13,13 @@ toolchain:
 corpus_fingerprint: "sha256:0bfa13269439c574"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
-  meaning.exceptions.tests: 10
+  meaning.exceptions.tests: 8
   meaning.exceptions.tests-with-settings: 21
-  meaning.exceptions.corpus: 1
+  meaning.exceptions.corpus: 0
   meaning.exceptions.corpus-unformatted: 0
-  meaning.exceptions.total: 32
+  meaning.exceptions.total: 29
   meaning.exceptions.unmodelled: 10
-  meaning.exceptions.other: 22
+  meaning.exceptions.other: 19
 ---
 
 # Meaning and stability
@@ -29,8 +29,8 @@ metrics:
 <!-- generated: abstract -->
 Every output of mto that `cargo xtask diff` scores must keep the input's meaning
 and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 32 files, each listed
-with its reason: 10 are rewrites the check does not model yet, and 22 are the
+check, run on the standard formatter's own outputs, flags 29 files, each listed
+with its reason: 10 are rewrites the check does not model yet, and 19 are the
 formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
@@ -90,9 +90,9 @@ Exceptions listed for the standard formatter's output, by set:
 <!-- generated: results -->
 | set | listed | not modelled | other |
 |---|---:|---:|---:|
-| tests | 10 | 0 | 10 |
+| tests | 8 | 0 | 8 |
 | tests-with-settings | 21 | 10 | 11 |
-| corpus | 1 | 0 | 1 |
+| corpus | 0 | 0 | 0 |
 | corpus-scrambled | 0 | 0 | 0 |
 
 The reasons given, with how many files give each:
@@ -101,26 +101,22 @@ The reasons given, with how many files give each:
 - `wrap_comments` reflows a markdown blockquote: not modelled (3)
 - `wrap_comments` splits words: not modelled (2)
 - an attributed match arm body wrapped in a block: equivalent, not modelled (2)
-- the expected file differs from its input beyond formatting (2)
 - the formatter drops a `for` without a binder list (invalid input) (2)
 - `cfg_select!` arm bodies unwrapped: macro-specific, not modelled (1)
 - `imports_granularity = "One"` with renames: not modelled (1)
 - `trailing_semicolon` adds `;` after a macro call ending a loop body (1)
 - a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent,
   not modelled (1)
-- converting CRLF line endings changes a multi-line raw string's contents (1)
 - test input splits `::` into `: :`; the formatter joins it (1)
 - the expected `(|| ..).method()` puts parentheses around a closure, which
   changes what the closure covers (1)
+- the expected file differs from its input beyond formatting (1)
 - the expected file drops `pub` from a const block item, which changes the
   tokens (1)
 - the expected file drops `use self;` (invalid input), which changes the tokens;
   mto keeps it (1)
 - the expected file drops a `;` from a `macro_rules!` transcriber, which changes
   its expansion (1)
-- the expected file puts a block comment's `*/` under its `/*`, which the
-  standard formatter moves a space in on a second run; mto writes what a second
-  run keeps (1)
 - the expected file writes two spaces after a tuple field's visibility (`pub
   u64`) after a comment (1)
 - the formatter adds parentheses that change what a closure covers (1)
@@ -140,7 +136,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
-| current |  | 32 | 10 | 22 |
+| current |  | 29 | 10 | 19 |
+| 2026-10-21 | f76bf49 | 32 | 10 | 22 |
 | 2026-10-17 | 793f665 | 32 | 10 | 22 |
 | 2026-10-17 | c04dd05 | 31 | 10 | 21 |
 | 2026-10-15 | 0cfb09d | 97 | 20 | 77 |

@@ -175,7 +175,7 @@ pub fn exit_code(status: ExitStatus) -> i32 {
 }
 
 /// Runs `cargo` with `cargo_args` then `args` on this terminal, its stdin, stdout and
-/// stderr; for interactive commands (the tools, the hub), which have no time limit.
+/// stderr; for interactive commands (the tools), which have no time limit.
 pub fn forward(root: &Path, cargo_args: &[&str], args: &[String]) -> ExitCode {
   let status = Command::new("cargo")
     .args(cargo_args)

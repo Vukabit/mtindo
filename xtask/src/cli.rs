@@ -118,7 +118,7 @@ pub fn help(path: &[String], color: bool) -> Option<String> {
 }
 
 /// The whole tree as JSON: each command's name, about and arguments, and its commands
-/// below; the shape the hub reads (xtask/hub/SPEC.md, `commands` sources).
+/// below.
 pub fn json() -> String {
   let mut command = tree();
   command.build();
@@ -214,7 +214,6 @@ pub fn tree() -> Command {
     settings(),
     status(),
     toml_test(),
-    tui(),
     unicode(),
     Command::new("help")
       .about("Show help for xtask or for one command")
@@ -912,14 +911,6 @@ fn test() -> Command {
 fn toml_test() -> Command {
   Command::new("toml-test")
     .about("Run the TOML conformance suite (compat/toml-test.txt) against mto's parser")
-}
-
-fn tui() -> Command {
-  Command::new("tui")
-    .about("The hub: every screen, job, incident, metric and command of this project in the terminal (.hub.toml)")
-    .arg(flag("check", "Check .hub.toml and load every source, without opening the hub"))
-    .arg(option("render", "SCREEN", "Print one screen as text"))
-    .arg(option("size", "COLSxROWS", "The size --render draws at").default_value("120x34"))
 }
 
 fn unicode() -> Command {

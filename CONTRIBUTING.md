@@ -19,9 +19,6 @@ start, end, how it ended, and its memory and CPU over time); `--detach` runs any
 command in the background. `.dev/` is machine-local and not tracked by git.
 
 ```bash
-# The hub: every screen, job, incident, metric, profile, log and command
-# in the terminal, laid out by .hub.toml (xtask/hub/SPEC.md)
-cargo xtask tui
 # Where the project stands: v0.1.0 gates, running jobs, latest runs, incidents
 cargo xtask status
 # The latest runs; one run's record; a detached run's output; stop one

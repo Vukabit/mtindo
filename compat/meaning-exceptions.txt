@@ -20,7 +20,6 @@ tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_
 tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
 tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
 tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
-tests/issue-3253/paths/excluded.rs [tests]  the expected file differs from its input beyond formatting
 tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
 tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
 tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
@@ -32,11 +31,9 @@ tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcribe
 tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
 tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
-rust-analyzer/crates/hir-def/src/nameres/tests/imports.rs [corpus]  converting CRLF line endings changes a multi-line raw string's contents
 
 excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
 excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
 excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
 excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
 excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
-excused tests/issue-2917/minimal.rs [tests]  the expected file puts a block comment's `*/` under its `/*`, which the standard formatter moves a space in on a second run; mto writes what a second run keeps

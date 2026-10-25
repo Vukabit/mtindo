@@ -94,24 +94,6 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "settings" => settings::run(root, m),
     "status" => status::run(root, m),
     "toml-test" => toml_test::run(root, m),
-    "tui" => {
-      let mut args = Vec::new();
-      if cli::on(m, "check") {
-        args.push("--check".to_string());
-      }
-      if let Some(screen) = cli::text(m, "render") {
-        args.extend(["--render".to_string(), screen]);
-        args.extend([
-          "--size".to_string(),
-          cli::text(m, "size").unwrap_or_default(),
-        ]);
-      }
-      common::process::forward(
-        root,
-        &["run", "--quiet", "--release", "--package", "hub", "--"],
-        &args,
-      )
-    }
     "unicode" => unicode::run(root, m),
     other => unreachable!("{} is in the tree but has no entry point", other),
   }

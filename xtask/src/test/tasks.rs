@@ -403,15 +403,6 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     )
   };
   tasks.push(Task::new(
-    "hub",
-    "The hub's .hub.toml is valid and every source it reads loads",
-    "tests",
-    command(
-      "cargo",
-      &["run", "--quiet", "--package", "hub", "--", "--check"],
-    ),
-  ));
-  tasks.push(Task::new(
     "lexdiff",
     "Lexer agrees with rustc's lexer on the repo's sources",
     "tests",

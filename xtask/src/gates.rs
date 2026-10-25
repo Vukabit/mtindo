@@ -60,7 +60,6 @@ const ALLOWED_DEPENDENCIES: &[(&str, Allowed)] = &[
   ("xtask/Cargo.toml", Allowed::AnyBut(&["mtindo"])),
   ("xtask/tools/Cargo.toml", Allowed::AnyBut(&[])),
   ("xtask/memst/Cargo.toml", Allowed::AnyBut(&[])),
-  ("xtask/hub/Cargo.toml", Allowed::AnyBut(&["mtindo"])),
 ];
 
 /// The widest a line of public Markdown may be, in characters.

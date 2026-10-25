@@ -1,5 +1,5 @@
 //! The lossless syntax tree: immutable "green" nodes that hold the data, and "red"
-//! [`SyntaxNode`] handles that add positions and parents on demand. Printing a tree
+//! [`SyntaxNode`] handles that walk them by position and parent. Printing a tree
 //! reproduces its source text exactly.
 
 mod attach;

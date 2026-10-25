@@ -3519,7 +3519,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             .children_of_kind(SyntaxKind::Attr)
             .filter_map(Attr::cast)
             .any(|a| a.is_rustfmt_skip());
-        let in_list = node.parent().is_some_and(|p| {
+        let parent = node.parent();
+        let in_list = parent.as_ref().is_some_and(|p| {
           matches!(
             p.kind(),
             SyntaxKind::BlockExpr
@@ -3749,36 +3750,34 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         // An `else if`, from its `if`; and the `else` before it, or before a block, one
         // space after the block, with one space after it.
         if node.kind() == SyntaxKind::IfExpr {
-          if node.parent().is_some_and(|p| {
+          if parent.as_ref().is_some_and(|p| {
             p.kind() == SyntaxKind::IfExpr && p.children_iter().nth(2).as_ref() == Some(node)
           }) {
             roles.layable.insert(range.start as usize, node.clone());
           }
-          let elements: Vec<SyntaxElement> = node.children_with_tokens_iter().collect();
-          if let Some(at) = elements.iter().position(|e| e.kind() == SyntaxKind::ElseKw) {
-            let only_space =
-              |part: &[SyntaxElement]| part.iter().all(|e| e.kind() == SyntaxKind::Whitespace);
+          // Kinds and ranges only: no handles.
+          let elements: Vec<(SyntaxKind, TextRange, bool)> = node.child_spans().collect();
+          if let Some(at) = elements.iter().position(|e| e.0 == SyntaxKind::ElseKw) {
+            let only_space = |part: &[(SyntaxKind, TextRange, bool)]| {
+              part.iter().all(|e| e.0 == SyntaxKind::Whitespace)
+            };
             let before = elements[..at]
               .iter()
-              .rposition(|e| e.kind() != SyntaxKind::Whitespace);
+              .rposition(|e| e.0 != SyntaxKind::Whitespace);
             let after = elements[at + 1..]
               .iter()
-              .position(|e| e.kind() != SyntaxKind::Whitespace)
+              .position(|e| e.0 != SyntaxKind::Whitespace)
               .map(|i| at + 1 + i);
             if let (Some(before), Some(after)) = (before, after)
-              && elements[before].kind() == SyntaxKind::BlockExpr
+              && elements[before].0 == SyntaxKind::BlockExpr
               && only_space(&elements[before + 1..at])
               && only_space(&elements[at + 1..after])
             {
-              roles
-                .spaced
-                .insert(elements[at].text_range().start as usize);
+              roles.spaced.insert(elements[at].1.start as usize);
               // A comment after `else` keeps its line (one there, before the block, went on
               // a line of its own before the pass).
-              if !elements[after].kind().is_trivia() {
-                roles
-                  .spaced
-                  .insert(elements[after].text_range().start as usize);
+              if !elements[after].0.is_trivia() {
+                roles.spaced.insert(elements[after].1.start as usize);
               }
             }
           }
@@ -3786,13 +3785,12 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         // A block's `{` after its `unsafe`, `async`, `move`, `const` or label, one space
         // apart, on their line.
         if node.kind() == SyntaxKind::BlockExpr {
-          let elements: Vec<SyntaxElement> = node.children_with_tokens_iter().collect();
-          let prefixed = elements
-            .iter()
-            .find(|e| e.kind() != SyntaxKind::Whitespace)
+          let prefixed = node
+            .child_spans()
+            .find(|e| e.0 != SyntaxKind::Whitespace)
             .is_some_and(|e| {
               matches!(
-                e.kind(),
+                e.0,
                 SyntaxKind::UnsafeKw
                   | SyntaxKind::AsyncKw
                   | SyntaxKind::ConstKw
@@ -3800,31 +3798,31 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               )
             });
           // Whitespace alone between the last prefix and `{`.
-          if prefixed
-            && let Some(open) = elements.iter().position(|e| e.kind() == SyntaxKind::LBrace)
-            && open >= 2
-            && elements[open - 1].kind() == SyntaxKind::Whitespace
-            && !elements[open - 2].kind().is_trivia()
-          {
-            roles
-              .spaced
-              .insert(elements[open].text_range().start as usize);
+          if prefixed {
+            let elements: Vec<(SyntaxKind, TextRange, bool)> = node.child_spans().collect();
+            if let Some(open) = elements.iter().position(|e| e.0 == SyntaxKind::LBrace)
+              && open >= 2
+              && elements[open - 1].0 == SyntaxKind::Whitespace
+              && !elements[open - 2].0.is_trivia()
+            {
+              roles.spaced.insert(elements[open].1.start as usize);
+            }
           }
         }
         // A block's head (`async move {`, `unsafe {`, `loop {`) on one line, one space
         // apart, when no comment is in it.
         if matches!(node.kind(), SyntaxKind::BlockExpr | SyntaxKind::LoopExpr) {
-          let head: Vec<SyntaxElement> = node
-            .children_with_tokens_iter()
-            .take_while(|e| !matches!(e.kind(), SyntaxKind::LBrace | SyntaxKind::BlockExpr))
+          let head: Vec<(SyntaxKind, TextRange, bool)> = node
+            .child_spans()
+            .take_while(|e| !matches!(e.0, SyntaxKind::LBrace | SyntaxKind::BlockExpr))
             .collect();
           let opener = node
-            .children_with_tokens_iter()
-            .find(|e| matches!(e.kind(), SyntaxKind::LBrace | SyntaxKind::BlockExpr));
+            .child_spans()
+            .find(|e| matches!(e.0, SyntaxKind::LBrace | SyntaxKind::BlockExpr));
           let keywords = head.iter().all(|e| {
-            e.kind() == SyntaxKind::Whitespace
+            e.0 == SyntaxKind::Whitespace
               || matches!(
-                e.kind(),
+                e.0,
                 SyntaxKind::AsyncKw
                   | SyntaxKind::MoveKw
                   | SyntaxKind::UnsafeKw
@@ -3833,15 +3831,15 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               )
           });
           if keywords
-            && head.iter().any(|e| e.kind() != SyntaxKind::Whitespace)
+            && head.iter().any(|e| e.0 != SyntaxKind::Whitespace)
             && let Some(opener) = opener
           {
             let after: Vec<usize> = head
               .iter()
               .skip(1)
-              .filter(|e| e.kind() != SyntaxKind::Whitespace)
-              .map(|e| e.text_range().start as usize)
-              .chain(std::iter::once(opener.text_range().start as usize))
+              .filter(|e| e.0 != SyntaxKind::Whitespace)
+              .map(|e| e.1.start as usize)
+              .chain(std::iter::once(opener.1.start as usize))
               .collect();
             for at in after {
               roles.spaced.insert(at);
@@ -3918,8 +3916,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           node.kind() == SyntaxKind::Attr && (!meta_like(node) || skipped_attribute(node));
         // Attributes of files, bodies, items, statements, fields, variants and match arms;
         // those in expressions are laid out with them.
-        let attr_owner = node.parent().is_some_and(|p| {
-          is_statement(p.kind())
+        let attr_owner = || {
+          parent.as_ref().is_some_and(|p| {
+            is_statement(p.kind())
             || matches!(
               p.kind(),
               SyntaxKind::SourceFile
@@ -3935,14 +3934,13 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               && p.parent().is_some_and(|f| f.kind() == SyntaxKind::Fn)
             // A block's or a `match`'s inner attribute, which starts a line of its own in it.
             || matches!(p.kind(), SyntaxKind::BlockExpr | SyntaxKind::MatchArmList)
-              && node
-                .children_with_tokens_iter()
-                .any(|e| e.kind() == SyntaxKind::Bang)
-        });
+              && node.child_spans().any(|e| e.0 == SyntaxKind::Bang)
+          })
+        };
         // Not one of a skipped item's, which keeps its attributes as written too.
         let owner_skipped = any_skip
           && node.kind() == SyntaxKind::Attr
-          && node.parent().is_some_and(|p| {
+          && parent.as_ref().is_some_and(|p| {
             p.kind() != SyntaxKind::SourceFile
               && p
                 .children_of_kind(SyntaxKind::Attr)
@@ -3953,7 +3951,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           && !unparsed_attr
           && !skipped
           && !owner_skipped
-          && attr_owner
+          && attr_owner()
         {
           roles.layable.insert(range.start as usize, node.clone());
         }
@@ -3966,9 +3964,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         // cannot be read as code, when its last line holds only closing delimiters (the
         // standard formatter's `return_macro_parse_failure_fallback`).
         if node.kind() == SyntaxKind::TokenTree
-          && node
-            .parent()
-            .is_some_and(|p| p.kind() == SyntaxKind::MacroCall && !skipped_macro(&p))
+          && parent
+            .as_ref()
+            .is_some_and(|p| p.kind() == SyntaxKind::MacroCall && !skipped_macro(p))
           && (node
             .first_token()
             .is_some_and(|t| t.kind() == SyntaxKind::LBrace)
@@ -3976,9 +3974,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               && node.green().text().rsplit('\n').next().is_some_and(|last| {
                 !last.trim().is_empty() && last.trim().chars().all(|c| matches!(c, ')' | ']' | '}'))
               })
-              && node
-                .parent()
-                .is_some_and(|call| crate::format::expr::unread_macro(&call)))
+              && parent
+                .as_ref()
+                .is_some_and(crate::format::expr::unread_macro))
           && !config.hard_tabs
         {
           roles
@@ -3993,8 +3991,8 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           roles.macro_rules.insert(start, node.clone());
         }
         let member = (skipped
-          && node
-            .parent()
+          && parent
+            .as_ref()
             .is_some_and(|p| p.kind() == SyntaxKind::AssocItemList))
         .then(|| skipped_member(node, text))
         .flatten();
@@ -4042,9 +4040,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         // A field's default value (`f: T = 0`), which the standard formatter leaves as
         // written, from after its attributes.
         if node.kind() == SyntaxKind::RecordField
-          && node
-            .children_with_tokens_iter()
-            .any(|e| e.kind() == SyntaxKind::Eq)
+          && node.child_spans().any(|e| e.0 == SyntaxKind::Eq)
         {
           let start = crate::format::items::header_start(node).unwrap_or(range.start as usize);
           explain(root, start, &text[start..range.end as usize], || {

@@ -89,9 +89,9 @@ pub fn header_gives_up(node: &SyntaxNode, indent: usize, config: &FormatConfig) 
 /// before it.
 pub fn header_start(node: &SyntaxNode) -> Option<usize> {
   node
-    .children_with_tokens_iter()
-    .find(|e| e.kind() != K::Attr && !e.kind().is_trivia() && !is_doc(e.kind()))
-    .map(|e| e.text_range().start as usize)
+    .child_spans()
+    .find(|&(kind, _, _)| kind != K::Attr && !kind.is_trivia() && !is_doc(kind))
+    .map(|(_, range, _)| range.start as usize)
 }
 
 /// Whether a token is a doc comment, which is an attribute, not trivia.

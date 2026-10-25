@@ -10,8 +10,8 @@ fn all(root: &SyntaxNode) -> Vec<SyntaxElement> {
 /// The children as the tree had them before the iterators: every one made, in order.
 fn reference_children(node: &SyntaxNode) -> Vec<SyntaxElement> {
   let mut out = Vec::new();
-  let mut offset = node.0.offset;
-  for (index, child) in node.0.green.children().iter().enumerate() {
+  let mut offset = node.0.start();
+  for (index, child) in node.0.children().iter().enumerate() {
     out.push(node.make_child(*child, index as u32, offset));
     offset += child.text_len();
   }
@@ -99,7 +99,7 @@ fn test_siblings_and_edge_tokens_match_the_reference() {
     for element in all(&root) {
       let (parent, index) = match &element {
         SyntaxElement::Node(n) => match n.parent() {
-          Some(parent) => (parent, n.0.index as usize),
+          Some(parent) => (parent, n.0.index() as usize),
           None => continue,
         },
         SyntaxElement::Token(t) => (t.parent(), t.index as usize),

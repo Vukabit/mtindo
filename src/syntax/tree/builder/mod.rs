@@ -13,8 +13,9 @@ use crate::syntax::{MAX_DEPTH, SyntaxKind, TOO_DEEP};
 struct Sink<'a> {
   text: &'a str,
   tokens: &'a [Token],
-  starts: Vec<usize>,
   pos: usize,
+  /// Where the token at `pos` starts: the tokens are taken in order.
+  offset: usize,
   builder: TreeBuilder,
   errors: Vec<SyntaxError>,
   /// [`Self::pending_trivia`]'s buffer, kept between calls: it runs before every node.
@@ -26,18 +27,11 @@ struct Sink<'a> {
 
 impl<'a> Sink<'a> {
   fn new(text: &'a str, tokens: &'a [Token]) -> Self {
-    let mut starts = Vec::with_capacity(tokens.len() + 1);
-    let mut offset = 0;
-    for token in tokens.iter() {
-      starts.push(offset);
-      offset += token.len as usize;
-    }
-    starts.push(offset);
     Sink {
       text,
       tokens,
-      starts,
       pos: 0,
+      offset: 0,
       builder: TreeBuilder::default(),
       errors: Vec::new(),
       trivia: Vec::new(),
@@ -47,11 +41,14 @@ impl<'a> Sink<'a> {
 
   /// Records a parser error at the start of the next significant token.
   fn error(&mut self, message: String) {
-    let mut idx = self.pos;
-    while idx < self.tokens.len() && self.tokens[idx].kind.is_trivia() {
-      idx += 1;
+    let mut offset = self.offset;
+    for token in self.tokens[self.pos..]
+      .iter()
+      .take_while(|t| t.kind.is_trivia())
+    {
+      offset += token.len as usize;
     }
-    let offset = self.starts[idx] as u32;
+    let offset = offset as u32;
     self.errors.push(SyntaxError {
       message,
       range: TextRange::new(offset, offset),
@@ -62,9 +59,9 @@ impl<'a> Sink<'a> {
   fn emit_raw(&mut self, count: usize) {
     for _ in 0..count {
       let token = self.tokens[self.pos];
-      self.record_lex_error(self.pos);
-      let text = &self.text[self.starts[self.pos]..self.starts[self.pos + 1]];
-      self.builder.token(token.kind, text);
+      self.record_lex_error();
+      self.builder.token(token.kind, token.len);
+      self.offset += token.len as usize;
       self.pos += 1;
     }
   }
@@ -95,13 +92,14 @@ impl<'a> Sink<'a> {
   /// significant token.
   fn pending_trivia(&mut self) {
     self.trivia.clear();
-    let mut idx = self.pos;
-    while idx < self.tokens.len() && self.tokens[idx].kind.is_trivia() {
-      self.trivia.push((
-        self.tokens[idx].kind,
-        &self.text[self.starts[idx]..self.starts[idx + 1]],
-      ));
-      idx += 1;
+    let mut offset = self.offset;
+    for token in self.tokens[self.pos..]
+      .iter()
+      .take_while(|t| t.kind.is_trivia())
+    {
+      let end = offset + token.len as usize;
+      self.trivia.push((token.kind, &self.text[offset..end]));
+      offset = end;
     }
   }
 
@@ -114,11 +112,14 @@ impl<'a> Sink<'a> {
       .count()
   }
 
-  fn record_lex_error(&mut self, idx: usize) {
-    if let Some(error) = self.tokens[idx].error {
+  /// Records the lexer's error on the token at the current position, if it has one.
+  fn record_lex_error(&mut self) {
+    let token = self.tokens[self.pos];
+    if let Some(error) = token.error {
+      let start = self.offset as u32;
       self.errors.push(SyntaxError {
         message: error.message().to_string(),
-        range: TextRange::new(self.starts[idx] as u32, self.starts[idx + 1] as u32),
+        range: TextRange::new(start, start + token.len),
       });
     }
   }
@@ -155,14 +156,15 @@ impl<'a> Sink<'a> {
   fn token(&mut self, kind: SyntaxKind, n_raw_tokens: u8) {
     let trivia = self.pending_trivia_len();
     self.emit_raw(trivia);
-    let start = self.starts[self.pos];
-    let mut end = start;
+    let mut len = 0;
     for _ in 0..n_raw_tokens {
-      self.record_lex_error(self.pos);
-      end = self.starts[self.pos + 1];
+      self.record_lex_error();
+      let raw = self.tokens[self.pos].len;
+      len += raw;
+      self.offset += raw as usize;
       self.pos += 1;
     }
-    self.builder.token(kind, &self.text[start..end]);
+    self.builder.token(kind, len);
   }
 }
 
@@ -222,9 +224,10 @@ impl TreeBuilder {
     self.deepest = self.deepest.max(self.parents.len());
   }
 
-  pub fn token(&mut self, kind: SyntaxKind, text: &str) {
+  /// Adds a token of `len` bytes, the next in the text.
+  pub fn token(&mut self, kind: SyntaxKind, len: u32) {
     assert!(!self.parents.is_empty(), "token outside any node");
-    self.arena.token(kind, text.len() as u32);
+    self.arena.token(kind, len);
   }
 }
 
@@ -242,10 +245,18 @@ pub fn build_tree(
     mut messages,
   } = parsed;
   let mut sink = Sink::new(text, tokens);
+  // A node for each start, and a token for each raw token at most.
+  let starts = events
+    .iter()
+    .filter(|event| matches!(event, Event::Start { .. }))
+    .count();
+  sink.builder.arena = ArenaBuilder::with_capacity(tokens.len(), starts);
   // The kinds a start event opens, outermost last; reused, as nearly every event is a start.
   let mut kinds = Vec::new();
   for idx in 0..events.len() {
-    match std::mem::replace(&mut events[idx], Event::Tombstone) {
+    // Read, not taken: only the forward parents below are visited twice, so only they are
+    // marked done.
+    match events[idx] {
       Event::Start {
         kind,
         forward_parent,

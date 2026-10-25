@@ -1,9 +1,7 @@
-//! Navigable handles over the green tree. A [`SyntaxNode`] knows its offset in the file and
-//! its parent; both are worked out while walking down from the root.
+//! Navigable handles over the green tree. A [`SyntaxNode`] is a node of its parse's arena,
+//! which records where each node starts and its parent: making one allocates nothing.
 
-use std::cell::RefCell;
 use std::fmt;
-use std::rc::{Rc, Weak};
 
 use crate::syntax::SyntaxKind;
 use crate::syntax::tree::green::{GreenElement, GreenNode};
@@ -50,11 +48,8 @@ impl SyntaxElement {
   /// The children of this element's parent and where it sits among them; none for a root.
   fn siblings(&self) -> (&[GreenElement], usize) {
     match self {
-      SyntaxElement::Token(token) => (token.parent.0.green.children(), token.index as usize),
-      SyntaxElement::Node(node) => match &node.0.parent {
-        Some(parent) => (parent.0.green.children(), node.0.index as usize),
-        None => (&[], 0),
-      },
+      SyntaxElement::Token(token) => (token.parent.0.children(), token.index as usize),
+      SyntaxElement::Node(node) => (node.0.siblings(), node.0.index() as usize),
     }
   }
 }
@@ -109,6 +104,8 @@ impl Iterator for ChildNodes {
 #[derive(Clone)]
 pub struct Children {
   parent: SyntaxNode,
+  /// Where the parent's children are among the tree's elements.
+  first: u32,
   /// The unvisited children are `front..back`, starting at `front_offset` and ending at
   /// `back_offset`.
   front: usize,
@@ -121,7 +118,7 @@ impl Children {
   /// The next child `wanted` takes, made; those before it are only measured.
   fn next_wanted(&mut self, wanted: impl Fn(&GreenElement) -> bool) -> Option<SyntaxElement> {
     while self.front < self.back {
-      let child = self.parent.0.green.children()[self.front];
+      let child = self.parent.0.element_at(self.first + self.front as u32);
       let (index, offset) = (self.front, self.front_offset);
       self.front += 1;
       self.front_offset += child.text_len();
@@ -136,7 +133,7 @@ impl Children {
   fn next_back_wanted(&mut self, wanted: impl Fn(&GreenElement) -> bool) -> Option<SyntaxElement> {
     while self.front < self.back {
       self.back -= 1;
-      let child = self.parent.0.green.children()[self.back];
+      let child = self.parent.0.element_at(self.first + self.back as u32);
       self.back_offset -= child.text_len();
       if wanted(&child) {
         return Some(
@@ -173,7 +170,7 @@ impl Iterator for Children {
   fn nth(&mut self, n: usize) -> Option<SyntaxElement> {
     // Skipped children are only measured, never made.
     let skip = n.min(self.back - self.front);
-    for child in &self.parent.0.green.children()[self.front..self.front + skip] {
+    for child in &self.parent.0.children()[self.front..self.front + skip] {
       self.front_offset += child.text_len();
     }
     self.front += skip;
@@ -184,39 +181,29 @@ impl Iterator for Children {
 /// An open node of a [`Preorder`] walk.
 struct Frame {
   green: GreenElement,
-  /// Its handle, once something at or below it has been given.
-  handle: Option<SyntaxNode>,
-  /// Where it sits in its parent, and where it starts.
-  index: u32,
-  start: u32,
-  /// The index and offset of its next child.
-  next: usize,
+  /// Where its children are among the tree's elements: the first, the next to visit and the
+  /// end; and where the next starts.
+  first: u32,
+  next: u32,
+  end: u32,
   offset: u32,
 }
 
-/// The handles made for a tree's nodes, by node, each kept while it is alive: a node's
-/// handle is handed out again rather than made anew on every walk, as formatting a file
-/// would make each about six times. A node sits in one place in its tree, so its handle is
-/// the same wherever it is reached from.
-#[derive(Default)]
-pub struct Handles(RefCell<Vec<Weak<NodeData>>>);
-
-impl fmt::Debug for Handles {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "Handles")
+impl Frame {
+  fn new(tree: &GreenNode, green: GreenElement, offset: u32) -> Self {
+    let (first, count) = tree.child_range(green);
+    Frame {
+      green,
+      first,
+      next: first,
+      end: first + count,
+      offset,
+    }
   }
 }
 
-struct NodeData {
-  green: GreenNode,
-  parent: Option<SyntaxNode>,
-  index: u32,
-  offset: u32,
-}
-
 /// A node and everything below it in source order, as many of them as `wanted` takes. Only
-/// those, and the nodes on the way down to them, are made: a walk looking for a few kinds
-/// costs no allocation for the rest. See [`SyntaxNode::descendants_with_tokens_iter`] and
+/// those are made. See [`SyntaxNode::descendants_with_tokens_iter`] and
 /// [`SyntaxNode::descendants_where`].
 pub struct Preorder<F = fn(SyntaxKind) -> bool> {
   /// The node the walk starts at, until it is given.
@@ -233,7 +220,7 @@ pub struct Preorder<F = fn(SyntaxKind) -> bool> {
 impl<F: FnMut(SyntaxKind) -> bool> Preorder<F> {
   fn new(root: SyntaxNode, tokens: bool, wanted: F) -> Self {
     Preorder {
-      tree: root.0.green.clone(),
+      tree: root.0.clone(),
       root: Some(root),
       stack: Vec::new(),
       tokens,
@@ -241,16 +228,9 @@ impl<F: FnMut(SyntaxKind) -> bool> Preorder<F> {
     }
   }
 
-  /// The handle of the open node at `depth`, made (with any of its ancestors') if need be.
-  fn handle(&mut self, depth: usize) -> SyntaxNode {
-    if let Some(handle) = &self.stack[depth].handle {
-      return handle.clone();
-    }
-    let parent = self.handle(depth - 1);
-    let frame = &mut self.stack[depth];
-    let handle = parent.make_node(self.tree.child_node(frame.green), frame.index, frame.start);
-    frame.handle = Some(handle.clone());
-    handle
+  /// The handle of the open node at `depth`.
+  fn handle(&self, depth: usize) -> SyntaxNode {
+    SyntaxNode(self.tree.child_node(self.stack[depth].green))
   }
 }
 
@@ -259,25 +239,21 @@ impl<F: FnMut(SyntaxKind) -> bool> Iterator for Preorder<F> {
 
   fn next(&mut self) -> Option<SyntaxElement> {
     if let Some(root) = self.root.take() {
-      self.stack.push(Frame {
-        green: root.0.green.element(),
-        handle: Some(root.clone()),
-        index: root.0.index,
-        start: root.0.offset,
-        next: 0,
-        offset: root.0.offset,
-      });
+      self
+        .stack
+        .push(Frame::new(&self.tree, root.0.element(), root.0.start()));
       if (self.wanted)(root.kind()) {
         return Some(SyntaxElement::Node(root));
       }
     }
     loop {
       let top = self.stack.last_mut()?;
-      let Some(&child) = self.tree.children_of(top.green).get(top.next) else {
+      if top.next == top.end {
         self.stack.pop();
         continue;
-      };
-      let (index, start) = (top.next as u32, top.offset);
+      }
+      let child = self.tree.element_at(top.next);
+      let (index, start) = (top.next - top.first, top.offset);
       top.next += 1;
       top.offset += child.text_len();
       if !child.is_node() {
@@ -293,14 +269,7 @@ impl<F: FnMut(SyntaxKind) -> bool> Iterator for Preorder<F> {
         continue;
       }
       let wanted = (self.wanted)(child.kind());
-      self.stack.push(Frame {
-        green: child,
-        handle: None,
-        index,
-        start,
-        next: 0,
-        offset: start,
-      });
+      self.stack.push(Frame::new(&self.tree, child, start));
       if wanted {
         return Some(SyntaxElement::Node(self.handle(self.stack.len() - 1)));
       }
@@ -309,7 +278,7 @@ impl<F: FnMut(SyntaxKind) -> bool> Iterator for Preorder<F> {
 }
 
 #[derive(Clone)]
-pub struct SyntaxNode(Rc<NodeData>);
+pub struct SyntaxNode(GreenNode);
 
 impl SyntaxNode {
   /// Every ancestor, starting with this node itself.
@@ -352,8 +321,8 @@ impl SyntaxNode {
   /// Each child's kind and range, and whether it is a node, read from the green tree
   /// without making handles.
   pub fn child_spans(&self) -> impl Iterator<Item = (SyntaxKind, TextRange, bool)> + '_ {
-    let mut offset = self.0.offset;
-    self.0.green.children().iter().map(move |child| {
+    let mut offset = self.0.start();
+    self.0.children().iter().map(move |child| {
       let start = offset;
       offset += child.text_len();
       (child.kind(), TextRange::new(start, offset), child.is_node())
@@ -368,10 +337,11 @@ impl SyntaxNode {
   pub fn children_with_tokens_iter(&self) -> Children {
     Children {
       parent: self.clone(),
+      first: self.0.child_range(self.0.element()).0,
       front: 0,
-      back: self.0.green.children().len(),
-      front_offset: self.0.offset,
-      back_offset: self.0.offset + self.0.green.text_len(),
+      back: self.0.children().len(),
+      front_offset: self.0.start(),
+      back_offset: self.0.start() + self.0.text_len(),
     }
   }
 
@@ -417,7 +387,7 @@ impl SyntaxNode {
         .iter()
         .any(|&child| wanted(child.kind()) || child.is_node() && walk(tree, child, wanted))
     }
-    let green = &self.0.green;
+    let green = &self.0;
     wanted(self.kind()) || walk(green, green.element(), &mut wanted)
   }
 
@@ -425,19 +395,19 @@ impl SyntaxNode {
   /// tokens without making handles for them or their parents.
   pub fn token_texts(&self) -> TokenTexts<'_> {
     TokenTexts {
-      tree: &self.0.green,
-      tokens: self.0.green.tokens().iter(),
+      tree: &self.0,
+      tokens: self.0.tokens().iter(),
     }
   }
 
   /// [`Self::token_texts`] for the tokens starting at `from` or later and before `to`: the
   /// tokens are in source order, so these are one run of them, found by binary search.
   pub fn token_texts_between(&self, from: u32, to: u32) -> TokenTexts<'_> {
-    let tokens = self.0.green.tokens();
+    let tokens = self.0.tokens();
     let low = tokens.partition_point(|t| t.start() < from);
     let high = low + tokens[low..].partition_point(|t| t.start() < to);
     TokenTexts {
-      tree: &self.0.green,
+      tree: &self.0,
       tokens: tokens[low..high].iter(),
     }
   }
@@ -454,9 +424,9 @@ impl SyntaxNode {
 
   pub fn first_token(&self) -> Option<SyntaxToken> {
     // Down the green tree first: only the nodes on the way to the token get handles.
-    let mut offset = self.0.offset;
-    for (index, &child) in self.0.green.children().iter().enumerate() {
-      if has_token(&self.0.green, child) {
+    let mut offset = self.0.start();
+    for (index, &child) in self.0.children().iter().enumerate() {
+      if has_token(&self.0, child) {
         return match self.make_child(child, index as u32, offset) {
           SyntaxElement::Token(token) => Some(token),
           SyntaxElement::Node(node) => node.first_token(),
@@ -469,22 +439,22 @@ impl SyntaxNode {
 
   /// This very node, among every node alive (see [`GreenNode::identity`]).
   pub fn identity(&self) -> (usize, u32) {
-    self.0.green.identity()
+    self.0.identity()
   }
 
   pub fn green(&self) -> &GreenNode {
-    &self.0.green
+    &self.0
   }
 
   pub fn kind(&self) -> SyntaxKind {
-    self.0.green.kind()
+    self.0.kind()
   }
 
   pub fn last_token(&self) -> Option<SyntaxToken> {
-    let mut end = self.0.offset + self.0.green.text_len();
-    for (index, &child) in self.0.green.children().iter().enumerate().rev() {
+    let mut end = self.0.start() + self.0.text_len();
+    for (index, &child) in self.0.children().iter().enumerate().rev() {
       end -= child.text_len();
-      if has_token(&self.0.green, child) {
+      if has_token(&self.0, child) {
         return match self.make_child(child, index as u32, end) {
           SyntaxElement::Token(token) => Some(token),
           SyntaxElement::Node(node) => node.last_token(),
@@ -495,54 +465,48 @@ impl SyntaxNode {
   }
 
   pub fn new_root(green: GreenNode) -> Self {
-    SyntaxNode(Rc::new(NodeData {
-      green,
-      parent: None,
-      index: 0,
-      offset: 0,
-    }))
+    SyntaxNode(green)
   }
 
   pub fn next_sibling_or_token(&self) -> Option<SyntaxElement> {
     let parent = self.parent()?;
-    let end = self.0.offset + self.0.green.text_len();
-    parent.child_after(self.0.index, end)
+    let end = self.0.start() + self.0.text_len();
+    parent.child_after(self.0.index(), end)
   }
 
   pub fn parent(&self) -> Option<SyntaxNode> {
-    self.0.parent.clone()
+    self.0.parent().map(SyntaxNode)
   }
 
   pub fn prev_sibling_or_token(&self) -> Option<SyntaxElement> {
-    self.parent()?.child_before(self.0.index, self.0.offset)
+    self.parent()?.child_before(self.0.index(), self.0.start())
   }
 
   /// The node's source text.
   pub fn text(&self) -> &str {
-    self.0.green.text()
+    self.0.text()
   }
 
   pub fn text_range(&self) -> TextRange {
-    TextRange::new(self.0.offset, self.0.offset + self.0.green.text_len())
+    TextRange::new(self.0.start(), self.0.start() + self.0.text_len())
   }
 
   /// The child after the one at `index`, which ends at `end`; only that child is made.
   fn child_after(&self, index: u32, end: u32) -> Option<SyntaxElement> {
-    let child = *self.0.green.children().get(index as usize + 1)?;
+    let child = *self.0.children().get(index as usize + 1)?;
     Some(self.make_child(child, index + 1, end))
   }
 
   /// The child before the one at `index`, which starts at `start`.
   fn child_before(&self, index: u32, start: u32) -> Option<SyntaxElement> {
     let index = index.checked_sub(1)?;
-    let child = self.0.green.children()[index as usize];
+    let child = self.0.children()[index as usize];
     Some(self.make_child(child, index, start - child.text_len()))
   }
 
   fn make_child(&self, child: GreenElement, index: u32, offset: u32) -> SyntaxElement {
     if child.is_node() {
-      let green = self.0.green.child_node(child);
-      SyntaxElement::Node(self.make_node(green, index, offset))
+      SyntaxElement::Node(SyntaxNode(self.0.child_node(child)))
     } else {
       SyntaxElement::Token(SyntaxToken {
         green: child,
@@ -551,27 +515,6 @@ impl SyntaxNode {
         offset,
       })
     }
-  }
-
-  fn make_node(&self, green: GreenNode, index: u32, offset: u32) -> SyntaxNode {
-    let (handles, id, _) = green.handles();
-    if let Some(alive) = handles.0.borrow().get(id).and_then(Weak::upgrade) {
-      return SyntaxNode(alive);
-    }
-    let node = Rc::new(NodeData {
-      green,
-      parent: Some(self.clone()),
-      index,
-      offset,
-    });
-    let (handles, id, nodes) = node.green.handles();
-    let mut handles = handles.0.borrow_mut();
-    if handles.len() < nodes {
-      handles.resize(nodes, Weak::new());
-    }
-    handles[id] = Rc::downgrade(&node);
-    drop(handles);
-    SyntaxNode(node)
   }
 }
 
@@ -591,7 +534,7 @@ impl Eq for SyntaxNode {}
 
 impl PartialEq for SyntaxNode {
   fn eq(&self, other: &Self) -> bool {
-    self.0.green.ptr_eq(&other.0.green) && self.0.offset == other.0.offset
+    self.0.ptr_eq(&other.0)
   }
 }
 
@@ -622,7 +565,7 @@ impl SyntaxToken {
   }
 
   pub fn text(&self) -> &str {
-    self.parent.0.green.token_text(self.green)
+    self.parent.0.token_text(self.green)
   }
 
   pub fn text_range(&self) -> TextRange {
@@ -646,7 +589,7 @@ impl Eq for SyntaxToken {}
 
 impl PartialEq for SyntaxToken {
   fn eq(&self, other: &Self) -> bool {
-    self.parent.0.green.same_tree(&other.parent.0.green)
+    self.parent.0.same_tree(&other.parent.0)
       && self.offset == other.offset
       && self.green == other.green
   }

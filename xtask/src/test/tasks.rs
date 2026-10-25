@@ -449,15 +449,20 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
   ));
   tasks.push(Task::new(
     "memst",
-    "memst profiles mto on src/text: every allocation recorded, the report reads it back",
+    "memst profiles mto on src/text: a shadow built, every run made, the report read back",
     "heavy",
     Action::Command(
       this_binary.clone(),
       vec![
         "memst".into(),
+        "--input".into(),
         "src/text".into(),
+        "--repeat".into(),
+        "1".into(),
+        "--function".into(),
+        "format_file".into(),
         "--view".into(),
-        "overview".into(),
+        "summary,probes".into(),
       ],
     ),
   ));

@@ -311,7 +311,9 @@ files with the whitespace between their tokens scrambled.
 - Unit: allocations.
 - Definition: Allocation calls while mto lays out and formats the corpus's serde
   repository (layout and formatting on, no configuration from outside), under
-  the memst recorder.
+  the memst recorder. From 2026-10-25 the whole process is recorded, from the
+  start of `main` (its reading of arguments and settings too), not only the
+  pipeline: about 1% more.
 - Measured: `cargo xtask memst`.
 
 ### `memst.serde.bytes`

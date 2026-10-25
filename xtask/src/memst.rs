@@ -1,196 +1,209 @@
-//! `cargo xtask memst`: where mto's memory and time go, function by function.
+//! `cargo xtask memst`: where a Rust program's time and memory go, function by function.
 //!
-//! Builds `xtask/memst` with frame pointers forced on (in `target/memst/`, apart from the
-//! usual builds), runs mto's pipeline on the given paths under its recorder, then prints
-//! the report. Each run keeps its files in `.dev/runs/<UTC>-memst/`:
+//! Runs memst, a project of its own (`cargo install --path ../memst` puts `cargo-memst` on
+//! the path): memst builds a shadow of the program's workspace with its recorder in it,
+//! runs the binary (plain runs, a sampling run, a memory run, and a probe run when functions
+//! are probed) and reports. Each run keeps its files in `.dev/runs/<UTC>-memst/`, its
+//! `meta.txt` naming the memst version that made it.
 //!
-//! ```text
-//! mto.toml      the settings used: layout and formatting on, nothing from outside
-//! profile.memst every allocation stack and CPU-time sample, aggregated (see memst)
-//! samples.tsv   the process's memory and CPU once a second, as for any run
-//! report.txt    what was printed
-//! ```
-//!
-//! - `cargo xtask memst [PATH...] [--view NAME|all] [--by bytes|allocs|time] [--top N]`:
-//!   profile PATH (default: the corpus's serde, else this repository's `src/`).
-//! - `cargo xtask memst report FILE [--view ...]`: the report of a kept profile.
+//! - `cargo xtask memst`: mto on the corpus's serde (`--input PATH...` for other inputs),
+//!   with layout and formatting on and no configuration from outside; the totals are kept
+//!   as `memst.<input>.*` series, which the ratchet checks.
+//! - `cargo xtask memst PROJECT [--bin NAME] -- ARGS...`: any Cargo workspace's binary,
+//!   run with ARGS.
+//! - Either: `--function PATH,...` and `--file FILE,...` (timed exactly by probes, and
+//!   what the views keep to), `--build release|debug`, `--repeat N`, `--no-time`,
+//!   `--no-memory`, and the report's `--view`, `--by`, `--top`.
+//! - `cargo xtask memst report RUN [...]`: a kept run's report again.
 
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::cli::{text, texts};
+use crate::cli::{on, text, texts};
 use crate::common::log::Logger;
 use crate::common::{process, sample};
 
-/// The settings profiled: layout and formatting, with no configuration from outside.
+/// memst's binary, as `cargo install` names it.
+const TOOL: &str = "cargo-memst";
+
+/// The settings mto is profiled with: layout and formatting, nothing from outside.
 const CONFIG: &str = "root = true\nlayout = true\nformat = true\n";
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "memst");
   log.info(&format!("cargo xtask {}", crate::cli::line()));
-  let report_args = |m: &clap::ArgMatches| {
-    let mut flags = vec!["--view".to_string(), text(m, "view").unwrap_or_default()];
-    flags.extend(["--by".to_string(), text(m, "by").unwrap_or_default()]);
-    let top = m.get_one::<u32>("top").copied().unwrap_or(15);
-    flags.extend(["--top".to_string(), top.to_string()]);
-    flags
-  };
-  if let Err(e) = build(root, &log) {
+  if !process::on_path(TOOL) {
+    let e = format!(
+      "memst is not installed: `cargo install --path ../memst` puts {} on the path",
+      TOOL
+    );
     println!("{}", e);
     log.error(&e);
     return ExitCode::from(1);
   }
-  if m.subcommand().is_none() {
-    crate::common::conditions::settle(root, "memst");
-  }
   if let Some(("report", sub)) = m.subcommand() {
-    let file = text(sub, "file").unwrap_or_default();
-    return match report(root, Path::new(&file), &report_args(sub)) {
-      Ok(text) => {
-        print!("{}", text);
-        ExitCode::SUCCESS
-      }
-      Err(e) => {
-        println!("{}", e);
-        ExitCode::from(1)
-      }
-    };
+    let mut args = vec!["report".to_string(), text(sub, "run").unwrap_or_default()];
+    args.extend(report_flags(sub));
+    return memst(root, &args).0;
   }
-  let report_args = report_args(m);
-  let rest = texts(m, "paths");
-  let mut paths: Vec<PathBuf> = rest.iter().map(PathBuf::from).collect();
-  if paths.is_empty() {
-    let serde = root.join("compat/cache/corpus/serde");
-    paths.push(if serde.is_dir() {
-      serde
-    } else {
-      root.join("src")
-    });
-  }
-  let samples = sample::run_path(root, "memst");
-  let dir = samples.parent().unwrap_or(root).to_path_buf();
-  let config = dir.join("mto.toml");
-  let profile = dir.join("profile.memst");
-  if let Err(e) = fs::create_dir_all(&dir).and_then(|_| fs::write(&config, CONFIG)) {
-    println!("cannot write {}: {}", config.display(), e);
+  crate::common::conditions::settle(root, "memst");
+  let dir = sample::run_path(root, "memst")
+    .parent()
+    .unwrap_or(root)
+    .to_path_buf();
+  if let Err(e) = fs::create_dir_all(&dir) {
+    println!("cannot make {}: {}", dir.display(), e);
     return ExitCode::from(1);
   }
-  let mut run_args = vec![
-    "run".to_string(),
-    "--out".to_string(),
-    profile.display().to_string(),
-    "--config-path".to_string(),
-    config.display().to_string(),
-  ];
-  run_args.extend(paths.iter().map(|p| p.display().to_string()));
+  let mut args = vec!["profile".to_string()];
+  let project = text(m, "project");
+  let mut inputs: Vec<PathBuf> = Vec::new();
+  let program_args = match &project {
+    Some(project) => {
+      args.push(project.clone());
+      texts(m, "args")
+    }
+    None => {
+      // mto, on the inputs given or the corpus's serde.
+      inputs = texts(m, "input").iter().map(PathBuf::from).collect();
+      if inputs.is_empty() {
+        let serde = root.join("compat/cache/corpus/serde");
+        inputs.push(if serde.is_dir() {
+          serde
+        } else {
+          root.join("src")
+        });
+      }
+      let config = dir.join("mto.toml");
+      if let Err(e) = fs::write(&config, CONFIG) {
+        println!("cannot write {}: {}", config.display(), e);
+        return ExitCode::from(1);
+      }
+      args.extend(["--bin".to_string(), "mto".to_string()]);
+      let mut mto = vec![
+        "--dry-run".to_string(),
+        "--no-history".to_string(),
+        "-q".to_string(),
+        "--config-path".to_string(),
+        config.display().to_string(),
+      ];
+      mto.extend(inputs.iter().map(|p| p.display().to_string()));
+      mto
+    }
+  };
+  args.extend(["--out".to_string(), dir.display().to_string()]);
+  for (flag, id) in [
+    ("--bin", "bin"),
+    ("--package", "package"),
+    ("--build", "build"),
+  ] {
+    if let Some(value) = text(m, id) {
+      args.extend([flag.to_string(), value]);
+    }
+  }
+  if let Some(repeat) = m.get_one::<u32>("repeat") {
+    args.extend(["--repeat".to_string(), repeat.to_string()]);
+  }
+  for id in ["no-time", "no-memory"] {
+    if on(m, id) {
+      args.push(format!("--{}", id));
+    }
+  }
+  args.extend(report_flags(m));
+  args.push("--".to_string());
+  args.extend(program_args);
+  let (code, ok) = memst(root, &args);
+  if !ok {
+    log.error("memst profile failed");
+    return code;
+  }
+  if project.is_none() {
+    record_metrics(root, &inputs, &dir);
+  }
   println!(
-    "profiling mto on {}...",
-    paths
-      .iter()
-      .map(|p| p.display().to_string())
-      .collect::<Vec<_>>()
-      .join(" ")
+    "\nkept in {} (cargo xtask memst report {})",
+    relative(root, &dir),
+    relative(root, &dir)
   );
-  let (outcome, used) = process::run_sampled(
+  log.info(&format!("memst run kept in {}", dir.display()));
+  code
+}
+
+/// The report's flags, as memst takes them.
+fn report_flags(m: &clap::ArgMatches) -> Vec<String> {
+  let mut out = Vec::new();
+  if let Some(by) = text(m, "by") {
+    out.extend(["--by".to_string(), by]);
+  }
+  if let Some(top) = m.get_one::<u32>("top") {
+    out.extend(["--top".to_string(), top.to_string()]);
+  }
+  for id in ["view", "function", "file"] {
+    let values = texts(m, id);
+    if !values.is_empty() {
+      out.extend([format!("--{}", id), values.join(",")]);
+    }
+  }
+  out
+}
+
+/// Runs memst, its output shown as it comes; the exit code, and whether it succeeded.
+fn memst(root: &Path, args: &[String]) -> (ExitCode, bool) {
+  let tap: process::Tap = Box::new(|bytes: &[u8]| {
+    let mut out = std::io::stdout();
+    let _ = out.write_all(bytes);
+    let _ = out.flush();
+  });
+  let (outcome, _) = process::run_tapped(
     root,
-    &binary(root).display().to_string(),
-    &run_args,
+    TOOL,
+    args,
     &[],
     process::HEAVY,
-    Some(&samples),
+    None,
+    Some(tap),
   );
-  print!("{}", outcome.output);
-  if let Some(used) = used.filter(|u| u.samples > 0) {
-    println!("process memory: {}", used.describe());
+  if outcome.timed_out {
+    println!("memst timed out");
   }
-  if outcome.code != 0 {
-    log.error(&format!("memst run failed: {}", outcome.output));
-    return ExitCode::from(1);
-  }
-  record_metrics(root, &paths, &profile);
-  match report(root, &profile, &report_args) {
-    Ok(text) => {
-      print!("\n{}", text);
-      let _ = fs::write(dir.join("report.txt"), &text);
-      println!(
-        "\nkept in {} (cargo xtask memst report {} --view NAME)",
-        relative(root, &dir),
-        relative(root, &profile)
-      );
-      log.info(&format!("memst run kept in {}", dir.display()));
-      ExitCode::SUCCESS
-    }
-    Err(e) => {
-      println!("{}", e);
-      ExitCode::from(1)
-    }
-  }
+  let ok = outcome.code == 0;
+  (ExitCode::from(outcome.code.clamp(0, 255) as u8), ok)
 }
 
-fn binary(root: &Path) -> PathBuf {
-  root.join("target/memst/release/memst")
-}
-
-/// Builds memst with frame pointers in every function, so each stack can be walked.
-fn build(root: &Path, log: &Logger) -> Result<(), String> {
-  println!("building memst (release, frame pointers forced on)...");
-  let env = [
-    (
-      "RUSTFLAGS".to_string(),
-      "-C force-frame-pointers=yes".to_string(),
-    ),
-    (
-      "CARGO_TARGET_DIR".to_string(),
-      root.join("target/memst").display().to_string(),
-    ),
-  ];
-  let args: Vec<String> = ["build", "--quiet", "--release", "--package", "memst"]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-  let outcome = process::run(root, "cargo", &args, &env, process::LONG);
-  if outcome.code != 0 {
-    return Err(format!("cannot build memst:\n{}", outcome.output));
-  }
-  log.info("memst built");
-  Ok(())
-}
-
-/// The profile's totals as series `memst.<input>.*`, the input named by its folder
-/// (`serde` for the corpus's serde); the ratchet checks those it holds.
-fn record_metrics(root: &Path, paths: &[PathBuf], profile: &Path) {
-  let label = match paths {
+/// The run's totals as series `memst.<input>.*`, the input named by its folder (`serde`
+/// for the corpus's serde); the ratchet checks those it holds.
+fn record_metrics(root: &Path, inputs: &[PathBuf], dir: &Path) {
+  let label = match inputs {
     [one] => one
       .file_name()
       .map(|n| n.to_string_lossy().into_owned())
       .unwrap_or_else(|| "input".to_string()),
     _ => "several".to_string(),
   };
-  let text = fs::read_to_string(profile).unwrap_or_default();
-  let field = |key: &str| {
+  let read = |name: &str| fs::read_to_string(dir.join(name)).unwrap_or_default();
+  let field = |text: &str, key: &str| -> Vec<f64> {
     text
       .lines()
       .find_map(|l| l.strip_prefix(key))
       .map(|rest| {
         rest
           .split_whitespace()
-          .map(str::to_string)
-          .collect::<Vec<_>>()
+          .filter_map(|v| v.parse().ok())
+          .collect()
       })
       .unwrap_or_default()
   };
-  let totals = field("totals ");
-  let number = |i: usize| totals.get(i).and_then(|v| v.parse::<f64>().ok());
-  let time = field("time_elapsed_ns ")
-    .first()
-    .and_then(|v| v.parse::<f64>().ok());
+  let memory = read("memory.memst");
+  let totals = field(&memory, "totals ");
+  let time = field(&read("time.memst"), "elapsed_ns ").first().copied();
   let figures = [
-    ("allocs", number(0), "allocs"),
-    ("reallocs", number(2), "reallocs"),
-    ("bytes", number(3), "bytes"),
-    ("peak_live", number(5), "bytes"),
-    ("live_end", number(7), "bytes"),
+    ("allocs", totals.first().copied(), "allocs"),
+    ("reallocs", totals.get(2).copied(), "reallocs"),
+    ("bytes", totals.get(3).copied(), "bytes"),
+    ("peak_live", totals.get(5).copied(), "bytes"),
+    ("live_end", totals.get(7).copied(), "bytes"),
     ("time_ms", time.map(|ns| ns / 1e6), "ms"),
   ];
   for (name, value, unit) in figures {
@@ -209,20 +222,4 @@ fn relative(root: &Path, path: &Path) -> String {
     .unwrap_or(path)
     .display()
     .to_string()
-}
-
-fn report(root: &Path, profile: &Path, flags: &[String]) -> Result<String, String> {
-  let mut args = vec!["report".to_string(), profile.display().to_string()];
-  args.extend(flags.iter().cloned());
-  let outcome = process::run(
-    root,
-    &binary(root).display().to_string(),
-    &args,
-    &[],
-    process::LONG,
-  );
-  if outcome.code != 0 {
-    return Err(outcome.output);
-  }
-  Ok(outcome.output)
 }

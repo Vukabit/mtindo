@@ -309,7 +309,9 @@ pub const METRICS: &[Entry] = &[
     unit: "allocations",
     definition: "Allocation calls while mto lays out and formats the corpus's serde \
       repository (layout and formatting on, no configuration from outside), under the \
-      memst recorder.",
+      memst recorder. From 2026-10-25 the whole process is recorded, from the start of \
+      `main` (its reading of arguments and settings too), not only the pipeline: about \
+      1% more.",
     measured: "`cargo xtask memst`.",
     values: &[],
   },

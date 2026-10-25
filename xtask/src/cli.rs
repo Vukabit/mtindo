@@ -657,53 +657,76 @@ fn lexdiff() -> Command {
 }
 
 fn memst() -> Command {
-  let view = || {
-    option("view", "VIEW", "Which view")
-      .value_parser([
-        "overview",
-        "functions",
-        "hot",
-        "cold",
-        "tree",
-        "sites",
-        "all",
-      ])
-      .default_value("all")
+  let report = |command: Command| {
+    command
+      .arg(
+        option("view", "VIEW,...", "Which views: summary, functions, lines, probes, callers, modules, hot, tree, sites, or all")
+          .value_delimiter(','),
+      )
+      .arg(
+        option("by", "MEASURE", "What functions and the tree rank by")
+          .value_parser(["time", "bytes", "allocs"]),
+      )
+      .arg(option("top", "N", "Rows per table (default 20)").value_parser(value_parser!(u32)))
+      .arg(
+        option("function", "PATH,...", "Functions (a path or its end: roles, file::roles) to time exactly with probes, and keep the views to")
+          .value_delimiter(','),
+      )
+      .arg(
+        option("file", "FILE,...", "Source files whose every function is probed, and the views keep to")
+          .value_delimiter(','),
+      )
   };
-  let by = || {
-    option(
-      "by",
-      "MEASURE",
-      "What functions, hot spots and the tree rank by",
-    )
-    .value_parser(["bytes", "allocs", "time"])
-    .default_value("bytes")
-  };
-  let top = || {
-    option("top", "N", "Rows per table")
-      .value_parser(value_parser!(u32))
-      .default_value("15")
-  };
-  Command::new("memst")
-    .about("Where mto's memory and time go, per function: allocations, frees, lifetimes, CPU, hot and cold spots")
-    .args_conflicts_with_subcommands(true)
-    .arg(paths().help("What to profile (default: the corpus's serde, else src/)"))
-    .arg(view())
-    .arg(by())
-    .arg(top())
-    .subcommand(
-      Command::new("report")
-        .about("The report of a kept profile")
-        .arg(
-          Arg::new("file")
-            .value_name("FILE")
-            .required(true)
-            .help("A profile.memst"),
-        )
-        .arg(view())
-        .arg(by())
-        .arg(top()),
-    )
+  report(
+    Command::new("memst")
+      .about("Where a Rust program's time and memory go, per function and line: wall and CPU time, peak memory, sampled CPU time, every allocation, exact timers for the functions asked about; mto on the corpus's serde by default")
+      .long_about(
+        "Builds a shadow of the workspace (its sources untouched) with memst's recorder in it, \
+         runs the binary: plain runs (wall time, CPU time, peak memory), a sampling run (CPU \
+         time by stack), a memory run (every allocation) and, with --function or --file, a \
+         probe run (exact calls and times); then reports. Runs are kept in \
+         .dev/runs/<UTC>-memst/.\n\nWithout PROJECT it profiles mto on the corpus's serde \
+         (or --input PATH...), layout and formatting on, and keeps the totals as \
+         memst.<input>.* series for the ratchet.",
+      )
+      .args_conflicts_with_subcommands(true)
+      .arg(
+        Arg::new("project")
+          .value_name("PROJECT")
+          .help("A Cargo workspace whose binary to profile, run with ARGS (default: mto, on --input)"),
+      )
+      .arg(
+        option("input", "PATH", "Without PROJECT: what mto runs on (default: the corpus's serde)")
+          .num_args(1..),
+      )
+      .arg(option("bin", "NAME", "The binary, when the workspace has several"))
+      .arg(option("package", "NAME", "The package holding the binary"))
+      .arg(
+        option("build", "PROFILE", "How the binary is built (default: release)")
+          .value_parser(["release", "debug"]),
+      )
+      .arg(
+        option("repeat", "N", "Plain runs, for wall time, CPU time and peak memory (default 3)")
+          .value_parser(value_parser!(u32)),
+      )
+      .arg(flag("no-time", "No sampling run"))
+      .arg(flag("no-memory", "No memory run"))
+      .arg(
+        Arg::new("args")
+          .value_name("ARGS")
+          .num_args(0..)
+          .last(true)
+          .help("With PROJECT: the program's arguments, after --"),
+      ),
+  )
+  .subcommand(report(
+    Command::new("report").about("A kept run's report again").arg(
+      Arg::new("run")
+        .value_name("RUN")
+        .required(true)
+        .help("A run's directory (.dev/runs/<UTC>-memst)"),
+    ),
+  ))
 }
 
 fn metrics() -> Command {

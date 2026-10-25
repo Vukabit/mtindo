@@ -122,10 +122,12 @@ cargo xtask incidents [list | show ID | mark ID STATUS | replay ID]
 # Replay every fuzz incident at this tree; shrink one; keep a fixed one's
 # inputs as a test in tests/fuzz_regressions/
 cargo xtask incidents recheck | minimize ID | promote ID
-# Where mto's memory and time go, per function: every allocation and free
-# with its stack, CPU time sampled, hot and cold spots, the call tree
-# (macOS and Linux; default: the corpus's serde)
-cargo xtask memst [PATH...] [--view overview|functions|hot|cold|tree|sites]
+# Where mto's time and memory go, per function and line: wall and CPU
+# time, peak memory, sampled CPU time, every allocation, exact timers for
+# the functions asked about (macOS and Linux; default: the corpus's serde).
+# Runs memst, a project of its own: cargo install --path ../memst
+cargo xtask memst [--input PATH...] [--function PATH,...] [--view VIEW,...]
+cargo xtask memst report RUN
 # Every number the runs measure, as series with their trend; the ratchet
 # (compat/performance.txt) speed, memory and the build guard may not fall
 # behind

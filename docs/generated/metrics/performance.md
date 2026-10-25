@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-25T10:01:20.186Z"
-commit: "9662ecb-dirty.ebe0c261"
+generated: "2026-10-25T23:53:48.328Z"
+commit: "8347701-dirty.579bfb85"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -168,9 +168,9 @@ timing taken while the machine was busy is not judged:
 | `speed.mto.laid_out.mb_per_s` | 159.65 | no | 2026-10-24 |
 | `speed.mto.as_fetched.mb_per_s` | 143.69 | yes | 2026-10-24 |
 | `speed.layout.one_thread.mb_per_s` | 80.80 | yes | 2026-10-24 |
-| `memst.serde.allocs` | 1.92M | no | 2026-10-25 |
-| `memst.serde.bytes` | 495.41M | no | 2026-10-25 |
-| `memst.serde.peak_live` | 46.91M | no | 2026-10-25 |
+| `memst.serde.allocs` | 1.32M | yes | 2026-10-25 |
+| `memst.serde.bytes` | 431.80M | no | 2026-10-25 |
+| `memst.serde.peak_live` | 33.66M | yes | 2026-10-25 |
 | `doctor.held.cost.x` | 1.12 | yes | 2026-10-20 |
 | `doctor.narrow.n10.k1.checks` | 9.70 | yes | 2026-10-20 |
 | `doctor.narrow.n100.k1.checks` | 15.50 | yes | 2026-10-20 |
@@ -178,7 +178,7 @@ timing taken while the machine was busy is not judged:
 | `doctor.narrow.found_rate` | 1 | yes | 2026-10-20 |
 | `io.write.batch.history.ms_per_file` | 0.66 | yes | 2026-10-24 |
 | `io.write.batch.plain.ms_per_file` | 0.28 | yes | 2026-10-24 |
-| `perf.scaling.one_thread.mb_per_s` | 7.50 | no | 2026-10-25 |
+| `perf.scaling.one_thread.mb_per_s` | 8.45 | yes | 2026-10-25 |
 | `perf.latency.check.median_ms` | 2.08 | yes | 2026-10-25 |
 | `perf.growth.items.exponent` | 1.03 | yes | 2026-10-25 |
 | `perf.growth.nesting.exponent` | 1.26 | yes | 2026-10-25 |

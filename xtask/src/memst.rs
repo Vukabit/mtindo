@@ -103,8 +103,10 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       args.extend([flag.to_string(), value]);
     }
   }
-  if let Some(repeat) = m.get_one::<u32>("repeat") {
-    args.extend(["--repeat".to_string(), repeat.to_string()]);
+  for id in ["repeat", "interval"] {
+    if let Some(n) = m.get_one::<u32>(id) {
+      args.extend([format!("--{}", id), n.to_string()]);
+    }
   }
   for id in ["no-time", "no-memory"] {
     if on(m, id) {

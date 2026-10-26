@@ -709,6 +709,10 @@ fn memst() -> Command {
         option("repeat", "N", "Plain runs, for wall time, CPU time and peak memory (default 3)")
           .value_parser(value_parser!(u32)),
       )
+      .arg(
+        option("interval", "US", "How often the sampling run samples, in microseconds of CPU time (default 1000)")
+          .value_parser(value_parser!(u32)),
+      )
       .arg(flag("no-time", "No sampling run"))
       .arg(flag("no-memory", "No memory run"))
       .arg(

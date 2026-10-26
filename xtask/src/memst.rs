@@ -14,6 +14,8 @@
 //! - Either: `--function PATH,...` and `--file FILE,...` (timed exactly by probes, and
 //!   what the views keep to), `--build release|debug`, `--repeat N`, `--no-time`,
 //!   `--no-memory`, and the report's `--view`, `--by`, `--top`.
+//! - `--compare REV`: the tree as of REV and the working tree, profiled and compared (no
+//!   metrics kept).
 //! - `cargo xtask memst report RUN [...]`: a kept run's report again.
 
 use std::fs;
@@ -94,10 +96,12 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     }
   };
   args.extend(["--out".to_string(), dir.display().to_string()]);
+  let comparing = text(m, "compare").is_some();
   for (flag, id) in [
     ("--bin", "bin"),
     ("--package", "package"),
     ("--build", "build"),
+    ("--compare", "compare"),
   ] {
     if let Some(value) = text(m, id) {
       args.extend([flag.to_string(), value]);
@@ -121,7 +125,8 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     log.error("memst profile failed");
     return code;
   }
-  if project.is_none() {
+  // A comparison's runs are of two trees, neither of them the series'.
+  if project.is_none() && !comparing {
     record_metrics(root, &inputs, &dir);
   }
   println!(

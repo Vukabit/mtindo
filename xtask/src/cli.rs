@@ -713,6 +713,11 @@ fn memst() -> Command {
         option("interval", "US", "How often the sampling run samples, in microseconds of CPU time (default 1000)")
           .value_parser(value_parser!(u32)),
       )
+      .arg(option(
+        "compare",
+        "REV",
+        "Profile the tree as of REV (a git worktree under target/memst/rev) and the working tree, and compare them",
+      ))
       .arg(flag("no-time", "No sampling run"))
       .arg(flag("no-memory", "No memory run"))
       .arg(

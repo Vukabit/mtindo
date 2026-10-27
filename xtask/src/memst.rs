@@ -163,15 +163,7 @@ fn memst(root: &Path, args: &[String]) -> (ExitCode, bool) {
     let _ = out.write_all(bytes);
     let _ = out.flush();
   });
-  let (outcome, _) = process::run_tapped(
-    root,
-    TOOL,
-    args,
-    &[],
-    process::HEAVY,
-    None,
-    Some(tap),
-  );
+  let (outcome, _) = process::run_tapped(root, TOOL, args, &[], process::HEAVY, None, Some(tap));
   if outcome.timed_out {
     println!("memst timed out");
   }

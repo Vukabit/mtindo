@@ -34,6 +34,7 @@
 //! statement's first are measured as written; its first line is measured as the pass reaches
 //! it, at its new indentation, so that a second run decides the same.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -802,7 +803,8 @@ fn comment_runs(_root: &SyntaxNode, roles: &mut Roles) {
           || is_item(parent.kind())
             && t.text_range().start as usize >= crate::format::imports::code_end(&parent))
   };
-  let tokens = roles.tokens.clone();
+  // Taken out while the breaks are noted, and put back.
+  let tokens = std::mem::take(&mut roles.tokens);
   let is_comment = |k: SyntaxKind| matches!(k, SyntaxKind::LineComment | SyntaxKind::BlockComment);
   for (i, comment) in tokens.iter().enumerate() {
     if comment.kind() != SyntaxKind::BlockComment
@@ -894,6 +896,7 @@ fn comment_runs(_root: &SyntaxNode, roles: &mut Roles) {
       roles.breaks.insert(tokens[n].text_range().start as usize);
     }
   }
+  roles.tokens = tokens;
 }
 
 /// Whether a block of one expression holds a comment: the standard formatter writes it on
@@ -1402,7 +1405,12 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   {
     return source.to_string();
   }
-  let text = rest.replace("\r\n", "\n");
+  // Copied only when a line ends `\r\n`; most files' lines do not.
+  let text: Cow<str> = if rest.contains("\r\n") {
+    Cow::Owned(rest.replace("\r\n", "\n"))
+  } else {
+    Cow::Borrowed(rest)
+  };
   if text.contains('\r') {
     // A carriage return of its own (in a string, most likely): left as written.
     return source.to_string();
@@ -1423,7 +1431,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   {
     Some(written) => {
       let root = parse(&written, edition).syntax_node();
-      (written, root)
+      (Cow::Owned(written), root)
     }
     None => (text, root),
   };
@@ -1438,7 +1446,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     Some(stripped) => {
       let root = parse(&stripped, edition).syntax_node();
       nodes = PassNodes::default();
-      (stripped, root)
+      (Cow::Owned(stripped), root)
     }
     None => (text, root),
   };
@@ -1447,7 +1455,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     Some(stripped) => {
       let root = parse(&stripped, edition).syntax_node();
       nodes = PassNodes::default();
-      (stripped, root)
+      (Cow::Owned(stripped), root)
     }
     None => (text, root),
   };
@@ -1455,7 +1463,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     Some(moved) => {
       let root = parse(&moved, edition).syntax_node();
       nodes = PassNodes::default();
-      (moved, root)
+      (Cow::Owned(moved), root)
     }
     None => (text, root),
   };
@@ -1463,7 +1471,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     Some(moved) => {
       let root = parse(&moved, edition).syntax_node();
       nodes = PassNodes::default();
-      (moved, root)
+      (Cow::Owned(moved), root)
     }
     None => (text, root),
   };
@@ -1471,7 +1479,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     Some(joined) => {
       let root = parse(&joined, edition).syntax_node();
       nodes = PassNodes::default();
-      (joined, root)
+      (Cow::Owned(joined), root)
     }
     None => (text, root),
   };
@@ -1484,7 +1492,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     Some(merged) => {
       let root = parse(&merged, edition).syntax_node();
       nodes = PassNodes::default();
-      (merged, root)
+      (Cow::Owned(merged), root)
     }
     None => (text, root),
   };
@@ -1493,7 +1501,7 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     match crate::format::reorder::reorder(&root, &mut nodes, &text, edition, config) {
       Some(sorted) => {
         let root = parse(&sorted, edition).syntax_node();
-        (sorted, root)
+        (Cow::Owned(sorted), root)
       }
       None => (text, root),
     };
@@ -2395,20 +2403,19 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       || gave_up.borrow().iter().any(|&(s, e)| s < at && at < e)
   };
   debug_assert_eq!(root.text(), text, "the tree is not the text's");
-  let tokens: Vec<Tok> = std::mem::take(&mut roles.tokens)
-    .into_iter()
-    .map(|t| Tok {
-      kind: t.kind(),
-      // The tree is the text's own parse, so a token's range in it is its text.
-      text: &text[t.text_range().start as usize..t.text_range().end as usize],
-      start: t.text_range().start as usize,
-      token: t,
-      synthetic: false,
-    })
-    .collect();
+  let tokens = std::mem::take(&mut roles.tokens).into_iter().map(|t| Tok {
+    kind: t.kind(),
+    // The tree is the text's own parse, so a token's range in it is its text.
+    text: &text[t.text_range().start as usize..t.text_range().end as usize],
+    start: t.text_range().start as usize,
+    token: t,
+    synthetic: false,
+  });
   // A space where none is written before what must start a line, for the line break to
-  // take its place, and before what follows the token before it after one space.
-  let mut spaced: Vec<Tok> = Vec::with_capacity(tokens.len());
+  // take its place, and before what follows the token before it after one space: at most
+  // one before each token at a break or a space, so the room is known.
+  let mut spaced: Vec<Tok> =
+    Vec::with_capacity(tokens.len() + roles.breaks.len() + roles.spaced.len());
   for tok in tokens {
     if (roles.breaks.contains(&tok.start) || roles.spaced.contains(&tok.start))
       && spaced
@@ -3451,7 +3458,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
 }
 
 fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
-  let mut roles = Roles::default();
+  let mut roles = Roles {
+    tokens: Vec::with_capacity(root.green().tokens().len()),
+    ..Roles::default()
+  };
   // A file's frontmatter, and what is before it and after it up to the first comment or
   // code, as written: the standard formatter writes it as code it has not formatted.
   let mut leading = root.token_texts().take_while(|(kind, _, _)| {

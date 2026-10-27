@@ -138,6 +138,32 @@ fn test_changes_of_meaning_are_caught() {
     "fn f() -> u8 { if a { 1 } else { 2 }; }\n",
     "fn f() -> u8 { if a { 1 } else { 2 } }\n",
   );
+  // A macro's arguments are tokens as rustc glues them: touching punctuation is one token
+  // where rustc makes one, so joining or splitting it is a change.
+  for (apart, joined) in [
+    ("a .. . b", "a ... b"),
+    ("a - > b", "a -> b"),
+    ("a < - b", "a <- b"),
+    ("a << = b", "a <<= b"),
+    ("a = > b", "a => b"),
+    ("a ! = b", "a != b"),
+    ("a .. = b", "a ..= b"),
+  ] {
+    changed(
+      &format!("fn f() {{ m!({}); }}\n", apart),
+      &format!("fn f() {{ m!({}); }}\n", joined),
+    );
+    changed(
+      &format!("fn f() {{ m!({}); }}\n", joined),
+      &format!("fn f() {{ m!({}); }}\n", apart),
+    );
+  }
+  // Outside a macro too: rustc reads `<-` as one token, and rejects `x <-1`.
+  changed("fn f() { if x < -1 {} }\n", "fn f() { if x <-1 {} }\n");
+  changed(
+    "fn f() { let a = b < -c; }\n",
+    "fn f() { let a = b <-c; }\n",
+  );
 }
 
 #[test]
@@ -386,6 +412,32 @@ fn test_each_allowed_rewrite() {
     .is_empty()
   );
   assert_eq!(REWRITES.len(), 29);
+}
+
+/// Punctuation rustc does not glue may touch or not in a macro's arguments.
+#[test]
+fn test_punctuation_rustc_keeps_apart_may_touch() {
+  for (apart, joined) in [
+    ("a # ! b", "a #! b"),
+    ("a <= > b", "a <=> b"),
+    ("a ... . b", "a .... b"),
+    ("a && = b", "a &&= b"),
+    ("a :: : b", "a ::: b"),
+    ("a - - b", "a -- b"),
+  ] {
+    same(
+      &format!("fn f() {{ m!({}); }}\n", apart),
+      &format!("fn f() {{ m!({}); }}\n", joined),
+    );
+  }
+  // rustc splits a `>` it glued where a generic list closes.
+  same("type T = Vec<Vec<u8> >;\n", "type T = Vec<Vec<u8>>;\n");
+  same(
+    "fn f() { let a: Vec<u8> = b; }\n",
+    "fn f() { let a: Vec<u8>= b; }\n",
+  );
+  same("fn f() { let a = & &x; }\n", "fn f() { let a = &&x; }\n");
+  same("fn f() { g(| |x| x); }\n", "fn f() { g(||x| x); }\n");
 }
 
 #[test]

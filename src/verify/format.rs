@@ -5,13 +5,19 @@
 //! Both texts are parsed and walked into a canonical token stream: whitespace and comments
 //! dropped, doc comments kept (they are attributes) with each line trimmed, and every
 //! allowed rewrite resolved to one form. The streams must be equal. Comments are compared as
-//! a multiset, each with its lines trimmed, since formatting may re-indent a block comment
-//! and move a comment across a comma.
+//! the multiset of their words, markers such as `//` and `*` left out, since formatting may
+//! re-indent a block comment and move a comment across a comma.
+//!
+//! Tokens are compared as rustc reads them: touching punctuation it glues into one token
+//! (`->`, `<-`, `...`) is one token in a macro's arguments, and noted elsewhere.
 
 use std::borrow::Cow;
 
 use super::{Rule, Violation, describe_list, difference};
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, TextRange, parse_cached};
+
+/// Marks two tokens that touch where rustc would read them as one (see `glues`).
+const TOUCH: &str = "\u{1}touch ";
 
 /// Marks the start of one imported path in a `use`'s canonical tokens.
 const USE_ENTRY: &str = "\u{0}use";
@@ -387,9 +393,33 @@ fn emit_element<'a>(
       if kind == SyntaxKind::Pipe && pattern_start && previous_significant(element).is_none() {
         return;
       }
+      let range = token.text_range();
+      let text = source.at(range);
+      // rustc's lexer glues touching punctuation where it can (`->`, `...`, `<<=`), wherever
+      // it stands. In a macro's arguments it stays glued, and a macro tells `->` from `- >`.
+      // Elsewhere the parser left these two tokens apart; rustc reads `x <-1` as `x`, `<-`,
+      // `1` and rejects it, so a touch is noted. rustc splits again only a `>` closing
+      // generics (`Vec<Vec<u8>>`), `&&` taking a reference twice and `||` around closures:
+      // where the parser left those apart, rustc's parser takes them apart too.
+      if let Some(last) = out.last_mut()
+        && last.start as usize + last.text.len() == range.start as usize
+        && glues(&last.text, text)
+      {
+        if parent.kind() == SyntaxKind::TokenTree {
+          last.text.to_mut().push_str(text);
+          return;
+        }
+        if !last.text.starts_with('>') && !matches!((&*last.text, text), ("&", "&") | ("|", "|")) {
+          let touch = format!("{}{}{}", TOUCH, last.text, text);
+          out.push(Token {
+            text: touch.into(),
+            start: range.start,
+          });
+        }
+      }
       out.push(Token {
-        text: token_text(parent, kind, source.at(token.text_range())),
-        start: token.text_range().start,
+        text: token_text(parent, kind, text),
+        start: range.start,
       });
     }
   }
@@ -946,6 +976,26 @@ fn flatten_tree(tree: &SyntaxNode, prefix: &str, paths: &mut Vec<String>) {
     entry = format!("{} {}", entry, rename);
   }
   paths.push(entry);
+}
+
+/// Whether rustc's lexer glues punctuation `next` onto the token `last` it touches.
+fn glues(last: &str, next: &str) -> bool {
+  matches!(
+    (last, next),
+    ("=", "=" | ">")
+      | ("<", "=" | "<" | "-")
+      | ("<<", "=")
+      | (">", "=" | ">")
+      | (">>", "=")
+      | ("!", "=")
+      | ("+" | "-" | "*" | "/" | "%" | "^" | "&" | "|", "=")
+      | ("&", "&")
+      | ("|", "|")
+      | ("-", ">")
+      | (".", ".")
+      | ("..", "." | "=")
+      | (":", ":")
+  )
 }
 
 fn is_closer(kind: SyntaxKind) -> bool {

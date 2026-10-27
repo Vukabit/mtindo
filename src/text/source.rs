@@ -41,9 +41,13 @@ pub fn normalize(source: &str) -> Result<Normalized, String> {
     Some(rest) => (true, rest),
     None => (false, source),
   };
-  let crlf_count = text.matches("\r\n").count();
-  let lf_count = text.matches('\n').count();
-  if crlf_count > 0 && crlf_count != lf_count {
+  // Most files hold no `\r`: then nothing more is counted.
+  let crlf_count = if text.as_bytes().contains(&b'\r') {
+    text.matches("\r\n").count()
+  } else {
+    0
+  };
+  if crlf_count > 0 && crlf_count != text.bytes().filter(|&b| b == b'\n').count() {
     return Err("mixed line endings".to_string());
   }
   if crlf_count > 0 {

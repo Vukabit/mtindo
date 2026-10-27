@@ -113,7 +113,8 @@ fn canonical<'a>(
   // Where the last kept token's kind ends; what is joined to it comes after.
   let mut last_kind = None;
   for token in tokens {
-    let kind = token.text.find('\u{0}');
+    // A byte loop: most tokens are a few bytes, and `\0` is one.
+    let kind = token.text.bytes().position(|b| b == 0);
     if let (Some(last), Some(at), Some(last_at)) = (merged.last_mut(), kind, last_kind)
       && token.text[..at] == last.text[..last_at]
     {
@@ -1217,7 +1218,8 @@ fn split_use(tokens: Vec<Token<'_>>) -> Vec<Vec<Token<'_>>> {
 /// `...` in a range pattern as `..=`.
 fn token_text<'a>(parent: &SyntaxNode, kind: SyntaxKind, text: &'a str) -> Cow<'a, str> {
   // crlf-in-tokens: rustc reads every CRLF as LF, inside strings and block comments too.
-  if text.contains("\r\n") {
+  // A byte loop first: most tokens are a few bytes, and hold no `\r`.
+  if text.bytes().any(|b| b == b'\r') && text.contains("\r\n") {
     return token_text(parent, kind, &text.replace("\r\n", "\n"))
       .into_owned()
       .into();

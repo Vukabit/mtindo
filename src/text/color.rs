@@ -13,6 +13,10 @@ static CHOICE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0)
 /// The user config's `output.color`, in the same code.
 static CONFIGURED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
+/// The terminal prints escape codes as text (an old Windows console): no color unless
+/// asked for.
+static NO_ESCAPES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Colors in the style of Python's argparse help, shared by every help screen in the project
 /// so they look alike: bold blue headings, bold magenta program name, bold green short flags,
 /// bold cyan long flags, bold yellow values; usage lines use the same hues without bold.
@@ -137,7 +141,7 @@ pub fn color_enabled(is_err: bool) -> bool {
     2 => return false,
     _ => {}
   }
-  if is_err { stderr } else { stdout }
+  !NO_ESCAPES.load(std::sync::atomic::Ordering::Relaxed) && if is_err { stderr } else { stdout }
 }
 
 /// The width help screens wrap to: `$COLUMNS` when set, kept between 60 and 100 so the text
@@ -158,6 +162,11 @@ pub fn set_color(choice: Option<bool>) {
 /// Sets the user config's `output.color`, which the environment and `--color` override.
 pub fn set_configured_color(choice: Option<bool>) {
   CONFIGURED.store(code(choice), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The terminal prints escape codes as text: color goes to it only when asked for.
+pub fn terminal_reads_no_escapes() {
+  NO_ESCAPES.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// `text` in lines of at most `width` characters, broken at spaces; a word longer than the

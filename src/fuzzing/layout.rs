@@ -3,7 +3,7 @@
 //! file that fails it), and arranging the result again changes nothing. Inputs it declines
 //! to arrange are fine; panicking on any input is not.
 
-use crate::layout::parse_any_edition;
+use crate::layout::{configured_edition, parse_any_edition};
 use crate::verify::verify_layout;
 use crate::{LayoutConfig, try_reorganize};
 
@@ -17,7 +17,7 @@ pub fn check(data: &[u8]) {
     return;
   };
   // Checked in the edition layout read it in, as mto checks it before writing.
-  let (edition, _) = parse_any_edition(text);
+  let (edition, _) = parse_any_edition(text, configured_edition(&config));
   let found = verify_layout(text, &once, edition);
   assert!(
     found.is_empty(),

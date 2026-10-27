@@ -27,7 +27,7 @@ pub(super) static SETTINGS: &[Setting] = &[
     default_2024: None,
     summary: "Check that the project still builds after each run (it runs `command`)",
     doc: "With it on, mto runs `doctor.command` before and after each run that writes \
-              files, and holds back the fewest edits that break the build. With it off, mto \
+              files, and holds back the edits that break the build. With it off, mto \
               runs no command. `mto doctor on` and `mto doctor off` set it.",
     channels: None,
     hidden: false,
@@ -178,7 +178,9 @@ pub(super) static SETTINGS: &[Setting] = &[
               and makes them all last once the run ends, as git's `core.fsyncMethod = \
               batch` does: on macOS a run writing hundreds of files takes a fraction of \
               the time. `full` makes each file last before the next is written, so a power \
-              cut mid-run loses nothing already written, at a full disk flush per file.",
+              cut mid-run loses nothing already written, at a full disk flush per file. \
+              On Windows, where a folder cannot be synced, a power cut may lose the last \
+              renames of a run in either mode: those files come back as they were.",
     channels: None,
     hidden: false,
     replaced_by: None,

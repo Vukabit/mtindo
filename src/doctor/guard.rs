@@ -168,7 +168,13 @@ pub fn finish(
         errors: said.new_errors(&before).cloned().collect(),
       })
     };
-    narrow(&mut files, first, &mut test)
+    // A run written without its remembered holds (`--unguarded`) was checked with them
+    // made: the texts holding them back are tried first.
+    let checked = files
+      .iter()
+      .zip(&planned)
+      .all(|(file, p)| file.text(&Held::default()) == p.text);
+    narrow(&mut files, checked.then_some(first), &mut test)
   };
   // The texts it ended on, written.
   for (i, text) in narrowed.texts.iter().enumerate() {
@@ -229,10 +235,17 @@ pub fn finish(
     );
   }
   note(recorder, "doctor closed");
-  say(
-    guard,
-    &format!("doctor: held back {}:", count(narrowed.found.len(), "edit")),
-  );
+  if narrowed.found.is_empty() {
+    say(
+      guard,
+      "doctor: the edits it already holds back were enough (`mto doctor holds`)",
+    );
+  } else {
+    say(
+      guard,
+      &format!("doctor: held back {}:", count(narrowed.found.len(), "edit")),
+    );
+  }
   for found in &narrowed.found {
     say(
       guard,
@@ -376,7 +389,7 @@ fn remember(narrowed: &Narrowed, planned: &[Planned], holds: &mut Holds, run: &s
       // A file held back whole is held for this run only.
       _ => continue,
     };
-    let path = std::path::absolute(&file.path).unwrap_or_else(|_| file.path.clone());
+    let path = holds::key(&file.path);
     if holds.list.iter().any(|h| h.path == path && h.kind == kind) {
       continue;
     }

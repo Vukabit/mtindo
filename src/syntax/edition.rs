@@ -1,8 +1,10 @@
 //! Rust editions. They change which words are keywords and how some tokens are lexed.
 
-/// A Rust edition, oldest first, so editions compare with `<` and `>=`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A Rust edition, oldest first, so editions compare with `<` and `>=`. The default is the
+/// one the standard formatter assumes when none is given.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Edition {
+  #[default]
   E2015,
   E2018,
   E2021,

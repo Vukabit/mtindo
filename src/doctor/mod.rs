@@ -358,16 +358,17 @@ pub fn move_id(source: &str, moved: &Move) -> MoveId {
 
 /// Finds edits of `files` to hold back until `test` passes. `test` writes the texts it is
 /// given, one per file, and runs the command: `None` when no more checks may run. The texts
-/// with nothing held back are known to break the build, as `first` says; the sources, with
-/// everything held back, are known to pass it (the check before the run did).
+/// with nothing held back beyond the files' own holds break the build, as `first` says, or
+/// are tried first when it is `None`; the sources, with everything held back, are known to
+/// pass it (the check before the run did).
 pub fn narrow(
   files: &mut [File],
-  first: Tried,
+  first: Option<Tried>,
   test: &mut dyn FnMut(&[String]) -> Option<Tried>,
 ) -> Narrowed {
-  let mut broken = first;
+  let mut known_broken = first.is_some();
+  let mut broken = first.unwrap_or_default();
   let mut found = Vec::new();
-  let mut known_broken = true;
   // The files the last turn found breaking the build: tried first on the next turn.
   let mut suspects: Vec<usize> = Vec::new();
   let mut ran_out = false;

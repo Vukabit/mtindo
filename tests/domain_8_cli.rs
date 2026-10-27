@@ -10,6 +10,52 @@ const SOURCE: &str = "fn b() {}\n\nfn a() {}\n";
 
 const UNSORTED: &str = "fn b() {}\n\nfn a() {}\n";
 
+/// Not a test of its own: the build check of [`check_words`], idle without `doctor-check`
+/// in the folder it runs in.
+#[test]
+fn check_helper() {
+  let Ok(mode) = std::fs::read_to_string("doctor-check") else {
+    return;
+  };
+  let lib = std::fs::read_to_string("src/lib.rs").unwrap_or_default();
+  let line = |what: &str| lib.lines().position(|l| l.contains(what));
+  let fails = match mode.trim() {
+    "order" => line("mod generated") < line("struct A"),
+    _ => true,
+  };
+  if fails {
+    if mode.trim() == "order" {
+      eprintln!("error[E0433]: failed to resolve: generated");
+    } else {
+      eprintln!("error[E0425]: cannot find value `x` in this scope");
+    }
+    std::process::exit(1);
+  }
+}
+
+/// [`check_words`] as a TOML array, for a config file.
+fn check_toml() -> String {
+  let words: Vec<String> = check_words().iter().map(|w| format!("'{}'", w)).collect();
+  format!("[{}]", words.join(", "))
+}
+
+/// The doctor tests' build check, the same on every system: this test binary, run as
+/// [`check_helper`] in the project's folder. The `doctor-check` file there says how it
+/// fails, as a compiler would: `order` when `mod generated` stands above `struct A` in
+/// src/lib.rs, `always` whatever the files hold.
+fn check_words() -> Vec<String> {
+  let exe = std::env::current_exe().unwrap();
+  [
+    exe.display().to_string(),
+    "--exact".into(),
+    "check_helper".into(),
+    "--quiet".into(),
+    // What it says reaches the doctor, not the test harness.
+    "--nocapture".into(),
+  ]
+  .into()
+}
+
 fn help_output(
   env: &TestEnvironment,
   args: &[&str],
@@ -24,20 +70,28 @@ fn help_output(
     cmd.env(key, value);
   }
   let output = cmd.output().unwrap();
-  (
-    output.status.code(),
-    String::from_utf8(output.stdout).unwrap(),
-  )
+  (output.status.code(), printed(&output.stdout))
 }
 
-/// Runs mto in `env` with `args`; returns (exit code, stdout, stderr).
 fn mto(env: &TestEnvironment, args: &[&str]) -> (i32, String, String) {
   let output = env.mto_cmd().args(args).output().unwrap();
   (
     output.status.code().unwrap_or(-1),
-    String::from_utf8_lossy(&output.stdout).to_string(),
-    String::from_utf8_lossy(&output.stderr).to_string(),
+    printed(&output.stdout).to_string(),
+    printed(&output.stderr).to_string(),
   )
+}
+
+/// Runs mto in `env` with `args`; returns (exit code, stdout, stderr).
+/// What mto printed, with Windows' path separators as `/`, which the assertions use: mto
+/// prints paths as the system writes them.
+fn printed(bytes: &[u8]) -> String {
+  let text = String::from_utf8_lossy(bytes).into_owned();
+  if cfg!(windows) {
+    text.replace('\\', "/")
+  } else {
+    text
+  }
 }
 
 /// A check lays files out while the walk is still finding them; a folder's broken
@@ -50,12 +104,8 @@ fn test_a_broken_configuration_found_late_stops_a_check_before_any_report() {
   env.write_file("z/sub/b.rs", UNSORTED);
   let output = env.mto_cmd().args(["--check", "."]).output().unwrap();
   assert_eq!(output.status.code(), Some(2));
-  assert!(
-    output.stdout.is_empty(),
-    "{}",
-    String::from_utf8_lossy(&output.stdout)
-  );
-  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(output.stdout.is_empty(), "{}", printed(&output.stdout));
+  let stderr = printed(&output.stderr);
   assert!(stderr.contains("mto.toml:2:1"), "{}", stderr);
   assert!(!stderr.contains("a.rs"), "{}", stderr);
 }
@@ -74,7 +124,7 @@ fn test_a_bug_failing_on_one_file_leaves_it_and_the_run_goes_on() {
     .output()
     .unwrap();
   assert_eq!(output.status.code(), Some(4));
-  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stderr = printed(&output.stderr);
   // Kept as a report, named in one line, with no standard panic message besides.
   assert!(
     stderr.contains("mto hit a bug on ./b.rs; saved as report "),
@@ -121,7 +171,7 @@ fn test_a_bug_failing_on_one_file_leaves_it_and_the_run_goes_on() {
   assert_eq!(env.read_file("b.rs"), broken);
   assert_eq!(env.read_file("a.rs"), SORTED);
   assert_eq!(env.read_file("c.rs"), SORTED);
-  let listed = String::from_utf8_lossy(&output.stdout);
+  let listed = printed(&output.stdout);
   assert!(
     listed.contains("a.rs") && listed.contains("c.rs"),
     "{}",
@@ -135,7 +185,7 @@ fn test_a_bug_failing_on_one_file_leaves_it_and_the_run_goes_on() {
     .output()
     .unwrap();
   assert_eq!(output.status.code(), Some(4));
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), broken);
+  assert_eq!(printed(&output.stdout), broken);
   // The same bug again, from stdin: counted in the same report.
   let (_, shown, _) = mto(&env, &["report", "show", &id]);
   assert!(shown.contains("seen 2 time(s)"), "{}", shown);
@@ -171,7 +221,55 @@ fn test_a_file_nested_too_deeply_is_left_as_written() {
     .output()
     .unwrap();
   assert!(output.status.success());
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), deep);
+  assert_eq!(printed(&output.stdout), deep);
+}
+
+/// More targets than a Windows command line holds reach mto all the same: the list goes in
+/// a file, removed after.
+#[test]
+fn test_cargo_mto_gives_mto_a_long_list_of_targets() {
+  let env = TestEnvironment::new();
+  env.write_file(
+    "Cargo.toml",
+    "[package]\nname = \"demo\"\nedition = \"2021\"\n",
+  );
+  env.write_file("src/lib.rs", "fn z() {}\nfn y() {}\n");
+  let name = "an_example_with_a_name_long_enough_to_fill_a_command_line_quickly";
+  for i in 0..300 {
+    env.write_file(
+      &format!("examples/{}_{}.rs", name, i),
+      "fn main() {}\nfn b() {}\nfn a() {}\n",
+    );
+  }
+  let listed_before = || {
+    std::fs::read_dir(std::env::temp_dir())
+      .unwrap()
+      .filter(|e| {
+        e.as_ref()
+          .unwrap()
+          .file_name()
+          .to_string_lossy()
+          .starts_with("mtindo-paths-")
+      })
+      .count()
+  };
+  let before = listed_before();
+  let output = assert_cmd::Command::cargo_bin("cargo-mto")
+    .unwrap()
+    .current_dir(env.dir.path())
+    .env("HOME", env.dir.path().join(".home"))
+    .env("USERPROFILE", env.dir.path().join(".home"))
+    .env("XDG_CONFIG_HOME", env.dir.path().join(".home/.config"))
+    .env("XDG_STATE_HOME", env.dir.path().join(".home/.local/state"))
+    .env("CI", "1")
+    .args(["mto", "--check", "--message-format", "short"])
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(1), "{}", printed(&output.stderr));
+  let stdout = printed(&output.stdout);
+  assert_eq!(stdout.lines().count(), 301, "{}", stdout);
+  assert!(stdout.contains(&format!("{}_299.rs", name)), "{}", stdout);
+  assert!(listed_before() <= before);
 }
 
 #[test]
@@ -191,12 +289,15 @@ fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
   let output = cmd
     .current_dir(env.dir.path())
     .env("HOME", env.dir.path().join(".home"))
+    .env("USERPROFILE", env.dir.path().join(".home"))
+    .env("XDG_CONFIG_HOME", env.dir.path().join(".home/.config"))
+    .env("XDG_STATE_HOME", env.dir.path().join(".home/.local/state"))
     .env("CI", "1")
     .args(["mto", "--check", "--message-format", "short"])
     .output()
     .unwrap();
   assert_eq!(output.status.code(), Some(1));
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   let mut changed: Vec<&str> = stdout
     .lines()
     .map(|l| {
@@ -216,14 +317,16 @@ fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
     .unwrap()
     .current_dir(env.dir.path())
     .env("HOME", env.dir.path().join(".home"))
+    .env("USERPROFILE", env.dir.path().join(".home"))
+    .env("XDG_CONFIG_HOME", env.dir.path().join(".home/.config"))
+    .env("XDG_STATE_HOME", env.dir.path().join(".home/.local/state"))
     .env("CI", "1")
-    .env_remove("XDG_STATE_HOME")
     .args(["mto", "-q"])
     .output()
     .unwrap();
   assert_eq!(output.status.code(), Some(0));
   let history = env.mto_cmd().arg("history").output().unwrap();
-  let history = String::from_utf8(history.stdout).unwrap();
+  let history = printed(&history.stdout);
   assert!(
     history.contains("4 files") && history.contains("  cargo mto -q\n"),
     "{}",
@@ -249,7 +352,7 @@ fn test_cli_a_closed_pipe_ends_quietly() {
   let mut first = [0u8; 16];
   child.stdout.take().unwrap().read_exact(&mut first).unwrap();
   let output = child.wait_with_output().unwrap();
-  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stderr = printed(&output.stderr);
   assert_eq!(output.status.code(), Some(141), "{}", stderr);
   assert!(!stderr.contains("panicked"), "{}", stderr);
 }
@@ -262,7 +365,7 @@ fn test_cli_a_file_with_syntax_errors_exits_three() {
 
   let output = env.mto_cmd().arg("main.rs").output().unwrap();
   assert_eq!(output.status.code(), Some(3));
-  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stderr = printed(&output.stderr);
   assert!(
     stderr.contains("Error in main.rs: the file has syntax errors"),
     "{}",
@@ -280,7 +383,7 @@ fn test_cli_bare_invocation_ignores_piped_stdin() {
     .output()
     .unwrap();
   assert!(output.status.success());
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert!(stdout.starts_with("usage:"), "{}", stdout);
 }
 
@@ -350,7 +453,7 @@ fn test_cli_check_prints_the_standard_diff() {
   let env = TestEnvironment::new();
   env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
   let output = env.mto_cmd().args(["--check", "main.rs"]).output().unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert_eq!(output.status.code(), Some(1));
   assert!(stdout.starts_with("Diff in main.rs:1:\n"), "{}", stdout);
   assert!(
@@ -370,7 +473,7 @@ fn test_cli_check_reports_every_drifted_file() {
   let output = env.mto_cmd().arg("--check").arg("src").output().unwrap();
   assert_eq!(output.status.code(), Some(1));
 
-  let stdout = String::from_utf8_lossy(&output.stdout);
+  let stdout = printed(&output.stdout);
   assert!(stdout.contains("Diff in src/one.rs"), "{}", stdout);
   assert!(stdout.contains("Diff in src/two.rs"), "{}", stdout);
   assert!(!stdout.contains("three.rs"), "{}", stdout);
@@ -381,12 +484,28 @@ fn test_cli_check_reports_every_drifted_file() {
   };
   assert!(moved("a") || moved("b"), "{}", stdout);
 
-  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stderr = printed(&output.stderr);
   assert!(
     stderr.contains("2 file(s) would be reformatted"),
     "{}",
     stderr
   );
+}
+
+/// A configuration file named in another case (`Mto.toml`) counts when the file system says
+/// it is the file asked for, as the standard formatter finds its own: a walk and a file
+/// named alone agree, whichever the file system decides.
+#[test]
+fn test_cli_config_names_in_another_case_count_as_the_file_system_says() {
+  let env = TestEnvironment::new();
+  env.write_file("sub/Mto.toml", "layout = false\n");
+  env.write_file("sub/a.rs", UNSORTED);
+  let walked = mto(&env, &["--check", "."]);
+  let named = mto(&env, &["--check", "sub/a.rs"]);
+  assert_eq!(walked.0, named.0, "{}\n---\n{}", walked.2, named.2);
+  // Layout, on by default, would put `a` first; the file turns it off.
+  let found = env.dir.path().join("sub/mto.toml").is_file();
+  assert_eq!(walked.0, if found { 0 } else { 1 }, "{}", walked.2);
 }
 
 #[test]
@@ -419,7 +538,7 @@ fn test_cli_config_path_and_print() {
     .args(["config", "path", "src"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert_eq!(output.status.code(), Some(0));
   let names: Vec<&str> = stdout
     .lines()
@@ -443,7 +562,7 @@ fn test_cli_config_path_and_print() {
     .args(["config", "print", "--minimal", "--config", "hard_tabs=true"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   let lines: Vec<&str> = stdout.lines().collect();
   assert_eq!(lines[0], "# style edition 2024");
   // Layout first, then formatting, each sorted by name.
@@ -483,7 +602,7 @@ fn test_cli_config_path_and_print() {
     .args(["config", "print", "--default", "--style-edition", "2024"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   // The keys that pick the defaults show what is in effect, beside the defaults they pick.
   assert!(
     stdout.starts_with("# defaults for style edition 2024\n"),
@@ -503,7 +622,7 @@ fn test_cli_config_path_and_print() {
     .args(["config", "print", "--current", "--edition", "2021"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert!(stdout.starts_with("# style edition 2021\n"), "{}", stdout);
   assert!(
     stdout.contains("\nedition = \"2021\"  # command line\n"),
@@ -521,7 +640,7 @@ fn test_cli_config_path_and_print() {
     .args(["config", "print", "--user"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert!(
     stdout.starts_with("[doctor]\ncommand = [\"cargo\", \"check\""),
     "{}",
@@ -553,7 +672,7 @@ fn test_cli_config_path_uses_the_given_file() {
     .args(["--config-path", "custom.toml", "--check", "main.rs"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert_eq!(output.status.code(), Some(1));
   // Unsorted, so `b` stays first and only a blank line is added.
   assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
@@ -574,7 +693,7 @@ fn test_cli_config_sets_values_and_refuses_a_file() {
     ])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert_eq!(output.status.code(), Some(1), "{}", stdout);
   assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
 
@@ -585,7 +704,7 @@ fn test_cli_config_sets_values_and_refuses_a_file() {
     .args(["--config", "custom.toml", "main.rs"])
     .output()
     .unwrap();
-  let stderr = String::from_utf8(output.stderr).unwrap();
+  let stderr = printed(&output.stderr);
   assert_eq!(output.status.code(), Some(2));
   assert!(
     stderr.contains("did you mean `--config-path custom.toml`?"),
@@ -598,7 +717,7 @@ fn test_cli_config_sets_values_and_refuses_a_file() {
     .args(["--config", "newline_style=dos", "main.rs"])
     .output()
     .unwrap();
-  let stderr = String::from_utf8(output.stderr).unwrap();
+  let stderr = printed(&output.stderr);
   assert_eq!(output.status.code(), Some(2));
   assert!(
     stderr.contains("--config: `newline_style` cannot be `dos`"),
@@ -636,8 +755,7 @@ fn test_cli_dbg_prints_the_split() {
     .args(["--dbg", "--check", "main.rs"])
     .output()
     .unwrap();
-  let all =
-    String::from_utf8_lossy(&output.stdout).to_string() + &String::from_utf8_lossy(&output.stderr);
+  let all = printed(&output.stdout).to_string() + &printed(&output.stderr);
   assert!(all.contains("Extracted 2 blocks"), "{}", all);
   assert!(
     all.contains("[Sorted #0] Kind: FnDecl, Identifier: 'a'"),
@@ -659,7 +777,7 @@ fn test_cli_debug_layout_says_why_code_is_left_as_written() {
     .output()
     .unwrap();
   assert!(out.status.success());
-  let shown = String::from_utf8(out.stdout).unwrap();
+  let shown = printed(&out.stdout);
   assert!(
     shown.contains("main.rs:2:5  LET_STMT  #[rustfmt::skip]\n    #[rustfmt::skip] let a = 1;"),
     "{}",
@@ -675,10 +793,7 @@ fn test_cli_debug_layout_says_why_code_is_left_as_written() {
     .output()
     .unwrap();
   assert!(out.status.success());
-  assert_eq!(
-    String::from_utf8(out.stdout).unwrap(),
-    "plain.rs: nothing left as written\n"
-  );
+  assert_eq!(printed(&out.stdout), "plain.rs: nothing left as written\n");
 }
 
 #[test]
@@ -693,7 +808,7 @@ fn test_cli_debug_tree_and_tokens() {
     .output()
     .unwrap();
   assert!(tree.status.success());
-  let dump = String::from_utf8(tree.stdout).unwrap();
+  let dump = printed(&tree.stdout);
   assert!(dump.starts_with("SOURCE_FILE@0..21\n"), "{}", dump);
   assert!(
     dump.contains("LINE_COMMENT@0..10 \"// about a\""),
@@ -730,14 +845,9 @@ fn test_cli_debug_tree_and_tokens() {
 /// The build guard: off, mto runs nothing; on, it checks before and after a run, holds
 /// back the one move that breaks a pretend build (a script that reads the order of
 /// `src/lib.rs`), writes the rest and remembers the hold; `--unguarded` skips the checks.
-#[cfg(unix)]
 #[test]
 fn test_cli_doctor_holds_back_what_breaks_the_build() {
   const LIB: &str = "struct A;\nfn b() {}\nmod generated {}\n";
-  const CHECK: &str = "m=$(grep -n 'mod generated' src/lib.rs | cut -d: -f1)\n\
-                       a=$(grep -n 'struct A' src/lib.rs | cut -d: -f1)\n\
-                       if [ \"$m\" -lt \"$a\" ]; then\n\
-                       echo 'error[E0433]: failed to resolve: generated' >&2; exit 1; fi\n";
   let env = TestEnvironment::new();
   env.write_file(
     ".home/.config/mtindo/config.toml",
@@ -745,20 +855,27 @@ fn test_cli_doctor_holds_back_what_breaks_the_build() {
   );
   env.write_file("src/lib.rs", LIB);
   env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
-  env.write_file("check.sh", CHECK);
+  env.write_file("doctor-check", "order");
   let (code, stdout, _) = mto(&env, &["doctor"]);
   assert_eq!(code, 0);
   assert!(stdout.starts_with("build guard: off\n"), "{}", stdout);
   let (code, _, stderr) = mto(&env, &["doctor", "last"]);
   assert_eq!(code, 2);
   assert!(stderr.contains("give it after `--`"), "{}", stderr);
-  let (code, stdout, stderr) = mto(&env, &["doctor", "on", "--", "sh", "check.sh"]);
+  let words = check_words();
+  let mut on = vec!["doctor", "on", "--"];
+  on.extend(words.iter().map(String::as_str));
+  let (code, stdout, stderr) = mto(&env, &on);
   assert_eq!(code, 0, "{}", stderr);
-  assert!(stdout.contains("\n    sh check.sh\n"), "{}", stdout);
+  assert!(
+    stdout.contains("check_helper --quiet --nocapture\n"),
+    "{}",
+    stdout
+  );
   assert!(
     env
       .read_file(".home/.config/mtindo/config.toml")
-      .ends_with("[doctor]\nenabled = true\ncommand = [\"sh\", \"check.sh\"]\n")
+      .contains("[doctor]\nenabled = true\ncommand = [")
   );
   let (code, _, stderr) = mto(&env, &["."]);
   assert_eq!(code, 0, "{}", stderr);
@@ -789,47 +906,56 @@ fn test_cli_doctor_holds_back_what_breaks_the_build() {
   let (code, _, stderr) = mto(&env, &["."]);
   assert_eq!(code, 0, "{}", stderr);
   assert!(stderr.contains("doctor: before ✓  after ✓"), "{}", stderr);
-  // Unguarded, no check runs; the hold still applies.
+  // Unguarded, no check runs and the hold does not apply: every edit is written.
   env.write_file("src/lib.rs", LIB);
   let (code, _, stderr) = mto(&env, &[".", "--unguarded"]);
   assert_eq!(code, 0, "{}", stderr);
   assert!(!stderr.contains("doctor:"), "{}", stderr);
+  assert!(env.read_file("src/lib.rs").starts_with("mod generated"));
+  // Narrowing down that run holds the move back again, which is all it takes.
+  let (code, _, stderr) = mto(&env, &["doctor", "last"]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(
+    stderr.contains(
+      "doctor: 1 file, 0 edits: 1 check\ndoctor: the edits it already holds back were enough"
+    ),
+    "{}",
+    stderr
+  );
   assert!(env.read_file("src/lib.rs").starts_with("struct A;"));
-  // Released, the move is made again, and narrowing down that run holds it back again.
+  // With the guard off no command runs, and the hold still applies.
+  let (code, stdout, _) = mto(&env, &["doctor", "off"]);
+  assert_eq!(code, 0);
+  assert!(stdout.contains("mto runs no command"), "{}", stdout);
+  env.write_file("src/lib.rs", LIB);
+  let (code, _, stderr) = mto(&env, &["."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(!stderr.contains("doctor:"), "{}", stderr);
+  assert!(env.read_file("src/lib.rs").starts_with("struct A;"));
+  // Released, the move is made again.
   let (code, stdout, _) = mto(&env, &["doctor", "release", "all"]);
   assert_eq!(code, 0);
   assert!(stdout.contains("Released 1 hold"), "{}", stdout);
   env.write_file("src/lib.rs", LIB);
-  assert_eq!(mto(&env, &[".", "--unguarded"]).0, 0);
+  assert_eq!(mto(&env, &["."]).0, 0);
   assert!(env.read_file("src/lib.rs").starts_with("mod generated"));
-  let (code, _, stderr) = mto(&env, &["doctor", "last"]);
-  assert_eq!(code, 0, "{}", stderr);
-  assert!(stderr.contains("moved: mod generated"), "{}", stderr);
-  assert!(env.read_file("src/lib.rs").starts_with("struct A;"));
-  let (code, stdout, _) = mto(&env, &["doctor", "off"]);
-  assert_eq!(code, 0);
-  assert!(stdout.contains("mto runs no command"), "{}", stdout);
 }
 
 /// Out of checks (`doctor.max_checks`), every changed file is held back whole: the files are
 /// as before the run, which the check before passed, and the run ends without an error.
-#[cfg(unix)]
 #[test]
 fn test_cli_doctor_out_of_checks_holds_back_whole_files() {
   const LIB: &str = "struct A;\nfn b() {}\nmod generated {}\n";
   let env = TestEnvironment::new();
   env.write_file("src/lib.rs", LIB);
   env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
-  env.write_file(
-    "check.sh",
-    "m=$(grep -n 'mod generated' src/lib.rs | cut -d: -f1)\n\
-     a=$(grep -n 'struct A' src/lib.rs | cut -d: -f1)\n\
-     if [ \"$m\" -lt \"$a\" ]; then\n\
-     echo 'error[E0433]: failed to resolve: generated' >&2; exit 1; fi\n",
-  );
+  env.write_file("doctor-check", "order");
   env.write_file(
     ".home/.config/mtindo/config.toml",
-    "[doctor]\nenabled = true\ncommand = [\"sh\", \"check.sh\"]\nmax_checks = 1\n",
+    &format!(
+      "[doctor]\nenabled = true\ncommand = {}\nmax_checks = 1\n",
+      check_toml()
+    ),
   );
   let (code, _, stderr) = mto(&env, &["."]);
   assert_eq!(code, 0, "{}", stderr);
@@ -848,16 +974,15 @@ fn test_cli_doctor_out_of_checks_holds_back_whole_files() {
 /// A build guard whose command already fails before the run has no baseline: it cannot tell
 /// what the run would break, so nothing is written and mto says why (exit code 5);
 /// `--unguarded` writes as usual.
-#[cfg(unix)]
 #[test]
 fn test_cli_doctor_writes_nothing_without_a_baseline() {
   let env = TestEnvironment::new();
   env.write_file("src/lib.rs", UNSORTED);
-  env.write_file(
-    "check.sh",
-    "echo 'error[E0425]: cannot find value `x` in this scope' >&2; exit 1\n",
-  );
-  let (code, _, stderr) = mto(&env, &["doctor", "on", "--", "sh", "check.sh"]);
+  env.write_file("doctor-check", "always");
+  let words = check_words();
+  let mut on = vec!["doctor", "on", "--"];
+  on.extend(words.iter().map(String::as_str));
+  let (code, _, stderr) = mto(&env, &on);
   assert_eq!(code, 0, "{}", stderr);
   let (code, _, stderr) = mto(&env, &["."]);
   assert_eq!(code, 5, "{}", stderr);
@@ -901,7 +1026,7 @@ fn test_cli_emit_stdout_and_json() {
     .unwrap();
   assert_eq!(output.status.code(), Some(0));
   assert_eq!(
-    String::from_utf8(output.stdout).unwrap(),
+    printed(&output.stdout),
     "main.rs:\n\nfn a() {}\n\nfn b() {}\n"
   );
   assert_eq!(
@@ -915,7 +1040,7 @@ fn test_cli_emit_stdout_and_json() {
     .args(["--emit=json", "main.rs"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert!(
     stdout.starts_with("[{\"name\":\"main.rs\",\"mismatches\":[{\"original_begin_line\":"),
     "{}",
@@ -940,7 +1065,7 @@ fn test_cli_files_bring_their_modules() {
     .output()
     .unwrap();
   assert_eq!(output.status.code(), Some(1));
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert_eq!(stdout, "src/lib.rs\nsrc/b.rs\nsrc/a.rs\nother.rs\n");
 
   let output = env
@@ -948,7 +1073,7 @@ fn test_cli_files_bring_their_modules() {
     .args(["--check", "-l", "--skip-children", "src/lib.rs"])
     .output()
     .unwrap();
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), "src/lib.rs\n");
+  assert_eq!(printed(&output.stdout), "src/lib.rs\n");
 }
 
 #[test]
@@ -967,7 +1092,7 @@ fn test_cli_format_works_with_and_without_layout() {
     formatted
   );
   let output = env.mto_cmd().arg("-").write_stdin(messy).output().unwrap();
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), formatted);
+  assert_eq!(printed(&output.stdout), formatted);
 
   // With layout too: reordered, then formatted.
   env.write_file("mto.toml", "layout = true\nformat = true\n");
@@ -1000,7 +1125,7 @@ fn test_cli_formats_by_default_and_lays_out_once_opted_in() {
 
   // No mto.toml: formatted as the standard formatter would, its items left in place.
   let output = env.mto_cmd().arg("main.rs").output().unwrap();
-  let stderr = String::from_utf8(output.stderr).unwrap();
+  let stderr = printed(&output.stderr);
   assert_eq!(output.status.code(), Some(0), "{}", stderr);
   assert!(!stderr.contains("left alone"), "{}", stderr);
   assert_eq!(
@@ -1008,13 +1133,13 @@ fn test_cli_formats_by_default_and_lays_out_once_opted_in() {
     SOURCE
   );
   let output = env.mto_cmd().arg("-").write_stdin(messy).output().unwrap();
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), SOURCE);
+  assert_eq!(printed(&output.stdout), SOURCE);
 
   // `format = false` and no layout: nothing changes, and the hint says why.
   env.write_file("main.rs", messy);
   env.write_file("mto.toml", "format = false\n");
   let output = env.mto_cmd().arg("main.rs").output().unwrap();
-  let stderr = String::from_utf8(output.stderr).unwrap();
+  let stderr = printed(&output.stderr);
   assert_eq!(output.status.code(), Some(0));
   assert!(
     stderr.contains("1 file(s) left alone: layout and formatting are off (`format = false`)"),
@@ -1031,7 +1156,7 @@ fn test_cli_formats_by_default_and_lays_out_once_opted_in() {
   env.write_file("main.rs", SOURCE);
   env.write_file("mto.toml", "sort_alphabetically = false\n");
   let output = env.mto_cmd().args(["--check", "main.rs"]).output().unwrap();
-  let stderr = String::from_utf8(output.stderr).unwrap();
+  let stderr = printed(&output.stderr);
   assert_eq!(output.status.code(), Some(0));
   assert!(
     stderr.contains("`sort_alphabetically` has no effect while layout is off; add `layout = true`"),
@@ -1092,7 +1217,7 @@ fn test_cli_history_lists_this_project_unless_all() {
       .output()
       .unwrap();
     assert_eq!(output.status.code(), Some(0), "{:?}", output);
-    String::from_utf8(output.stdout).unwrap()
+    printed(&output.stdout)
   };
   // In a project: its runs only, with the project named.
   let alpha = history("alpha", &[]);
@@ -1127,12 +1252,12 @@ fn test_cli_history_lists_this_project_unless_all() {
       .unwrap()
   };
   let shown = in_dir("alpha", &["history", "show", "last"]);
-  let shown = String::from_utf8(shown.stdout).unwrap();
+  let shown = printed(&shown.stdout);
   assert!(shown.contains("alpha/main.rs"), "{}", shown);
   let output = in_dir("alpha", &["history", "show", "last~1"]);
   assert_eq!(output.status.code(), Some(2), "{:?}", output);
   assert!(
-    String::from_utf8_lossy(&output.stderr).contains("goes back too far"),
+    printed(&output.stderr).contains("goes back too far"),
     "{:?}",
     output
   );
@@ -1144,7 +1269,7 @@ fn test_cli_history_lists_this_project_unless_all() {
   let output = in_dir("gamma", &["restore", "last"]);
   assert_eq!(output.status.code(), Some(2), "{:?}", output);
   assert!(
-    String::from_utf8_lossy(&output.stderr).contains("no run wrote files in"),
+    printed(&output.stderr).contains("no run wrote files in"),
     "{:?}",
     output
   );
@@ -1287,16 +1412,13 @@ fn test_cli_print_config_like_the_standard_formatter() {
     .args(["--print-config", "minimal"])
     .output()
     .unwrap();
-  assert_eq!(
-    String::from_utf8(output.stdout).unwrap(),
-    "max_width = 80\n"
-  );
+  assert_eq!(printed(&output.stdout), "max_width = 80\n");
   let output = env
     .mto_cmd()
     .args(["--print-config", "default"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert!(stdout.contains("\nmax_width = 100\n"), "{}", stdout);
   assert!(
     !stdout.contains("type_order"),
@@ -1321,7 +1443,7 @@ fn test_cli_quiet_verbose_color_and_unstable_features() {
     .args(["--check", "-v", "--unstable-features", "main.rs"])
     .output()
     .unwrap();
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert!(
     stdout.starts_with("Formatting main.rs\nDiff in main.rs:1:\n"),
     "{}",
@@ -1334,7 +1456,7 @@ fn test_cli_quiet_verbose_color_and_unstable_features() {
     .args(["--check", "--color", "always", "main.rs"])
     .output()
     .unwrap();
-  assert!(String::from_utf8(output.stdout).unwrap().contains('\x1b'));
+  assert!(printed(&output.stdout).contains('\x1b'));
 
   let output = env.mto_cmd().args(["-q", "main.rs"]).output().unwrap();
   assert_eq!(output.status.code(), Some(0));
@@ -1411,7 +1533,7 @@ fn test_cli_skip_children_setting_leaves_modules_out() {
     .args(["--check", "-l", "src/lib.rs"])
     .output()
     .unwrap();
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), "src/lib.rs\n");
+  assert_eq!(printed(&output.stdout), "src/lib.rs\n");
 }
 
 #[test]
@@ -1428,7 +1550,7 @@ fn test_cli_stdin_filepath() {
     .output()
     .unwrap();
   // sub/mto.toml keeps the order, so only a blank line is added.
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert!(
     stdout.starts_with("Diff in sub/x.rs:1:\n fn b() {}\n+\n fn a() {}"),
     "{}",
@@ -1447,7 +1569,7 @@ fn test_cli_stdin_pipeline() {
 
   assert!(output.status.success());
 
-  let stdout = String::from_utf8(output.stdout).unwrap();
+  let stdout = printed(&output.stdout);
   assert_eq!(stdout, "fn a() {}\n\nfn b() {}\n");
 }
 
@@ -1458,7 +1580,7 @@ fn test_cli_unchanged_file_is_not_rewritten() {
 
   let output = env.mto_cmd().arg("main.rs").output().unwrap();
   assert!(output.status.success());
-  assert!(!String::from_utf8_lossy(&output.stdout).contains("Formatted:"));
+  assert!(!printed(&output.stdout).contains("Formatted:"));
 }
 
 #[test]
@@ -1506,7 +1628,7 @@ fn test_cli_verifier_on_stdin_passes_the_input_through() {
     .output()
     .unwrap();
   assert_eq!(output.status.code(), Some(4));
-  assert_eq!(String::from_utf8(output.stdout).unwrap(), SOURCE);
+  assert_eq!(printed(&output.stdout), SOURCE);
 }
 
 #[test]
@@ -1526,7 +1648,7 @@ fn test_cli_verifier_stops_an_unsafe_write() {
     .unwrap();
   assert_eq!(output.status.code(), Some(4));
   assert_eq!(env.read_file("main.rs"), SOURCE);
-  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stderr = printed(&output.stderr);
   assert!(
     stderr.contains("the verifier stopped the write"),
     "{}",

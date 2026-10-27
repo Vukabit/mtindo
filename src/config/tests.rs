@@ -312,6 +312,16 @@ fn test_stable_only_drops_what_only_nightly_reads() {
   assert!(stable.layout_on());
 }
 
+/// `blank_lines_between_blocks` keeps within the formatting bounds even at its default,
+/// which is never warned about.
+#[test]
+fn test_the_default_blank_lines_keep_within_the_bounds() {
+  let layout = layout_from_settings(&[("blank_lines_upper_bound", "0")]).unwrap();
+  assert_eq!(layout.blank_lines_between_blocks, 0);
+  let layout = layout_from_settings(&[("blank_lines_lower_bound", "2")]).unwrap();
+  assert_eq!(layout.blank_lines_between_blocks, 2);
+}
+
 #[test]
 fn test_the_standard_file_is_found_as_the_standard_formatter_finds_it() {
   let tree = Tree::new(&[
@@ -372,14 +382,18 @@ fn test_user_config_holds_no_project_settings() {
 #[test]
 fn test_user_config_location_and_template() {
   let tree = Tree::new(&[]);
+  // `%APPDATA%` on Windows, the home's `.config` elsewhere.
   let env = Environment {
     home: Some(tree.0.clone()),
+    app_data: Some(tree.0.join("appdata")),
     ..Environment::default()
   };
-  assert_eq!(
-    user::path(&env).unwrap(),
-    Some(tree.0.join(".config/mtindo/config.toml"))
-  );
+  let created = if cfg!(windows) {
+    tree.0.join("appdata/mtindo/config.toml")
+  } else {
+    tree.0.join(".config/mtindo/config.toml")
+  };
+  assert_eq!(user::path(&env).unwrap(), Some(created.clone()));
   let env = Environment {
     home: Some(tree.0.clone()),
     xdg_config_home: Some(tree.0.join("xdg")),
@@ -396,9 +410,9 @@ fn test_user_config_location_and_template() {
   assert!(user::path(&env).unwrap_err().message.contains("not a file"));
   let env = Environment {
     home: Some(tree.0.clone()),
+    app_data: Some(tree.0.join("appdata")),
     ..Environment::default()
   };
-  let created = tree.0.join(".config/mtindo/config.toml");
   assert_eq!(user::create_if_missing(&env), Ok(Some(created.clone())));
   // Never twice, and never over a file.
   assert_eq!(user::create_if_missing(&env), Ok(None));

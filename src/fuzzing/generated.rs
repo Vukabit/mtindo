@@ -32,6 +32,7 @@ pub fn check(data: &[u8]) {
   let both = Settings {
     layout: Some(LayoutConfig::default()),
     format: Some(FormatConfig::default()),
+    edition: crate::syntax::Edition::E2021,
   };
   let Ok(once) = shape(&text, &both, &Held::default(), None) else {
     return;

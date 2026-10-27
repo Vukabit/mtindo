@@ -143,6 +143,31 @@ fn test_write_atomic_keeps_symlink() {
   assert_eq!(fs::read_to_string(&real_path).unwrap(), "fn new() {}");
 }
 
+/// A read-only file is left as it is, on every system.
+#[test]
+fn test_write_atomic_leaves_a_read_only_file() {
+  let env = TestEnvironment::new();
+  let file_path = env.write_file("generated.rs", "fn old() {}");
+  let mut permissions = fs::metadata(&file_path).unwrap().permissions();
+  permissions.set_readonly(true);
+  fs::set_permissions(&file_path, permissions).unwrap();
+  let e = write_atomic(&file_path, "fn new() {}").unwrap_err();
+  assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+  assert_eq!(e.to_string(), "the file is read-only");
+  assert_eq!(fs::read_to_string(&file_path).unwrap(), "fn old() {}");
+  // No temporary file is left beside it.
+  assert!(fs::read_dir(env.dir.path()).unwrap().all(|e| {
+    !e.unwrap()
+      .file_name()
+      .to_string_lossy()
+      .ends_with(".tmp_mtindo")
+  }));
+  let mut permissions = fs::metadata(&file_path).unwrap().permissions();
+  #[allow(clippy::permissions_set_readonly_false)]
+  permissions.set_readonly(false);
+  fs::set_permissions(&file_path, permissions).unwrap();
+}
+
 #[test]
 fn test_write_atomic_success() {
   let env = TestEnvironment::new();

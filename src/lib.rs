@@ -231,6 +231,8 @@ struct Seen {
 pub struct Settings {
   pub layout: Option<LayoutConfig>,
   pub format: Option<options::format::FormatConfig>,
+  /// The configured edition: files are parsed with it where they can be.
+  pub edition: syntax::Edition,
 }
 
 impl Settings {
@@ -239,6 +241,7 @@ impl Settings {
     let settings = Settings {
       layout: resolved.layout_on().then(|| resolved.layout()),
       format: resolved.format_on().then(|| resolved.format()),
+      edition: resolved.edition(),
     };
     (settings.layout.is_some() || settings.format.is_some()).then_some(settings)
   }
@@ -401,7 +404,7 @@ pub fn collect_jobs_into(
   let mut stale = Vec::new();
   for path in paths {
     if path.is_dir() {
-      let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+      let real = real_path(path).unwrap_or_else(|_| path.to_path_buf());
       let mut walk = Walk {
         visited: &mut visited,
         found: &mut *found,
@@ -411,7 +414,7 @@ pub fn collect_jobs_into(
       walk_inner(path, real, resolver, opts, &mut walk, true)?;
       continue;
     }
-    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let real = real_path(path).unwrap_or_else(|_| path.to_path_buf());
     let dir = real.parent().unwrap_or(Path::new(".")).to_path_buf();
     let skip_children = opts.skip_children || resolver.config_for_absolute(dir)?.skip_children();
     let (files, skips) = if skip_children {
@@ -423,7 +426,7 @@ pub fn collect_jobs_into(
       (files, cli::modules::crate_skips(&text))
     };
     for file in files {
-      let real = fs::canonicalize(&file).unwrap_or_else(|_| file.clone());
+      let real = real_path(&file).unwrap_or_else(|_| file.clone());
       if !visited.insert(real.clone()) {
         continue;
       }
@@ -637,6 +640,18 @@ pub fn process_stdin(
   Ok(report.with(Outcome::Changed))
 }
 
+/// `path` absolute with symlinks resolved, as [`fs::canonicalize`] gives it, but on Windows
+/// without the `\\?\` prefix when the plain path names the same file: mto shows these paths,
+/// and `\\?\C:\src` is not how anyone writes one.
+pub fn real_path(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+  let real = fs::canonicalize(path)?;
+  Ok(if cfg!(windows) {
+    plain_path(&real).unwrap_or(real)
+  } else {
+    real
+  })
+}
+
 /// Removes the stale temporary files `paths` names; how many went.
 pub fn remove_stale(paths: &[PathBuf]) -> usize {
   paths
@@ -787,7 +802,7 @@ pub fn run_file(
     return report.with(Outcome::Changed);
   }
   if let Some(dirty) = ctx.dirty {
-    let real = fs::canonicalize(file_path).unwrap_or_else(|_| file_path.to_path_buf());
+    let real = real_path(file_path).unwrap_or_else(|_| file_path.to_path_buf());
     if dirty.contains(&real) {
       report.stderr = format!(
         "{}Left {} alone: it has uncommitted changes and history is off.{}\n",
@@ -891,6 +906,13 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions, writes: &mut Writes) -> Vec<Don
   done
 }
 
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
 /// [`run_jobs`] while `walk` is still finding the jobs: it hands each to the function it is
 /// given, and the workers lay each out as soon as it is found. Once `walk` returns,
 /// `before_results` gets what it returned (to print what the walk noted, before any
@@ -909,13 +931,6 @@ pub fn run_jobs_walking<T>(
   walking(opts, writes, usize::MAX, walk, before_results)
 }
 
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
-}
-
 /// Lays out and formats `source` as `settings` say, holding back the edits `held` names
 /// (none for an ordinary run). `Err` with the reason when the file is left alone.
 pub fn shape(
@@ -926,7 +941,7 @@ pub fn shape(
 ) -> Result<Shaped, String> {
   let mut found = Vec::new();
   if held.all {
-    let (edition, parsed) = layout::parse_any_edition(source);
+    let (edition, parsed) = layout::parse_any_edition(source, settings.edition);
     if let Some(reason) = layout::refusal(&parsed) {
       return Err(reason);
     }
@@ -962,7 +977,7 @@ pub fn shape(
       Vec::new(),
     ),
     None => {
-      let (edition, parsed) = layout::parse_any_edition(source);
+      let (edition, parsed) = layout::parse_any_edition(source, settings.edition);
       if let Some(reason) = layout::refusal(&parsed) {
         return Err(reason);
       }
@@ -1032,12 +1047,20 @@ pub fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 }
 
 /// Replaces `target` atomically: a sibling temp file is written, synced and renamed over it.
-/// A symlinked target keeps its link and its pointee is replaced; permissions are kept.
+/// A symlinked target keeps its link and its pointee is replaced; permissions are kept. A
+/// read-only target is left as it is, on every system (Windows would refuse to replace it,
+/// Unix would not).
 pub fn write_atomic(target: &Path, content: &str) -> Result<(), std::io::Error> {
   let real_target = match fs::symlink_metadata(target) {
-    Ok(meta) if meta.file_type().is_symlink() => fs::canonicalize(target)?,
+    Ok(meta) if meta.file_type().is_symlink() => real_path(target)?,
     _ => target.to_path_buf(),
   };
+  if fs::metadata(&real_target).is_ok_and(|meta| meta.permissions().readonly()) {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::PermissionDenied,
+      "the file is read-only",
+    ));
+  }
   let parent = match real_target.parent() {
     Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
     _ => PathBuf::from("."),
@@ -1061,7 +1084,7 @@ pub fn write_atomic(target: &Path, content: &str) -> Result<(), std::io::Error> 
     }
     durable::ordered(&file, &parent)?;
     drop(file);
-    fs::rename(&tmp_path, &real_target)?;
+    rename(&tmp_path, &real_target)?;
     // The file is replaced either way; a folder that cannot be synced is no reason to say
     // it is not.
     let _ = durable::renamed(&parent);
@@ -1272,7 +1295,7 @@ fn caught<T>(
     .is_err()
   };
   let minimal = fails(source).then(|| {
-    let (edition, _) = layout::parse_any_edition(source);
+    let (edition, _) = layout::parse_any_edition(source, settings.edition);
     verify::report::minimize(source, edition, &fails)
   });
   Err(Box::new(bug(
@@ -1592,6 +1615,33 @@ fn patience_anchors(a: &[u32], b: &[u32], seen: &mut [Seen]) -> Option<Vec<(usiz
   Some(run)
 }
 
+/// A verbatim Windows path (`\\?\C:\a`, `\\?\UNC\server\share\a`) as a plain one, when
+/// it reads the same plain: short enough for the old limit, and no part a device name or
+/// ending in a dot or space, which the plain form would drop or read otherwise.
+fn plain_path(path: &Path) -> Option<PathBuf> {
+  let text = path.to_str()?;
+  let rest = text.strip_prefix(r"\\?\")?;
+  let plain = if let Some(unc) = rest.strip_prefix(r"UNC\") {
+    format!(r"\\{}", unc)
+  } else {
+    let bytes = rest.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || &bytes[1..3] != b":\\" {
+      return None;
+    }
+    rest.to_string()
+  };
+  const DEVICES: &[&str] = &["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
+  let safe = |part: &str| {
+    let stem = part.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let numbered = (stem.starts_with("COM") || stem.starts_with("LPT"))
+      && stem.len() == 4
+      && stem.as_bytes()[3].is_ascii_digit();
+    !part.ends_with('.') && !part.ends_with(' ') && !DEVICES.contains(&stem.as_str()) && !numbered
+  };
+  (plain.len() < 260 && plain.split('\\').skip(1).all(|p| p.is_empty() || safe(p)))
+    .then(|| PathBuf::from(plain))
+}
+
 /// Runs `work`; a panic in it is caught and given as what it said and where (and, with
 /// `backtrace`, the backtrace), without the standard message on stderr.
 fn quietly<T>(backtrace: bool, work: impl FnOnce() -> T) -> Result<T, (String, Option<String>)> {
@@ -1627,6 +1677,22 @@ fn quietly<T>(backtrace: bool, work: impl FnOnce() -> T) -> Result<T, (String, O
   let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
   let (said, trace, _) = QUIET.with(|quiet| quiet.replace(outer)).unwrap_or_default();
   result.map_err(|_| (said, trace))
+}
+
+/// [`fs::rename`], tried again for a while on Windows when another program has the file
+/// open: a virus scanner or the search indexer often does, for a moment, after a write.
+fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
+  // ERROR_ACCESS_DENIED and ERROR_SHARING_VIOLATION.
+  let busy = |e: &std::io::Error| cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32));
+  let mut wait = std::time::Duration::from_millis(10);
+  for _ in 0..7 {
+    match fs::rename(from, to) {
+      Err(e) if busy(&e) => std::thread::sleep(wait),
+      done => return done,
+    }
+    wait *= 2;
+  }
+  fs::rename(from, to)
 }
 
 /// The settings that differ from the defaults, one per line, for a bug report.
@@ -1758,12 +1824,21 @@ fn walk_inner(
     }
     resolver.note_folder(&real, |wanted| {
       entries.iter().any(|(entry, name)| {
-        name == wanted
-          && if is_symlink(entry) {
+        if name == wanted {
+          if is_symlink(entry) {
             entry.path().is_file()
           } else {
             entry.file_type().is_ok_and(|t| t.is_file())
           }
+        } else {
+          // `Mto.toml`: the file system says whether it is the file asked for, as it does
+          // when the standard formatter looks for its own (case-insensitive on Windows,
+          // and on macOS by default).
+          name
+            .to_str()
+            .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
+            && real.join(wanted).is_file()
+        }
       })
     });
   }
@@ -1811,7 +1886,7 @@ fn walk_inner(
         continue;
       }
       let child_real = if opts.follow_links {
-        match fs::canonicalize(&path) {
+        match real_path(&path) {
           Ok(real) => real,
           Err(_) => continue,
         }
@@ -1823,7 +1898,7 @@ fn walk_inner(
       walk.stale.push(path);
     } else if is_file && path.extension().unwrap_or_default() == "rs" {
       if opts.follow_links
-        && let Ok(real_file) = fs::canonicalize(&path)
+        && let Ok(real_file) = real_path(&path)
         && !walk.visited.insert(real_file)
       {
         continue;
@@ -2006,6 +2081,45 @@ mod tests {
     assert_eq!(rebuilt, b);
   }
 
+  /// A file is read in the configured edition where it parses: in 2015 a path starting
+  /// with `::` is an ordinary path, which sorts with the others.
+  #[test]
+  fn test_files_are_read_in_the_configured_edition() {
+    let source = "use ::c;\nuse b;\nuse ::a::{z, y};\n";
+    let text = |edition| {
+      let settings = Settings {
+        layout: None,
+        format: Some(options::format::FormatConfig::default()),
+        edition,
+      };
+      let shaped = super::shape(source, &settings, &doctor::Held::default(), None).unwrap();
+      (shaped.edition, shaped.text)
+    };
+    assert_eq!(
+      text(syntax::Edition::E2015),
+      (
+        syntax::Edition::E2015,
+        "use a::{y, z};\nuse b;\nuse c;\n".to_string()
+      )
+    );
+    assert_eq!(
+      text(syntax::Edition::E2018),
+      (
+        syntax::Edition::E2018,
+        "use ::a::{y, z};\nuse ::c;\nuse b;\n".to_string()
+      )
+    );
+    // Code the configured edition does not fit is read in one it does.
+    let settings = Settings {
+      layout: None,
+      format: Some(options::format::FormatConfig::default()),
+      edition: syntax::Edition::E2021,
+    };
+    let shaped =
+      super::shape("fn async() {}\n", &settings, &doctor::Held::default(), None).unwrap();
+    assert_eq!(shaped.edition, syntax::Edition::E2015);
+  }
+
   // The standard formatter's own tests of its diff, ported.
   #[test]
   fn test_mismatches_match_the_standard_diff() {
@@ -2044,6 +2158,35 @@ mod tests {
         1
       ),
       vec![(5, 5, lines(&[" five", "+"]))]
+    );
+  }
+
+  /// Windows' verbatim paths are shown plain where the plain form names the same file.
+  #[test]
+  fn test_verbatim_paths_are_shown_plain_where_they_read_the_same() {
+    let plain = |text: &str| plain_path(Path::new(text)).map(|p| p.display().to_string());
+    assert_eq!(
+      plain(r"\\?\C:\src\lib.rs"),
+      Some(r"C:\src\lib.rs".to_string())
+    );
+    assert_eq!(
+      plain(r"\\?\UNC\server\share\a.rs"),
+      Some(r"\\server\share\a.rs".to_string())
+    );
+    // A device name, a trailing dot or space, or a path past the old limit reads
+    // otherwise without the prefix.
+    assert_eq!(plain(r"\\?\C:\src\con.rs"), None);
+    assert_eq!(plain(r"\\?\C:\src\COM1"), None);
+    assert_eq!(plain(r"\\?\C:\src\a."), None);
+    assert_eq!(plain(r"\\?\C:\src\a "), None);
+    assert_eq!(plain(&format!(r"\\?\C:\{}", "a".repeat(300))), None);
+    // Not verbatim, or not a drive.
+    assert_eq!(plain(r"C:\src"), None);
+    assert_eq!(plain(r"\\?\Volume{1234}\src"), None);
+    // A name merely starting like a device is fine.
+    assert_eq!(
+      plain(r"\\?\C:\console\com10.rs"),
+      Some(r"C:\console\com10.rs".to_string())
     );
   }
 }

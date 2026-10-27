@@ -177,6 +177,7 @@ pub fn stages(args: &[String]) -> ExitCode {
   let layout_only = Settings {
     layout: Some(LayoutConfig::default()),
     format: None,
+    edition: mtindo::syntax::Edition::E2021,
   };
   let format = FormatConfig::default();
   let names = [
@@ -395,5 +396,6 @@ fn settings() -> Settings {
   Settings {
     layout: Some(LayoutConfig::default()),
     format: Some(FormatConfig::default()),
+    edition: mtindo::syntax::Edition::E2021,
   }
 }

@@ -102,6 +102,7 @@ fn narrowing(sources: &[(PathBuf, String)], trials: usize) {
   let settings = Arc::new(Settings {
     layout: Some(LayoutConfig::default()),
     format: None,
+    edition: mtindo::syntax::Edition::E2021,
   });
   // The files with moves that can be planted, each with those moves.
   let mut pool: Vec<(usize, Vec<Plant>)> = Vec::new();
@@ -170,10 +171,10 @@ fn narrowing(sources: &[(PathBuf, String)], trials: usize) {
       let started = Instant::now();
       let narrowed = narrow(
         &mut files,
-        Tried {
+        Some(Tried {
           broke: true,
           errors: Vec::new(),
-        },
+        }),
         &mut |texts: &[String]| {
           runs += 1;
           let broke = breaks(texts);
@@ -259,6 +260,7 @@ fn shaping(sources: &[(PathBuf, String)]) {
   let settings = Settings {
     layout: Some(LayoutConfig::default()),
     format: Some(FormatConfig::default()),
+    edition: mtindo::syntax::Edition::E2021,
   };
   let (mut bytes, mut plain, mut holding) = (0usize, Duration::ZERO, Duration::ZERO);
   let (mut files, mut moves, mut runs) = (0usize, 0usize, 0usize);

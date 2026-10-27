@@ -46,10 +46,14 @@ impl TestEnvironment {
       .args(args)
       .current_dir(self.dir.path())
       .env("HOME", self.dir.path().join(".home"))
+      .env("USERPROFILE", self.dir.path().join(".home"))
       .env("CI", "1")
-      .env_remove("XDG_CONFIG_HOME")
-      .env_remove("XDG_STATE_HOME")
+      // Set rather than removed: they come before `%APPDATA%` and `%LOCALAPPDATA%`, so
+      // every system reads and writes the same folders under the test's home.
+      .env("XDG_CONFIG_HOME", self.dir.path().join(".home/.config"))
+      .env("XDG_STATE_HOME", self.dir.path().join(".home/.local/state"))
       .env_remove("MTINDO_COMMAND")
+      .env_remove("MTINDO_PATHS_FILE")
       .env_remove("MTINDO_CONFIG")
       .stdout(std::process::Stdio::null())
       .stderr(std::process::Stdio::null())
@@ -64,10 +68,14 @@ impl TestEnvironment {
     cmd
       .current_dir(self.dir.path())
       .env("HOME", self.dir.path().join(".home"))
+      .env("USERPROFILE", self.dir.path().join(".home"))
       .env("CI", "1")
-      .env_remove("XDG_CONFIG_HOME")
-      .env_remove("XDG_STATE_HOME")
+      // Set rather than removed: they come before `%APPDATA%` and `%LOCALAPPDATA%`, so
+      // every system reads and writes the same folders under the test's home.
+      .env("XDG_CONFIG_HOME", self.dir.path().join(".home/.config"))
+      .env("XDG_STATE_HOME", self.dir.path().join(".home/.local/state"))
       .env_remove("MTINDO_COMMAND")
+      .env_remove("MTINDO_PATHS_FILE")
       .env_remove("MTINDO_CONFIG");
     cmd
   }

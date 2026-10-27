@@ -1,6 +1,5 @@
 //! The two `fcntl` commands macOS (and the other Apple systems) sync with, which the
-//! standard library does not offer: the only unsafe code in mto, held to this file by
-//! `cargo xtask gates`.
+//! standard library does not offer: unsafe code, held to this file by `cargo xtask gates`.
 #![allow(unsafe_code)]
 
 use std::fs::File;

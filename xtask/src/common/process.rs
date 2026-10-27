@@ -95,8 +95,12 @@ pub fn alive(pid: u32) -> bool {
   }
   #[cfg(not(unix))]
   {
-    let _ = pid;
-    false
+    // One CSV row naming the process when it runs, else a note that none matches.
+    Command::new("tasklist")
+      .args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"])
+      .stderr(Stdio::null())
+      .output()
+      .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{}\"", pid)))
   }
 }
 

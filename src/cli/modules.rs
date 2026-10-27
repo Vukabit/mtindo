@@ -19,13 +19,13 @@ use std::path::{Path, PathBuf};
 
 use crate::layout::parse_any_edition;
 use crate::syntax::ast::{Item, ItemKind};
-use crate::syntax::{SyntaxKind, SyntaxNode};
+use crate::syntax::{Edition, SyntaxKind, SyntaxNode};
 
 /// The macros and the attributes a crate root's own `#![rustfmt::skip::macros(..)]` and
 /// `#![rustfmt::skip::attributes(..)]` name: the standard formatter leaves them as written
 /// in every file the root reaches.
 pub fn crate_skips(text: &str) -> (Vec<String>, Vec<String>) {
-  let (_, parsed) = parse_any_edition(text);
+  let (_, parsed) = parse_any_edition(text, Edition::E2021);
   let mut macros = Vec::new();
   let mut attributes = Vec::new();
   for attr in parsed
@@ -63,7 +63,7 @@ pub fn module_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
   let owned = root.parent().unwrap_or(Path::new("")).to_path_buf();
   let mut stack = vec![(root.to_path_buf(), owned)];
   while let Some((file, owned)) = stack.pop() {
-    let key = fs::canonicalize(&file).unwrap_or_else(|_| file.clone());
+    let key = crate::real_path(&file).unwrap_or_else(|_| file.clone());
     if !seen.insert(key) {
       continue;
     }
@@ -72,7 +72,7 @@ pub fn module_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
       continue;
     };
     files.push(file.clone());
-    let (_, parsed) = parse_any_edition(&text);
+    let (_, parsed) = parse_any_edition(&text, Edition::E2021);
     let mut found = Vec::new();
     let here = file.parent().unwrap_or(Path::new("")).to_path_buf();
     declared(&parsed.syntax_node(), &owned, &here, &mut found);
@@ -162,7 +162,7 @@ fn declared(
     };
     if item.kind() == ItemKind::MacroCall && is_cfg_if(&node) {
       for block in cfg_if_blocks(&node) {
-        let (_, parsed) = parse_any_edition(&block);
+        let (_, parsed) = parse_any_edition(&block, Edition::E2021);
         declared(&parsed.syntax_node(), owned, here, found);
       }
       continue;
@@ -298,7 +298,16 @@ mod tests {
     let (files, problems) = module_files(&dir.join("src/lib.rs"));
     let names: Vec<String> = files
       .iter()
-      .map(|f| f.strip_prefix(&dir).unwrap().display().to_string())
+      // Joined with `/` on every system.
+      .map(|f| {
+        let parts: Vec<String> = f
+          .strip_prefix(&dir)
+          .unwrap()
+          .iter()
+          .map(|p| p.to_string_lossy().into_owned())
+          .collect();
+        parts.join("/")
+      })
       .collect();
     assert_eq!(
       names,

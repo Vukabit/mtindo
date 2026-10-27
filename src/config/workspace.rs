@@ -65,7 +65,7 @@ pub fn targets(
         )
       })?,
   };
-  let manifest = fs::canonicalize(&manifest)
+  let manifest = crate::real_path(&manifest)
     .map_err(|e| format!("cannot read {}: {}", manifest.display(), e))?;
   let dir = manifest.parent().unwrap_or(Path::new("")).to_path_buf();
   let (root, members) = workspace(&dir)?;
@@ -98,7 +98,7 @@ pub fn targets(
     let mut seen: BTreeSet<PathBuf> = members.iter().map(|p| p.dir.clone()).collect();
     let mut queue: Vec<PathBuf> = members.iter().flat_map(path_dependencies).collect();
     while let Some(dep) = queue.pop() {
-      let Ok(dep) = fs::canonicalize(&dep) else {
+      let Ok(dep) = crate::real_path(&dep) else {
         continue;
       };
       if !seen.insert(dep.clone()) {
@@ -143,7 +143,7 @@ fn expand(root: &Path, pattern: &str) -> Vec<PathBuf> {
   }
   dirs
     .into_iter()
-    .filter_map(|d| fs::canonicalize(&d).ok())
+    .filter_map(|d| crate::real_path(&d).ok())
     .collect()
 }
 
@@ -393,18 +393,22 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
       }
-      Dir(fs::canonicalize(root).unwrap())
+      Dir(crate::real_path(root).unwrap())
     }
 
     fn names(&self, targets: &[Target]) -> Vec<String> {
       targets
         .iter()
         .map(|t| {
-          format!(
-            "{} {}",
-            t.kind,
-            t.path.strip_prefix(&self.0).unwrap().display()
-          )
+          // Joined with `/` on every system.
+          let parts: Vec<String> = t
+            .path
+            .strip_prefix(&self.0)
+            .unwrap()
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+          format!("{} {}", t.kind, parts.join("/"))
         })
         .collect()
     }

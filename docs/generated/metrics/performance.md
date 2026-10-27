@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-25T23:53:48.328Z"
-commit: "8347701-dirty.579bfb85"
+generated: "2026-10-27T23:01:54.648Z"
+commit: "8836a42-dirty.8f3d8457"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -168,9 +168,9 @@ timing taken while the machine was busy is not judged:
 | `speed.mto.laid_out.mb_per_s` | 159.65 | no | 2026-10-24 |
 | `speed.mto.as_fetched.mb_per_s` | 143.69 | yes | 2026-10-24 |
 | `speed.layout.one_thread.mb_per_s` | 80.80 | yes | 2026-10-24 |
-| `memst.serde.allocs` | 1.32M | yes | 2026-10-25 |
-| `memst.serde.bytes` | 431.80M | no | 2026-10-25 |
-| `memst.serde.peak_live` | 33.66M | yes | 2026-10-25 |
+| `memst.serde.allocs` | 1.32M | yes | 2026-10-27 |
+| `memst.serde.bytes` | 365.17M | yes | 2026-10-27 |
+| `memst.serde.peak_live` | 31.52M | yes | 2026-10-27 |
 | `doctor.held.cost.x` | 1.12 | yes | 2026-10-20 |
 | `doctor.narrow.n10.k1.checks` | 9.70 | yes | 2026-10-20 |
 | `doctor.narrow.n100.k1.checks` | 15.50 | yes | 2026-10-20 |

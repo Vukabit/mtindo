@@ -44,6 +44,15 @@ const PASTE_NOTE: &str = "**mto copied the whole report to your clipboard**: it 
                           link. Select this text and paste over it (Ctrl+V, or Cmd+V on a \
                           Mac), then read it over before submitting.\n";
 
+/// PowerShell's arguments to put what it reads on the clipboard, read as UTF-8, which
+/// Windows' `clip` is not.
+const WINDOWS_COPY: &[&str] = &[
+  "-NoProfile",
+  "-Command",
+  "[Console]::InputEncoding = [Text.Encoding]::UTF8; \
+   Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+];
+
 /// Where reports are kept: beside history, in mto's state folder.
 pub fn dir(resolver: &Resolver) -> Option<PathBuf> {
   user::history_dir(resolver.env())
@@ -188,21 +197,14 @@ fn copy(text: &str) -> bool {
   let tools: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
     &[("pbcopy", &[])]
   } else if cfg!(windows) {
-    // Read as UTF-8, which `clip` is not.
-    &[(
-      "powershell",
-      &[
-        "-NoProfile",
-        "-Command",
-        "[Console]::InputEncoding = [Text.Encoding]::UTF8; \
-         Set-Clipboard -Value ([Console]::In.ReadToEnd())",
-      ],
-    )]
+    &[("powershell", WINDOWS_COPY)]
   } else {
     &[
       ("wl-copy", &[]),
       ("xclip", &["-selection", "clipboard"]),
       ("xsel", &["--clipboard", "--input"]),
+      // Under WSL, Windows' own clipboard.
+      ("powershell.exe", WINDOWS_COPY),
     ]
   };
   tools.iter().any(|(tool, args)| {
@@ -307,26 +309,30 @@ fn link_body(text: &str, budget: usize) -> (String, bool) {
 
 /// Opens `link` in the browser, as the system opens links; whether it could.
 fn open(link: &str) -> bool {
-  let mut command = if cfg!(target_os = "macos") {
-    let mut c = Command::new("open");
-    c.arg(link);
-    c
+  // Not `cmd /c start` on Windows, which reads the link's `&` as its own.
+  let handler = "url.dll,FileProtocolHandler";
+  let tools: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+    &[("open", &[])]
   } else if cfg!(windows) {
-    // Not `cmd /c start`, which reads the link's `&` as its own.
-    let mut c = Command::new("rundll32");
-    c.args(["url.dll,FileProtocolHandler", link]);
-    c
+    &[("rundll32", &[handler])]
   } else {
-    let mut c = Command::new("xdg-open");
-    c.arg(link);
-    c
+    // Then, under WSL, Windows' own browser.
+    &[
+      ("xdg-open", &[]),
+      ("wslview", &[]),
+      ("rundll32.exe", &[handler]),
+    ]
   };
-  command
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .status()
-    .is_ok_and(|status| status.success())
+  tools.iter().any(|(tool, args)| {
+    Command::new(tool)
+      .args(*args)
+      .arg(link)
+      .stdin(Stdio::null())
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .status()
+      .is_ok_and(|status| status.success())
+  })
 }
 
 /// When and where a report's bug was seen.

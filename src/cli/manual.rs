@@ -120,7 +120,8 @@ says why, and exits with code 5. Fix the build, give the guard a command that
 passes, or pass `--unguarded`.
 
 Held edits are remembered, in the doctor's folder next to history, so the
-next run holds them back again without running the command. A hold lapses
+next run holds them back again without running the command, with the guard
+off too; `--unguarded` writes them for one run. A hold lapses
 when mto's build changes (the one `mto --version` names, which changes
 between releases too) or the text it is about does; the guard then checks
 again.

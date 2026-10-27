@@ -37,6 +37,9 @@ impl Check {
       .current_dir(&self.dir)
       // Errors are read as text, so they come without color.
       .env("CARGO_TERM_COLOR", "never")
+      // What `cargo mto` told this run is not for the command.
+      .env_remove("MTINDO_COMMAND")
+      .env_remove("MTINDO_PATHS_FILE")
       .stdin(Stdio::null())
       .stdout(Stdio::piped())
       .stderr(Stdio::piped())
@@ -79,8 +82,7 @@ impl Check {
       match child.try_wait() {
         Ok(Some(status)) => break Some(status),
         Ok(None) if self.timeout.is_some_and(|t| started.elapsed() > t) => {
-          let _ = child.kill();
-          let _ = child.wait();
+          stop_tree(&mut child);
           stopped = Some(format!(
             "`{}` ran past its {} s and was stopped",
             self.line(),
@@ -192,6 +194,58 @@ pub fn errors_in(text: &str) -> (BTreeSet<String>, Option<String>) {
   (errors, first)
 }
 
+/// Stops `child` and every process it started: cargo's compilers hold the output pipes
+/// open, so stopping cargo alone would leave them running and the reading waiting.
+fn stop_tree(child: &mut std::process::Child) {
+  let quietly = |program: &str, args: &[String]| {
+    let _ = Command::new(program)
+      .args(args)
+      .stdin(Stdio::null())
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .status();
+  };
+  if cfg!(windows) {
+    quietly(
+      "taskkill",
+      &[
+        "/T".into(),
+        "/F".into(),
+        "/PID".into(),
+        child.id().to_string(),
+      ],
+    );
+  } else {
+    // Every descendant, found before any is stopped: once a parent goes, its children
+    // are another's.
+    let mut tree = vec![child.id()];
+    if let Ok(out) = Command::new("ps")
+      .args(["-A", "-o", "pid=", "-o", "ppid="])
+      .stderr(Stdio::null())
+      .output()
+    {
+      let pairs: Vec<(u32, u32)> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+          let mut words = line.split_whitespace().map(|w| w.parse::<u32>().ok());
+          Some((words.next()??, words.next()??))
+        })
+        .collect();
+      let mut at = 0;
+      while at < tree.len() {
+        let parent = tree[at];
+        tree.extend(pairs.iter().filter(|p| p.1 == parent).map(|p| p.0));
+        at += 1;
+      }
+    }
+    let mut args = vec!["-KILL".to_string()];
+    args.extend(tree.iter().map(u32::to_string));
+    quietly("kill", &args);
+  }
+  let _ = child.kill();
+  let _ = child.wait();
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -237,6 +291,53 @@ mod tests {
     assert!(!first.contains("unused import"));
   }
 
+  /// What [`test_the_command_runs_in_its_folder_and_is_stopped_in_time`] checks, with the
+  /// commands Windows has.
+  #[cfg(windows)]
+  #[test]
+  fn test_the_command_runs_and_is_stopped_in_time_on_windows() {
+    let dir = std::env::temp_dir();
+    let check = |words: &[&str], timeout: Option<Duration>| Check {
+      words: words.iter().map(|w| w.to_string()).collect(),
+      dir: dir.clone(),
+      timeout,
+    };
+    let said = check(
+      &[
+        "cmd",
+        "/C",
+        "echo",
+        "error[E0425]:",
+        "nope",
+        "1>&2",
+        "&",
+        "exit",
+        "1",
+      ],
+      None,
+    )
+    .run();
+    assert!(!said.passed);
+    assert_eq!(said.errors.len(), 1, "{:?}", said);
+    assert!(check(&["cmd", "/C", "exit", "0"], None).run().passed);
+    // `ping` is started by `cmd` and holds its output open: both are stopped in time.
+    let started = Instant::now();
+    let slow = check(
+      &["cmd", "/C", "ping", "-n", "30", "127.0.0.1"],
+      Some(Duration::from_millis(300)),
+    )
+    .run();
+    assert!(!slow.passed);
+    assert!(slow.stopped.unwrap().contains("ran past"));
+    assert!(
+      started.elapsed() < Duration::from_secs(10),
+      "{:?}",
+      started.elapsed()
+    );
+    let missing = check(&["mto-no-such-program"], None).run();
+    assert!(missing.stopped.unwrap().contains("could not start"));
+  }
+
   #[cfg(unix)]
   #[test]
   fn test_the_command_runs_in_its_folder_and_is_stopped_in_time() {
@@ -255,5 +356,18 @@ mod tests {
     assert!(slow.stopped.unwrap().contains("ran past"));
     let missing = check(&["mto-no-such-program"], None).run();
     assert!(missing.stopped.unwrap().contains("could not start"));
+    // What the command started is stopped with it, so its output ends in time.
+    let started = Instant::now();
+    let tree = check(
+      &["sh", "-c", "sleep 30 & sleep 30; wait"],
+      Some(Duration::from_millis(200)),
+    )
+    .run();
+    assert!(tree.stopped.unwrap().contains("ran past"));
+    assert!(
+      started.elapsed() < Duration::from_secs(10),
+      "{:?}",
+      started.elapsed()
+    );
   }
 }

@@ -39,6 +39,7 @@ pub use value::Value;
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle};
 use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
 use crate::options::{self, Channels, File, Setting, Stability};
+use crate::syntax::Edition;
 
 /// Keys mto used to accept, and the key that replaced each.
 const RENAMED: &[(&str, &str)] = &[("tab_width", "tab_spaces")];
@@ -207,6 +208,16 @@ impl Config {
       get("blank_lines_lower_bound", 0),
       get("blank_lines_upper_bound", 1),
     )
+  }
+
+  /// The edition the code is written in: `edition`, from the configuration or the crate's
+  /// `Cargo.toml`; 2015 when neither gives one, as the standard formatter assumes.
+  pub fn edition(&self) -> Edition {
+    self
+      .get("edition")
+      .and_then(Value::as_text)
+      .and_then(Edition::from_year)
+      .unwrap_or(Edition::DEFAULT)
   }
 
   /// Whether layout is on (`layout = true`).
@@ -841,7 +852,7 @@ fn absolute(dir: &Path) -> PathBuf {
     dir
   };
   for base in dir.ancestors() {
-    if let Ok(real) = fs::canonicalize(base) {
+    if let Ok(real) = crate::real_path(base) {
       let rest = dir.strip_prefix(base).unwrap_or(Path::new(""));
       return real.join(rest);
     }

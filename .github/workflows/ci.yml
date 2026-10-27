@@ -43,8 +43,27 @@ jobs:
         run: cargo build --release --bin mto --bin cargo-mto
       - name: Tests
         run: cargo test --package mtindo
+      # The log keeps everything; the summary, which GitHub caps at 1 MB, its start.
       - name: What writing costs here
-        run: cargo xtask io bench | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          status=0
+          cargo xtask io bench > io-bench.txt 2>&1 || status=$?
+          cat io-bench.txt
+          head -c 65536 io-bench.txt >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  # The oldest Rust mto supports (`rust-version` in Cargo.toml) still builds and tests it.
+  msrv:
+    name: msrv (Rust 1.88)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: |
+          rustup toolchain install 1.88 --profile minimal
+          rustup default 1.88
+      - name: Tests
+        run: cargo test --package mtindo
 
   gates:
     runs-on: ubuntu-24.04

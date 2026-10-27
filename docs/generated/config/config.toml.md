@@ -46,8 +46,8 @@ these words, not through a shell. `mto doctor on -- COMMAND` sets it.
 ### `doctor.enabled`
 
 With it on, mto runs `doctor.command` before and after each run that writes
-files, and holds back the fewest edits that break the build. With it off, mto
-runs no command. `mto doctor on` and `mto doctor off` set it.
+files, and holds back the edits that break the build. With it off, mto runs no
+command. `mto doctor on` and `mto doctor off` set it.
 
 *   Type: `true` or `false`.
 *   Default: `false`.
@@ -140,7 +140,9 @@ holds its earlier contents before it changes. `batch` keeps writes in order and
 makes them all last once the run ends, as git's `core.fsyncMethod = batch` does:
 on macOS a run writing hundreds of files takes a fraction of the time. `full`
 makes each file last before the next is written, so a power cut mid-run loses
-nothing already written, at a full disk flush per file.
+nothing already written, at a full disk flush per file. On Windows, where a
+folder cannot be synced, a power cut may lose the last renames of a run in
+either mode: those files come back as they were.
 
 *   Type: one of the values below, as a string.
 *   Default: `"batch"`.

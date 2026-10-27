@@ -195,11 +195,11 @@ fn time(mto: &Path, scratch: &Path, files: usize, way: Option<&Way>) -> Result<f
     // A check finds every file would change (1); a run writes them all (0).
     let expected = if way.is_none() { 1 } else { 0 };
     if output.code != expected {
-      return Err(format!(
-        "mto exited {}: {}",
-        output.code,
-        String::from_utf8_lossy(&output.stderr)
-      ));
+      // The end says why; a run over every file can say a great deal before it.
+      let stderr = String::from_utf8_lossy(&output.stderr);
+      let lines: Vec<&str> = stderr.lines().collect();
+      let tail = lines[lines.len().saturating_sub(20)..].join("\n");
+      return Err(format!("mto exited {}:\n{}", output.code, tail));
     }
     runs.push(seconds);
   }

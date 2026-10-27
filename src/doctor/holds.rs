@@ -61,6 +61,10 @@ impl Holds {
   /// What is held in `path`, for laying it out.
   pub fn held_for(&self, path: &Path) -> Held {
     let mut held = Held::default();
+    if self.list.is_empty() {
+      return held;
+    }
+    let path = key(path);
     for hold in self.list.iter().filter(|h| h.path == path) {
       match &hold.kind {
         Kind::Move(id) => held.move_ids.push(id.clone()),
@@ -95,11 +99,23 @@ impl Holds {
   /// Drops the holds of `path` that were not found in it: the text they were about is gone.
   pub fn lapse(&mut self, path: &Path, found: &[Kind]) -> bool {
     let before = self.list.len();
+    if before == 0 {
+      return false;
+    }
+    let path = key(path);
     self
       .list
       .retain(|h| h.path != path || found.contains(&h.kind));
     self.list.len() != before
   }
+}
+
+/// The path a file's holds are kept under: its real one, so that they are found however the
+/// file is named (through a link, or in another case where names ignore case).
+pub fn key(path: &Path) -> PathBuf {
+  crate::real_path(path)
+    .or_else(|_| std::path::absolute(path))
+    .unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn escape(text: &str) -> String {
@@ -191,6 +207,34 @@ fn unescape(text: &str) -> String {
 mod tests {
   use super::*;
 
+  /// A file's holds are found however it is named: here through a linked folder.
+  #[cfg(unix)]
+  #[test]
+  fn test_holds_are_found_through_a_link() {
+    let dir = std::env::temp_dir().join(format!("mtindo-holds-link-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("real")).unwrap();
+    fs::write(dir.join("real/lib.rs"), "").unwrap();
+    std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+    let lines = Kind::Lines(LinesId {
+      old: "cd".into(),
+      new: "ef".into(),
+    });
+    let mut holds = Holds::default();
+    holds.list.push(Hold {
+      path: key(&dir.join("real/lib.rs")),
+      version: VERSION.into(),
+      kind: lines,
+      what: String::new(),
+      fix: String::new(),
+      run: String::new(),
+    });
+    assert_eq!(holds.held_for(&dir.join("link/lib.rs")).lines.len(), 1);
+    assert!(holds.lapse(&dir.join("link/lib.rs"), &[]));
+    assert!(holds.list.is_empty());
+    let _ = fs::remove_dir_all(&dir);
+  }
+
   #[test]
   fn test_holds_read_back_and_lapse() {
     let dir = std::env::temp_dir().join(format!("mtindo-holds-{}", std::process::id()));
@@ -205,7 +249,7 @@ mod tests {
       new: "ef".into(),
     });
     let hold = |kind: Kind, version: &str| Hold {
-      path: PathBuf::from("/work/src/lib.rs"),
+      path: key(Path::new("/work/src/lib.rs")),
       version: version.into(),
       kind,
       what: "moved: mod generated\twith a tab".into(),

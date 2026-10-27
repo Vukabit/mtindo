@@ -85,9 +85,10 @@ What each system does:
 
 On macOS, `F_BARRIERFSYNC` keeps the order of writes without emptying the
 drive's cache, and `F_FULLFSYNC` empties it. Both come from
-`src/durable/apple.rs`, the only unsafe code in mto. Where a file system
-refuses either command (a network share, say), mto falls back to the
-standard library's full sync. In `full` mode every file gets a full sync.
+`src/durable/apple.rs`, one of three files where mto allows unsafe code.
+Where a file system refuses either command (a network share, say), mto
+falls back to the standard library's full sync. In `full` mode every file
+gets a full sync.
 
 On Linux, `fdatasync` already makes the contents last, so `settle` only
 syncs each folder a file was renamed into, once per folder. In `full` mode

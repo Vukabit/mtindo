@@ -125,7 +125,11 @@ const NAMING_README_SECTIONS: &[&str] = &["## Credits", "## Development"];
 
 /// The files of mtindo allowed unsafe code: the `fcntl` calls macOS syncs with, which the
 /// standard library does not offer (see src/durable), and the binaries' allocator cache.
-const UNSAFE_ALLOWED: &[&str] = &["src/durable/apple.rs", "src/cache_alloc.rs"];
+const UNSAFE_ALLOWED: &[&str] = &[
+  "src/durable/apple.rs",
+  "src/cache_alloc.rs",
+  "src/text/console.rs",
+];
 
 /// Every gate: (name, what it checks, check). `all` runs them in this order.
 /// A gate: (name, what it checks, check returning the problems found).
@@ -596,7 +600,7 @@ fn unsafe_problems(path: &str, content: &str) -> Vec<String> {
           "{}:{}: unsafe code is allowed only in {}",
           path,
           idx + 1,
-          UNSAFE_ALLOWED.join(" and ")
+          UNSAFE_ALLOWED.join(", ")
         ));
       }
     }
@@ -731,8 +735,8 @@ mod tests {
     assert_eq!(
       unsafe_problems("src/text/mod.rs", "#![allow(unsafe_code)]\n"),
       vec![
-        "src/text/mod.rs:1: unsafe code is allowed only in src/durable/apple.rs and \
-         src/cache_alloc.rs"
+        "src/text/mod.rs:1: unsafe code is allowed only in src/durable/apple.rs, \
+         src/cache_alloc.rs, src/text/console.rs"
       ]
     );
     for allowed in UNSAFE_ALLOWED {

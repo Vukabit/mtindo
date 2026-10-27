@@ -105,7 +105,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     args: "[on|off|holds|release|<RUN>]",
     summary: "Guard the build against mto's edits, or find the edit that broke it",
     about: "`on` turns the build guard on: each run that writes files then checks that the \
-                project still builds, and holds back the fewest edits that break it. It runs \
+                project still builds, and holds back the edits that break it. It runs \
                 the command given after `--` (default: `cargo check` over the whole \
                 workspace and all its targets) and no other; with the guard off, mto runs none. `off` turns \
                 it off. With no argument, says whether it is on, its command and the edits it \
@@ -339,7 +339,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--unguarded",
     value: "",
-    help: "With the build guard on (`mto doctor on`), do not check this run",
+    help: "Do not check this run with the build guard, nor hold back the edits it holds",
   },
   FlagSpec {
     flag: Flag::NoHistory,

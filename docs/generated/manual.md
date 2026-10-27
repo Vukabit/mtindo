@@ -110,8 +110,8 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `--allow-dirty`: With history off, rewrite files that have uncommitted
     changes.
 *   `--no-history`: Do not record this run in history (it cannot be restored).
-*   `--unguarded`: With the build guard on (`mto doctor on`), do not check this
-    run.
+*   `--unguarded`: Do not check this run with the build guard, nor hold back the
+    edits it holds.
 
 ### Output (`mto <PATH>... | mto -`)
 *   `--color <always|never|auto>`: Color the output (default: auto, only on a
@@ -177,9 +177,9 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
         changed since the run, and missing ones.
 *   `mto doctor [on|off|holds|release|<RUN>]`: `on` turns the build guard on:
     each run that writes files then checks that the project still builds, and
-    holds back the fewest edits that break it. It runs the command given after
-    `--` (default: `cargo check` over the whole workspace and all its targets)
-    and no other; with the guard off, mto runs none. `off` turns it off. With no
+    holds back the edits that break it. It runs the command given after `--`
+    (default: `cargo check` over the whole workspace and all its targets) and no
+    other; with the guard off, mto runs none. `off` turns it off. With no
     argument, says whether it is on, its command and the edits it holds. `holds`
     lists those edits; `release` drops one, or all. RUN narrows down a run
     already made the same way: RUN is `last` or `last~N`, counted among this
@@ -1362,8 +1362,8 @@ these words, not through a shell. `mto doctor on -- COMMAND` sets it.
 
 #### `doctor.enabled`
 With it on, mto runs `doctor.command` before and after each run that writes
-files, and holds back the fewest edits that break the build. With it off, mto
-runs no command. `mto doctor on` and `mto doctor off` set it.
+files, and holds back the edits that break the build. With it off, mto runs no
+command. `mto doctor on` and `mto doctor off` set it.
 
 *   Type: `true` or `false`.
 *   Default: `false`.
@@ -1446,7 +1446,9 @@ holds its earlier contents before it changes. `batch` keeps writes in order and
 makes them all last once the run ends, as git's `core.fsyncMethod = batch` does:
 on macOS a run writing hundreds of files takes a fraction of the time. `full`
 makes each file last before the next is written, so a power cut mid-run loses
-nothing already written, at a full disk flush per file.
+nothing already written, at a full disk flush per file. On Windows, where a
+folder cannot be synced, a power cut may lose the last renames of a run in
+either mode: those files come back as they were.
 
 *   Type: one of the values below, as a string.
 *   Default: `"batch"`.
@@ -1567,9 +1569,10 @@ why, and exits with code 5. Fix the build, give the guard a command that passes,
 or pass `--unguarded`.
 
 Held edits are remembered, in the doctor's folder next to history, so the next
-run holds them back again without running the command. A hold lapses when mto's
-build changes (the one `mto --version` names, which changes between releases
-too) or the text it is about does; the guard then checks again.
+run holds them back again without running the command, with the guard off too;
+`--unguarded` writes them for one run. A hold lapses when mto's build changes
+(the one `mto --version` names, which changes between releases too) or the text
+it is about does; the guard then checks again.
 
 ```bash
 mto doctor holds        # every held edit, with how to keep it for good

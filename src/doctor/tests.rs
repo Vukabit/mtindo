@@ -41,6 +41,7 @@ fn format_only() -> Arc<Settings> {
   Arc::new(Settings {
     layout: None,
     format: Some(FormatConfig::default()),
+    edition: crate::syntax::Edition::E2021,
   })
 }
 
@@ -48,6 +49,7 @@ fn layout_only() -> Arc<Settings> {
   Arc::new(Settings {
     layout: Some(LayoutConfig::default()),
     format: None,
+    edition: crate::syntax::Edition::E2021,
   })
 }
 
@@ -58,7 +60,7 @@ fn test_a_build_broken_without_mto_is_not_passed() {
   let mut files = vec![file("a.rs", "fn z() {}\nstruct Y;\n", layout_only())];
   let mut runs = 0;
   let always = |_: &str| true;
-  let narrowed = narrow(&mut files, broke(), &mut build(&always, &mut runs));
+  let narrowed = narrow(&mut files, Some(broke()), &mut build(&always, &mut runs));
   assert!(!narrowed.passed);
   assert_eq!(narrowed.texts[0], files[0].source);
 }
@@ -84,7 +86,7 @@ fn test_a_move_that_breaks_the_build_is_held_back_alone() {
     )
   };
   let mut runs = 0;
-  let narrowed = narrow(&mut files, broke(), &mut build(&broken, &mut runs));
+  let narrowed = narrow(&mut files, Some(broke()), &mut build(&broken, &mut runs));
   assert!(narrowed.passed);
   assert!(!narrowed.ran_out);
   assert_eq!(narrowed.found.len(), 1);
@@ -111,7 +113,7 @@ fn test_changed_lines_that_break_the_build_are_held_back() {
   assert!(formatted.contains("    let y = 2;"), "{}", formatted);
   let broken = |t: &str| t.contains("let y = 2;");
   let mut runs = 0;
-  let narrowed = narrow(&mut files, broke(), &mut build(&broken, &mut runs));
+  let narrowed = narrow(&mut files, Some(broke()), &mut build(&broken, &mut runs));
   assert!(narrowed.passed);
   assert_eq!(narrowed.found.len(), 1);
   assert!(
@@ -165,7 +167,7 @@ fn test_hunks_are_the_runs_of_changed_lines_and_apply_one_by_one() {
 fn test_out_of_checks_files_are_held_back_whole() {
   let mut files = vec![file("a.rs", "fn z() {}\nstruct Y;\n", layout_only())];
   let mut left = 1;
-  let narrowed = narrow(&mut files, broke(), &mut |_: &[String]| {
+  let narrowed = narrow(&mut files, Some(broke()), &mut |_: &[String]| {
     if left == 0 {
       return None;
     }

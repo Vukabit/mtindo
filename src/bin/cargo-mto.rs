@@ -16,6 +16,12 @@ use mtindo::{HelpPalette, color_enabled};
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 30;
 
+/// The longest list of targets given to mto as arguments, in characters.
+const LONGEST_LINE: usize = 30_000;
+
+/// Names the file a longer list is given to mto in, one path a line.
+const PATHS_FILE: &str = "MTINDO_PATHS_FILE";
+
 /// Small blocks come from a per-thread cache in front of the system allocator.
 #[global_allocator]
 static GLOBAL: mtindo::cache_alloc::Cached = mtindo::cache_alloc::Cached;
@@ -129,9 +135,38 @@ fn main() -> ExitCode {
   if args.verbose {
     command.arg("--verbose");
   }
-  command.args(targets.iter().map(|t| t.path.as_path()));
-  match command.status() {
-    Ok(status) => ExitCode::from(status.code().unwrap_or(1) as u8),
+  // A Windows command line holds at most 32,767 characters: a longer list of targets goes
+  // to mto in a file instead.
+  let listed: usize = targets.iter().map(|t| t.path.as_os_str().len() + 3).sum();
+  let lines: Option<Vec<&str>> = targets.iter().map(|t| t.path.to_str()).collect();
+  let list = match lines {
+    Some(lines) if listed > LONGEST_LINE => {
+      let file = env::temp_dir().join(format!("mtindo-paths-{}.txt", std::process::id()));
+      if let Err(e) = std::fs::write(&file, lines.join("\n")) {
+        eprintln!("Error: cannot write {}: {}", file.display(), e);
+        return ExitCode::from(2);
+      }
+      command.env(PATHS_FILE, &file);
+      Some(file)
+    }
+    _ => {
+      command.args(targets.iter().map(|t| t.path.as_path()));
+      None
+    }
+  };
+  let status = command.status();
+  if let Some(file) = list {
+    let _ = std::fs::remove_file(file);
+  }
+  match status {
+    // A code that does not fit one byte (a Windows crash's) must not read as another
+    // code, or as success: it is a failure.
+    Ok(status) => ExitCode::from(
+      status
+        .code()
+        .and_then(|c| u8::try_from(c).ok())
+        .unwrap_or(3),
+    ),
     Err(e) => {
       eprintln!(
         "Error: cannot run {}: {}; is mto installed?",

@@ -1,0 +1,9 @@
+# Every text file is checked out with LF line endings, on Windows too: tests compare
+# formatted output byte for byte, and a CRLF checkout would change every input.
+* text=auto eol=lf
+
+# Fixtures keep their bytes, line endings included: some hold CRLF on purpose.
+tests/fixtures/** -text
+
+# Fuzz inputs are raw bytes.
+tests/fuzz_regressions/** binary

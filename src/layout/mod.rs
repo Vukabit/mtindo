@@ -143,6 +143,11 @@ pub struct Unit {
   pub use_tree: Option<crate::order::UseTree>,
 }
 
+/// The edition `config` names, read first by [`parse_any_edition`].
+pub fn configured_edition(config: &LayoutConfig) -> Edition {
+  Edition::from_year(&config.edition.to_string()).unwrap_or(Edition::DEFAULT)
+}
+
 /// Arranges the items of `source`; `Err` with the reason when the file is left alone.
 pub fn layout(source: &str, config: &LayoutConfig) -> Result<Layout, String> {
   layout_holding(source, config, &HashSet::new())
@@ -196,11 +201,12 @@ pub fn layout_holding(
   })
 }
 
-/// Parses `text` with the first edition it has no syntax errors in (2021, 2018, 2015,
-/// 2024), so code that is only valid in an older edition (`async` as a name) still parses.
-/// Without a clean parse, 2021's result is returned.
-pub fn parse_any_edition(text: &str) -> (Edition, Parse) {
-  let first = parse_cached(text, Edition::E2021);
+/// Parses `text` with `preferred`, the configured edition, as the standard formatter does,
+/// or else with the first other edition it has no syntax errors in (2021, 2018, 2015,
+/// 2024), so code the configuration does not fit (`async` as a name) still parses. Without
+/// a clean parse, `preferred`'s result is returned.
+pub fn parse_any_edition(text: &str, preferred: Edition) -> (Edition, Parse) {
+  let first = parse_cached(text, preferred);
   // Too deep in one edition is too deep in all.
   if first.errors().is_empty()
     || first
@@ -208,15 +214,23 @@ pub fn parse_any_edition(text: &str) -> (Edition, Parse) {
       .iter()
       .any(|e| e.message == crate::syntax::TOO_DEEP)
   {
-    return (Edition::E2021, first);
+    return (preferred, first);
   }
-  for edition in [Edition::E2018, Edition::E2015, Edition::E2024] {
+  for edition in [
+    Edition::E2021,
+    Edition::E2018,
+    Edition::E2015,
+    Edition::E2024,
+  ] {
+    if edition == preferred {
+      continue;
+    }
     let parsed = parse_cached(text, edition);
     if parsed.errors().is_empty() {
       return (edition, parsed);
     }
   }
-  (Edition::E2021, first)
+  (preferred, first)
 }
 
 /// Why a file that parsed with errors is left alone: nested deeper than mto follows, or
@@ -521,7 +535,7 @@ fn split(
   config: &LayoutConfig,
   held: &HashSet<usize>,
 ) -> Result<(Split, Vec<Move>), String> {
-  let (edition, parsed) = parse_any_edition(text);
+  let (edition, parsed) = parse_any_edition(text, configured_edition(config));
   if let Some(reason) = refusal(&parsed) {
     return Err(reason);
   }

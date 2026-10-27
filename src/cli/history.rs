@@ -516,12 +516,12 @@ fn chosen(run: &Run, only: &[PathBuf], handle: &str) -> Result<HashSet<PathBuf>,
   let mut wanted = HashSet::new();
   for path in only {
     let absolute = std::path::absolute(path).unwrap_or_else(|_| path.clone());
-    let real = fs::canonicalize(path).ok();
+    let real = crate::real_path(path).ok();
     let found = run.entries.iter().find(|e| {
       e.path == absolute
         || real
           .as_ref()
-          .is_some_and(|r| fs::canonicalize(&e.path).ok().as_ref() == Some(r))
+          .is_some_and(|r| crate::real_path(&e.path).ok().as_ref() == Some(r))
     });
     match found {
       Some(entry) => {
@@ -554,7 +554,7 @@ fn is_under(path: &Path, root: &Path) -> bool {
   if path.starts_with(root) {
     return true;
   }
-  let resolved = |p: &Path| fs::canonicalize(p).ok();
+  let resolved = |p: &Path| crate::real_path(p).ok();
   let path = path
     .parent()
     .and_then(resolved)

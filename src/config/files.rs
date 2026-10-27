@@ -41,7 +41,12 @@ impl Environment {
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
     };
-    let home = path("HOME").or_else(|| path("USERPROFILE"));
+    // Windows' own is `%USERPROFILE%`; `$HOME` there is often a Unix shell's (Git Bash).
+    let home = if cfg!(windows) {
+      path("USERPROFILE").or_else(|| path("HOME"))
+    } else {
+      path("HOME").or_else(|| path("USERPROFILE"))
+    };
     let xdg_config_home = path("XDG_CONFIG_HOME").filter(|p| p.is_absolute());
     let app_data = path("APPDATA");
     let os_config_dir = if cfg!(windows) {

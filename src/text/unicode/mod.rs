@@ -220,18 +220,18 @@ mod tests {
     assert_well_formed("DOUBLE_WIDTH", width_tables::DOUBLE_WIDTH);
   }
 
+  /// The tables keep up with the toolchain's Unicode. An older toolchain (the minimum
+  /// supported Rust) knows an older one, which the tables are ahead of.
   #[test]
-  fn test_tables_match_toolchain_unicode_version() {
+  fn test_tables_keep_up_with_the_toolchain_unicode_version() {
     let toolchain = char::UNICODE_VERSION;
-    let expected = (toolchain.0, toolchain.1, toolchain.2);
-    assert_eq!(
-      ident_tables::UNICODE_VERSION,
-      expected,
+    let toolchain = (toolchain.0, toolchain.1, toolchain.2);
+    assert!(
+      ident_tables::UNICODE_VERSION >= toolchain,
       "identifier tables are out of date: run `cargo xtask unicode`"
     );
-    assert_eq!(
-      width_tables::UNICODE_VERSION,
-      expected,
+    assert!(
+      width_tables::UNICODE_VERSION >= toolchain,
       "width tables are out of date: run `cargo xtask unicode`"
     );
   }

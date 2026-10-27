@@ -306,6 +306,10 @@ fn kind_label(kind: FileKind) -> &'static str {
 
 fn main() {
   quiet_on_closed_pipe();
+  #[cfg(windows)]
+  if !mtindo::text::console::enable_colors() {
+    mtindo::text::color::terminal_reads_no_escapes();
+  }
   let action = match parse_args() {
     Ok(Some(a)) => a,
     Ok(None) => return,
@@ -559,6 +563,19 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
       return usage_error(&format!("unexpected argument '{}'", arg));
     }
     i += 1;
+  }
+  // `cargo mto` gives a list of targets too long for a command line in a file.
+  if let Some(list) = env::var_os("MTINDO_PATHS_FILE").filter(|l| !l.is_empty()) {
+    match std::fs::read_to_string(&list) {
+      Ok(text) => paths.extend(text.lines().filter(|l| !l.is_empty()).map(PathBuf::from)),
+      Err(e) => {
+        return usage_error(&format!(
+          "cannot read the paths in {}: {}",
+          Path::new(&list).display(),
+          e
+        ));
+      }
+    }
   }
   if let Some(kind) = print_config {
     if paths.len() > 1 {
@@ -1261,8 +1278,8 @@ fn run_doctor(view: DoctorView) -> i32 {
         let words = command.unwrap_or_else(|| settings.command.clone());
         format!(
           "The build guard is on. Each run that writes files now runs, in the project's \
-           folder,\n\n    {}\n\nbefore and after it, and holds back the fewest edits that \
-           break the build. mto runs no other command. `mto doctor off` turns it off \
+           folder,\n\n    {}\n\nbefore and after it, and holds back the edits that break \
+           the build. mto runs no other command. `mto doctor off` turns it off \
            ({}).\n",
           words.join(" "),
           path.display()
@@ -1297,7 +1314,7 @@ fn run_doctor(view: DoctorView) -> i32 {
 }
 
 /// `mto doctor RUN`: puts the run's files back as they were, checks, then writes them as
-/// the run did, less the fewest edits that break the build.
+/// the run did, less the edits that break the build.
 fn run_doctor_run(
   resolver: &mut Resolver,
   settings: &doctor_cli::Settings,
@@ -1485,7 +1502,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
         let files: Vec<PathBuf> = jobs
           .iter()
           .filter(|(_, config)| config.is_some())
-          .map(|(path, _)| std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
+          .map(|(path, _)| mtindo::real_path(path).unwrap_or_else(|_| path.clone()))
           .collect();
         let dirty = mtindo::history::git::dirty(&files);
         if let Some(reason) = dirty.skipped
@@ -1512,7 +1529,10 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
         eprintln!("{}", line);
       }
     }
-    writes.holds = Some(doctor.holds());
+    // Remembered holds apply with the guard off too; `--unguarded` writes every edit.
+    if !opts.unguarded {
+      writes.holds = Some(doctor.holds());
+    }
     // Editors name a single file; those runs are not guarded.
     let single = paths.len() == 1 && paths[0].is_file();
     if doctor.enabled && !opts.unguarded && !single {

@@ -97,7 +97,7 @@ fn test_cfg_variants_move_together() {
 fn test_code_only_valid_in_an_older_edition_still_parses() {
   // `async` and `dyn` are plain names in 2015.
   let source = "fn dyn() {}\nfn async() {}\n";
-  let (edition, parsed) = parse_any_edition(source);
+  let (edition, parsed) = parse_any_edition(source, Edition::E2021);
   assert!(parsed.errors().is_empty());
   assert_eq!(edition, Edition::E2015);
   assert_eq!(arranged(source), "fn async() {}\n\nfn dyn() {}\n");

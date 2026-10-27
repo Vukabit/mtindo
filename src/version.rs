@@ -9,7 +9,7 @@ pub const BUILD: &str = env!("MTINDO_BUILD_ID");
 /// The commit built from, when there was git.
 pub const COMMIT: &str = env!("MTINDO_BUILD_COMMIT");
 
-/// The version and the build as one word, `0.2.0+7bb39cb1a2`: two builds with the same
+/// The version and the build as one word, `0.1.0+7bb39cb1a2`: two builds with the same
 /// version differ here.
 pub const FULL: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("MTINDO_BUILD_ID"));
 
@@ -33,7 +33,7 @@ pub fn details() -> String {
   )
 }
 
-/// What `mto --version` prints after `mto `: `0.2.0 (7bb39cb1a2)`.
+/// What `mto --version` prints after `mto `: `0.1.0 (7bb39cb1a2)`.
 pub fn short() -> String {
   format!("{} ({})", VERSION, BUILD)
 }

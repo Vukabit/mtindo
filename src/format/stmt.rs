@@ -163,226 +163,20 @@ pub fn rewrite_control_head(
   column: usize,
   config: &FormatConfig,
 ) -> Option<Head> {
-  if config.hard_tabs || config.tab_spaces == 0 {
-    return None;
-  }
-  let children = node.children();
-  let body = match node.kind() {
-    K::IfExpr => children
-      .get(1)
-      .filter(|b| b.kind() == K::BlockExpr)?
-      .clone(),
-    K::WhileExpr | K::ForExpr | K::LoopExpr => children
-      .iter()
-      .rev()
-      .find(|c| c.kind() == K::BlockExpr)?
-      .clone(),
-    K::MatchExpr => children
-      .iter()
-      .find(|c| c.kind() == K::MatchArmList)?
-      .clone(),
-    _ => return None,
-  };
-  let open = body
-    .children_with_tokens_iter()
-    .find(|e| e.kind() == K::LBrace)?
-    .text_range()
-    .start;
-  let start = node.text_range().start;
-  // Nothing in the head the layout code declines.
-  // A walk in source order: everything before the body's brace, not the body itself.
-  let head: Vec<SyntaxToken> = node
-    .descendants_with_tokens_iter()
-    .take_while(|e| e.text_range().start < open)
-    .filter_map(|e| match e {
-      SyntaxElement::Token(t) if t.text_range().start >= start => Some(t),
-      _ => None,
-    })
-    .collect();
-  // A comment only where the layout places it, among a list's items (an empty list has
-  // none to place it with).
-  let listed = |t: &SyntaxToken| {
-    matches!(t.kind(), K::LineComment | K::BlockComment)
-      && !t.text().contains('\n')
-      && matches!(
-        t.parent().kind(),
-        K::ArgList | K::ArrayExpr | K::TupleExpr | K::RecordExprFieldList
-      )
-      && t.parent().children_iter().next().is_some()
-  };
-  // An attribute only on an element or a struct literal's field, laid out with it.
-  let element_attribute = |t: &SyntaxToken| {
-    t.parent().kind() == K::Attr
-      && t.parent().parent().is_some_and(|p| {
-        matches!(
-          p.kind(),
-          K::ArrayExpr | K::ArgList | K::TupleExpr | K::RecordExprField
-        )
-      })
-  };
-  // Line comments between a `let`'s `=` and its value, each on a line of its own.
-  let after_eq = |t: &SyntaxToken| {
-    t.kind() == K::LineComment
-      && t.parent().kind() == K::LetExpr
-      && t
-        .parent()
-        .children_with_tokens_iter()
-        .take_while(|e| e.text_range().start < t.text_range().start)
-        .any(|e| e.kind() == K::Eq)
-  };
-  if head.iter().any(|t| {
-    (t.kind().is_trivia() && t.kind() != K::Whitespace && !listed(t) && !after_eq(t))
-      || super::items::is_doc(t.kind())
-      || t.kind() == K::Pound && !element_attribute(t) && t.parent().kind() != K::TokenTree
-      || t.kind().is_literal() && t.text().contains('\n')
-  }) {
-    return None;
-  }
-  // The condition, pattern and iterator: nothing in them the layout code declines.
-  // A `let` holding comments before its value (placed below): its parts instead.
-  let commented_let = |c: &SyntaxNode| {
-    c.kind() == K::LetExpr
-      && head.iter().any(after_eq)
-      && c.children_iter().all(|p| clean_expression(&p))
-  };
-  if children
-    .iter()
-    .filter(|c| {
-      !matches!(
-        c.kind(),
-        K::Label | K::BlockExpr | K::MatchArmList | K::IfExpr
-      )
-    })
-    .any(|c| !clean_expression(c) && !commented_let(c))
-  {
-    return None;
-  }
-  let shape = statement_shape(indent, config)?;
-  let shape = Shape {
-    offset: column.checked_sub(indent)?,
-    width: config.max_width.checked_sub(column)?,
-    ..shape
-  };
-  let spacing = Spacing::of(config);
-  let label = children
-    .iter()
-    .find(|c| c.kind() == K::Label)
-    .map(|l| format!("{} ", flat(l, spacing)))
-    .unwrap_or_default();
-  let keyword = head
-    .iter()
-    .find(|t| !t.kind().is_trivia() && t.parent() == *node)?
-    .text()
-    .to_string();
-  let shape = shape.offset_left(str_width(&label))?;
-  // 1 = the space after the keyword.
-  let after = shape.offset_left(str_width(&keyword) + 1)?;
-  let condition = match node.kind() {
-    K::LoopExpr => String::new(),
-    K::ForExpr => {
-      let pattern = children.iter().find(|c| c.kind() != K::Label)?;
-      let iterator = children
-        .iter()
-        .filter(|c| c.kind() != K::Label && c.kind() != K::BlockExpr)
-        .nth(1)?;
-      let pattern = rewrite(pattern, after.sub_width(3)?)?;
-      super::expr::assign_value(&format!("{} in", pattern), iterator, after)?
-    }
-    // `if let pattern =`, then the comments before the value and the value, each on a line
-    // one level in (`rewrite_assign_rhs` with a comment before the right side).
-    _ if head.iter().any(after_eq) => {
-      let condition = children.iter().find(|c| c.kind() != K::Label)?;
-      if condition.kind() != K::LetExpr || keyword != "if" {
-        return None;
-      }
-      let parts = condition.children();
-      let [pattern, value] = parts.as_slice() else {
-        return None;
-      };
-      let pattern = rewrite(pattern, after.offset_left(4)?.sub_width(2)?)?;
-      let nested = shape.block_indent(config.tab_spaces);
-      let pad = format!("\n{}", " ".repeat(nested.indent));
-      let mut text = format!("let {} =", pattern);
-      for comment in head.iter().filter(|t| after_eq(t)) {
-        text.push_str(&pad);
-        text.push_str(comment.text().trim_end());
-      }
-      text.push_str(&pad);
-      text.push_str(&rewrite(value, nested)?);
-      text
-    }
-    _ => {
-      let condition = children.iter().find(|c| c.kind() != K::Label)?;
-      match rewrite(condition, after) {
-        Some(text) => text,
-        // Only `if` keeps its condition on its line; a `match` whose scrutinee does not
-        // fit after it is not laid out there (`rewrite_match`).
-        None if keyword != "if" && keyword != "match" => {
-          let nested = shape.block_indent(config.tab_spaces);
-          format!(
-            "\n{}{}",
-            " ".repeat(nested.indent),
-            rewrite(condition, nested)?
-          )
-        }
-        None => return None,
-      }
-    }
-  };
-  // A condition spanning lines puts it on a line of its own, unless its last line closes
-  // delimiters (`) {`): for a `match` wherever they are, for the rest no further in than
-  // where the expression starts (the standard formatter's `last_line_offsetted`); so does
-  // ` {` past the line width.
-  let last = condition.rsplit('\n').next().unwrap_or("");
-  let closes_at_head = super::expr::last_line_extendable(&condition)
-    && (keyword == "match" || str_width(last) - str_width(last.trim_start()) <= column);
-  let breaks_brace = (condition.contains('\n') || str_width(&condition) > shape.width)
-    && !closes_at_head
-    || !condition.contains('\n')
-      && column + str_width(&label) + str_width(&keyword) + 1 + str_width(&condition) + 2
-        > config.max_width;
-  let mut text = format!("{}{}", label, keyword);
-  if !condition.is_empty() {
-    if !condition.starts_with('\n') {
-      text.push(' ');
-    }
-    text.push_str(&condition);
-  }
-  if breaks_brace {
-    text.push('\n');
-    text.push_str(&" ".repeat(indent));
-  } else {
-    text.push(' ');
-  }
-  // The same tokens, as the lexer splits them, but for those [`compared`] passes over;
-  // `vec!(..)` and `vec! {..}` written `vec![..]`.
-  let brackets = vec_delimiters(node);
-  let written: Vec<&str> = head
-    .iter()
-    .filter_map(|t| {
-      let at = t.text_range().start as usize;
-      match brackets.iter().find(|b| b.0 == at) {
-        Some(b) => Some(b.1),
-        None => compared(t.kind()).then(|| t.text()),
-      }
-    })
-    .collect();
-  let ours: Vec<String> = crate::syntax::parse_tokens(&text, Edition::E2021)
-    .into_iter()
-    .filter(|(kind, _)| compared(*kind))
-    .map(|(_, t)| t.to_string())
-    .collect();
-  if written.concat() != ours.concat() {
-    return None;
-  }
-  Some(Head {
-    text,
-    open: open as usize,
-    tail: Vec::new(),
-    keep_comma: false,
-    spaced: Vec::new(),
-    links: Vec::new(),
-  })
+  control_head(node, indent, column, config, false)
+}
+
+/// [`rewrite_control_head`] where `shape` starts, inside an expression: a chain in it keeps
+/// its links on one line when the expression's does (the standard formatter's
+/// `force_one_line_chain`, which holds until a block's insides).
+pub fn rewrite_control_head_in(node: &SyntaxNode, shape: Shape) -> Option<Head> {
+  control_head(
+    node,
+    shape.indent,
+    shape.indent + shape.offset,
+    &shape.limits.config(),
+    shape.limits.one_line_chains,
+  )
 }
 
 /// A statement holding one block (a closure's body, an `async` or `unsafe` block, a block
@@ -1520,6 +1314,239 @@ fn code_tokens(node: &SyntaxNode) -> Vec<SyntaxToken> {
       _ => None,
     })
     .collect()
+}
+
+fn control_head(
+  node: &SyntaxNode,
+  indent: usize,
+  column: usize,
+  config: &FormatConfig,
+  one_line_chains: bool,
+) -> Option<Head> {
+  if config.hard_tabs || config.tab_spaces == 0 {
+    return None;
+  }
+  let children = node.children();
+  let body = match node.kind() {
+    K::IfExpr => children
+      .get(1)
+      .filter(|b| b.kind() == K::BlockExpr)?
+      .clone(),
+    K::WhileExpr | K::ForExpr | K::LoopExpr => children
+      .iter()
+      .rev()
+      .find(|c| c.kind() == K::BlockExpr)?
+      .clone(),
+    K::MatchExpr => children
+      .iter()
+      .find(|c| c.kind() == K::MatchArmList)?
+      .clone(),
+    _ => return None,
+  };
+  let open = body
+    .children_with_tokens_iter()
+    .find(|e| e.kind() == K::LBrace)?
+    .text_range()
+    .start;
+  let start = node.text_range().start;
+  // Nothing in the head the layout code declines.
+  // A walk in source order: everything before the body's brace, not the body itself.
+  let head: Vec<SyntaxToken> = node
+    .descendants_with_tokens_iter()
+    .take_while(|e| e.text_range().start < open)
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) if t.text_range().start >= start => Some(t),
+      _ => None,
+    })
+    .collect();
+  // A comment only where the layout places it, among a list's items (an empty list has
+  // none to place it with).
+  let listed = |t: &SyntaxToken| {
+    matches!(t.kind(), K::LineComment | K::BlockComment)
+      && !t.text().contains('\n')
+      && matches!(
+        t.parent().kind(),
+        K::ArgList | K::ArrayExpr | K::TupleExpr | K::RecordExprFieldList
+      )
+      && t.parent().children_iter().next().is_some()
+  };
+  // An attribute only on an element or a struct literal's field, laid out with it.
+  let element_attribute = |t: &SyntaxToken| {
+    t.parent().kind() == K::Attr
+      && t.parent().parent().is_some_and(|p| {
+        matches!(
+          p.kind(),
+          K::ArrayExpr | K::ArgList | K::TupleExpr | K::RecordExprField
+        )
+      })
+  };
+  // Line comments between a `let`'s `=` and its value, each on a line of its own.
+  let after_eq = |t: &SyntaxToken| {
+    t.kind() == K::LineComment
+      && t.parent().kind() == K::LetExpr
+      && t
+        .parent()
+        .children_with_tokens_iter()
+        .take_while(|e| e.text_range().start < t.text_range().start)
+        .any(|e| e.kind() == K::Eq)
+  };
+  if head.iter().any(|t| {
+    (t.kind().is_trivia() && t.kind() != K::Whitespace && !listed(t) && !after_eq(t))
+      || super::items::is_doc(t.kind())
+      || t.kind() == K::Pound && !element_attribute(t) && t.parent().kind() != K::TokenTree
+      || t.kind().is_literal() && t.text().contains('\n')
+  }) {
+    return None;
+  }
+  // The condition, pattern and iterator: nothing in them the layout code declines.
+  // A `let` holding comments before its value (placed below): its parts instead.
+  let commented_let = |c: &SyntaxNode| {
+    c.kind() == K::LetExpr
+      && head.iter().any(after_eq)
+      && c.children_iter().all(|p| clean_expression(&p))
+  };
+  if children
+    .iter()
+    .filter(|c| {
+      !matches!(
+        c.kind(),
+        K::Label | K::BlockExpr | K::MatchArmList | K::IfExpr
+      )
+    })
+    .any(|c| !clean_expression(c) && !commented_let(c))
+  {
+    return None;
+  }
+  let shape = statement_shape(indent, config)?;
+  let shape = Shape {
+    offset: column.checked_sub(indent)?,
+    width: config.max_width.checked_sub(column)?,
+    limits: Limits {
+      one_line_chains,
+      ..shape.limits
+    },
+    ..shape
+  };
+  let spacing = Spacing::of(config);
+  let label = children
+    .iter()
+    .find(|c| c.kind() == K::Label)
+    .map(|l| format!("{} ", flat(l, spacing)))
+    .unwrap_or_default();
+  let keyword = head
+    .iter()
+    .find(|t| !t.kind().is_trivia() && t.parent() == *node)?
+    .text()
+    .to_string();
+  let shape = shape.offset_left(str_width(&label))?;
+  // 1 = the space after the keyword.
+  let after = shape.offset_left(str_width(&keyword) + 1)?;
+  let condition = match node.kind() {
+    K::LoopExpr => String::new(),
+    K::ForExpr => {
+      let pattern = children.iter().find(|c| c.kind() != K::Label)?;
+      let iterator = children
+        .iter()
+        .filter(|c| c.kind() != K::Label && c.kind() != K::BlockExpr)
+        .nth(1)?;
+      let pattern = rewrite(pattern, after.sub_width(3)?)?;
+      super::expr::assign_value(&format!("{} in", pattern), iterator, after)?
+    }
+    // `if let pattern =`, then the comments before the value and the value, each on a line
+    // one level in (`rewrite_assign_rhs` with a comment before the right side).
+    _ if head.iter().any(after_eq) => {
+      let condition = children.iter().find(|c| c.kind() != K::Label)?;
+      if condition.kind() != K::LetExpr || keyword != "if" {
+        return None;
+      }
+      let parts = condition.children();
+      let [pattern, value] = parts.as_slice() else {
+        return None;
+      };
+      let pattern = rewrite(pattern, after.offset_left(4)?.sub_width(2)?)?;
+      let nested = shape.block_indent(config.tab_spaces);
+      let pad = format!("\n{}", " ".repeat(nested.indent));
+      let mut text = format!("let {} =", pattern);
+      for comment in head.iter().filter(|t| after_eq(t)) {
+        text.push_str(&pad);
+        text.push_str(comment.text().trim_end());
+      }
+      text.push_str(&pad);
+      text.push_str(&rewrite(value, nested)?);
+      text
+    }
+    _ => {
+      let condition = children.iter().find(|c| c.kind() != K::Label)?;
+      match rewrite(condition, after) {
+        Some(text) => text,
+        // Only `if` keeps its condition on its line; a `match` whose scrutinee does not
+        // fit after it is not laid out there (`rewrite_match`).
+        None if keyword != "if" && keyword != "match" => {
+          let nested = shape.block_indent(config.tab_spaces);
+          format!(
+            "\n{}{}",
+            " ".repeat(nested.indent),
+            rewrite(condition, nested)?
+          )
+        }
+        None => return None,
+      }
+    }
+  };
+  // A condition spanning lines puts it on a line of its own, unless its last line closes
+  // delimiters (`) {`): for a `match` wherever they are, for the rest no further in than
+  // where the expression starts (the standard formatter's `last_line_offsetted`); so does
+  // ` {` past the line width.
+  let last = condition.rsplit('\n').next().unwrap_or("");
+  let closes_at_head = super::expr::last_line_extendable(&condition)
+    && (keyword == "match" || str_width(last) - str_width(last.trim_start()) <= column);
+  let breaks_brace = (condition.contains('\n') || str_width(&condition) > shape.width)
+    && !closes_at_head
+    || !condition.contains('\n')
+      && column + str_width(&label) + str_width(&keyword) + 1 + str_width(&condition) + 2
+        > config.max_width;
+  let mut text = format!("{}{}", label, keyword);
+  if !condition.is_empty() {
+    if !condition.starts_with('\n') {
+      text.push(' ');
+    }
+    text.push_str(&condition);
+  }
+  if breaks_brace {
+    text.push('\n');
+    text.push_str(&" ".repeat(indent));
+  } else {
+    text.push(' ');
+  }
+  // The same tokens, as the lexer splits them, but for those [`compared`] passes over;
+  // `vec!(..)` and `vec! {..}` written `vec![..]`.
+  let brackets = vec_delimiters(node);
+  let written: Vec<&str> = head
+    .iter()
+    .filter_map(|t| {
+      let at = t.text_range().start as usize;
+      match brackets.iter().find(|b| b.0 == at) {
+        Some(b) => Some(b.1),
+        None => compared(t.kind()).then(|| t.text()),
+      }
+    })
+    .collect();
+  let ours: Vec<String> = crate::syntax::parse_tokens(&text, Edition::E2021)
+    .into_iter()
+    .filter(|(kind, _)| compared(*kind))
+    .map(|(_, t)| t.to_string())
+    .collect();
+  if written.concat() != ours.concat() {
+    return None;
+  }
+  Some(Head {
+    text,
+    open: open as usize,
+    tail: Vec::new(),
+    keep_comma: false,
+    spaced: Vec::new(),
+    links: Vec::new(),
+  })
 }
 
 /// A `let` without a value, `let pattern: Type;`: the type placed after the pattern as a

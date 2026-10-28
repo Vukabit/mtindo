@@ -11,7 +11,7 @@ use SyntaxKind as K;
 use super::arms::{Arm, rewrite_arm_in};
 use super::expr::{ends_with_semi, flat, joins, lone_expression, rewrite};
 use super::shape::Shape;
-use super::stmt::{is_tail, rewrite_control_head, rewrite_statement};
+use super::stmt::{is_tail, rewrite_control_head_in, rewrite_statement};
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 use crate::text::unicode::str_width;
 
@@ -98,8 +98,7 @@ pub fn rewrite_lines(block: &SyntaxNode, shape: Shape) -> Option<String> {
 
 /// A `for`, `while` or `loop`: its head, then its block of lines.
 pub fn rewrite_loop(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let config = shape.limits.config();
-  let head = rewrite_control_head(node, shape.indent, shape.indent + shape.offset, &config)?;
+  let head = rewrite_control_head_in(node, shape)?;
   let body = node.children_iter().rfind(|c| c.kind() == K::BlockExpr)?;
   // What is left of the line after the head, for a block on it (`{ /* c */ }`).
   let last = head.text.rsplit('\n').next().unwrap_or("");
@@ -135,7 +134,7 @@ pub fn rewrite_loop(node: &SyntaxNode, shape: Shape) -> Option<String> {
 /// level in (at the `match`'s own indentation without `match_arm_indent`), and `}`.
 pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let config = shape.limits.config();
-  let head = rewrite_control_head(node, shape.indent, shape.indent + shape.offset, &config)?;
+  let head = rewrite_control_head_in(node, shape)?;
   // `match scrutinee` within the shape's width too; ` {` may go past it (`rewrite_match`).
   if !head.text.contains('\n') && str_width(head.text.trim_end()) > shape.width {
     return None;
@@ -202,7 +201,7 @@ pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
       prefix.push('\n');
       prefix.push_str(&" ".repeat(inner.indent));
     }
-    let text = match rewrite_arm_in(arm, inner.indent, &config, shape.limits.inside_macro)? {
+    let text = match rewrite_arm_in(arm, inner.indent, &config, &shape.limits)? {
       Arm::Whole(text) => Some(text),
       Arm::Head(head) => {
         let body = arm

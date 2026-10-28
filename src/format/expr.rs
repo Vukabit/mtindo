@@ -1298,13 +1298,8 @@ pub(super) fn multi_line_condition(node: &SyntaxNode, shape: Shape) -> bool {
       .and_then(|(scrutinee, shape)| rewrite(&scrutinee, shape))
       .is_some_and(|text| text.contains('\n'));
   }
-  super::stmt::rewrite_control_head(
-    node,
-    shape.indent,
-    shape.indent + shape.offset,
-    &shape.limits.config(),
-  )
-  .is_some_and(|head| head.text.trim_end().contains('\n'))
+  super::stmt::rewrite_control_head_in(node, shape)
+    .is_some_and(|head| head.text.trim_end().contains('\n'))
 }
 
 /// Whether a block is a plain one: no `unsafe`, `async`, `const` or label before its `{`.

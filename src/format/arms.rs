@@ -13,7 +13,7 @@ use super::expr::{
   plain_block, prefer_next_line, rewrite,
 };
 use super::items::header_start;
-use super::shape::{Shape, Spacing};
+use super::shape::{Limits, Shape, Spacing};
 use super::stmt::{Head, clean_expression, compared, rewrite_control_head, statement_shape};
 use crate::options::format::FormatConfig;
 use crate::syntax::{Edition, SyntaxKind, SyntaxNode};
@@ -37,19 +37,26 @@ pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> O
   if leading {
     return None;
   }
-  rewrite_arm_in(node, indent, config, false)
+  rewrite_arm_in(
+    node,
+    indent,
+    config,
+    &statement_shape(indent, config)?.limits,
+  )
 }
 
-/// An arm as [`rewrite_arm`] lays it out; inside a macro's arguments (`inside_macro`) its
-/// body keeps or lacks its block as written, and one that does not fit on the arm's line
-/// goes on the next with no block around it, as the standard formatter will not add or
-/// remove braces there.
+/// An arm as [`rewrite_arm`] lays it out, within the `outer` limits of the expression
+/// holding its `match`. Inside a macro's arguments its body keeps or lacks its block as
+/// written, and one that does not fit on the arm's line goes on the next with no block
+/// around it, as the standard formatter will not add or remove braces there. Where chains
+/// keep their links on one line, so do those in it.
 pub fn rewrite_arm_in(
   node: &SyntaxNode,
   indent: usize,
   config: &FormatConfig,
-  inside_macro: bool,
+  outer: &Limits,
 ) -> Option<Arm> {
+  let inside_macro = outer.inside_macro;
   if node.kind() != K::MatchArm || config.hard_tabs || config.tab_spaces == 0 {
     return None;
   }
@@ -81,6 +88,7 @@ pub fn rewrite_arm_in(
   }
   let mut shape = statement_shape(indent, config)?;
   shape.limits.inside_macro = inside_macro;
+  shape.limits.one_line_chains = outer.one_line_chains;
   let tab = config.tab_spaces;
   // 5 = ` => {`
   let pattern_text = rewrite(pattern, shape.sub_width(5)?)?;

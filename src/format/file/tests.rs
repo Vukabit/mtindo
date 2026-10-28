@@ -101,6 +101,19 @@ fn test_an_arm_with_no_room_for_its_arrow_opens_its_block_below() {
   );
 }
 
+/// A method chain overflowing a call keeps every chain inside it on one line, its closure's
+/// `match` included, up to a block's insides: a scrutinee or an arm that must break then
+/// puts the closure's body in a block.
+#[test]
+fn test_a_closure_match_whose_chain_must_break_inside_an_overflowing_chain_takes_a_block() {
+  assert_eq!(
+    formatted(
+      "impl X {\n    fn new_coroutine_witness_for_coroutine() -> Self {\n        let coroutine_args = interner.mk_args_from_iter(coroutine_args.iter().map(|arg| match arg.kind() {\n                GenericArgKind::Type(_) | GenericArgKind::Const(_) => arg,\n                GenericArgKind::Lifetime(_) => {\n                    crate::next_solver::Region::new(interner, rustc_type_ir::RegionKind::ReErased)\n                        .into()\n                }\n            }));\n    }\n}\n"
+    ),
+    "impl X {\n    fn new_coroutine_witness_for_coroutine() -> Self {\n        let coroutine_args = interner.mk_args_from_iter(coroutine_args.iter().map(|arg| {\n            match arg.kind() {\n                GenericArgKind::Type(_) | GenericArgKind::Const(_) => arg,\n                GenericArgKind::Lifetime(_) => {\n                    crate::next_solver::Region::new(interner, rustc_type_ir::RegionKind::ReErased)\n                        .into()\n                }\n            }\n        }));\n    }\n}\n"
+  );
+}
+
 /// An async block that does not fit on one line where it stands, but whose plain block
 /// fits the width less 6 counted from no column: the standard formatter comes back with it
 /// on one line all the same, which an argument list then lays out vertically; a longer one

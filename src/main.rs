@@ -949,8 +949,15 @@ fn print_man_page() {
 
 /// Output piped into a reader that stops early (`mto history | head`) ends the run quietly
 /// with 141, the status of a process ended by SIGPIPE, instead of a panic. Rust ignores
-/// SIGPIPE, so the closed pipe surfaces as a failed print; other panics are untouched.
+/// SIGPIPE, so the closed pipe surfaces as a failed print; other panics are untouched. The
+/// error is known by its code, as its words are in the system's language: EPIPE, or on
+/// Windows a pipe ended (109) or being closed (232).
 fn quiet_on_closed_pipe() {
+  const CLOSED: &[&str] = if cfg!(windows) {
+    &["(os error 109)", "(os error 232)"]
+  } else {
+    &["(os error 32)"]
+  };
   let default = std::panic::take_hook();
   std::panic::set_hook(Box::new(move |info| {
     let message = info
@@ -959,7 +966,9 @@ fn quiet_on_closed_pipe() {
       .map(String::as_str)
       .or_else(|| info.payload().downcast_ref::<&str>().copied())
       .unwrap_or("");
-    if message.starts_with("failed printing to stdout") && message.contains("Broken pipe") {
+    if message.starts_with("failed printing to stdout")
+      && CLOSED.iter().any(|c| message.contains(c))
+    {
       std::process::exit(141);
     }
     default(info);

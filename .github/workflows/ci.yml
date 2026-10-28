@@ -41,8 +41,9 @@ jobs:
         run: cargo clippy --package mtindo --all-targets -- -D warnings
       - name: Build
         run: cargo build --release --bin mto --bin cargo-mto
+      # Every suite runs, so one run shows every system's failures.
       - name: Tests
-        run: cargo test --package mtindo
+        run: cargo test --package mtindo --no-fail-fast
       # The log keeps everything; the summary, which GitHub caps at 1 MB, its start.
       - name: What writing costs here
         run: |

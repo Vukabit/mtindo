@@ -161,13 +161,8 @@ fn test_a_bug_failing_on_one_file_leaves_it_and_the_run_goes_on() {
   assert!(shown.contains("seen 1 time(s)"), "{}", shown);
   let (code, saved, _) = mto(&env, &["report", "save", &id, "bug.md", "--with-file"]);
   assert_eq!(code, 0, "{}", saved);
-  assert!(
-    env
-      .read_file("bug.md")
-      .contains("The whole file, `./b.rs`:"),
-    "{}",
-    env.read_file("bug.md")
-  );
+  let saved = printed(env.read_file("bug.md").as_bytes());
+  assert!(saved.contains("The whole file, `./b.rs`:"), "{}", saved);
   assert_eq!(env.read_file("b.rs"), broken);
   assert_eq!(env.read_file("a.rs"), SORTED);
   assert_eq!(env.read_file("c.rs"), SORTED);

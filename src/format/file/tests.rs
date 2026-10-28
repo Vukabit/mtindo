@@ -89,6 +89,40 @@ fn test_an_arm_body_too_wide_for_its_line_goes_in_a_block() {
   );
 }
 
+/// An arm whose pattern and guard leave no room for ` => ` (a guard kept as written past
+/// the width): its block starts the next line, as the standard formatter lays it out.
+#[test]
+fn test_an_arm_with_no_room_for_its_arrow_opens_its_block_below() {
+  assert_eq!(
+    formatted(
+      "fn f() {\n    match x {\n        TypeRef::Reference(ref_) if matches!(&data.store[ref_.ty], TypeRef::Path(p) if p.is_self_type()) => {\n            a();\n            b();\n        }\n        _ => {}\n    }\n}\n"
+    ),
+    "fn f() {\n    match x {\n        TypeRef::Reference(ref_) if matches!(&data.store[ref_.ty], TypeRef::Path(p) if p.is_self_type()) =>\n        {\n            a();\n            b();\n        }\n        _ => {}\n    }\n}\n"
+  );
+}
+
+/// An async block that does not fit on one line where it stands, but whose plain block
+/// fits the width less 6 counted from no column: the standard formatter comes back with it
+/// on one line all the same, which an argument list then lays out vertically; a longer one
+/// overflows as usual.
+#[test]
+fn test_an_async_block_almost_fitting_goes_on_a_line_of_its_own() {
+  let call = |n: usize| {
+    format!(
+      "fn f() {{\n    loop {{\n        loop {{\n            loop {{\n                loop {{\n                    spawn_local(async move {{ {}.await }});\n                }}\n            }}\n        }}\n    }}\n}}\n",
+      "a".repeat(n)
+    )
+  };
+  let out = formatted(&call(48));
+  assert!(
+    out.contains("spawn_local(\n                        async move {"),
+    "{}",
+    out
+  );
+  let out = formatted(&call(51));
+  assert!(out.contains("spawn_local(async move {\n"), "{}", out);
+}
+
 #[test]
 fn test_arm_comments_aligned() {
   // Comments after arms aligned in their group, an arm's comma counted in its width; one

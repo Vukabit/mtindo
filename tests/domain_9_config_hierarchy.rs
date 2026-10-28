@@ -29,7 +29,7 @@ fn test_cargo_workspace_root_inheritance() {
 
   let mut resolver = resolver();
   let config = resolver.config_for(&member_dir.join("src")).unwrap();
-  let root_config = fs::canonicalize(env.dir.path().join("mto.toml")).unwrap();
+  let root_config = mtindo::real_path(env.dir.path().join("mto.toml")).unwrap();
   assert_eq!(config.files(), &[(FileKind::Mto, root_config)]);
   assert_eq!(config.layout().max_width, 150);
 

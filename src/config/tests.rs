@@ -17,7 +17,7 @@ impl Tree {
       COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     fs::create_dir_all(&root).unwrap();
-    let root = fs::canonicalize(root).unwrap();
+    let root = crate::real_path(root).unwrap();
     for (path, text) in files {
       let path = root.join(path);
       fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -141,7 +141,8 @@ fn test_cargo_workspace_edition_and_bad_manifests() {
   assert_eq!(config.style_edition(), 2021);
   let (config, warnings) = super::tests::config(&tree, "b");
   assert_eq!(config.style_edition(), 2015);
-  assert!(warnings[0].contains("b/Cargo.toml:1:"), "{:?}", warnings);
+  let manifest = format!("b{}Cargo.toml:1:", std::path::MAIN_SEPARATOR);
+  assert!(warnings[0].contains(&manifest), "{:?}", warnings);
 }
 
 #[test]

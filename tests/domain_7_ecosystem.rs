@@ -32,7 +32,7 @@ fn test_config_resolution_hierarchy() {
     .iter()
     .map(|(_, path)| path.clone())
     .collect();
-  let canonical = |p: &std::path::Path| fs::canonicalize(p).unwrap();
+  let canonical = |p: &std::path::Path| mtindo::real_path(p).unwrap();
   assert_eq!(
     files,
     vec![canonical(&root_config), canonical(&nested_config)]

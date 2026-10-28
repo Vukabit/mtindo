@@ -3607,6 +3607,29 @@ fn rewrite_block(node: &SyntaxNode, shape: Shape) -> Option<String> {
   if prefix.width() + 1 > shape.width {
     return None;
   }
+  // An async block the standard formatter tries again as a plain block, with its width
+  // less 6 and its column forgotten: `{ expr }` that fits so comes back on one line, too
+  // wide for where it stands. A block's statement keeps it so; an argument list or a
+  // right-hand side measures it and lays itself out otherwise.
+  if node
+    .children_with_tokens_iter()
+    .any(|e| e.kind() == SyntaxKind::AsyncKw)
+    && !must_span_lines(&inside)
+  {
+    let budget = shape.width.saturating_sub(6);
+    let plain = Shape {
+      offset: 0,
+      width: budget,
+      ..shape
+    };
+    if let Some(text) = plain
+      .sub_width(4)
+      .and_then(|s| rewrite(&inside, s))
+      .filter(|t| !t.contains('\n') && t.width() + 4 <= budget)
+    {
+      return Some(format!("{}{{ {} }}", prefix, text));
+    }
+  }
   let nested = shape.block_inside();
   // One the standard formatter gives up on is kept as written in the block (its visitor's
   // `push_rewrite` given nothing): on one line only, as one written across lines would

@@ -223,6 +223,14 @@ pub fn rewrite_arm_in(
             (None, true) => return None,
             (None, false) => Vec::new(),
           };
+          // No room for ` => ` after the arm's last line (a guard kept as written past the
+          // width): the block starts the next line, as the standard formatter tries the
+          // arm's line only with room on it.
+          let arrow = if shape.offset_left(used + 4).is_none() {
+            format!(" =>\n{}", " ".repeat(indent))
+          } else {
+            arrow.clone()
+          };
           Arm::Head(Head {
             text: format!("{}{}{}", lhs, arrow, prefix),
             open,

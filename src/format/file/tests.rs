@@ -19,6 +19,36 @@ fn formatted_with(source: &str, config: &FormatConfig) -> String {
   once
 }
 
+/// The width set with every heuristic at it, as `use_small_heuristics = "Max"` sets them.
+fn max_heuristics(max_width: usize) -> FormatConfig {
+  FormatConfig {
+    style_edition: 2024,
+    max_width,
+    fn_call_width: max_width,
+    chain_width: max_width,
+    struct_lit_width: max_width,
+    struct_variant_width: max_width,
+    array_width: max_width,
+    attr_fn_like_width: max_width,
+    single_line_if_else_max_width: max_width,
+    single_line_let_else_max_width: max_width,
+    ..FormatConfig::default()
+  }
+}
+
+/// A method chain overflowing a call keeps every chain inside it on one line, its closure's
+/// `match` included, up to a block's insides: a scrutinee or an arm that must break then
+/// puts the closure's body in a block.
+#[test]
+fn test_a_closure_match_whose_chain_must_break_inside_an_overflowing_chain_takes_a_block() {
+  assert_eq!(
+    formatted(
+      "impl X {\n    fn new_coroutine_witness_for_coroutine() -> Self {\n        let coroutine_args = interner.mk_args_from_iter(coroutine_args.iter().map(|arg| match arg.kind() {\n                GenericArgKind::Type(_) | GenericArgKind::Const(_) => arg,\n                GenericArgKind::Lifetime(_) => {\n                    crate::next_solver::Region::new(interner, rustc_type_ir::RegionKind::ReErased)\n                        .into()\n                }\n            }));\n    }\n}\n"
+    ),
+    "impl X {\n    fn new_coroutine_witness_for_coroutine() -> Self {\n        let coroutine_args = interner.mk_args_from_iter(coroutine_args.iter().map(|arg| {\n            match arg.kind() {\n                GenericArgKind::Type(_) | GenericArgKind::Const(_) => arg,\n                GenericArgKind::Lifetime(_) => {\n                    crate::next_solver::Region::new(interner, rustc_type_ir::RegionKind::ReErased)\n                        .into()\n                }\n            }\n        }));\n    }\n}\n"
+  );
+}
+
 #[test]
 fn test_a_closure_whose_head_leaves_no_room_is_kept_in_a_block() {
   // `|SSSS:f|o` at the width exactly: the standard formatter gives up on it there and
@@ -45,6 +75,15 @@ fn test_a_closure_with_a_let_body_keeps_it_out_of_a_block() {
   formatted_with("fn t(){||let x =d||1}\n", &config);
 }
 
+/// `||` overflowing a call needs a column more than `|| {` and the one after it: with only
+/// those left on the line, the closure goes on a line of its own and the chain stays on
+/// the `let`'s line.
+#[test]
+fn test_a_closure_with_no_room_for_its_empty_parameters_is_not_overflowed() {
+  let source = "impl X {\n    pub(crate) fn index_read(&self) -> anyhow::Result<grep_index::Index> {\n        let index = grep_index::IndexDiscovery::new().discover()?.ok_or_else(\n            || anyhow::anyhow!(\"failed to find an index to read\"),\n        )?;\n        Ok(index)\n    }\n}\n";
+  assert_eq!(formatted_with(source, &max_heuristics(79)), source);
+}
+
 #[test]
 fn test_a_comment_after_an_attribute_across_lines_moves_to_its_indentation() {
   let config = FormatConfig {
@@ -58,6 +97,28 @@ fn test_a_comment_after_an_attribute_across_lines_moves_to_its_indentation() {
     ),
     "mod m {\n    #![f(\n     |B)]\n    // Mirnoti xxxxxxxxx Wt cf c i t r xxxxxxxxxxx\n    #![c]\n}\n"
   );
+}
+
+/// A chain's last link that fits on the chain's first line but cannot overflow there is
+/// laid out in the chain's own shape, its block indented from the chain's indentation
+/// though the link goes on a line of its own, as the standard formatter writes it.
+#[test]
+fn test_a_last_link_that_cannot_overflow_is_laid_out_from_the_chains_indentation() {
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let index = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::new().discover()?.ok_or_else(\n        move || anyhow::anyhow!(\"failed to find an index to read\"),\n    )?;\n}\n",
+      &max_heuristics(79)
+    ),
+    "fn f() {\n    let index = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::new()\n        .discover()?\n        .ok_or_else(move || {\n        anyhow::anyhow!(\"failed to find an index to read\")\n    })?;\n}\n"
+  );
+}
+
+/// A link's arguments holding a line past the width, laid out on the next line, are still
+/// weighed there; the chain then fails as a whole, so it stays on the line it is on.
+#[test]
+fn test_a_link_with_a_line_past_the_width_fails_the_chain_not_the_link() {
+  let source = "fn f() {\n    {\n        {\n            {\n                {\n                    _ = ctx.probe_all(method_resolution::Mode::MethodCall, self_ty).try_for_each(\n                        |candidate| {\n                            let id = Function { id: AnyFunctionId::FunctionId(id) };\n                            match candidate.candidate.kind {\n                                method_resolution::CandidateKind::InherentImplCandidate {\n                                    ..\n                                }\n                                | method_resolution::CandidateKind::ObjectCandidate(..)\n                                | method_resolution::CandidateKind::WhereClauseCandidate(..) => {\n                                    callback.on_inherent_method(id)\n                                }\n                                method_resolution::CandidateKind::TraitCandidate(..) => {\n                                    callback.on_trait_method(id)\n                                }\n                            }\n                        },\n                    );\n                }\n            }\n        }\n    }\n}\n";
+  assert_eq!(formatted_with(source, &max_heuristics(100)), source);
 }
 
 #[test]
@@ -98,19 +159,6 @@ fn test_an_arm_with_no_room_for_its_arrow_opens_its_block_below() {
       "fn f() {\n    match x {\n        TypeRef::Reference(ref_) if matches!(&data.store[ref_.ty], TypeRef::Path(p) if p.is_self_type()) => {\n            a();\n            b();\n        }\n        _ => {}\n    }\n}\n"
     ),
     "fn f() {\n    match x {\n        TypeRef::Reference(ref_) if matches!(&data.store[ref_.ty], TypeRef::Path(p) if p.is_self_type()) =>\n        {\n            a();\n            b();\n        }\n        _ => {}\n    }\n}\n"
-  );
-}
-
-/// A method chain overflowing a call keeps every chain inside it on one line, its closure's
-/// `match` included, up to a block's insides: a scrutinee or an arm that must break then
-/// puts the closure's body in a block.
-#[test]
-fn test_a_closure_match_whose_chain_must_break_inside_an_overflowing_chain_takes_a_block() {
-  assert_eq!(
-    formatted(
-      "impl X {\n    fn new_coroutine_witness_for_coroutine() -> Self {\n        let coroutine_args = interner.mk_args_from_iter(coroutine_args.iter().map(|arg| match arg.kind() {\n                GenericArgKind::Type(_) | GenericArgKind::Const(_) => arg,\n                GenericArgKind::Lifetime(_) => {\n                    crate::next_solver::Region::new(interner, rustc_type_ir::RegionKind::ReErased)\n                        .into()\n                }\n            }));\n    }\n}\n"
-    ),
-    "impl X {\n    fn new_coroutine_witness_for_coroutine() -> Self {\n        let coroutine_args = interner.mk_args_from_iter(coroutine_args.iter().map(|arg| {\n            match arg.kind() {\n                GenericArgKind::Type(_) | GenericArgKind::Const(_) => arg,\n                GenericArgKind::Lifetime(_) => {\n                    crate::next_solver::Region::new(interner, rustc_type_ir::RegionKind::ReErased)\n                        .into()\n                }\n            }\n        }));\n    }\n}\n"
   );
 }
 

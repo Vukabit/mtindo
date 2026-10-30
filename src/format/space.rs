@@ -259,6 +259,11 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
     }
     return path_start(ka).then_some(false);
   }
+  // After a type ascription's, field's or bound's colon, whatever follows: `x: [u8; 4]`,
+  // `x: (u8, u8)`, `x: <T as A>::B`.
+  if ka == K::Colon {
+    return Some(config.space_after_colon);
+  }
   if (ka == K::Dot || kb == K::Dot)
     && matches!(
       if ka == K::Dot { pa } else { pb },
@@ -364,9 +369,6 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool>
   // Type ascriptions, fields and bounds: `a: T`.
   if kb == K::Colon {
     return Some(config.space_before_colon);
-  }
-  if ka == K::Colon {
-    return Some(config.space_after_colon);
   }
   // Closure parameters: `|a, b| body`.
   if pa == K::ParamList && ka == K::Pipe && is_opening_pipe(a) {

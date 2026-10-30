@@ -18,6 +18,15 @@ fn formatted(source: &str) -> String {
 }
 
 #[test]
+fn test_a_colon_is_spaced_before_any_type() {
+  // A struct-like variant's fields joined on one line, with types opening a delimiter.
+  assert_eq!(
+    formatted("enum E {\n    A { x:[u8; 4], y:(u8,u8) },\n    B { z:<T as A>::B },\n}\n"),
+    "enum E {\n    A { x: [u8; 4], y: (u8, u8) },\n    B { z: <T as A>::B },\n}\n"
+  );
+}
+
+#[test]
 fn test_a_statement_too_wide_on_its_first_line_is_left_as_written() {
   let long = format!("fn f() {{\n    let x= g(\"{}\") ;\n}}\n", "x".repeat(90));
   assert_eq!(formatted(&long), long);

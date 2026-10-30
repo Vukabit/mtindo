@@ -8,12 +8,14 @@
 
 mod bench;
 mod capabilities;
+mod changelog;
 mod cli;
 mod common;
 mod corpus;
 mod coverage;
 mod diff;
 mod doctor;
+mod flow;
 mod fuzz;
 mod fuzz_diff;
 mod fuzz_soak;
@@ -31,6 +33,10 @@ mod settings;
 mod sha256;
 mod status;
 mod test;
+// mtindo's own TOML parser, shared without linking mtindo (as `common` shares its colors).
+#[allow(dead_code, unused_imports)]
+#[path = "../../src/config/toml/mod.rs"]
+mod toml;
 mod toml_test;
 mod unicode;
 
@@ -47,11 +53,37 @@ const EXIT_CODES: &[(&str, &str)] = &[
   ("2", "bad arguments"),
 ];
 
+/// `docs/generated/commands.md` written from the command tree, or (`check`) compared.
+fn commands_page(root: &Path, check: bool) -> ExitCode {
+  let path = root.join("docs/generated/commands.md");
+  let fresh = cli::reference();
+  let written = std::fs::read_to_string(&path).unwrap_or_default();
+  if written == fresh {
+    return ExitCode::SUCCESS;
+  }
+  if check {
+    println!("docs/generated/commands.md is out of date: run `cargo xtask docs`");
+    return ExitCode::from(1);
+  }
+  match std::fs::write(&path, fresh) {
+    Ok(()) => {
+      println!("wrote docs/generated/commands.md");
+      ExitCode::SUCCESS
+    }
+    Err(e) => {
+      println!("docs/generated/commands.md: {}", e);
+      ExitCode::from(1)
+    }
+  }
+}
+
 /// Each command's entry point, by name; [`cli::tree`] defines what it accepts.
 fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
   match name {
     "test" => test::run(root, m),
+    "bootstrap" => flow::bootstrap(root, m),
     "capabilities" => capabilities::run(root, m),
+    "changelog" => changelog::run(root, m),
     "corpus" => corpus::run(root, m),
     "diff" => diff::run(root, m),
     // The settings reference and the manual are written by xtask-tools, which links mtindo;
@@ -65,6 +97,10 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
       };
       let tables = forward(root, "docs", args);
       let papers = papers::run(root, check);
+      let commands = commands_page(root, check);
+      if commands != ExitCode::SUCCESS {
+        return commands;
+      }
       if tables == ExitCode::SUCCESS {
         papers
       } else {
@@ -72,6 +108,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
       }
     }
     "doctor" => doctor::run(root, m),
+    "flow" => flow::run(root, m),
     "fuzz" => fuzz::run(root, m),
     "gates" => gates::run(root, m),
     "incidents" => incidents::run(root, m),

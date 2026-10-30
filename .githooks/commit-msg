@@ -1,0 +1,3 @@
+#!/bin/sh
+# flow.toml decides what this checks: see CONTRIBUTING.md.
+exec cargo -q xtask flow hook commit-msg "$@"

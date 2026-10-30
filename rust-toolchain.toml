@@ -1,0 +1,7 @@
+# The toolchain every cargo command in this repository uses: flow.toml
+# [tools.stable] pins the same, and its standard formatter is the answer key
+# the corpus is compared against. `cargo xtask bootstrap` installs it.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

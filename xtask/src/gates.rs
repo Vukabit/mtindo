@@ -84,12 +84,15 @@ const LAYERS: &[(&str, u8)] = &[
   ("cli", 6),
 ];
 
-/// Where the reference formatter's name may appear anywhere: the contributor guide and the
-/// tooling it describes, which runs it as the answer key, its recorded surface and
-/// capabilities, the settings table generated from it, and test inputs taken from it (the
-/// fixtures, and fuzz inputs grown from them).
+/// Where the reference formatter's name may appear anywhere: the contributor and maintainer
+/// guides and the tooling they describe, which runs it as the answer key (and the command
+/// reference generated from that tooling's help), its recorded surface and capabilities,
+/// the settings table generated from it, and test inputs taken from it (the fixtures, and
+/// fuzz inputs grown from them).
 const NAMING_ALLOWED_PATHS: &[&str] = &[
   "CONTRIBUTING.md",
+  "MAINTAINING.md",
+  "docs/generated/commands.md",
   "CREDITS.md",
   "xtask/",
   "compat/",

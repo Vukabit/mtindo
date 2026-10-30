@@ -312,14 +312,14 @@ pub const METRICS: &[Entry] = &[
       memst recorder. From 2026-10-25 the whole process is recorded, from the start of \
       `main` (its reading of arguments and settings too), not only the pipeline: about \
       1% more.",
-    measured: "`cargo xtask memst`.",
+    measured: "`cargo xtask memst`, with memst, which is not yet published.",
     values: &[],
   },
   Entry {
     name: "memst.serde.bytes",
     unit: "bytes",
     definition: "Bytes requested by the allocations of `memst.serde.allocs`, summed.",
-    measured: "`cargo xtask memst`.",
+    measured: "`cargo xtask memst`, with memst, which is not yet published.",
     values: &[],
   },
   Entry {
@@ -327,7 +327,7 @@ pub const METRICS: &[Entry] = &[
     unit: "bytes",
     definition: "The most bytes allocated and not yet freed at any moment of the run of \
       `memst.serde.allocs`.",
-    measured: "`cargo xtask memst`.",
+    measured: "`cargo xtask memst`, with memst, which is not yet published.",
     values: &[],
   },
   Entry {

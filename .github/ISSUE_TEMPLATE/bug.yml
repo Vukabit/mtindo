@@ -1,0 +1,48 @@
+name: Bug
+description: mto wrote something it should not have, or failed to run
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        A security problem goes to the Security tab instead (SECURITY.md).
+        `mto report` writes a bug report with the input, settings and build;
+        attaching it is the quickest way to a fix.
+  - type: input
+    id: version
+    attributes:
+      label: mto --version
+      placeholder: mto 0.1.0 (7bb39cb1a2)
+    validations:
+      required: true
+  - type: textarea
+    id: ran
+    attributes:
+      label: What you ran
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: The input
+      description: The smallest file that shows it, and any rustfmt.toml or mto.toml.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: For formatting, what the standard formatter writes.
+  - type: textarea
+    id: got
+    attributes:
+      label: What mto did
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: mto report
+      description: Drop the file `mto report` wrote here.

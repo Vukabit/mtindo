@@ -1,0 +1,193 @@
+# How changes reach mtindo's history and its releases: read by
+# `cargo xtask flow`, the git hooks in .githooks/ (`cargo xtask flow setup`
+# turns them on) and CI. See CONTRIBUTING.md and MAINTAINING.md.
+
+# A commit's first line: `kind(scope): subject`, where the scope is a section
+# below or a path in the tree, several joined by commas, and `!` after the
+# scope marks a breaking change.
+[commit]
+# The first line, scope and all.
+max_header = 72
+# A scope that covers none of the commit's files fails it.
+scope_must_match = true
+
+# When a commit may hold more than its first line.
+[commit.body]
+refused_kinds = ["docs", "test", "chore", "ci", "style"]
+# A smaller change says it all in its first line.
+min_changed_lines = 40
+required_for_breaking = true
+max_width = 72
+max_lines = 12
+# Lines of the last paragraph that are not a body (`Name: value`).
+trailers = [
+  "Co-authored-by",
+  "Signed-off-by",
+  "Reviewed-by",
+  "Reported-by",
+  "Tested-by",
+  "Refs",
+  "BREAKING CHANGE",
+  "BREAKING-CHANGE",
+]
+
+# Each kind, with the changelog heading it is listed under; false leaves it out.
+[kinds]
+feat = "Added"
+fix = "Fixed"
+perf = "Performance"
+refactor = "Changed"
+revert = "Removed"
+docs = false
+test = false
+chore = false
+ci = false
+style = false
+
+# Each section, with the paths it covers (`*` within a name, `**` across
+# folders). A path no section covers may still be a scope by naming it.
+[sections]
+format = ["src/format/**"]
+syntax = ["src/syntax/**"]
+layout = ["src/layout/**", "src/order/**"]
+verify = ["src/verify/**"]
+doctor = ["src/doctor/**"]
+cli = ["src/main.rs", "src/bin/**", "src/cli/**"]
+config = ["src/config/**", "src/options/**", "mto.toml"]
+history = ["src/history/**", "src/durable/**"]
+report = ["src/report/**"]
+text = ["src/text/**"]
+fuzz = ["fuzz/**", "src/fuzzing/**"]
+tests = ["tests/**", "benches/**"]
+compat = ["compat/**"]
+xtask = ["xtask/**"]
+ci = [".github/**", ".githooks/**", "flow.toml"]
+docs = ["*.md", "docs/**"]
+release = ["Cargo.toml", "Cargo.lock", "CHANGELOG.md"]
+build = [
+  "Cargo.toml",
+  "Cargo.lock",
+  "build.rs",
+  ".cargo/**",
+  "rustfmt.toml",
+  "src/lib.rs",
+  "src/version.rs",
+  "src/cache_alloc.rs",
+]
+
+# The tools development needs, at the versions CI uses: `cargo xtask bootstrap`
+# installs or updates them, and each stage or command checks the ones it lists
+# in `needed_by` first.
+#   toolchain  a Rust toolchain from rustup, with its components
+#   cargo      a crate installed with `cargo install --locked --version`
+#   system     installed by hand from `url`; `version` is the oldest that works
+#   path       a crate beside this repository (`cargo install --path`)
+# An `optional` tool is installed when it can be and never required.
+[tools.stable]
+kind = "toolchain"
+# rust-toolchain.toml names the same: its standard formatter is the answer key
+# the corpus is compared against.
+version = "1.98.0"
+components = ["clippy", "rustfmt"]
+needed_by = ["pre-commit", "pre-push", "ci", "build", "msrv", "release"]
+
+[tools.msrv]
+kind = "toolchain"
+# Cargo.toml's rust-version.
+version = "1.88"
+needed_by = ["msrv"]
+
+[tools.nightly]
+kind = "toolchain"
+# Fuzzing and coverage follow the newest nightly.
+version = "nightly"
+components = ["llvm-tools-preview"]
+needed_by = ["fuzz", "coverage"]
+
+[tools.git-cliff]
+kind = "cargo"
+version = "2.14.2"
+needed_by = ["changelog", "release"]
+
+[tools.cargo-fuzz]
+kind = "cargo"
+version = "0.13.2"
+needed_by = ["fuzz"]
+
+[tools.gh]
+kind = "system"
+version = "2.40.0"
+url = "https://cli.github.com"
+needed_by = ["release"]
+
+[tools.memst]
+kind = "path"
+path = "../memst"
+# The command it installs, when not its own name.
+bin = "cargo-memst"
+# Not yet published: only maintainers with its checkout beside this one have
+# it. Nothing else needs it; `cargo xtask test` skips its task without it.
+optional = true
+needed_by = ["memst"]
+
+# The checks each stage runs, in order. A hook runs the stage of its name; CI
+# runs `ci` once and `build` on every platform. Each check is described in
+# CONTRIBUTING.md.
+[stages]
+pre-commit = ["no-internal", "secrets", "fmt", "gates"]
+pre-push = ["messages", "hold", "clippy", "tests"]
+ci = [
+  "messages",
+  "no-internal",
+  "secrets",
+  "fmt",
+  "gates",
+  "actions-pinned",
+  "tools-pinned",
+  "commands-doc",
+]
+build = ["clippy", "tests"]
+msrv = ["msrv"]
+release = ["clean", "pushed", "ci-green", "compat-record", "tokens", "package"]
+publish = ["version-agrees", "package"]
+# Before the repository goes public: every commit ever made, not only the tree.
+public = ["history-clean"]
+
+[release]
+# The branch releases are cut from.
+branch = "main"
+# Refs only a release may push: `cargo xtask flow release` marks the commit
+# and tag it made, and `hold` lets those through.
+hold = ["refs/heads/main", "refs/tags/v*"]
+repository = "Vukabit/mtindo"
+# The Homebrew tap CI opens a pull request in with each release's formula.
+tap = "Vukabit/homebrew-tap"
+# The first release is left a draft on GitHub, to look over before it is
+# published; later ones are published as built.
+first_as_draft = true
+# The binaries each release carries, built by .github/workflows/release.yml.
+targets = [
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+
+# Credentials CI uses that expire. GitHub never shows a secret again, so its
+# expiry is written here when it is made or rotated (MAINTAINING.md):
+# `cargo xtask flow release` warns 14 days before and stops once it passes.
+[release.tokens]
+HOMEBREW_TAP_TOKEN = ""
+
+[secrets]
+# Text that looks like a credential, refused wherever it is added.
+patterns = [
+  "cio[A-Za-z0-9]{32}",
+  "gh[pousr]_[A-Za-z0-9]{36,}",
+  "github_pat_[A-Za-z0-9_]{22,}",
+  "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+  "AKIA[0-9A-Z]{16}",
+]
+# Paths whose look-alikes are deliberate (test inputs).
+allow = ["tests/fixtures/**", "fuzz/corpus/**"]

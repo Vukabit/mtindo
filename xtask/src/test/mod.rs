@@ -362,9 +362,9 @@ fn git(root: &Path, args: &[&str]) -> Option<String> {
 /// How to get a missing tool, for the failure message.
 fn install_hint(tool: &str) -> &'static str {
   match tool {
-    "clippy" => "Install it with: rustup component add clippy",
-    "rustfmt" => "Install it with: rustup component add rustfmt",
-    "cargo-fuzz" => "Install it with: rustup toolchain install nightly && cargo install cargo-fuzz",
+    "clippy" | "rustfmt" | "cargo-fuzz" => {
+      "Install it with: cargo xtask bootstrap --go (the versions flow.toml pins)"
+    }
     "rustup" => "Install it from https://rustup.rs",
     _ => "Install it and make sure it is on PATH.",
   }
@@ -639,6 +639,14 @@ fn run_task(
   log: &Logger,
   colors: &Colors,
 ) {
+  for (tool, why) in task.optional.clone() {
+    if !tool_available(root, tool, cache, log) {
+      task.state = State::Skip;
+      task.note = format!("{} is not installed ({})", tool, why);
+      log.info(&format!("Skipped [{}]: {}", task.id, task.note));
+      return;
+    }
+  }
   for tool in task.requires.clone() {
     if !tool_available(root, tool, cache, log) {
       task.state = State::Fail;

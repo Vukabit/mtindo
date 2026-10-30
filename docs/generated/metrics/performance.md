@@ -78,6 +78,7 @@ measurements on the machine that ran it:
   as the growth exponent.
 - `cargo xtask memst`: the corpus's serde repository laid out and formatted
   under an allocation recorder: allocations, bytes and peak live bytes.
+  memst is not yet published, so only its maintainers can take these.
 - `cargo xtask doctor bench`: what the build guard costs (shaping with
   remembered holds over without) and how many builds a narrowing takes to
   find planted culprits, over seeded draws so the figures repeat.

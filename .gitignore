@@ -24,3 +24,6 @@ docs/internal/
 
 # Downloaded test and generator inputs (corpus, Unicode data)
 compat/cache/
+
+# Release archives (cargo xtask flow package).
+/dist/

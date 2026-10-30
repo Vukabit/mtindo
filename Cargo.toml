@@ -13,7 +13,7 @@ repository = "https://github.com/Vukabit/mtindo"
 readme = "README.md"
 keywords = ["formatter", "layout", "rust", "cli", "cargo-subcommand"]
 categories = ["development-tools", "command-line-utilities"]
-include = ["/src", "/Cargo.toml", "/README.md", "/CREDITS.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/LICENSE-UNICODE"]
+include = ["/src", "/build.rs", "/Cargo.toml", "/README.md", "/CREDITS.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/LICENSE-UNICODE"]
 
 [[bin]]
 name = "mto"

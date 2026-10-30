@@ -1,0 +1,14 @@
+name: Idea
+description: Something mto could do
+labels: [idea]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What you would like mto to do
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why, and what you do today instead

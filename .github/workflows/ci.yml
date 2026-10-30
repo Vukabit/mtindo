@@ -32,18 +32,16 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      # rust-toolchain.toml's, with its components.
       - name: Toolchain
-        run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
-      - name: Clippy
-        run: cargo clippy --package mtindo --all-targets -- -D warnings
+        run: rustup toolchain install
       - name: Build
         run: cargo build --release --bin mto --bin cargo-mto
-      # Every suite runs, so one run shows every system's failures.
-      - name: Tests
-        run: cargo test --package mtindo --no-fail-fast
+      # Clippy and every test suite (flow.toml's `build` stage), so one run shows every
+      # system's failures.
+      - name: Checks
+        run: cargo xtask flow check build
       # The log keeps everything; the summary, which GitHub caps at 1 MB, its start.
       - name: What writing costs here
         run: |
@@ -53,29 +51,45 @@ jobs:
           head -c 65536 io-bench.txt >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
-  # The oldest Rust mto supports (`rust-version` in Cargo.toml) still builds and tests it.
+  # The oldest Rust mto supports (`rust-version` in Cargo.toml, flow.toml's
+  # [tools.msrv]) still builds and tests it.
   msrv:
-    name: msrv (Rust 1.88)
+    name: msrv
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - name: Toolchain
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Toolchains
         run: |
-          rustup toolchain install 1.88 --profile minimal
-          rustup default 1.88
+          rustup toolchain install
+          cargo xtask bootstrap --go --for msrv
       - name: Tests
-        run: cargo test --package mtindo
+        run: cargo xtask flow check msrv
 
-  gates:
+  # The repository's own rules (flow.toml's `ci` stage): the pushed commits' messages,
+  # no credentials or working notes, formatting, the gates, pinned actions.
+  flow:
     runs-on: ubuntu-24.04
     steps:
-      # The whole history: the metrics papers' history tables are read from it.
-      - uses: actions/checkout@v5
+      # The whole history: the commits pushed are read from it, as are the metrics
+      # papers' history tables.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
       - name: Toolchain
+        run: rustup toolchain install
+      # A pull request's commits since its base; a push's since what the branch held
+      # (a new branch, or history rewritten: since main).
+      - name: Checks
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
-      - name: Gates
-        run: cargo xtask gates
+          if [ "$EVENT" = pull_request ]; then
+            range="origin/$BASE..HEAD"
+          elif [ -n "${BEFORE//0/}" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            range="origin/main..HEAD"
+          fi
+          cargo xtask flow check ci --range "$range"

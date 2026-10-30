@@ -143,6 +143,8 @@ pub struct Task {
   pub action: Action,
   pub env: Vec<(String, String)>,
   pub requires: Vec<&'static str>,
+  /// Tools the task is skipped without, with why each may be missing.
+  pub optional: Vec<(&'static str, &'static str)>,
   /// The longest the task may run; past it, it is stopped and fails.
   pub limit: Duration,
   /// Runs only when named with `--target`, never as part of a group or `--full`.
@@ -162,6 +164,7 @@ impl Task {
       action,
       env: Vec::new(),
       requires: Vec::new(),
+      optional: Vec::new(),
       limit: match group {
         "heavy" | "bench" => HEAVY_LIMIT,
         _ => process::LONG,
@@ -176,6 +179,12 @@ impl Task {
 
   fn requires(mut self, tools: &[&'static str]) -> Task {
     self.requires = tools.to_vec();
+    self
+  }
+
+  /// Skipped, not failed, without `tool`, which `why` says may be missing.
+  fn optional(mut self, tool: &'static str, why: &'static str) -> Task {
+    self.optional.push((tool, why));
     self
   }
 
@@ -447,25 +456,28 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     "heavy",
     Action::Command(this_binary.clone(), vec!["perf".into()]),
   ));
-  tasks.push(Task::new(
-    "memst",
-    "memst profiles mto on src/text: a shadow built, every run made, the report read back",
-    "heavy",
-    Action::Command(
-      this_binary.clone(),
-      vec![
-        "memst".into(),
-        "--input".into(),
-        "src/text".into(),
-        "--repeat".into(),
-        "1".into(),
-        "--function".into(),
-        "format_file".into(),
-        "--view".into(),
-        "summary,probes".into(),
-      ],
-    ),
-  ));
+  tasks.push(
+    Task::new(
+      "memst",
+      "memst profiles mto on src/text: a shadow built, every run made, the report read back",
+      "heavy",
+      Action::Command(
+        this_binary.clone(),
+        vec![
+          "memst".into(),
+          "--input".into(),
+          "src/text".into(),
+          "--repeat".into(),
+          "1".into(),
+          "--function".into(),
+          "format_file".into(),
+          "--view".into(),
+          "summary,probes".into(),
+        ],
+      ),
+    )
+    .optional("cargo-memst", "memst is not yet published"),
+  );
   tasks.push(
     Task::new(
       "diff",

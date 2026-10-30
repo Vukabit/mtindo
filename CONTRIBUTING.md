@@ -1,143 +1,157 @@
 # Contributing to mtindo
 
+Thanks for helping. This page is for anyone sending a change: how to set up,
+what a change must keep true, how commits are written, and what the checks
+look for. [MAINTAINING.md](MAINTAINING.md) covers releases and the project's
+tooling. Every development command, with its arguments, is in the
+[command reference](docs/generated/commands.md).
+
+## What a change keeps true
+
+- **The output matches the standard formatter.** With the same settings, `mto`
+  writes exactly what rustfmt writes, byte for byte. A change to formatting is
+  measured against a pinned corpus of real crates (`cargo xtask diff`) and may
+  not lower its record.
+- **A second run changes nothing.** Formatting `mto`'s own output again gives
+  the same text.
+- **The meaning never changes.** Every write is checked token for token first;
+  a change that trips the check is a bug, however good the layout looks.
+- **No runtime dependencies.** The shipped `mto` uses the Rust standard
+  library alone and runs no other program. Development tools are fine; they
+  live in `xtask/` and are never part of the binary.
+
+## Setting up
+
+```bash
+git clone https://github.com/Vukabit/mtindo
+cd mtindo
+cargo xtask bootstrap        # what would be installed or updated
+cargo xtask bootstrap --go   # install it, and turn the git hooks on
+```
+
+`bootstrap` reads the tool pins in [flow.toml](flow.toml): the Rust toolchain
+(the same one `rust-toolchain.toml` names, whose rustfmt is the answer key the
+corpus is compared against), the oldest supported Rust, a nightly for fuzzing,
+and the cargo tools the release uses. Run it again whenever `flow.toml`
+changes; it updates only what differs. Each check below also looks for the
+tools it needs and says to run `bootstrap` when one is missing or at another
+version.
+
+## Making a change
+
+Code is layered: each module under `src/` uses only the layers below it (the
+`layering` gate checks this). A few house rules, also checked:
+
+- Public Markdown stays within 80 columns.
+- Comments in `src/`, `tests/` and `fuzz/` explain the code, not the plan: no
+  stage or decision ids.
+- `docs/internal/` holds working notes and is never committed.
+
+After editing Rust code, lay it out the way the project does: `mto` itself,
+then the standard formatter, then clippy.
+
+```bash
+cargo build --release
+./target/release/mto --skip-children <the files you changed>
+cargo fmt --all
+cargo clippy --all-targets
+```
+
+`mto` also orders the items in a file, so a private function may move; that
+is expected.
+
+A formatting fix comes with a regression test whose expected output is the
+standard formatter's, and with a corpus run:
+
+```bash
+cargo xtask diff     # files and lines matching, against the record
+```
+
 ## Running the checks
 
-`cargo xtask test` runs every gate and test suite and reports each as passed
-or failed; tasks outside the chosen groups are listed as skipped, with how to
-run them. A chosen task whose tool is missing fails instead of being skipped,
-and every task runs under a time limit, so a green run means every chosen task
-ran and passed. `cargo xtask test -h` lists every group, task, flag and
-environment variable. Each run is logged, with every task's full output, to
-`.dev/logs/test.log`, and each green run is added to
-`.dev/logs/last-green.tsv` with the exact tree it ran on. While it runs, the
-machine is kept awake (`caffeinate` on macOS, `systemd-inhibit` on Linux,
-`SetThreadExecutionState` on Windows), and a fuzz task fails if the machine
-slept anyway, since sleep would cut its fuzzing short.
+`cargo xtask test` runs every gate and test suite and reports each as
+passed, failed or skipped with a reason; `cargo xtask test --full` adds the
+network, fuzzing and benchmark groups. Every task runs under a time limit,
+so a green run means every chosen task ran and passed. Runs are logged under
+`.dev/` (machine-local, not tracked): `cargo xtask status` shows where the
+project stands, `cargo xtask runs` the latest runs.
 
-Every `cargo xtask` command leaves a run record in `.dev/runs/` (its tree,
-start, end, how it ended, and its memory and CPU over time); `--detach` runs any
-command in the background. `.dev/` is machine-local and not tracked by git.
+## Commits
 
-```bash
-# Where the project stands: v0.1.0 gates, running jobs, latest runs, incidents
-cargo xtask status
-# The latest runs; one run's record; a detached run's output; stop one
-cargo xtask runs [list | show ID | tail ID | cancel ID]
+Each commit's first line is `kind(scope): subject`:
+
+```text
+fix(format): keep a generic default's header as written
+feat(cli,config): read rustfmt.toml from the workspace root
+docs(docs): say how holds lapse
 ```
 
-```bash
-# Gates and all tests (the default)
-cargo xtask test
-# Also the real-crate check (network), fuzzing (nightly) and benchmarks
-cargo xtask test --full
-# Only the tasks that failed when they last ran (.dev/logs/last-test.tsv)
-cargo xtask test --failed
-# Show the plan without running it
-cargo xtask test --list
-# Regenerate tests/fixtures expected outputs; review the diff before committing
-cargo xtask test --bless
-```
+- **kind** is one of [flow.toml](flow.toml)'s `[kinds]`. Those with a
+  changelog heading (`feat` Added, `fix` Fixed, `perf` Performance,
+  `refactor` Changed, `revert` Removed) are listed in the changelog;
+  `docs`, `test`, `chore`, `ci` and `style` are not.
+- **scope** is a section from `[sections]`, which maps names to paths
+  (`format` is `src/format/**`), or a path in the tree; several are joined
+  with commas. It must cover at least one file the commit changes.
+- A `!` after the scope marks a breaking change: `feat(cli)!: ...`.
+- The first line is at most 72 columns, with no period at its end. The
+  subject is what the changelog shows, so write it for someone using `mto`.
 
-The other development commands are also in `xtask`, a development-only crate
-in this workspace written in Rust like the rest. Its dependencies (`clap`,
-`libc`, and the hub's terminal libraries) never reach the shipped `mtindo`
-crate, which `cargo xtask gates` holds to none:
+A body is for a change that needs one. It is refused for `docs`, `test`,
+`chore`, `ci` and `style` commits and for changes under 40 lines, required
+for a breaking change (saying what breaks), and kept to 12 lines of at most
+72 columns. Trailers such as `Co-authored-by:` are not counted as a body.
 
-```bash
-# No runtime dependencies, layering, docs width, capability statuses,
-# metrics papers matching their records
-cargo xtask gates
-# Regenerate src/text/unicode tables from the Unicode Character Database
-cargo xtask unicode
-# Compare mto's lexer with rustc's own on .rs files
-cargo xtask lexdiff [PATH...]
-# Parse .rs files with their crate's edition and report syntax errors
-cargo xtask parsecheck [PATH...]
-# Re-read rustfmt's options and flags (local binaries; latest stable and
-# nightly when online) into compat/rustfmt-surface.txt
-cargo xtask capabilities refresh
-# Add new items to compat/capabilities.txt as missing; drop stale ones
-cargo xtask capabilities sync
-# How much of rustfmt mto supports, and how rustfmt's own tests fare
-cargo xtask capabilities report [--markdown]
-# Check out the pinned real-world corpus (compat/corpus.txt), then check
-# that every file round-trips, parses and lexes like rustc; --baseline
-# records parsing speed in compat/baseline.txt
-cargo xtask corpus check
-# Time rustfmt stable and nightly (as cargo fmt runs them) and mto on the
-# corpus, by wall clock and CPU time, as a table; fails if mto is below
-# twice rustfmt's throughput
-cargo xtask corpus bench [--markdown]
-# How much of the Rust style mto reproduces: files and lines matching
-# rustfmt on its own tests, the corpus and the corpus with scrambled
-# whitespace; fails below compat/compatibility.txt, --update records
-cargo xtask diff [--update] [--markdown]
-# Move every corpus pin to its repository's current HEAD
-cargo xtask corpus update
-# Time rustfmt, rustfmt nightly and mto feature by feature on rustfmt's
-# own test inputs, and mto's layout settings one by one, drawn live;
-# --markdown for a shareable table
-cargo xtask race [--rounds N] [--filter TEXT]
-# Regenerate src/options/rustfmt.rs, rustfmt's settings table, from the
-# releases pinned in compat/rustfmt-surface.txt; --check only compares
-cargo xtask settings [--check]
-# Regenerate everything under docs/generated/: the settings reference and
-# mto.toml's JSON Schema from the settings table, the manual (manual.md)
-# from mto --man, and the metrics papers from the recorded data (compat/ and
-# its history, .dev/ when present); runs no suite. --check only compares, as
-# the generated-docs and metrics-docs gates do
-cargo xtask docs [--check]
-# Check the TOML parser against the pinned toml-test conformance suite
-# (compat/toml-test.txt): every valid file decodes to the expected
-# values and every invalid one is refused
-cargo xtask toml-test
-# Fuzz one target (default 60 s); what it finds is filed as an incident,
-# its memory over the run kept under .dev/runs/
-cargo xtask fuzz run TARGET [--time SECONDS] [--sanitizer address|none]
-# Every target side by side for 24 hours, each fuzzing on past its finds
-# and keeping every input it fails on (--restart stops a target at a find
-# and starts it again instead); the machine kept awake (display too on a
-# terminal), drawn live on a terminal, a line per target every 30 minutes
-# elsewhere. Start it from your own terminal, not from a tool that may reap it
-cargo xtask fuzz soak [--time SECONDS] [--targets A,B] [--restart]
-# What the fuzz corpora reach, per module of src/, with an HTML report in
-# fuzz/coverage/html/ (a nightly with llvm-tools-preview)
-cargo xtask fuzz coverage [TARGET...]
-# mto against the standard formatter on scrambled corpus files and
-# generated source; each way they disagree shrunk and filed once
-cargo xtask fuzz diff [--time SECONDS] [--seed N] [--replay FILE]
-# The scrambled-pair suite: corpus files drawn by a fresh seed (printed),
-# items shuffled and whitespace scrambled, each checked token for token;
-# mto and the standard formatter scored against each other, and the
-# crates that compile offline built scrambled, after mto and after the
-# standard formatter. A crate mto breaks is filed as a compile break, one
-# the scrambler breaks as a scrambler bug; --seed replays a run
-cargo xtask pairs [--seed N] [--crates NAME,...] [--files N] \
-  [--no-compile] [--keep DIR]
-# Every failure kept with its story and filed once (fuzz crashes, mto's
-# output failing the meaning check or changing on a second run, panics,
-# files mto changes that the standard formatter leaves alone, real crates
-# that stop compiling); the board is .dev/incidents/INCIDENTS.md
-cargo xtask incidents [list | show ID | mark ID STATUS | replay ID]
-# Replay every fuzz incident at this tree; shrink one; keep a fixed one's
-# inputs as a test in tests/fuzz_regressions/
-cargo xtask incidents recheck | minimize ID | promote ID
-# Where mto's time and memory go, per function and line: wall and CPU
-# time, peak memory, sampled CPU time, every allocation, exact timers for
-# the functions asked about (macOS and Linux; default: the corpus's serde).
-# Runs memst, a project of its own: cargo install --path ../memst
-cargo xtask memst [--input PATH...] [--function PATH,...] [--view VIEW,...]
-cargo xtask memst report RUN
-# Every number the runs measure, as series with their trend; the ratchet
-# (compat/performance.txt) speed, memory and the build guard may not fall
-# behind
-cargo xtask metrics [list | show NAME | ratchet [--update]]
-# What the build guard costs and how few checks a narrowing takes: in mto
-# on the corpus with planted culprits, and on real crates with cargo check
-cargo xtask doctor bench [--trials N]
-# What writing costs on this machine: generated files written with each
-# way of syncing (safety.sync), history on and off; kept as io.* metrics
-cargo xtask io bench [--files N]
-# Every command, gate and exit code
-cargo xtask help
-```
+A plain `git commit` starts the message with the scope the staged files are
+in (`kind(format,cli): `), so only the kind and subject are left to write.
+`fixup!` and `squash!` commits are accepted locally but refused when pushed:
+squash them first.
+
+## What the hooks check
+
+The hooks in `.githooks/` are one line each; [flow.toml](flow.toml)'s
+`[stages]` says what each runs, and CI runs the same checks.
+
+- **`commit-msg`**, every commit: the message, as above.
+- **`pre-commit`**, every commit: `no-internal`, `secrets`, `fmt`, `gates`.
+- **`pre-push`**, every push: `messages`, `hold`, `clippy`, `tests`.
+- **`ci`**, once per push in CI: `messages`, `no-internal`, `secrets`,
+  `fmt`, `gates`, pinned actions and tools, the command reference.
+- **`build`**, on each CI platform: `clippy`, `tests`.
+- **`msrv`**, in CI: the tests on the oldest supported Rust.
+
+When one fails:
+
+- **`no-internal`**: unstage `docs/internal/`.
+- **`secrets`**: something looks like a credential. Remove it; if it was a
+  real one, rotate it, since it may already be in a reflog or a push.
+- **`fmt`**: run `cargo fmt --all` (after `mto`, as above).
+- **`gates`**: `cargo xtask gates` lists each problem with its file and line.
+- **`hold`**: `main` and release tags are pushed only by a release; push your
+  branch instead.
+- **`messages`**: one of the pushed commits breaks the rules above; reword it
+  (`git rebase -i`) before pushing.
+
+To run a stage by hand: `cargo xtask flow check ci`.
+
+## Pull requests
+
+Push a branch and open a pull request against `main`. CI checks its commits
+and the tree, builds and tests on Linux (x86_64 and aarch64), macOS and
+Windows, and tests on the oldest supported Rust. Say what the change does for
+someone using `mto`; for a formatting change, include the corpus numbers
+`cargo xtask diff` printed.
+
+## Reporting bugs
+
+`mto report` writes a bug report with everything needed to reproduce a
+problem: the input, the settings, what `mto` did and which build it was. Open
+an issue with it attached. For a security problem, see
+[SECURITY.md](SECURITY.md) instead.
+
+## License
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+license, shall be dual licensed as in the [README](README.md#license),
+without any additional terms or conditions.

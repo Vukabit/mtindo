@@ -314,21 +314,21 @@ files with the whitespace between their tokens scrambled.
   the memst recorder. From 2026-10-25 the whole process is recorded, from the
   start of `main` (its reading of arguments and settings too), not only the
   pipeline: about 1% more.
-- Measured: `cargo xtask memst`.
+- Measured: `cargo xtask memst`, with memst, which is not yet published.
 
 ### `memst.serde.bytes`
 
 - Unit: bytes.
 - Definition: Bytes requested by the allocations of `memst.serde.allocs`,
   summed.
-- Measured: `cargo xtask memst`.
+- Measured: `cargo xtask memst`, with memst, which is not yet published.
 
 ### `memst.serde.peak_live`
 
 - Unit: bytes.
 - Definition: The most bytes allocated and not yet freed at any moment of the
   run of `memst.serde.allocs`.
-- Measured: `cargo xtask memst`.
+- Measured: `cargo xtask memst`, with memst, which is not yet published.
 
 ### `doctor.held.cost.x`
 

@@ -48,8 +48,9 @@ const STALE_AFTER: Duration = Duration::from_secs(30);
 /// Set for a detached supervisor: the run's folder it supervises.
 const SUPERVISE: &str = "XTASK_SUPERVISE";
 
-/// Commands that run without a record: they only read records or print help.
-const UNRECORDED: &[&str] = &["help", "-h", "--help", "status", "runs", "metrics"];
+/// Commands that run without a record: they only read records or print help, or (`flow`)
+/// run as git hooks, which read what git gives them on stdin and run at every commit.
+const UNRECORDED: &[&str] = &["help", "-h", "--help", "status", "runs", "metrics", "flow"];
 
 /// Set by the SIGINT handler: the terminal's Ctrl-C, which the child gets too.
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);

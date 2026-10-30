@@ -95,3 +95,17 @@ fn test_long_attributes_break_as_the_standard_formatter_breaks_them() {
     "#[cfg(all(\n    feature = \"aaaaaaaaaaaaaaaa\",\n    feature = \"bbbbbbbbbbbbbbbbbbbbb\",\n    not(target_os = \"windows\"),\n))]\nstruct C;\n"
   );
 }
+
+/// An unsafe attribute is laid out inside its `unsafe(` and `)`; a derive in one, which the
+/// standard formatter writes without its `unsafe`, is left as written.
+#[test]
+fn test_unsafe_attributes_are_laid_out_inside_their_wrapper() {
+  assert_eq!(
+    formatted("#![unsafe(b\n=\n\"\")]\n#![unsafe(c(d\n,e))]\n"),
+    "#![unsafe(b = \"\")]\n#![unsafe(c(d, e))]\n"
+  );
+  assert_eq!(
+    formatted("#[unsafe(derive(A\n,B))]\nstruct S;\n"),
+    "#[unsafe(derive(A\n,B))]\nstruct S;\n"
+  );
+}

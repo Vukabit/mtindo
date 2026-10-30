@@ -34,15 +34,16 @@ fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Strin
     return commented_derive(node, indent, config);
   }
   let meta = node.children().into_iter().find(|c| c.kind() == K::Meta)?;
-  let open = if node
-    .children_with_tokens()
-    .iter()
-    .any(|e| e.kind() == K::Bang)
-  {
-    "#!["
-  } else {
-    "#["
+  let marks = node.children_with_tokens();
+  // `#[unsafe(name ...)]`: the name and its arguments laid out inside `unsafe(` and `)`.
+  let safe = !marks.iter().any(|e| e.kind() == K::UnsafeKw);
+  let open = match (marks.iter().any(|e| e.kind() == K::Bang), safe) {
+    (true, true) => "#![",
+    (false, true) => "#[",
+    (true, false) => "#![unsafe(",
+    (false, false) => "#[unsafe(",
   };
+  let close = if safe { "]" } else { ")]" };
   let spacing = Spacing::of(config);
   let tree = meta
     .children()
@@ -50,13 +51,16 @@ fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Strin
     .find(|c| c.kind() == K::TokenTree);
   let text = match tree {
     // `#[name]` and `#[name = value]`: one line.
-    None => format!("{}{}]", open, flat(&meta, spacing)),
+    None => format!("{}{}{}", open, flat(&meta, spacing), close),
     Some(tree) => {
       let path = flat(
         &meta.children().into_iter().find(|c| c.kind() == K::Path)?,
         spacing,
       );
       if path == "derive" {
+        if !safe {
+          return None;
+        }
         derive(&tree, open, indent, config)?
       } else {
         // A `use` declaration's attributes get four columns less (`use `), as the standard
@@ -65,7 +69,7 @@ fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Strin
         call(
           &path,
           &tree,
-          open,
+          (open, close),
           indent,
           if on_use { 4 } else { 0 },
           config,
@@ -81,7 +85,7 @@ fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Strin
 fn call(
   path: &str,
   tree: &SyntaxNode,
-  open: &str,
+  (open, close): (&str, &str),
   indent: usize,
   narrower: usize,
   config: &FormatConfig,
@@ -134,10 +138,9 @@ fn call(
     comma_as_written: true,
     ..Limits::of(config)
   };
-  // 1 = `]`
   let width = config
     .max_width
-    .checked_sub(indent + open.len() + 1 + narrower)?;
+    .checked_sub(indent + open.len() + close.len() + narrower)?;
   let shape = Shape {
     align: 0,
     indent,
@@ -159,7 +162,7 @@ fn call(
       })
       .collect()
   };
-  Some(format!("{}{}]", open, text))
+  Some(format!("{}{}{}", open, text, close))
 }
 
 /// A `#[derive(..)]` with block comments among its names, as the standard formatter lays

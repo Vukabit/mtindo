@@ -51,7 +51,7 @@ fn help(color: bool) -> String {
     p.heading("usage:"),
     p.usage_line("cargo mto [OPTIONS] [-- <MTO OPTIONS>...]")
   );
-  let about = "Lays out the targets of the current package or workspace, as cargo fmt \
+  let about = "Formats the targets of the current package or workspace, as cargo fmt \
                  formats them. Options after -- go to mto (see mto --help).";
   for line in mtindo::text::color::wrap(about, mtindo::text::color::help_width()) {
     out.push_str(&line);

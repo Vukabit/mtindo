@@ -1092,8 +1092,9 @@ fn render_help(color: bool) -> String {
   let p = HelpPalette::new(color, "mto");
   let mut out = usage_block(&p, USAGE_LINES);
   out.push('\n');
-  let about = "Reorders the top-level items of Rust files into a predictable layout, safely \
-                 and atomically.";
+  let about = "Formats Rust files in the Rust style, as the standard formatter writes them, \
+                 and lays out their items when a project opts in; every write is checked \
+                 and can be undone.";
   for line in mtindo::text::color::wrap(about, mtindo::text::color::help_width()) {
     out.push_str(&line);
     out.push('\n');

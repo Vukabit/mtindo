@@ -173,7 +173,8 @@ fn now_seconds() -> u64 {
     .map_or(0, |d| d.as_secs())
 }
 
-/// Tries every open mismatch again; marks fixed those both formatters agree on now.
+/// Tries every open mismatch again; marks fixed those both formatters agree on now, and
+/// wont-fix those whose standard output changes the meaning.
 fn recheck(root: &Path, tree: &str, tools: &dyn Fn(Vec<String>) -> (i32, String)) -> usize {
   let open: Vec<(PathBuf, incidents::Incident)> = incidents::all(root)
     .into_iter()
@@ -193,16 +194,37 @@ fn recheck(root: &Path, tree: &str, tools: &dyn Fn(Vec<String>) -> (i32, String)
   let (_, output) = tools(args);
   let mut fixed = 0;
   for line in output.lines() {
-    let Some(file) = line.strip_prefix("agree\t") else {
+    let mut words = line.split('\t');
+    let (Some(said), Some(file)) = (words.next(), words.next()) else {
       continue;
     };
-    if let Some((dir, mut incident)) = open
+    let Some((dir, mut incident)) = open
       .iter()
       .find(|(dir, _)| dir.join("input").display().to_string() == file)
       .cloned()
-    {
-      incidents::mark(root, &dir, &mut incident, "fixed", tree);
-      fixed += 1;
+    else {
+      continue;
+    };
+    match said {
+      "agree" => {
+        incidents::mark(root, &dir, &mut incident, "fixed", tree);
+        fixed += 1;
+      }
+      // No answer to match: the standard formatter's output means something else.
+      "broken" => {
+        incidents::mark(root, &dir, &mut incident, "wont-fix", tree);
+        incidents::note(
+          root,
+          &dir,
+          &mut incident,
+          tree,
+          &format!(
+            "the standard formatter's output changes the meaning: {}",
+            words.next().unwrap_or_default()
+          ),
+        );
+      }
+      _ => {}
     }
   }
   fixed

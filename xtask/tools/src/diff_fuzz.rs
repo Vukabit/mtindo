@@ -17,9 +17,14 @@
 //! with the shrunk input in FILE, for `cargo xtask fuzz diff` to file. The figures end the
 //! output as `metric NAME VALUE UNIT` lines.
 //!
+//! An input whose meaning the standard formatter's output changes (by the meaning check
+//! mto applies to its own writes) has no answer to compare against: it is counted, not
+//! reported.
+//!
 //! `diff-fuzz --replay FILE [--edition YEAR]` shows how the two outputs part on one input;
 //! `diff-fuzz --recheck YEAR:FILE...` says of each input whether they still disagree, as
-//! `agree<TAB>FILE` or `differ<TAB>FILE<TAB>NAME`.
+//! `agree<TAB>FILE`, `differ<TAB>FILE<TAB>NAME` or, when the standard formatter's output
+//! changes its meaning, `broken<TAB>FILE<TAB>WHAT`.
 
 use std::collections::HashSet;
 use std::fs;
@@ -32,6 +37,7 @@ use mtindo::format::file::format_file;
 use mtindo::history::sha256;
 use mtindo::options::format::FormatConfig;
 use mtindo::syntax::{Edition, parse};
+use mtindo::verify::format::verify_format;
 
 use crate::common::edition_for;
 use crate::diff::{Answer, edition_year, kind_at_line, run_standard};
@@ -63,6 +69,7 @@ impl Both {
           got: String::new(),
           want: String::new(),
           refused: true,
+          broken: None,
         });
       }
     };
@@ -70,11 +77,15 @@ impl Both {
     if got == want {
       return None;
     }
+    let broken = verify_format(input, &want, edition)
+      .first()
+      .map(|v| v.detail.clone());
     Some(Disagreement {
       name: name(&got, &want, edition),
       got,
       want,
       refused: false,
+      broken,
     })
   }
 
@@ -95,7 +106,7 @@ impl Both {
             runs += 1;
             self
               .disagree(&candidate, edition)
-              .is_some_and(|d| !d.refused && d.name == name)
+              .is_some_and(|d| !d.refused && d.broken.is_none() && d.name == name)
           };
         if still {
           lines.drain(at..end);
@@ -119,6 +130,8 @@ struct Disagreement {
   want: String,
   /// The standard formatter refused the input.
   refused: bool,
+  /// How the standard formatter's output changes the input's meaning, if it does.
+  broken: Option<String>,
 }
 
 /// A seeded xorshift, so a run repeats from its seed.
@@ -174,6 +187,9 @@ pub fn run(args: &[String]) -> ExitCode {
         continue;
       };
       match both.disagree(&text, edition_of(year)) {
+        Some(Disagreement {
+          broken: Some(what), ..
+        }) => println!("broken\t{}\t{}", file, what),
         Some(found) if !found.refused => println!("differ\t{}\t{}", file, found.name),
         Some(_) => {}
         None => println!("agree\t{}", file),
@@ -192,6 +208,12 @@ pub fn run(args: &[String]) -> ExitCode {
           "{}\n\nmto:\n{}\nthe standard formatter:\n{}",
           found.name, found.got, found.want
         );
+        if let Some(what) = &found.broken {
+          println!(
+            "the standard formatter's output changes the meaning: {}",
+            what
+          );
+        }
         ExitCode::from(1)
       }
       None => {
@@ -210,7 +232,7 @@ pub fn run(args: &[String]) -> ExitCode {
   let mut random = Random(seed | 1);
   let started = Instant::now();
   let limit = Duration::from_secs(seconds);
-  let (mut tried, mut agreed, mut refused) = (0usize, 0usize, 0usize);
+  let (mut tried, mut agreed, mut refused, mut broken) = (0usize, 0usize, 0usize, 0usize);
   let mut seen: HashSet<String> = HashSet::new();
   while started.elapsed() < limit {
     // Every other input from the generator; the rest scrambled corpus files.
@@ -241,6 +263,10 @@ pub fn run(args: &[String]) -> ExitCode {
       refused += 1;
       continue;
     }
+    if found.broken.is_some() {
+      broken += 1;
+      continue;
+    }
     if !seen.insert(found.name.clone()) {
       continue;
     }
@@ -256,16 +282,17 @@ pub fn run(args: &[String]) -> ExitCode {
     }
   }
   let took = started.elapsed().as_secs_f64().max(1e-9);
-  let compared = tried - refused;
+  let compared = tried - refused - broken;
   eprintln!(
     "diff-fuzz: {} inputs in {:.0} s; mto agreed on {} of {} the standard formatter took \
-     ({:.1}%); {} ways of disagreeing",
+     ({:.1}%); {} ways of disagreeing; {} where its output changes the meaning",
     tried,
     took,
     agreed,
     compared,
     100.0 * agreed as f64 / compared.max(1) as f64,
-    seen.len()
+    seen.len(),
+    broken
   );
   println!(
     "metric fuzz.diff.inputs_per_s {:.2} inputs/s",

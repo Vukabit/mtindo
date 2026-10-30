@@ -28,6 +28,20 @@ fn test_a_closure_last_keeps_its_list_on_one_line() {
   assert_eq!(formatted(kept), kept);
 }
 
+/// A `for` loop over an empty block: its head on one line, as over any value; one over a
+/// block holding anything is left to the whole-file pass.
+#[test]
+fn test_a_for_loop_over_a_block() {
+  assert_eq!(
+    formatted("fn f() {\n    for (b, x)  in {}\n    {\n    }\n}\n"),
+    "fn f() {\n    for (b, x) in {} {}\n}\n"
+  );
+  assert_eq!(
+    formatted("fn f() {\n    for x in { a } {}\n}\n"),
+    "fn f() {\n    for x in { a } {}\n}\n"
+  );
+}
+
 #[test]
 fn test_any_let_value_may_go_on_the_next_line() {
   assert_eq!(

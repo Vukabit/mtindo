@@ -164,7 +164,8 @@ struct Roles {
   /// Where an attribute starts that follows another of the same item: no blank line comes
   /// between them.
   joined: OffsetSet,
-  /// Where a skipped `mod name;` starts: its first line keeps the indentation written.
+  /// Where a skipped `mod name;` at the top of the file starts: its first line keeps the
+  /// indentation written.
   kept_indent: OffsetSet,
   /// The spaces after a skipped `mod name;` before an item on its line, and between a
   /// skipped member's attributes and its code on their line: the line's indentation.
@@ -2503,7 +2504,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       continue;
     }
     if out.is_empty() && tok.kind == SyntaxKind::Whitespace {
-      // Nothing before the first token.
+      // Nothing before the first token, but a skipped `mod name;`'s kept indentation.
+      if next.is_some_and(|n| roles.kept_indent.contains(&n.start)) {
+        out.push_str(tok.text.rsplit('\n').next().unwrap_or(""));
+      }
       continue;
     }
     // A comment after an attribute on its line that the standard formatter puts on the next
@@ -2737,7 +2741,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         out.push('\n');
       }
       out_line_start = out.len();
-      out.push_str(&indentation(shown, config));
+      if roles.kept_indent.contains(&next_start) {
+        out.push_str(written_text);
+      } else {
+        out.push_str(&indentation(shown, config));
+      }
       lines.push((next_start, written, indent));
       continue;
     }
@@ -4260,7 +4268,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   control_comment_lines(&walked, &mut roles);
   else_close_comments(&walked, &mut roles, config);
   comment_runs(root, &mut roles);
-  // A skipped `mod name;` keeps the indentation its first line is written at.
+  // A skipped `mod name;` at the top of the file keeps the indentation its first line is
+  // written at, byte for byte, unless an item or a comment follows it on that line (with
+  // only skipped items after it, it keeps it); any other is indented as any item.
   for module in walked.iter().filter(|n| n.kind() == SyntaxKind::Module) {
     if !module
       .children_iter()
@@ -4271,7 +4281,6 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         .any(|a| a.is_rustfmt_skip())
       && let Some(first) = module.first_token()
     {
-      roles.kept_indent.insert(first.text_range().start as usize);
       // Written after other code on its line: the space before it as written too (the
       // standard formatter writes nothing for it but what it finds).
       if let Some(SyntaxElement::Token(space)) = module.prev_sibling_or_token()
@@ -4291,6 +4300,45 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
         matches!(e, SyntaxElement::Node(n) if is_item(n.kind())
           || matches!(n.kind(), SyntaxKind::Use | SyntaxKind::MacroCall | SyntaxKind::MacroRules))
       };
+      let skipped = |e: &SyntaxElement| {
+        matches!(e, SyntaxElement::Node(n) if n
+          .children_iter()
+          .filter_map(Attr::cast)
+          .any(|a| a.is_rustfmt_skip()))
+      };
+      // Alone on its line, or with only skipped items after it there (a comment after it
+      // is its own last token).
+      let ends_commented = module
+        .last_token()
+        .is_some_and(|t| matches!(t.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment));
+      let alone = !ends_commented
+        && match module.next_sibling_or_token() {
+          Some(SyntaxElement::Token(space)) if space.kind() == SyntaxKind::Whitespace => {
+            space.text().contains('\n')
+              || space.next_sibling_or_token().is_some_and(|e| skipped(&e))
+          }
+          Some(next) => skipped(&next),
+          None => true,
+        };
+      // Its first line is its first attribute's, after any comments before it.
+      let first = module
+        .descendants_with_tokens_iter()
+        .find_map(|e| match e {
+          SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t),
+          _ => None,
+        })
+        .unwrap_or(first);
+      // An item after it changes only the line it is on: a declaration spanning lines
+      // keeps its first line's indentation.
+      let spans_lines =
+        text[first.text_range().start as usize..module.text_range().end as usize].contains('\n');
+      if (alone || spans_lines)
+        && module
+          .parent()
+          .is_some_and(|p| p.kind() == SyntaxKind::SourceFile)
+      {
+        roles.kept_indent.insert(first.text_range().start as usize);
+      }
       let mut reindent_last = true;
       let followed = match module.next_sibling_or_token() {
         Some(SyntaxElement::Token(space))
@@ -4299,13 +4347,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             && space.next_sibling_or_token().is_some_and(|e| item(&e)) =>
         {
           // Another skipped item: the space between them as written, as all between is.
-          let skipped_next = space.next_sibling_or_token().is_some_and(|e| {
-            matches!(&e, SyntaxElement::Node(n) if n
-              .children_iter()
-              .filter_map(Attr::cast)
-              .any(|a| a.is_rustfmt_skip()))
-          });
-          if skipped_next {
+          if space.next_sibling_or_token().is_some_and(|e| skipped(&e)) {
             roles.verbatim.push((
               space.text_range().start as usize - 1,
               space.text_range().end as usize,

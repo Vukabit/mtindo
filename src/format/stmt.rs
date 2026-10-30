@@ -1444,13 +1444,25 @@ fn control_head(
   let condition = match node.kind() {
     K::LoopExpr => String::new(),
     K::ForExpr => {
-      let pattern = children.iter().find(|c| c.kind() != K::Label)?;
-      let iterator = children
-        .iter()
-        .filter(|c| c.kind() != K::Label && c.kind() != K::BlockExpr)
-        .nth(1)?;
+      // The pattern, what it iterates over (a block too: `for x in {} {}`) and the body.
+      let parts: Vec<&SyntaxNode> = children.iter().filter(|c| c.kind() != K::Label).collect();
+      let [pattern, iterator, _body] = parts.as_slice() else {
+        return None;
+      };
       let pattern = rewrite(pattern, after.sub_width(3)?)?;
-      super::expr::assign_value(&format!("{} in", pattern), iterator, after)?
+      let head = format!("{} in", pattern);
+      if iterator.kind() == K::BlockExpr {
+        // An empty block is `{}`; one holding anything is left to the whole-file pass.
+        if iterator
+          .children_with_tokens_iter()
+          .any(|e| !e.kind().is_trivia() && !matches!(e.kind(), K::LBrace | K::RBrace))
+        {
+          return None;
+        }
+        format!("{} {{}}", head)
+      } else {
+        super::expr::assign_value(&head, iterator, after)?
+      }
     }
     // `if let pattern =`, then the comments before the value and the value, each on a line
     // one level in (`rewrite_assign_rhs` with a comment before the right side).

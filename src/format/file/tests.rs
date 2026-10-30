@@ -154,6 +154,30 @@ fn test_a_pattern_field_takes_no_room_for_its_comma() {
   assert_eq!(formatted_with(nested, &max_heuristics(100)), nested);
 }
 
+/// A skipped `mod name;` at the top of the file keeps the whitespace before it byte for
+/// byte, unless an item or a comment follows it on its line; inside a module it is indented
+/// as any item.
+#[test]
+fn test_a_skipped_module_declaration_keeps_its_indentation_at_the_top() {
+  assert_eq!(
+    formatted("\t#[rustfmt::skip]\tmod a;\nfn b() {}\n\t#[rustfmt::skip]\nmod c;\n"),
+    "\t#[rustfmt::skip]\tmod a;\nfn b() {}\n\t#[rustfmt::skip]\nmod c;\n"
+  );
+  assert_eq!(
+    formatted("fn b() {}\n  #[rustfmt::skip] mod a; // c\n"),
+    "fn b() {}\n#[rustfmt::skip] mod a; // c\n"
+  );
+  // An item after it changes only its last line: one spanning lines keeps its first.
+  assert_eq!(
+    formatted("fn b() {}\n    #[rustfmt::skip] mod\n a; use c;\n"),
+    "fn b() {}\n    #[rustfmt::skip] mod\na;use c;\n"
+  );
+  assert_eq!(
+    formatted("mod m {\n        #[rustfmt::skip]\n    mod a;\n}\n"),
+    "mod m {\n    #[rustfmt::skip]\n    mod a;\n}\n"
+  );
+}
+
 #[test]
 fn test_an_arm_body_too_wide_for_its_line_goes_in_a_block() {
   // A `match` whose head does not fit after `=>`, or would span more lines there than on

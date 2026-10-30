@@ -99,8 +99,14 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     "package" => config::load(root).and_then(|flow| {
       publish::package(root, &flow, &cli::text(sub, "target").unwrap_or_default())
     }),
-    "prepare" => config::load(root)
-      .and_then(|flow| publish::prepare(root, &flow, &cli::text(sub, "tag").unwrap_or_default())),
+    "prepare" => config::load(root).and_then(|flow| {
+      publish::prepare(
+        root,
+        &flow,
+        &cli::text(sub, "tag").unwrap_or_default(),
+        cli::on(sub, "dry-run"),
+      )
+    }),
     "tap" => config::load(root)
       .and_then(|flow| publish::tap(root, &flow, &cli::text(sub, "tag").unwrap_or_default())),
     "formula" => config::load(root)

@@ -238,10 +238,7 @@ pub fn tree() -> Command {
           .value_name("COMMAND")
           .help("The command"),
       )
-      .arg(flag(
-        "json",
-        "Print every command and argument as JSON (what the hub's palette reads)",
-      )),
+      .arg(flag("json", "Print every command and argument as JSON")),
   ];
   let root = Command::new("cargo xtask")
     .bin_name("cargo xtask")
@@ -493,7 +490,8 @@ fn flow() -> Command {
     .subcommand(
       Command::new("prepare")
         .about("The publish stage's checks, then dist/SHA256SUMS and dist/notes.md, and whether the GitHub release is left a draft (the release workflow's step)")
-        .arg(Arg::new("tag").value_name("TAG").required(true).help("The release tag, vX.Y.Z")),
+        .arg(Arg::new("tag").value_name("TAG").required_unless_present("dry-run").help("The release tag, vX.Y.Z"))
+        .arg(flag("dry-run", "No tag: only that the crate packages, for Cargo.toml's version (a dry-run/ branch)")),
     )
     .subcommand(
       Command::new("tap")

@@ -30,6 +30,8 @@ pub const NAMES: &[&str] = &[
   "package",
   "history-clean",
   "commands-doc",
+  "tests-xtask",
+  "github-settings",
 ];
 
 /// What a stage checks: the staged files for `pre-commit`, the refs being pushed for
@@ -250,6 +252,114 @@ fn gates(root: &Path) -> Result<(), String> {
   }
 }
 
+/// The repository's settings on GitHub are those MAINTAINING.md lists: public, `main`
+/// and release tags guarded by rulesets, the publishing environments behind approval,
+/// workflows read-only by default, private vulnerability reporting on.
+fn github_settings(root: &Path, flow: &Flow) -> Result<(), String> {
+  let repo = &flow.release.repository;
+  let ask = |path: &str, jq: &str| -> Result<String, String> {
+    let done = process::output(
+      Command::new("gh")
+        .args(["api", path, "--jq", jq])
+        .current_dir(root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped()),
+      process::QUICK,
+    )
+    .map_err(|e| format!("gh could not be run: {}", e))?;
+    if done.code == 0 {
+      Ok(String::from_utf8_lossy(&done.stdout).trim().to_string())
+    } else {
+      Err(format!(
+        "gh api {}: {}",
+        path,
+        String::from_utf8_lossy(&done.stderr).trim()
+      ))
+    }
+  };
+  let mut found = Vec::new();
+  if ask(&format!("repos/{}", repo), ".visibility")? != "public" {
+    found.push("the repository is not public".to_string());
+  }
+  // Each active ruleset's target, the refs it covers and its rule types.
+  let ids = ask(
+    &format!("repos/{}/rulesets", repo),
+    ".[] | select(.enforcement == \"active\") | .id",
+  )?;
+  let mut branch = false;
+  let mut tags = false;
+  for id in ids.lines() {
+    let line = ask(
+      &format!("repos/{}/rulesets/{}", repo, id),
+      "[.target, (.conditions.ref_name.include | join(\",\")), ([.rules[].type] | join(\",\"))] | @tsv",
+    )?;
+    let parts: Vec<&str> = line.split('\t').collect();
+    let (target, refs, rules) = (
+      parts.first().copied().unwrap_or(""),
+      parts.get(1).copied().unwrap_or(""),
+      parts.get(2).copied().unwrap_or(""),
+    );
+    let has = |rule: &str| rules.split(',').any(|r| r == rule);
+    if target == "branch"
+      && (refs.contains("refs/heads/main") || refs.contains("~DEFAULT_BRANCH"))
+      && has("non_fast_forward")
+      && has("deletion")
+      && has("required_status_checks")
+    {
+      branch = true;
+    }
+    if target == "tag" && refs.contains("refs/tags/v") && has("update") && has("deletion") {
+      tags = true;
+    }
+  }
+  if !branch {
+    found.push(
+      "no active ruleset on main requiring the CI checks and refusing force pushes and deletion"
+        .to_string(),
+    );
+  }
+  if !tags {
+    found.push("no active ruleset on tags v* refusing updates and deletion".to_string());
+  }
+  let environments = ask(
+    &format!("repos/{}/environments", repo),
+    ".environments[] | [.name, ([.protection_rules[].type] | join(\",\"))] | @tsv",
+  )
+  .unwrap_or_default();
+  for name in ["crates-io", "homebrew"] {
+    let guarded = environments.lines().any(|l| {
+      l.split_once('\t')
+        .is_some_and(|(n, rules)| n == name && rules.contains("required_reviewers"))
+    });
+    if !guarded {
+      found.push(format!("environment `{}` does not require approval", name));
+    }
+  }
+  if ask(
+    &format!("repos/{}/actions/permissions/workflow", repo),
+    ".default_workflow_permissions",
+  )? != "read"
+  {
+    found.push("workflows are not read-only by default".to_string());
+  }
+  let reporting = ask(
+    &format!("repos/{}/private-vulnerability-reporting", repo),
+    ".enabled",
+  )
+  .unwrap_or_default();
+  if reporting != "true" {
+    found.push("private vulnerability reporting is off".to_string());
+  }
+  if found.is_empty() {
+    Ok(())
+  } else {
+    Err(format!(
+      "make these as MAINTAINING.md says:\n{}",
+      lines(&found)
+    ))
+  }
+}
+
 /// No commit ever made holds what looks like a credential or a working note: what going
 /// public shows is the whole history, not only the tree.
 fn history_clean(root: &Path, flow: &Flow) -> Result<(), String> {
@@ -403,6 +513,8 @@ fn run_check(root: &Path, flow: &Flow, name: &str, scope: &Scope) -> Result<(), 
         "warnings",
       ],
     ),
+    "tests-xtask" => command(root, "cargo", &["test", "--package", "xtask"]),
+    "github-settings" => github_settings(root, flow),
     "tests" => command(
       root,
       "cargo",

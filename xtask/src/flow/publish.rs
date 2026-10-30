@@ -157,8 +157,22 @@ pub fn package(root: &Path, flow: &Flow, target: &str) -> Result<(), String> {
 
 /// `prepare TAG`: the publish stage's checks, then `dist/SHA256SUMS` over the archives
 /// there, `dist/notes.md` from the changelog's section, and whether the release is left
-/// a draft (`draft=true`), on stdout and in `$GITHUB_OUTPUT` when set.
-pub fn prepare(root: &Path, flow: &Flow, tag: &str) -> Result<(), String> {
+/// a draft (`draft=true`), on stdout and in `$GITHUB_OUTPUT` when set. A dry run (no
+/// tag: a `dry-run/` branch) checks only that the crate packages, for Cargo.toml's
+/// version.
+pub fn prepare(root: &Path, flow: &Flow, tag: &str, dry_run: bool) -> Result<(), String> {
+  let tag = if dry_run {
+    format!("v{}", version(root)?)
+  } else {
+    tag.to_string()
+  };
+  let tag = tag.as_str();
+  let only_package = ["package".to_string()];
+  let names = if dry_run {
+    &only_package[..]
+  } else {
+    flow.stage("publish").unwrap_or_default()
+  };
   let scope = Scope {
     stage: "publish".to_string(),
     files: None,
@@ -166,12 +180,7 @@ pub fn prepare(root: &Path, flow: &Flow, tag: &str) -> Result<(), String> {
     ranges: Vec::new(),
     pushed: Vec::new(),
   };
-  checks::run_stage(
-    root,
-    flow,
-    flow.stage("publish").unwrap_or_default(),
-    &scope,
-  )?;
+  checks::run_stage(root, flow, names, &scope)?;
   let version = tag.trim_start_matches('v');
   let mut archives: Vec<PathBuf> = fs::read_dir(dist(root))
     .map_err(|e| format!("dist: {}", e))?

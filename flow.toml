@@ -145,13 +145,24 @@ ci = [
   "actions-pinned",
   "tools-pinned",
   "commands-doc",
+  "tests-xtask",
 ]
 build = ["clippy", "tests"]
 msrv = ["msrv"]
-release = ["clean", "pushed", "ci-green", "compat-record", "tokens", "package"]
+release = [
+  "clean",
+  "pushed",
+  "ci-green",
+  "compat-record",
+  "tokens",
+  "github-settings",
+  "package",
+]
 publish = ["version-agrees", "package"]
 # Before the repository goes public: every commit ever made, not only the tree.
 public = ["history-clean"]
+# The repository's settings on GitHub, as MAINTAINING.md lists them.
+github = ["github-settings"]
 
 [release]
 # The branch releases are cut from.

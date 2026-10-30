@@ -263,10 +263,12 @@ The publish stage's checks, then dist/SHA256SUMS and dist/notes.md, and whether
 the GitHub release is left a draft (the release workflow's step)
 
 ```text
-cargo xtask flow prepare TAG
+cargo xtask flow prepare [TAG] [--dry-run]
 ```
 
 - `TAG`: The release tag, vX.Y.Z
+- `--dry-run`: No tag: only that the crate packages, for Cargo.toml's version (a
+  dry-run/ branch)
 
 ## `cargo xtask flow tap`
 

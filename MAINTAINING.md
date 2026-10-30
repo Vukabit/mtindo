@@ -38,6 +38,11 @@ pushed and checked by CI like anyone's.
    pull request. Approve each in the run's page, then merge the tap's pull
    request.
 
+Before a release that changes how the binaries are built, push a branch named
+`dry-run/<anything>`: `release.yml` builds and packs every target and writes
+the checksums as a release would, publishes nothing, and times the static
+Linux binary against an ordinary build (its summary page has the table).
+
 The changelog is written from commit subjects by git-cliff, under the
 headings `flow.toml`'s `[kinds]` give; `cargo xtask changelog` shows the
 next section at any time, and wraps it to 80 columns.
@@ -51,9 +56,12 @@ v0.1.0 goes out quietly. In order:
 2. **Before going public**, scan every commit ever made, not only the tree:
    `cargo xtask flow check public`. Nothing that looks like a credential, and
    nothing from `docs/internal/`.
-3. Make the GitHub settings below, and create the tap repository
-   `Vukabit/homebrew-tap` (empty, public).
-4. Make the repository public.
+3. Make the repository public, then the GitHub settings below (rulesets and
+   approval on environments need a public repository on a free plan), and
+   create the tap repository `Vukabit/homebrew-tap` (public). `cargo xtask
+   flow check github` lists any setting still missing; a release checks the
+   same and stops until they are made.
+4. Run a dry run (above) and look at its summary.
 5. Cut the release as above. `release.first_as_draft` leaves the GitHub
    release a draft: look over the binaries and notes, then publish it.
 6. crates.io's trusted publishing needs the crate to exist, so publish 0.1.0
@@ -149,7 +157,8 @@ looks like one, and `flow check public` looks through all of history.
 
 ## GitHub settings
 
-Made by hand on the repository's settings pages:
+Made by hand on the repository's settings pages; `cargo xtask flow check
+github` says which are missing:
 
 - **Branch `main`**: a ruleset requiring the `flow`, `msrv` and every `test`
   check, refusing force pushes and deletion.

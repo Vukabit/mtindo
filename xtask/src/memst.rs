@@ -27,11 +27,11 @@ use crate::cli::{on, text, texts};
 use crate::common::log::Logger;
 use crate::common::{process, sample};
 
-/// memst's binary, as `cargo install` names it.
-const TOOL: &str = "cargo-memst";
-
 /// The settings mto is profiled with: layout and formatting, nothing from outside.
 const CONFIG: &str = "root = true\nlayout = true\nformat = true\n";
+
+/// memst's binary, as `cargo install` names it.
+const TOOL: &str = "cargo-memst";
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "memst");
@@ -138,24 +138,6 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   code
 }
 
-/// The report's flags, as memst takes them.
-fn report_flags(m: &clap::ArgMatches) -> Vec<String> {
-  let mut out = Vec::new();
-  if let Some(by) = text(m, "by") {
-    out.extend(["--by".to_string(), by]);
-  }
-  if let Some(top) = m.get_one::<u32>("top") {
-    out.extend(["--top".to_string(), top.to_string()]);
-  }
-  for id in ["view", "function", "file"] {
-    let values = texts(m, id);
-    if !values.is_empty() {
-      out.extend([format!("--{}", id), values.join(",")]);
-    }
-  }
-  out
-}
-
 /// Runs memst, its output shown as it comes; the exit code, and whether it succeeded.
 fn memst(root: &Path, args: &[String]) -> (ExitCode, bool) {
   let tap: process::Tap = Box::new(|bytes: &[u8]| {
@@ -221,4 +203,22 @@ fn relative(root: &Path, path: &Path) -> String {
     .unwrap_or(path)
     .display()
     .to_string()
+}
+
+/// The report's flags, as memst takes them.
+fn report_flags(m: &clap::ArgMatches) -> Vec<String> {
+  let mut out = Vec::new();
+  if let Some(by) = text(m, "by") {
+    out.extend(["--by".to_string(), by]);
+  }
+  if let Some(top) = m.get_one::<u32>("top") {
+    out.extend(["--top".to_string(), top.to_string()]);
+  }
+  for id in ["view", "function", "file"] {
+    let values = texts(m, id);
+    if !values.is_empty() {
+      out.extend([format!("--{}", id), values.join(",")]);
+    }
+  }
+  out
 }

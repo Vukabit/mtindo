@@ -1043,15 +1043,16 @@ pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> 
   let param_shape = shape
     .offset_left(prefix[..opening].width() + 1)
     .and_then(|s| s.sub_width(4));
-  // A struct pattern breaks from the column after the `|` (`block_indent` keeps the
-  // visual alignment); a tuple pattern's list from the closure's indentation (`block`
+  // A struct pattern, or a `mut name` with no type, breaks from the column after the `|`
+  // (`block_indent` keeps the visual alignment); a tuple pattern's list from the closure's indentation (`block`
   // drops it).
   let shape_of = |p: &SyntaxNode, s: Shape| {
-    if p
-      .children_iter()
-      .next()
-      .is_some_and(|c| c.kind() == SyntaxKind::RecordPat)
-    {
+    let first = p.children_iter().next();
+    let lone_name = first
+      .as_ref()
+      .is_some_and(|c| c.kind() == SyntaxKind::IdentPat)
+      && p.children_iter().count() == 1;
+    if first.is_some_and(|c| c.kind() == SyntaxKind::RecordPat) || lone_name {
       Shape {
         indent: column,
         offset: 0,
@@ -4492,6 +4493,41 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       let text = rewrite(&inner, shape.offset_left(1)?.sub_width(1)?)?;
       Some(format!("({})", text))
     }
+    // `mut name`, `ref name`, `ref mut name`: each word after the one before when the line
+    // so far and it fit the shape's width, else on the next line at the shape's indentation
+    // (the standard formatter's `combine_strs_with_missing_comments`).
+    SyntaxKind::IdentPat
+      if !node
+        .children()
+        .last()
+        .is_some_and(|c| c.kind().name().ends_with("_PAT"))
+        && node
+          .children_with_tokens_iter()
+          .any(|e| matches!(e.kind(), SyntaxKind::MutKw | SyntaxKind::RefKw))
+        && !node
+          .children_with_tokens_iter()
+          .any(|e| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment)) =>
+    {
+      let words: Vec<String> = node
+        .descendants_with_tokens_iter()
+        .filter_map(|e| match e {
+          SyntaxElement::Token(t) if !t.kind().is_trivia() => Some(t.text().to_string()),
+          _ => None,
+        })
+        .collect();
+      let (first, rest) = words.split_first()?;
+      let mut text = first.clone();
+      for word in rest {
+        if last_line_width(&text) + 1 + word.width() <= shape.width {
+          text.push(' ');
+        } else {
+          text.push('\n');
+          text.push_str(&" ".repeat(shape.indent + shape.align));
+        }
+        text.push_str(word);
+      }
+      Some(text)
+    }
     // `name @ pattern`: the pattern laid out after the binding.
     SyntaxKind::IdentPat
       if node
@@ -4791,10 +4827,24 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
           // `rewrite_field`).
           [name, value] => {
             let name = flat(name, shape.limits.spacing);
-            let same = v_shape
-              .sub_width(1)?
-              .offset_left(name.width() + 2)
-              .and_then(|s| rewrite(value, s));
+            // 1 = the comma, which a literal's field is given room for and a pattern's is not
+            // (the standard formatter's `rewrite_struct_lit` and `rewrite_struct_pat`).
+            let pattern = n.kind() == SyntaxKind::RecordPatField;
+            let field_shape = if pattern {
+              v_shape
+            } else {
+              v_shape.sub_width(1)?
+            };
+            // A pattern is laid out in the field's whole shape, failing the field when it does
+            // not lay out there, and then kept after its name when both fit (`PatField`).
+            let same = if pattern {
+              Some(rewrite(value, field_shape)?)
+                .filter(|t| !t.contains('\n') && name.width() + 2 + t.width() <= field_shape.width)
+            } else {
+              field_shape
+                .offset_left(name.width() + 2)
+                .and_then(|s| rewrite(value, s))
+            };
             // A pattern's field keeps only a pattern on one line after its name; else the
             // pattern goes to the next line, one level in (the standard formatter's
             // `PatField`).
@@ -4820,12 +4870,12 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
               None => {
                 // A pattern's keeps the field's width one level in (`PatField` takes
                 // `block_indent` of the field's shape), so it may pass the line width.
-                let next_shape = if n.kind() == SyntaxKind::RecordPatField {
+                let next_shape = if pattern {
                   Shape {
                     indent: v_shape.indent + shape.limits.tab,
                     align: 0,
                     offset: 0,
-                    ..v_shape.sub_width(1)?
+                    ..v_shape
                   }
                 } else {
                   v_shape.block_indent(shape.limits.tab)

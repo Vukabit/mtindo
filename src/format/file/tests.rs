@@ -121,6 +121,25 @@ fn test_a_link_with_a_line_past_the_width_fails_the_chain_not_the_link() {
   assert_eq!(formatted_with(source, &max_heuristics(100)), source);
 }
 
+/// `|mut name|` too wide for the parameters' room breaks after `mut`, and a closure whose
+/// parameters span lines does not overflow: the chain takes the next line instead.
+#[test]
+fn test_a_mut_parameter_with_no_room_keeps_its_closure_from_overflowing() {
+  let source = "fn f() {\n    {\n        {\n            let trait_gen_args =\n                old_impl.trait_()?.generic_arg_list().and_then(|mut trait_args| {\n                    let trait_args = &mut trait_args;\n                    if let Some(new_args) = transform_impl(\n                        ctx,\n                        ast_strukt,\n                        &old_impl,\n                        &transform_args,\n                        trait_args.clone(),\n                    ) {\n                        *trait_args = new_args.clone();\n                        Some(new_args)\n                    } else {\n                        None\n                    }\n                });\n        }\n    }\n}\n";
+  assert_eq!(formatted_with(source, &max_heuristics(100)), source);
+}
+
+/// A struct pattern's field takes no room for its comma, which may then pass the line
+/// width, and its pattern is laid out in the field's whole shape before it is placed after
+/// the name.
+#[test]
+fn test_a_pattern_field_takes_no_room_for_its_comma() {
+  let arm = "fn f() {\n    {\n        {\n            {\n                {\n                    {\n                        match *child_op {\n                            Op::Repeat {\n                                kind: parser::RepeatKind::ZeroOrMore | parser::RepeatKind::ZeroOrOne,\n                                ..\n                            } => true,\n                            _ => false,\n                        }\n                    }\n                }\n            }\n        }\n    }\n}\n";
+  assert_eq!(formatted_with(arm, &max_heuristics(100)), arm);
+  let nested = "fn f() {\n    let bidirectional::ExpandMacro {\n        lib,\n        env,\n        current_dir,\n        data:\n            bidirectional::ExpandMacroData {\n                macro_body,\n                macro_name,\n                attributes,\n                has_global_spans: bidirectional::ExpnGlobals { def_site, call_site, mixed_site, .. },\n                span_data_table,\n            },\n    } = task;\n}\n";
+  assert_eq!(formatted_with(nested, &max_heuristics(100)), nested);
+}
+
 #[test]
 fn test_an_arm_body_too_wide_for_its_line_goes_in_a_block() {
   // A `match` whose head does not fit after `=>`, or would span more lines there than on

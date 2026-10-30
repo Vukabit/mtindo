@@ -68,6 +68,23 @@ pub fn const_block_item(node: &SyntaxNode, indent: usize, config: &FormatConfig)
 /// no line width, a line of it is still past the width (one that holds no comment, which
 /// may stop a layout of its own); `None` otherwise.
 pub fn header_gives_up(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<usize> {
+  // A function's whose generic parameter leaves its default no room, up to its body.
+  if node.kind() == K::Fn && super::types::default_without_room(node, indent, config) {
+    return Some(
+      match node.children_iter().find(|c| c.kind() == K::BlockExpr) {
+        Some(body) => {
+          node
+            .children_with_tokens_iter()
+            .take_while(|e| e.text_range().start < body.text_range().start)
+            .filter(|e| !e.kind().is_trivia())
+            .last()?
+            .text_range()
+            .end as usize
+        }
+        None => node.text_range().end as usize,
+      },
+    );
+  }
   // Only an `impl`'s, a trait's and a type alias's: a struct's or a function's lists may
   // still break where this layout keeps them on a line.
   if !matches!(node.kind(), K::Impl | K::Trait | K::TypeAlias)

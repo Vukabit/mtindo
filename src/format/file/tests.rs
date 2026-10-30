@@ -99,6 +99,20 @@ fn test_a_comment_after_an_attribute_across_lines_moves_to_its_indentation() {
   );
 }
 
+/// A generic parameter whose bounds, broken over lines, leave its default no room (counted
+/// in bytes from all the text before it) fails the generics: the function's header is left
+/// as written, and its body's `{` follows it with no space.
+#[test]
+fn test_a_generic_default_with_no_room_gives_the_function_header_up() {
+  let declared = "pub fn call5<\n    Ret: JsGeneric,\n    Arg1: JsGeneric,\n    Arg2: JsGeneric,\n    Arg3: JsGeneric,\n    Arg4: JsGeneric,\n    Arg5: JsGeneric,\n    F: JsFunction<Ret = Ret>\n        + JsFunction5<Arg1 = Arg1, Arg2 = Arg2, Arg3 = Arg3, Arg4 = Arg4, Arg5 = Arg5> = fn(\n        JsValue,\n        JsValue,\n        JsValue,\n        JsValue,\n        JsValue,\n    ) -> JsValue,\n>(\n    this: &Function<F>,\n    context: &JsValue,\n) -> Result<Ret, JsValue>;\n";
+  assert_eq!(formatted(declared), declared);
+  let header = declared.strip_suffix(";\n").unwrap_or(declared);
+  assert_eq!(
+    formatted(&format!("{} {{\n      let   x =   1;\n}}\n", header)),
+    format!("{}{{\n    let x = 1;\n}}\n", header)
+  );
+}
+
 /// A chain's last link that fits on the chain's first line but cannot overflow there is
 /// laid out in the chain's own shape, its block indented from the chain's indentation
 /// though the link goes on a line of its own, as the standard formatter writes it.

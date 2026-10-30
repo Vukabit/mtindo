@@ -2999,6 +2999,24 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 node.kind(),
                 SyntaxKind::Impl | SyntaxKind::Struct | SyntaxKind::Union | SyntaxKind::Trait
               );
+              // A function's body after a header given up on follows it with no space (the
+              // standard formatter's `visit_fn` copies the header up to the `{`, its spaces
+              // dropped); after a comment it stays on its line.
+              let glue_body = |node: &SyntaxNode| {
+                if node.kind() == SyntaxKind::Fn
+                  && let Some(body) = node
+                    .children_iter()
+                    .find(|c| c.kind() == SyntaxKind::BlockExpr)
+                  && node
+                    .children_with_tokens_iter()
+                    .take_while(|e| e.text_range().start < body.text_range().start)
+                    .filter(|e| e.kind() != SyntaxKind::Whitespace)
+                    .last()
+                    .is_some_and(|e| !matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment))
+                {
+                  glued.borrow_mut().insert(body.text_range().start as usize);
+                }
+              };
               let node_end = node.text_range().end as usize;
               if laid.is_none()
                 && let Some(&end) = roles.wide_headers.get(&tok.start)
@@ -3011,6 +3029,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 {
                 note_kept();
                 gave_up.borrow_mut().push((tok.start, end));
+                glue_body(node);
               }
               } else if laid.is_none()
                 && let Some(end) = crate::format::items::header_gives_up(node, indent, config)
@@ -3022,6 +3041,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 {
                 note_kept();
                 gave_up.borrow_mut().push((tok.start, end));
+                glue_body(node);
               }
               }
               // An empty body after a header on one line closes up (`{}`); after one across

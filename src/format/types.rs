@@ -10,7 +10,8 @@
 use SyntaxKind as K;
 
 use super::expr::{first_line_width, flat, last_line_extendable, last_line_width, rewrite};
-use super::shape::Shape;
+use super::shape::{Limits, Shape};
+use crate::options::format::FormatConfig;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::text::unicode::str_width;
 
@@ -96,6 +97,36 @@ pub fn can_overflow_type(node: &SyntaxNode, count: usize) -> bool {
       .is_some_and(|c| can_overflow_type(&c, count)),
     _ => false,
   }
+}
+
+/// Whether a type parameter of a function's generics, laid out a parameter per line one
+/// level in from `indent`, leaves its default no room: the standard formatter then fails
+/// the generics, and gives the function's header up.
+pub fn default_without_room(function: &SyntaxNode, indent: usize, config: &FormatConfig) -> bool {
+  let Some(list) = function
+    .children_iter()
+    .find(|c| c.kind() == K::GenericParamList)
+  else {
+    return false;
+  };
+  // 1 = the comma.
+  let Some(width) = config.max_width.checked_sub(indent + config.tab_spaces + 1) else {
+    return false;
+  };
+  let shape = Shape {
+    indent: indent + config.tab_spaces,
+    align: 0,
+    offset: 0,
+    width,
+    limits: Limits::of(config),
+  };
+  list
+    .children_iter()
+    .filter(|p| p.kind() == K::TypeParam && p.children_iter().all(|c| c.kind() != K::Attr))
+    .any(|p| {
+      before_default(&p, shape)
+        .is_some_and(|(text, default)| default.is_some() && text.len() > width)
+    })
 }
 
 /// Whether a comment on one line stands among a reference type's parts (`& // c`), which
@@ -528,6 +559,41 @@ fn aligned_block_indent(shape: Shape) -> Shape {
       ..shape
     }
   }
+}
+
+/// A generic parameter up to its default, with the ` = ` before it, and the default.
+fn before_default(node: &SyntaxNode, shape: Shape) -> Option<(String, Option<SyntaxNode>)> {
+  let spacing = shape.limits.spacing;
+  let eq = if spacing.compressed_type_punctuation {
+    "="
+  } else {
+    " = "
+  };
+  let mut out = String::new();
+  let mut after_eq = false;
+  for element in node.children_with_tokens_iter() {
+    if element.kind().is_trivia() || element.kind() == K::Attr {
+      continue;
+    }
+    match element {
+      SyntaxElement::Token(t) if t.kind() == K::Eq => {
+        out.push_str(eq);
+        after_eq = true;
+      }
+      SyntaxElement::Token(t) if t.kind() == K::Colon => out.push_str(&colon_text(spacing)),
+      SyntaxElement::Token(t) if t.kind() == K::ConstKw => out.push_str("const "),
+      SyntaxElement::Token(t) => out.push_str(t.text()),
+      SyntaxElement::Node(n) if n.kind() == K::Name => out.push_str(&flat(&n, spacing)),
+      // The bounds take the parameter's whole shape.
+      SyntaxElement::Node(n) if n.kind() == K::TypeBoundList => {
+        out.push_str(&join_bounds(&n, shape, true)?);
+      }
+      // A const parameter's type the whole shape too.
+      SyntaxElement::Node(n) if !after_eq => out.push_str(&rewrite(&n, shape)?),
+      SyntaxElement::Node(n) => return Some((out, Some(n))),
+    }
+  }
+  Some((out, None))
 }
 
 /// Whether a block comment on one line stands right before a function type's parameter,
@@ -1077,52 +1143,26 @@ fn rewrite_generic_param(node: &SyntaxNode, shape: Shape) -> Option<String> {
 
 /// [`rewrite_generic_param`] for what follows its attributes.
 fn rewrite_generic_param_after(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let spacing = shape.limits.spacing;
-  let eq = if spacing.compressed_type_punctuation {
-    "="
-  } else {
-    " = "
-  };
-  let mut out = String::new();
-  let mut after_eq = false;
-  for element in node.children_with_tokens_iter() {
-    if element.kind().is_trivia() || element.kind() == K::Attr {
-      continue;
-    }
-    match element {
-      SyntaxElement::Token(t) if t.kind() == K::Eq => {
-        out.push_str(eq);
-        after_eq = true;
+  let (mut out, default) = before_default(node, shape)?;
+  if let Some(n) = default {
+    // Its room counted in bytes from all the text before it, line breaks and indentation
+    // too when the bounds break (`param.len()`).
+    let used = out.len();
+    let default_shape = Shape {
+      width: shape.width.checked_sub(used)?,
+      ..shape
+    };
+    // A type parameter's default lines up after the parameter.
+    let default_shape = if node.kind() == K::ConstParam {
+      default_shape
+    } else {
+      Shape {
+        offset: shape.offset + used,
+        align: shape.align + used,
+        ..default_shape
       }
-      SyntaxElement::Token(t) if t.kind() == K::Colon => out.push_str(&colon_text(spacing)),
-      SyntaxElement::Token(t) if t.kind() == K::ConstKw => out.push_str("const "),
-      SyntaxElement::Token(t) => out.push_str(t.text()),
-      SyntaxElement::Node(n) if n.kind() == K::Name => out.push_str(&flat(&n, spacing)),
-      // The bounds take the parameter's whole shape.
-      SyntaxElement::Node(n) if n.kind() == K::TypeBoundList => {
-        out.push_str(&join_bounds(&n, shape, true)?);
-      }
-      // A const parameter's type the whole shape too; a default what is left.
-      SyntaxElement::Node(n) if !after_eq => out.push_str(&rewrite(&n, shape)?),
-      SyntaxElement::Node(n) => {
-        let used = str_width(&out);
-        let default_shape = Shape {
-          width: shape.width.checked_sub(used)?,
-          ..shape
-        };
-        // A type parameter's default lines up after the parameter.
-        let default_shape = if node.kind() == K::ConstParam {
-          default_shape
-        } else {
-          Shape {
-            offset: shape.offset + used,
-            align: shape.align + used,
-            ..default_shape
-          }
-        };
-        out.push_str(&rewrite(&n, default_shape)?);
-      }
-    }
+    };
+    out.push_str(&rewrite(&n, default_shape)?);
   }
   Some(out)
 }

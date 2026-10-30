@@ -4,7 +4,7 @@
 # environment. Every step is a `cargo xtask flow` command; see MAINTAINING.md.
 #
 # A `dry-run/` branch pushed runs the builds and the packing alone, publishes nothing,
-# and times the static Linux binary against an ordinary one.
+# and tries the packed Linux binary, with the newest glibc it needs.
 name: release
 
 on:
@@ -26,10 +26,11 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
+          # Ubuntu 22.04's glibc (2.35) is the oldest the Linux binaries run on.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
           - os: macos-15
             target: aarch64-apple-darwin
           - os: macos-15
@@ -48,9 +49,6 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add ${{ matrix.target }}
-      - name: musl
-        if: contains(matrix.target, 'musl')
-        run: sudo apt-get install --yes musl-tools
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} --bin mto --bin cargo-mto
       - name: Pack
@@ -142,9 +140,7 @@ jobs:
         run: cargo xtask flow tap "$TAG"
 
   # The packing and checksums as a release makes them, without a tag or a release; and
-  # the static musl binary timed against an ordinary glibc build on mto's own sources,
-  # since musl's allocator can be much slower for a program that allocates on many
-  # threads.
+  # the packed Linux binary run on mto's own sources, with the newest glibc it needs.
   dry-run:
     needs: build
     if: startsWith(github.ref, 'refs/heads/dry-run/')
@@ -163,32 +159,15 @@ jobs:
         run: |
           cargo xtask flow prepare --dry-run
           cat dist/SHA256SUMS
-      - name: musl against glibc
+      - name: The Linux binary
         run: |
-          cargo build --release --locked --bin mto
-          mkdir musl && tar -xzf dist/mto-*-x86_64-unknown-linux-musl.tar.gz -C musl
-          musl_mto=$(ls musl/*/mto)
-          for name in glibc musl; do
-            bin=target/release/mto
-            if [ "$name" = musl ]; then bin=$musl_mto; fi
-            "$bin" --version
-            best=
-            for run in 1 2 3 4 5; do
-              rm -rf copy && cp -r src copy
-              start=$(date +%s%N)
-              "$bin" --quiet --no-history --unguarded copy > /dev/null
-              took=$(( ($(date +%s%N) - start) / 1000000 ))
-              if [ -z "$best" ] || [ "$took" -lt "$best" ]; then best=$took; fi
-            done
-            echo "$name $best" >> times.txt
-          done
-          glibc=$(awk '$1 == "glibc" {print $2}' times.txt)
-          musl=$(awk '$1 == "musl" {print $2}' times.txt)
-          {
-            echo "| build | best of 5 (ms) |"
-            echo "|---|---|"
-            echo "| glibc | $glibc |"
-            echo "| musl | $musl |"
-            echo
-            echo "musl takes $(awk -v a="$musl" -v b="$glibc" 'BEGIN { printf "%.2f", a / b }')x the time of glibc."
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          mkdir packed && tar -xzf dist/mto-*-x86_64-unknown-linux-gnu.tar.gz -C packed
+          mto=$(ls packed/*/mto)
+          "$mto" --version
+          cp -r src copy
+          # 0: nothing to change, 1: something would change; either way it ran.
+          status=0
+          "$mto" --check --no-history --unguarded copy > /dev/null || status=$?
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
+          glibc=$(objdump -T "$mto" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -1)
+          echo "The x86_64 Linux binary needs $glibc or newer." | tee -a "$GITHUB_STEP_SUMMARY"

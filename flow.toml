@@ -177,9 +177,11 @@ tap = "Vukabit/homebrew-tap"
 # published; later ones are published as built.
 first_as_draft = true
 # The binaries each release carries, built by .github/workflows/release.yml.
+# Linux builds link glibc, built on Ubuntu 22.04 so they run on glibc 2.35 and
+# newer (musl's static builds took 1.6 times as long).
 targets = [
-  "x86_64-unknown-linux-musl",
-  "aarch64-unknown-linux-musl",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
   "x86_64-pc-windows-msvc",

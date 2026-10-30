@@ -93,8 +93,8 @@ end
     version = version,
     mac_arm = block("aarch64-apple-darwin")?,
     mac_intel = block("x86_64-apple-darwin")?,
-    linux_arm = block("aarch64-unknown-linux-musl")?,
-    linux_intel = block("x86_64-unknown-linux-musl")?,
+    linux_arm = block("aarch64-unknown-linux-gnu")?,
+    linux_intel = block("x86_64-unknown-linux-gnu")?,
   );
   Ok(())
 }

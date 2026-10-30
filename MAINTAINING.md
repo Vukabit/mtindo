@@ -40,8 +40,8 @@ pushed and checked by CI like anyone's.
 
 Before a release that changes how the binaries are built, push a branch named
 `dry-run/<anything>`: `release.yml` builds and packs every target and writes
-the checksums as a release would, publishes nothing, and times the static
-Linux binary against an ordinary build (its summary page has the table).
+the checksums as a release would, publishes nothing, and runs the packed
+Linux binary, saying the oldest glibc it needs (on its summary page).
 
 The changelog is written from commit subjects by git-cliff, under the
 headings `flow.toml`'s `[kinds]` give; `cargo xtask changelog` shows the

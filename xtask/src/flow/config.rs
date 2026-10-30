@@ -35,6 +35,8 @@ pub struct Body {
 pub struct Commit {
   pub max_header: usize,
   pub scope_must_match: bool,
+  /// The newest commit made before these rules: it and its history are not checked.
+  pub since: Option<String>,
   pub body: Body,
 }
 
@@ -239,6 +241,15 @@ pub fn parse(text: &str) -> Result<Flow, String> {
     commit: Commit {
       max_header: number(commit, "max_header", "commit")?,
       scope_must_match: boolean(commit, "scope_must_match", "commit")?,
+      since: match commit.get("since") {
+        Some(v) => Some(
+          v.as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or("flow.toml: commit.since is a commit id")?
+            .to_string(),
+        ),
+        None => None,
+      },
       body: Body {
         refused_kinds: strings(
           body

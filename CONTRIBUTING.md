@@ -105,7 +105,8 @@ for a breaking change (saying what breaks), and kept to 12 lines of at most
 A plain `git commit` starts the message with the scope the staged files are
 in (`kind(format,cli): `), so only the kind and subject are left to write.
 `fixup!` and `squash!` commits are accepted locally but refused when pushed:
-squash them first.
+squash them first. Commits made before these rules (up to `[commit] since`
+in flow.toml) are never checked.
 
 ## What the hooks check
 

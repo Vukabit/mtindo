@@ -6,6 +6,9 @@
 # below or a path in the tree, several joined by commas, and `!` after the
 # scope marks a breaking change.
 [commit]
+# The last commit made before these rules: it and everything before it are
+# never checked.
+since = "4bd6652c03e506b6f8f216cdfb172e00e4bf4dea"
 # The first line, scope and all.
 max_header = 72
 # A scope that covers none of the commit's files fails it.

@@ -203,8 +203,23 @@ fn commit_msg(root: &Path, args: &[String]) -> Result<(), String> {
 fn messages_in(root: &Path, flow: &Flow, ranges: &[Vec<String>]) -> Result<(), String> {
   let mut report = Vec::new();
   let mut count = 0;
+  // History from before the rules is left as it was written.
+  let before = match &flow.commit.since {
+    Some(since) => vec![
+      "--not".to_string(),
+      git::git(
+        root,
+        &["rev-parse", "--verify", &format!("{}^{{commit}}", since)],
+      )
+      .map_err(|_| format!("flow.toml: commit.since, {}, is not a commit here", since))?
+      .trim()
+      .to_string(),
+    ],
+    None => Vec::new(),
+  };
   for range in ranges {
-    for (sha, merge) in git::commits(root, range)? {
+    let range: Vec<String> = range.iter().chain(&before).cloned().collect();
+    for (sha, merge) in git::commits(root, &range)? {
       count += 1;
       if merge {
         continue;

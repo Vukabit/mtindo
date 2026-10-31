@@ -131,21 +131,25 @@ fn canonical<'a>(
     merged.push(token);
   }
   // comment-text: comments as the multiset of their words.
-  // A custom comment's marker (`//@`) is a word of its own, as a space after it may be
-  // added (`normalize_comments`).
   let mut words: Vec<String> = comments
     .iter()
-    .flat_map(|c| {
-      let mut words = c.split_whitespace();
-      let first = words.next().map(|w| {
-        let at = w.find(|c: char| c.is_alphanumeric()).unwrap_or(w.len());
-        if at > 0 && at < w.len() {
-          vec![&w[..at], &w[at..]]
-        } else {
-          vec![w]
+    .flat_map(|c| c.split_whitespace())
+    // A word broken after punctuation (`wrap_comments` breaks there with no space) is its
+    // pieces.
+    .flat_map(|w| {
+      let mut pieces = Vec::new();
+      let mut from = 0;
+      for (at, c) in w.char_indices() {
+        if crate::text::unicode::is_other_punctuation(c) {
+          let end = at + c.len_utf8();
+          pieces.push(&w[from..end]);
+          from = end;
         }
-      });
-      first.into_iter().flatten().chain(words)
+      }
+      if from < w.len() {
+        pieces.push(&w[from..]);
+      }
+      pieces
     })
     .filter(|w| !w.chars().all(|c| c == '*' || c == '/' || c == '!'))
     .map(str::to_string)
@@ -257,7 +261,12 @@ fn doc_text(kind: &str, text: &str) -> String {
   };
   let mut out = format!("{}\u{0}", kind);
   for line in body.lines() {
-    let line = line.trim_start().trim_start_matches('*');
+    // A block quote's `>`s on a line it continues are Markdown's own (`wrap_comments`
+    // writes them on each line it makes).
+    let line = line
+      .trim_start()
+      .trim_start_matches('*')
+      .trim_start_matches(|c: char| c == '>' || c.is_whitespace());
     out.extend(line.chars().filter(|c| !c.is_whitespace()));
   }
   out
@@ -450,6 +459,14 @@ fn emit_node<'a>(
   if node.parent().is_none() {
     for (kind, text, _) in node.token_texts() {
       if matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment) {
+        // A custom comment's marker (`//@`, written again on each line `wrap_comments`
+        // makes, with a space after it `normalize_comments` may add) is not its text.
+        let text = match text.strip_prefix("//") {
+          Some(rest) if rest.starts_with(|c: char| !c.is_alphanumeric() && !c.is_whitespace()) => {
+            rest.trim_start_matches(|c: char| !c.is_alphanumeric() && !c.is_whitespace())
+          }
+          _ => text,
+        };
         notes.push(
           text
             .replace("/*", " ")

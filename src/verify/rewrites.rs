@@ -99,14 +99,14 @@ pub const REWRITES: &[Rewrite] = &[
                  `#[doc = \"...\"]` as `///` (`wrap_comments`, \
                  `format_code_in_doc_comments`, `normalize_doc_attributes`) changes only its \
                  whitespace and markers, so consecutive doc comments are compared as their \
-                 text without whitespace.",
+                 text without whitespace, nor the block quote markers (`>`) starting a line.",
   },
   Rewrite {
     name: "comment-text",
     reason: "Rewrapping, re-indenting or re-marking a comment (`wrap_comments`, \
                  `normalize_comments`) keeps its words, so comments are compared as the \
-                 multiset of their words, a custom comment's marker (`//@`) a word apart \
-                 from what follows it.",
+                 multiset of their words without a custom comment's marker (`//@`), a \
+                 word broken after each punctuation mark in it.",
   },
   Rewrite {
     name: "number-literals",

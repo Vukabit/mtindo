@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-31T06:55:43.369Z"
-commit: "461bffd-dirty.c84fdf0f"
+generated: "2026-10-31T19:29:56.574Z"
+commit: "b14c7ee-dirty.8bd658be"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -14,11 +14,11 @@ corpus_fingerprint: "sha256:0d26c0baa5577082"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
   meaning.exceptions.tests: 8
-  meaning.exceptions.tests-with-settings: 20
+  meaning.exceptions.tests-with-settings: 15
   meaning.exceptions.corpus: 1
   meaning.exceptions.corpus-unformatted: 1
-  meaning.exceptions.total: 30
-  meaning.exceptions.unmodelled: 10
+  meaning.exceptions.total: 25
+  meaning.exceptions.unmodelled: 5
   meaning.exceptions.other: 20
 ---
 
@@ -29,8 +29,8 @@ metrics:
 <!-- generated: abstract -->
 Every output of mto that `cargo xtask diff` scores must keep the input's meaning
 and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 30 files, each listed
-with its reason: 10 are rewrites the check does not model yet, and 20 are the
+check, run on the standard formatter's own outputs, flags 25 files, each listed
+with its reason: 5 are rewrites the check does not model yet, and 20 are the
 formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
@@ -91,15 +91,13 @@ Exceptions listed for the standard formatter's output, by set:
 | set | listed | not modelled | other |
 |---|---:|---:|---:|
 | tests | 8 | 0 | 8 |
-| tests-with-settings | 20 | 10 | 10 |
+| tests-with-settings | 15 | 5 | 10 |
 | corpus | 1 | 0 | 1 |
 | corpus-scrambled | 1 | 0 | 1 |
 
 The reasons given, with how many files give each:
 
 - `format_code_in_doc_comments` changes code in docs beyond whitespace (4)
-- `wrap_comments` reflows a markdown blockquote: not modelled (3)
-- `wrap_comments` splits words: not modelled (2)
 - a static in an extern block loses its initializer (`= "string"`): the
   formatter's issue 6267 (2)
 - an attributed match arm body wrapped in a block: equivalent, not modelled (2)
@@ -137,7 +135,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
-| current |  | 30 | 10 | 20 |
+| current |  | 25 | 5 | 20 |
+| 2026-10-31 | c1e01b5 | 30 | 10 | 20 |
 | 2026-10-30 | 0022cfe | 31 | 10 | 21 |
 | 2026-10-30 | b380cfa | 31 | 10 | 21 |
 | 2026-10-24 | 06bd578 | 29 | 10 | 19 |
@@ -162,9 +161,9 @@ status:
 
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
-| `meaning` | 0 | 0 | 150 | 0 |
-| `unstable` | 0 | 0 | 346 | 0 |
-| `panic` | 0 | 0 | 6 | 0 |
+| `meaning` | 0 | 0 | 151 | 0 |
+| `unstable` | 0 | 0 | 348 | 0 |
+| `panic` | 0 | 0 | 7 | 0 |
 <!-- end generated -->
 
 ## 4 Threats to validity

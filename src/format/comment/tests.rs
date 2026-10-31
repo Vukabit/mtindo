@@ -8,7 +8,15 @@ fn lone(text: &str, normalize: bool) -> String {
 
 fn normalize_text(text: &str) -> String {
   let root = crate::syntax::parse(text, crate::syntax::Edition::E2021).syntax_node();
-  normalize(&root, text, &FormatConfig::default()).unwrap_or_else(|| text.to_string())
+  rewrite_comments(
+    &root,
+    text,
+    &FormatConfig {
+      normalize_comments: true,
+      ..FormatConfig::default()
+    },
+  )
+  .unwrap_or_else(|| text.to_string())
 }
 
 #[test]
@@ -67,6 +75,24 @@ fn test_a_normalized_lone_comment_goes_on_a_line_of_its_own() {
   assert_eq!(lone("mod m { /* f */ }\n", true), "mod m { // f\n}\n");
 }
 
+/// A comment after a list's item too wide for the line is wrapped as a block comment from
+/// its column.
+#[test]
+fn test_a_wide_comment_after_a_field_becomes_a_block_comment() {
+  let text = format!(
+    "struct S {{\n    pub id: usize, // {}\n}}\n",
+    "C".repeat(40) + " " + &"D".repeat(40)
+  );
+  assert_eq!(
+    wrapped(&text),
+    format!(
+      "struct S {{\n    pub id: usize, /* {}\n                    * {} */\n}}\n",
+      "C".repeat(40),
+      "D".repeat(40)
+    )
+  );
+}
+
 #[test]
 fn test_comments_in_macro_arguments_stay_as_written() {
   let text = "m! {\n    /* a */\n}\n";
@@ -79,4 +105,35 @@ fn test_line_comments_get_a_space_and_keep_a_trailing_empty_line() {
   assert_eq!(normalized("// a\n//", false, ""), "// a\n//");
   assert_eq!(normalized("///a", false, ""), "/// a");
   assert_eq!(normalized("//", false, ""), "//");
+}
+
+/// `wrap_comments` breaks a line wider than `comment_width` between words, a list item
+/// as a whole with its later lines under its text; a URL and a Markdown heading stay.
+#[test]
+fn test_wrapped_comments() {
+  let long = "a comment of length 80, with a few more words here to go past the comment width";
+  assert_eq!(
+    wrapped(&format!("// {}\nfn f() {{}}\n", long)),
+    "// a comment of length 80, with a few more words here to go past the comment\n// width\nfn f() {}\n"
+  );
+  assert_eq!(
+    wrapped(&format!("// - {}\nfn f() {{}}\n", long)),
+    "// - a comment of length 80, with a few more words here to go past the comment\n//   width\nfn f() {}\n"
+  );
+  let url = format!(
+    "// see https://example.com/{} for more\nfn f() {{}}\n",
+    "x".repeat(80)
+  );
+  assert_eq!(wrapped(&url), url);
+  let heading = format!("/// # {}\nfn f() {{}}\n", long);
+  assert_eq!(wrapped(&heading), heading);
+}
+
+fn wrapped(text: &str) -> String {
+  let root = crate::syntax::parse(text, crate::syntax::Edition::E2015).syntax_node();
+  let config = FormatConfig {
+    wrap_comments: true,
+    ..FormatConfig::default()
+  };
+  rewrite_comments(&root, text, &config).unwrap_or_else(|| text.to_string())
 }

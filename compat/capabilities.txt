@@ -17,7 +17,7 @@ option  brace_style                                      partial      # with for
 option  chain_width                                      partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  color                                            missing
 option  combine_control_expr                             supported    # with format = true, an if, for, loop or while alone in a call does not overflow when false (src/format/stmt/tests.rs)
-option  comment_width                                    missing
+option  comment_width                                    supported    # with format = true (src/format/comment/tests.rs)
 option  condense_wildcard_suffixes                       supported    # with format = true (src/format/reorder/tests.rs)
 option  control_brace_style                              supported    # with format = true (src/format/reorder/tests.rs)
 option  disable_all_formatting                           supported    # formatting leaves the file as written; layout follows mto.toml (src/format/file/tests.rs)
@@ -97,7 +97,7 @@ option  verbose                                          missing
 option  version                                          partial      # deprecated in rustfmt; `Two` means style edition 2024, as in rustfmt (src/config/tests.rs)
 option  where_single_line                                supported    # with format = true (src/format/reorder/tests.rs)
 option  width_heuristics                                 missing
-option  wrap_comments                                    missing
+option  wrap_comments                                    supported    # with format = true (src/format/comment/tests.rs)
 
 value   binop_separator=Back                             supported    # with format = true (src/format/file/tests.rs)
 value   binop_separator=Front                            supported    # with format = true (src/format/file/tests.rs)

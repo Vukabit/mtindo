@@ -14,7 +14,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("chain_width", "partial"),
   ("color", "missing"),
   ("combine_control_expr", "supported"),
-  ("comment_width", "missing"),
+  ("comment_width", "supported"),
   ("condense_wildcard_suffixes", "supported"),
   ("control_brace_style", "supported"),
   ("disable_all_formatting", "supported"),
@@ -94,5 +94,5 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("version", "partial"),
   ("where_single_line", "supported"),
   ("width_heuristics", "missing"),
-  ("wrap_comments", "missing"),
+  ("wrap_comments", "supported"),
 ];

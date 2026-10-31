@@ -29,7 +29,7 @@ The headline figure of each paper:
 | paper | headline |
 |---|---|
 | [compatibility](compatibility.md) | 99.92% of scrambled-corpus lines match |
-| [meaning](meaning.md) | 30 exceptions listed, 10 not modelled yet |
+| [meaning](meaning.md) | 25 exceptions listed, 5 not modelled yet |
 | [fuzzing](fuzzing.md) | 8 targets, 178 kept regression inputs |
 | [performance](performance.md) | 9.103 MB/s formatting on one thread |
 | [scrambled-pairs](scrambled-pairs.md) | no data recorded yet |

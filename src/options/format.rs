@@ -164,6 +164,10 @@ pub struct FormatConfig {
   pub normalize_doc_attributes: bool,
   /// `normalize_comments`: `/* a */` ending a line written `// a`, `/** a */` written `/// a`.
   pub normalize_comments: bool,
+  /// `wrap_comments`: a comment's lines wider than `comment_width` broken between words.
+  pub wrap_comments: bool,
+  /// `comment_width`: the widest a wrapped comment's lines go.
+  pub comment_width: usize,
   /// `control_brace_style`.
   pub control_brace_style: ControlBraceStyle,
   /// `fn_params_layout`.
@@ -270,6 +274,8 @@ impl Default for FormatConfig {
       try_shorthand: false,
       condense_wildcards: false,
       normalize_comments: false,
+      wrap_comments: false,
+      comment_width: 80,
       normalize_doc_attributes: false,
       control_brace_style: ControlBraceStyle::AlwaysSameLine,
       fn_params_layout: FnParamsLayout::Tall,

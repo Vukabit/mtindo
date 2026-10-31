@@ -1,5 +1,5 @@
-//! Generates `src/text/unicode/ident_tables.rs` and `width_tables.rs` from the Unicode
-//! Character Database. Downloads are cached in `compat/cache/unicode/<version>/`.
+//! Generates `src/text/unicode/ident_tables.rs`, `punctuation_tables.rs` and `width_tables.rs`
+//! from the Unicode Character Database. Downloads are cached in `compat/cache/unicode/<version>/`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -345,8 +345,22 @@ fn render_tables(
         &zero,
     ));
 
+  let other_punctuation = mark(categories, &["Po"], true);
+  let mut punctuation = header(
+    version,
+    version_parts,
+    files,
+    &["DerivedGeneralCategory.txt"],
+  );
+  punctuation.push_str(&table(
+    "Other punctuation (general category Po), where a comment may break, as inclusive ranges.",
+    "OTHER_PUNCTUATION",
+    &other_punctuation,
+  ));
+
   Ok(vec![
     ("ident_tables.rs", rustfmt(&ident)?),
+    ("punctuation_tables.rs", rustfmt(&punctuation)?),
     ("width_tables.rs", rustfmt(&width)?),
   ])
 }

@@ -10,8 +10,6 @@
 tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
 tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
 tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
-tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
-tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
 tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
 tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
 tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
@@ -23,9 +21,6 @@ tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (
 tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
 tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
 tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
-tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
-tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
-tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
 tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
 tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
 tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled

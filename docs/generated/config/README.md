@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 57
+  supported: 59
   partial: 27
-  missing: 20
+  missing: 18
   not_planned: 4
 ---
 
@@ -198,7 +198,7 @@ behavior, so the column does not apply to them.
 <code>comment_width</code></a></td>
 <td>rustfmt.toml</td>
 <td>Maximum length of comments. No effect unless wrap_comments = true.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#condense_wildcard_suffixes">
@@ -982,6 +982,6 @@ behavior, so the column does not apply to them.
 <code>wrap_comments</code></a></td>
 <td>rustfmt.toml</td>
 <td>Break comments to fit on the line.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 </table>

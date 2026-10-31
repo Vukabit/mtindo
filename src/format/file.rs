@@ -1673,10 +1673,11 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   } else {
     body
   };
-  // Comments ending their lines written as line comments (`normalize_comments`).
-  let body = if config.normalize_comments {
+  // Comments ending their lines written as line comments (`normalize_comments`), and
+  // broken to fit (`wrap_comments`).
+  let body = if config.normalize_comments || config.wrap_comments {
     let laid = parse(&body, edition).syntax_node();
-    crate::format::comment::normalize(&laid, &body, config).unwrap_or(body)
+    crate::format::comment::rewrite_comments(&laid, &body, config).unwrap_or(body)
   } else {
     body
   };

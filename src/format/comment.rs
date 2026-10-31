@@ -1,14 +1,21 @@
-//! Comments rewritten as the standard formatter rewrites them under `normalize_comments`,
-//! once the rest is laid out.
+//! Comments rewritten as the standard formatter rewrites them under `normalize_comments`
+//! and `wrap_comments`, once the rest is laid out.
+//!
+//! With `wrap_comments` a comment's line wider than `comment_width` (from the comment's
+//! column) is broken between words, a list item or block quote as a whole; a Markdown
+//! heading in a doc comment, a line holding a URL and a table's row are not, nor is a fenced
+//! code block.
 //!
 //! A comment ending its line is rewritten as line comments of its kind: `/* a */` as
 //! `// a`, `/** a */` as `/// a` and `/*! a */` as `//! a`, a block over lines as one line
 //! comment per line, and every line comment with a space after its marker (`//a` as
 //! `// a`). Comments next to each other on lines of their own, of one kind and with no
-//! blank line between them, are rewritten together, as one group; a block comment loses
-//! its empty last line. A comment with code after it on its line stays as
-//! written, and so does one over lines after code, one in a macro's arguments, a skipped
-//! item or a `// mto: off` region.
+//! blank line between them, are rewritten together, as one group, up to a block comment
+//! that is not a doc comment; a block comment loses its empty last line. A comment with code
+//! after it on its line stays as written, and so does one over lines after code, one in a
+//! macro's arguments, a skipped item or a `// mto: off` region.
+
+mod string;
 
 use SyntaxKind as K;
 
@@ -16,6 +23,94 @@ use crate::options::format::FormatConfig;
 use crate::syntax::ast::Attr;
 use crate::syntax::marker;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
+use crate::text::unicode::str_width;
+
+/// Where a comment stands, which sets the width its text may take.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place {
+  Plain,
+  /// Between an item's attributes (a doc comment among them).
+  Attributes,
+  /// In an item's header, after the start of its code (`fn f() // a`).
+  Header,
+  /// An enum variant's doc comment.
+  VariantDoc,
+  /// In a list of items (fields, parameters, arguments), after one or before one.
+  ListItem,
+  /// Among a match's arms.
+  Arm,
+}
+
+impl Place {
+  fn of(token: &crate::syntax::SyntaxToken) -> Place {
+    let parent = token.parent();
+    if crate::format::items::is_doc(token.kind()) && parent.kind() == K::Variant {
+      return Place::VariantDoc;
+    }
+    if matches!(parent.kind(), K::MatchArm | K::MatchArmList) {
+      return Place::Arm;
+    }
+    let step = |e: &SyntaxElement, back: bool| match (e, back) {
+      (SyntaxElement::Token(t), true) => t.prev_sibling_or_token(),
+      (SyntaxElement::Token(t), false) => t.next_sibling_or_token(),
+      (SyntaxElement::Node(n), true) => n.prev_sibling_or_token(),
+      (SyntaxElement::Node(n), false) => n.next_sibling_or_token(),
+    };
+    let skipped =
+      |e: &SyntaxElement| matches!(e.kind(), K::Whitespace | K::LineComment | K::BlockComment);
+    let mut before = token.prev_sibling_or_token();
+    while let Some(e) = before.as_ref().filter(|e| skipped(e)) {
+      before = step(e, true);
+    }
+    let mut after = token.next_sibling_or_token();
+    while let Some(e) = after.as_ref().filter(|e| skipped(e)) {
+      after = step(e, false);
+    }
+    let attribute = |e: &SyntaxElement| match e {
+      SyntaxElement::Node(n) => n.kind() == K::Attr,
+      SyntaxElement::Token(t) => matches!(t.kind(), K::OuterLineDoc | K::OuterBlockDoc),
+    };
+    if before.as_ref().is_some_and(attribute) && after.as_ref().is_some_and(attribute) {
+      return Place::Attributes;
+    }
+    let item = matches!(
+      parent.kind(),
+      K::Fn | K::Struct | K::Enum | K::Union | K::Trait | K::Impl | K::TypeAlias
+    );
+    if item
+      && before
+        .as_ref()
+        .is_some_and(|e| !attribute(e) && !e.kind().is_trivia())
+    {
+      return Place::Header;
+    }
+    let list = matches!(
+      parent.kind(),
+      K::RecordFieldList
+        | K::TupleFieldList
+        | K::VariantList
+        | K::ParamList
+        | K::ArgList
+        | K::RecordExprFieldList
+        | K::ArrayExpr
+        | K::TupleExpr
+        | K::GenericParamList
+        | K::GenericArgList
+        | K::RecordPatFieldList
+        | K::TuplePat
+        | K::TupleStructPat
+        | K::SlicePat
+    );
+    // After an item, or before one (not in a list of comments only).
+    let item_after = after
+      .as_ref()
+      .is_some_and(|e| !matches!(e.kind(), K::RBrace | K::RParen | K::RBrack | K::Gt));
+    if list && (before.is_some_and(|e| e.kind() == K::Comma) || item_after) {
+      return Place::ListItem;
+    }
+    Place::Plain
+  }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum Style<'a> {
@@ -102,20 +197,182 @@ impl<'a> Style<'a> {
   }
 }
 
+/// A comment found, and where it stands.
+#[derive(Clone, Copy)]
+struct Found {
+  kind: SyntaxKind,
+  start: usize,
+  end: usize,
+  place: Place,
+}
+
+/// A list item or block quote in a comment, wrapped as a whole (`ItemizedBlock`): it starts
+/// with `* `, `- `, `> `, `+ ` or a number of one or two digits and `. ` or `) `, and takes
+/// the lines after it indented at least as far as its text.
+struct Itemized {
+  lines: Vec<String>,
+  /// Where its text starts.
+  indent: usize,
+  /// What comes before its text on its first line.
+  opener: String,
+  /// What comes before its text on each later line.
+  line_start: String,
+}
+
+impl Itemized {
+  fn marker_length(trimmed: &str) -> Option<usize> {
+    if ["* ", "- ", "> ", "+ "]
+      .iter()
+      .any(|m| trimmed.starts_with(m))
+    {
+      return Some(2);
+    }
+    for suffix in [". ", ") "] {
+      if let Some((prefix, _)) = trimmed.split_once(suffix)
+        && (1..=2).contains(&prefix.len())
+        && prefix.chars().all(|c| c.is_ascii_digit())
+      {
+        return Some(prefix.len() + suffix.len());
+      }
+    }
+    None
+  }
+
+  fn new(line: &str) -> Option<Itemized> {
+    let marker = Itemized::marker_length(line.trim_start())?;
+    let space = line.chars().take_while(|c| c.is_whitespace()).count();
+    let mut indent = space + marker;
+    let mut line_start = " ".repeat(indent);
+    if line.trim_start().starts_with('>') {
+      // `> ` for each level of quoting in place of two of the spaces.
+      let level = line
+        .chars()
+        .take_while(|c| !c.is_alphanumeric())
+        .filter(|&c| c == '>')
+        .count();
+      line_start.truncate(line_start.len().saturating_sub(2));
+      for _ in 0..level {
+        line_start.push_str("> ");
+      }
+      indent = line_start.len();
+    }
+    Some(Itemized {
+      lines: vec![line.get(indent..)?.to_string()],
+      indent,
+      opener: line.get(..indent)?.to_string(),
+      line_start,
+    })
+  }
+
+  /// Takes `line` when it continues the item.
+  fn add(&mut self, line: &str) -> bool {
+    if Itemized::marker_length(line.trim_start()).is_none()
+      && self.indent <= line.chars().take_while(|c| c.is_whitespace()).count()
+    {
+      self.lines.push(line.to_string());
+      return true;
+    }
+    false
+  }
+
+  fn trimmed(&self) -> String {
+    let mut out = String::new();
+    for line in &self.lines {
+      out.push_str(line.trim_start());
+      out.push(' ');
+    }
+    out
+  }
+}
+
+/// A comment being rewritten line by line (`CommentRewrite`).
 struct Rewrite<'a> {
   result: String,
   /// The lines of a fenced code block being read, while one is.
   code: Option<String>,
+  /// The lines of a list item or block quote being read, while one is.
+  item: Option<Itemized>,
+  /// Whether the line before was broken over lines, so the next joins its last.
+  prev_multi: bool,
   separator: String,
-  indent: String,
+  /// A line break and the comment's indentation.
+  indent_str: String,
+  indent: &'a str,
   opener: &'a str,
   closer: &'a str,
+  prefix: &'a str,
+  block: bool,
+  newlines: usize,
+  is_doc: bool,
+  rules: Rules,
+  /// The width a line's text may take, less the markers.
+  max_width: usize,
+  /// The width the next text may take, and where it starts, after a line broken over lines.
+  width: usize,
+  offset: usize,
 }
 
 impl Rewrite<'_> {
-  /// Adds one line of the comment; true when the comment ends here.
-  fn line(&mut self, line: &str, last: bool) -> bool {
-    if let Some(code) = &mut self.code {
+  fn layout(&self) -> string::Layout<'_> {
+    string::Layout {
+      line_start: self.prefix,
+      indent: self.indent,
+      width: self.width,
+      offset: self.offset,
+      max_width: self.rules.max_width,
+    }
+  }
+
+  fn reset_width(&mut self) {
+    self.width = self.max_width;
+    self.offset = 0;
+  }
+
+  /// Writes an item read to its end.
+  fn flush_item(&mut self, item: Itemized, new_line: bool) {
+    self.reset_width();
+    if new_line {
+      self.result.push_str(&self.separator);
+    }
+    self.result.push_str(&item.opener);
+    let layout = string::Layout {
+      line_start: "",
+      indent: "",
+      width: self.width.saturating_sub(item.indent),
+      offset: 0,
+      max_width: self.rules.max_width,
+    };
+    match string::rewrite_string(
+      &item.trimmed(),
+      &layout,
+      self.max_width.saturating_sub(item.indent),
+    ) {
+      Some(s) => {
+        let separator = format!("{}{}", self.separator, item.line_start);
+        self.result.push_str(&join(&s, &separator));
+      }
+      None => self
+        .result
+        .push_str(&join(&item.lines.join("\n"), &self.separator)),
+    }
+  }
+
+  /// Adds a line of the comment; true when the comment ends here. `spaced` is whether
+  /// the line kept a space after its marker.
+  fn line(&mut self, line: &str, spaced: bool, last: bool) -> bool {
+    let needs_new_line = if self.block {
+      self.newlines > 0 || self.result.len() != self.opener.len()
+    } else {
+      self.result.len() != self.opener.len()
+    };
+    if let Some(mut item) = self.item.take() {
+      if item.add(line) {
+        self.item = Some(item);
+        return false;
+      }
+      self.prev_multi = false;
+      self.flush_item(item, needs_new_line);
+    } else if let Some(code) = &mut self.code {
       if !line.starts_with("```") {
         code.push_str(line);
         code.push('\n');
@@ -132,24 +389,88 @@ impl Rewrite<'_> {
     }
     if line.starts_with("```") {
       self.code = Some(String::new());
+    } else if self.rules.wrap
+      && let Some(item) = Itemized::new(line)
+    {
+      self.item = Some(item);
+      return false;
     }
     if self.result == self.opener {
+      let forced = self.opener == "/* " && self.newlines == 0;
+      if !spaced && !forced && self.result.ends_with(' ') {
+        self.result.pop();
+      }
       if line.is_empty() {
         return false;
       }
+    } else if self.prev_multi && !line.is_empty() {
+      self.result.push(' ');
     } else if last && line.is_empty() {
       // Trailing blank lines are dropped.
       if !self.closer.is_empty() {
-        self.result.push_str(&self.indent);
+        self.result.push_str(&self.indent_str);
       }
       return true;
     } else {
       self.result.push_str(&self.separator);
+      if !spaced && self.result.ends_with(' ') {
+        self.result.pop();
+      }
     }
-    if line.is_empty() && self.result.ends_with(' ') && !last {
-      self.result.pop();
+    let header = self.is_doc && line.starts_with('#');
+    let wrap = self.rules.wrap
+      && !header
+      && str_width(line) > self.width
+      && !has_url(line)
+      && !is_table_item(line);
+    if !wrap {
+      if line.is_empty() && self.result.ends_with(' ') && !last {
+        self.result.pop();
+      }
+      if self.code.is_some() && self.prev_multi {
+        self.result.push_str(&self.separator);
+      }
+      self.result.push_str(line);
+      self.reset_width();
+      self.prev_multi = false;
+      return false;
     }
-    self.result.push_str(line);
+    match string::rewrite_string(line, &self.layout(), self.max_width) {
+      Some(s) => {
+        self.prev_multi = s.contains('\n');
+        self.result.push_str(&s);
+      }
+      None if self.prev_multi => {
+        // It did not fit after the line before: on a line of its own instead.
+        self.result.pop();
+        self.result.push_str(&self.separator);
+        self.reset_width();
+        match string::rewrite_string(line, &self.layout(), self.max_width) {
+          Some(s) => {
+            self.prev_multi = s.contains('\n');
+            self.result.push_str(&s);
+          }
+          None => {
+            self.prev_multi = false;
+            self.result.push_str(line);
+          }
+        }
+      }
+      None => {
+        self.prev_multi = false;
+        self.result.push_str(line);
+      }
+    }
+    if self.prev_multi {
+      // 1 = ` `
+      let last_line = self.result.rsplit('\n').next().unwrap_or("");
+      let offset =
+        (1 + str_width(last_line)).saturating_sub(self.prefix.len() + str_width(self.indent));
+      self.width = self.max_width.saturating_sub(offset);
+      self.offset += offset;
+    } else {
+      self.reset_width();
+    }
     false
   }
 
@@ -159,12 +480,25 @@ impl Rewrite<'_> {
       self.result.push_str(&self.separator);
       self.result.push_str(&join(&code, &self.separator));
     }
+    if let Some(item) = self.item.take() {
+      let new_line = self.result.len() != self.opener.len();
+      self.flush_item(item, new_line);
+    }
     self.result.push_str(self.closer);
     if self.result.ends_with(self.opener) && self.opener.ends_with(' ') {
       self.result.pop();
     }
     self.result
   }
+}
+
+/// What a rewrite does, from the settings: `normalize_comments`, `wrap_comments`, and the
+/// line width.
+#[derive(Clone, Copy)]
+pub struct Rules {
+  pub normalize: bool,
+  pub wrap: bool,
+  pub max_width: usize,
 }
 
 /// An item's body whose braces (or a tuple struct's parentheses) hold one block comment, on
@@ -290,25 +624,60 @@ pub fn lone_comments(
   Some(out)
 }
 
-/// The text with its comments normalized (`normalize_comments`), or `None` when none
-/// changes.
-pub fn normalize(root: &SyntaxNode, text: &str, _config: &FormatConfig) -> Option<String> {
+/// The comments `orig` holds (one group or several, with nothing but whitespace between
+/// them), normalized, their lines after the first behind `indent`. `block` keeps a block
+/// comment a block comment.
+pub fn normalized(orig: &str, block: bool, indent: &str) -> String {
+  let rules = Rules {
+    normalize: true,
+    wrap: false,
+    max_width: usize::MAX,
+  };
+  rewritten(orig, block, indent, usize::MAX, false, rules)
+}
+
+/// The text with its comments rewritten as `normalize_comments` and `wrap_comments` say,
+/// or `None` when none changes.
+pub fn rewrite_comments(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Option<String> {
+  let rules = Rules {
+    normalize: config.normalize_comments,
+    wrap: config.wrap_comments,
+    max_width: config.max_width,
+  };
+  let column = |text: &str| {
+    text
+      .chars()
+      .map(|c| {
+        if c == '\t' {
+          config.tab_spaces
+        } else {
+          crate::text::unicode::char_width(c)
+        }
+      })
+      .sum::<usize>()
+  };
   let off = marker::scan(root, root.text()).regions;
-  let comments: Vec<(SyntaxKind, usize, usize)> = root
+  let comments: Vec<Found> = root
     .descendants_with_tokens_iter()
     .filter_map(|e| match e {
-      SyntaxElement::Token(t) if is_comment(t.kind()) && !held(&t.parent()) => Some((
-        class(t.kind()),
-        t.text_range().start as usize,
-        t.text_range().end as usize,
-      )),
+      SyntaxElement::Token(t) if is_comment(t.kind()) && !held(&t.parent()) => Some(Found {
+        kind: class(t.kind()),
+        start: t.text_range().start as usize,
+        end: t.text_range().end as usize,
+        place: Place::of(&t),
+      }),
       _ => None,
     })
     .collect();
   let mut edits: Vec<(usize, usize, String)> = Vec::new();
   let mut i = 0;
   while i < comments.len() {
-    let (kind, start, end) = comments[i];
+    let Found {
+      kind,
+      start,
+      end,
+      place,
+    } = comments[i];
     i += 1;
     let line_start = text[..start].rfind('\n').map_or(0, |n| n + 1);
     let line_end = text[end..].find('\n').map_or(text.len(), |n| end + n);
@@ -317,14 +686,30 @@ pub fn normalize(root: &SyntaxNode, text: &str, _config: &FormatConfig) -> Optio
     }
     let before = &text[line_start..start];
     let own_line = before.trim().is_empty();
-    if !own_line && text[start..end].contains('\n') {
+    // One over lines after code is rewritten from its column before style edition 2024,
+    // and only between statements, items or a list's items (after `;`, `,`, `{` or `}`),
+    // where the standard formatter rewrites what it skipped, not after a match's arm; from
+    // 2024 its first line stays as written.
+    let after_boundary = before.trim_end().ends_with([';', ',', '{', '}']);
+    if !own_line
+      && text[start..end].contains('\n')
+      && (config.style_edition >= 2024 || !after_boundary || place == Place::Arm)
+    {
       continue;
     }
     // The comments after it on lines of their own, of its kind, at its indentation and
     // with no blank line between.
     let mut last = end;
-    while own_line && i < comments.len() {
-      let (next_kind, next_start, next_end) = comments[i];
+    // A comment other than a doc comment written `/* */` ends the run (the standard
+    // formatter reads the line break after it as code).
+    let mut block = kind == K::LineComment && text[start..end].starts_with("/*");
+    while own_line && !block && i < comments.len() {
+      let Found {
+        kind: next_kind,
+        start: next_start,
+        end: next_end,
+        ..
+      } = comments[i];
       let gap = &text[last..next_start];
       let next_line_end = text[next_end..]
         .find('\n')
@@ -338,15 +723,43 @@ pub fn normalize(root: &SyntaxNode, text: &str, _config: &FormatConfig) -> Optio
         break;
       }
       last = next_end;
+      block = next_kind == K::LineComment && text[next_start..next_end].starts_with("/*");
       i += 1;
     }
     let orig = &text[start..last];
     let indent = if own_line {
       before.to_string()
     } else {
-      " ".repeat(before.chars().count())
+      " ".repeat(column(before))
     };
-    let new = normalized(orig, false, &indent);
+    // The text within the comment width from the comment's column (`Shape::comment`); one
+    // after code from style edition 2024 keeps its first line as written.
+    // The text within the comment width from the comment's column (`Shape::comment`); among
+    // attributes or in an item's header within the line width alone (`with_max_width`), and
+    // after a list's item from its column within the list's width (`write_list`).
+    let limit = match place {
+      Place::Attributes | Place::Header | Place::ListItem => config.max_width,
+      Place::Plain | Place::VariantDoc | Place::Arm => config.max_width.min(config.comment_width),
+    };
+    // A variant's doc comment a column short for its comma, before style edition 2024; one
+    // after a list's item one short for the list's separator.
+    let comma = usize::from(
+      place == Place::VariantDoc && config.style_edition < 2024
+        || place == Place::ListItem && !own_line,
+    );
+    let width = limit.saturating_sub(column(before) + comma);
+    let list_item = place == Place::ListItem && !own_line;
+    // One after code from style edition 2024 keeps its first line as written; one after a
+    // list's item is rewritten as a block comment when it is too wide or over lines.
+    let rules = Rules {
+      wrap: rules.wrap && (own_line || list_item || config.style_edition < 2024),
+      ..rules
+    };
+    let block = list_item
+      && (rules.normalize || rules.wrap)
+      && (text[start..last].trim().contains('\n') || str_width(&text[start..last]) > width);
+    let doc = matches!(kind, K::OuterLineDoc | K::InnerLineDoc);
+    let new = rewritten(orig, block, &indent, width, doc, rules);
     if new != orig {
       edits.push((start, last, new));
     }
@@ -365,10 +778,16 @@ pub fn normalize(root: &SyntaxNode, text: &str, _config: &FormatConfig) -> Optio
   Some(out)
 }
 
-/// The comments `orig` holds (one group or several, with nothing but whitespace between
-/// them), normalized, their lines after the first behind `indent`. `block` keeps a block
-/// comment a block comment.
-pub fn normalized(orig: &str, block: bool, indent: &str) -> String {
+/// The comments `orig` holds, rewritten by `rules` (`identify_comment`): their lines after
+/// the first behind `indent`, their text within `width`; `is_doc` for doc comments.
+pub fn rewritten(
+  orig: &str,
+  block: bool,
+  indent: &str,
+  width: usize,
+  is_doc: bool,
+  rules: Rules,
+) -> String {
   let style = Style::of(orig, false);
   // A line's length with its line ending, while it is not the text's last.
   let length = |rest: &str, line: &str| match rest.as_bytes().get(line.len()) {
@@ -422,7 +841,13 @@ pub fn normalized(orig: &str, block: bool, indent: &str) -> String {
     }
   };
   let (first, rest) = orig.split_at(end.min(orig.len()));
-  let first = group(first, block, style, indent);
+  // A block comment with lines not starting `*` keeps its layout unless normalized
+  // (`trim_left_preserve_layout`), as one under neither setting does.
+  let first = if !rules.normalize && (bare && style.is_block() || !rules.wrap) {
+    first.trim_end().to_string()
+  } else {
+    group(first, block, style, indent, width, is_doc, rules)
+  };
   if rest.trim().is_empty() {
     return first;
   }
@@ -431,7 +856,7 @@ pub fn normalized(orig: &str, block: bool, indent: &str) -> String {
     first,
     if bare && style.is_line() { "\n" } else { "" },
     indent,
-    normalized(rest.trim_start(), block, indent)
+    rewritten(rest.trim_start(), block, indent, width, is_doc, rules)
   )
 }
 
@@ -461,21 +886,46 @@ fn custom_opener(comment: &str) -> &str {
   })
 }
 
-/// One group of comments of one style, rewritten.
-fn group(orig: &str, block: bool, written: Style, indent: &str) -> String {
-  let is_doc = written.is_doc();
+/// One group of comments of one style, rewritten (`rewrite_comment_inner`).
+fn group(
+  orig: &str,
+  block: bool,
+  written: Style,
+  indent: &str,
+  width: usize,
+  is_doc: bool,
+  rules: Rules,
+) -> String {
+  // A doc comment's empty last line goes, as a block comment's does; a group of other
+  // line comments keeps one.
+  let drops_last = is_doc || written.is_block();
+  let is_doc = is_doc || written.is_doc();
   let style = if block {
     Style::SingleBullet
   } else {
-    Style::of(orig, true)
+    Style::of(orig, rules.normalize)
   };
+  let max_width = width
+    .checked_sub(style.closer().len() + style.opener().len())
+    .unwrap_or(1);
   let mut out = Rewrite {
     result: style.opener().to_string(),
     code: None,
+    item: None,
+    prev_multi: false,
     separator: format!("\n{}{}", indent, style.prefix()),
-    indent: format!("\n{}", indent),
+    indent_str: format!("\n{}", indent),
+    indent,
     opener: style.opener(),
     closer: style.closer(),
+    prefix: style.prefix(),
+    block: style.is_block(),
+    newlines: orig.matches('\n').count(),
+    is_doc,
+    rules,
+    max_width,
+    width: max_width,
+    offset: 0,
   };
   let breaks = orig.trim_end().matches('\n').count();
   let newlines = orig.matches('\n').count();
@@ -487,16 +937,27 @@ fn group(orig: &str, block: bool, written: Style, indent: &str) -> String {
     if i == breaks && line.ends_with("*/") && !line.starts_with("//") {
       line = line[..line.len() - 2].trim_end();
     }
-    let (mut line, _) = left_trim(line, written);
+    let (mut line, spaced) = left_trim(line, written);
     if orig.starts_with("/*") && breaks == 0 {
       line = line.trim_start();
     }
-    // Only a block comment's empty last line goes; a group of line comments keeps one.
-    if out.line(line, i == newlines && written.is_block()) {
+    if out.line(line, spaced || rules.normalize, i == newlines && drops_last) {
       break;
     }
   }
   out.finish()
+}
+
+/// Whether a line may hold a URL or a reference link's target (`[a]: b`).
+fn has_url(line: &str) -> bool {
+  ["https://", "http://", "ftp://", "file://"]
+    .iter()
+    .any(|scheme| line.contains(scheme))
+    || line.starts_with('[')
+      && line.match_indices(']').any(|(close, _)| {
+        let after = line[close + 1..].trim_start_matches([' ', '\t']);
+        close > 1 && after.starts_with(':') && line[close + 1..].len() - after.len() <= 1
+      })
 }
 
 /// Whether a comment under `parent` is kept as written: in a macro's arguments or a
@@ -521,6 +982,12 @@ fn is_comment(kind: SyntaxKind) -> bool {
       | K::OuterBlockDoc
       | K::InnerBlockDoc
   )
+}
+
+/// Whether a line is a row of a Markdown table (`| a | b |`).
+fn is_table_item(line: &str) -> bool {
+  let line = line.trim_start();
+  line.starts_with('|') && line.rfind('|').is_some_and(|at| at > 0)
 }
 
 /// `text`'s lines joined by `separator`, without its trailing space before an empty line.

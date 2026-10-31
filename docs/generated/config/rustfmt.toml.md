@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 40
+  supported: 42
   partial: 26
-  missing: 20
+  missing: 18
   not_planned: 4
 ---
 
@@ -152,7 +152,7 @@ Maximum length of comments. No effect unless `wrap_comments = true`.
 *   Default: `80`; from style edition 2024: `80`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `condense_wildcard_suffixes`
 
@@ -1114,7 +1114,7 @@ Note that no wrapping will happen if:
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ## Hidden settings
 

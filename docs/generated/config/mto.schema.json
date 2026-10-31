@@ -168,7 +168,7 @@
       "default": true
     },
     "comment_width": {
-      "description": "Maximum length of comments. No effect unless `wrap_comments = true`.\n\nIn mto: missing.",
+      "description": "Maximum length of comments. No effect unless `wrap_comments = true`.\n\nIn mto: supported. With format = true.",
       "type": "integer",
       "minimum": 0,
       "default": 80
@@ -603,7 +603,7 @@
       "description": "'small' heuristic values\n\nIn mto: missing."
     },
     "wrap_comments": {
-      "description": "Break comments to fit on the line\n\nNote that no wrapping will happen if:\n1. The comment is the start of a markdown header doc comment\n2. A URL was found in the comment\n\nIn mto: missing.",
+      "description": "Break comments to fit on the line\n\nNote that no wrapping will happen if:\n1. The comment is the start of a markdown header doc comment\n2. A URL was found in the comment\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     }

@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 21
+  supported: 22
   partial: 26
-  missing: 39
+  missing: 38
   not_planned: 4
 ---
 
@@ -924,7 +924,7 @@ Put small struct literals on a single line
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `struct_lit_width`
 

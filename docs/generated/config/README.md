@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 38
+  supported: 39
   partial: 27
-  missing: 39
+  missing: 38
   not_planned: 4
 ---
 
@@ -831,7 +831,7 @@ behavior, so the column does not apply to them.
 <code>struct_lit_single_line</code></a></td>
 <td>rustfmt.toml</td>
 <td>Put small struct literals on a single line.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#struct_lit_width">

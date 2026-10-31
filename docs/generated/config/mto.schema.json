@@ -516,7 +516,7 @@
       "default": 0
     },
     "struct_lit_single_line": {
-      "description": "Put small struct literals on a single line\n\nIn mto: missing.",
+      "description": "Put small struct literals on a single line\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": true
     },

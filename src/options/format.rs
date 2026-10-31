@@ -83,6 +83,8 @@ pub struct FormatConfig {
   pub leading_pipes: LeadingPipes,
   /// `use_field_init_shorthand`: `S { a: a }` written `S { a }`.
   pub field_init_shorthand: bool,
+  /// `struct_lit_single_line`: a short struct literal or pattern kept on one line.
+  pub struct_lit_single_line: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -151,6 +153,7 @@ impl Default for FormatConfig {
       match_block_trailing_comma: false,
       leading_pipes: LeadingPipes::Never,
       field_init_shorthand: false,
+      struct_lit_single_line: true,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

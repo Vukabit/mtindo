@@ -4981,7 +4981,10 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .width
     .checked_sub(path.width() + 3 + 2)
     .map(|w| w.min(shape.limits.struct_lit));
-  let mut horizontal = h_width.is_some_and(|w| definitive(&all, w) == Tactic::Horizontal);
+  // Without `struct_lit_single_line`, a field per line (`struct_lit_tactic`).
+  let single_line = shape.limits.struct_lit_single_line;
+  let mut horizontal =
+    single_line && h_width.is_some_and(|w| definitive(&all, w) == Tactic::Horizontal);
   // A pattern ending in `..` (the standard formatter's `rewrite_struct_pat`): its fields are
   // held to the width less ` { `, `, ..` and ` }`; fitting there they stay on one line with
   // the `..`, inside braces on lines of their own when that line is too wide.
@@ -4992,13 +4995,21 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .map(|w| w.min(shape.limits.struct_lit));
   // `Path { .. }` alone: on one line only where its `..` fits that width.
   if node.kind() == SyntaxKind::RecordPat && spread.as_deref() == Some("..") && fields.is_empty() {
-    horizontal = h_rest.is_some_and(|w| w >= 2);
+    horizontal = single_line && h_rest.is_some_and(|w| w >= 2);
   }
   if node.kind() == SyntaxKind::RecordPat && spread.as_deref() == Some("..") && !fields.is_empty() {
     let fits = h_rest.is_some_and(|w| definitive(&fields, w) == Tactic::Horizontal);
     let line = fields.join(", ").width() + 4;
-    horizontal = fits && h_rest.is_some_and(|w| line <= w);
-    rest_line = fits && !horizontal;
+    horizontal = single_line && fits && h_rest.is_some_and(|w| line <= w);
+    // A lone field with its `..` after it, on a line of their own, when the fields go a
+    // line each: `rewrite_struct_pat` adds `, ..` to a list on one line, its comma counted.
+    rest_line = if single_line {
+      fits && !horizontal
+    } else {
+      fields.len() == 1
+        && !fields[0].contains('\n')
+        && h_rest.is_some_and(|w| fields[0].width() < w)
+    };
   }
   // Comments among a literal's fields: one field per line, the comments placed around them
   // as a list's are; the `..base` an item of its own from its `..`.

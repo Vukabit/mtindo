@@ -78,7 +78,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("space_before_colon", "supported"),
   ("spaces_around_ranges", "supported"),
   ("struct_field_align_threshold", "missing"),
-  ("struct_lit_single_line", "missing"),
+  ("struct_lit_single_line", "supported"),
   ("struct_lit_width", "partial"),
   ("struct_variant_width", "supported"),
   ("style_edition", "partial"),

@@ -1502,6 +1502,23 @@ fn test_string_receivers_spanning_lines() {
   );
 }
 
+/// Without `struct_lit_single_line`, a struct literal or pattern takes a line per field; a
+/// pattern's lone field keeps its `..` on its line.
+#[test]
+fn test_struct_lit_single_line_off() {
+  let config = FormatConfig {
+    struct_lit_single_line: false,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn main() {\n    let a = A { x: 1 };\n    let c = C { x, ..base };\n    let Foo { a, .. } = b;\n    let Foo { a, b, .. } = b;\n    let e = E {};\n}\n",
+      &config
+    ),
+    "fn main() {\n    let a = A {\n        x: 1,\n    };\n    let c = C {\n        x,\n        ..base\n    };\n    let Foo {\n        a, ..\n    } = b;\n    let Foo {\n        a,\n        b,\n        ..\n    } = b;\n    let e = E {};\n}\n"
+  );
+}
+
 #[test]
 fn test_super_let() {
   // A `super let` is laid out as a `let`.

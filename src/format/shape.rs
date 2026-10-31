@@ -50,6 +50,8 @@ pub struct Limits {
   pub combine_control_expr: bool,
   /// `match_block_trailing_comma`: a match arm's block ends with a comma.
   pub match_block_trailing_comma: bool,
+  /// `struct_lit_single_line`: a struct literal or pattern may stand on one line.
+  pub struct_lit_single_line: bool,
   /// Laying out a macro's arguments: a closure's body keeps or lacks its block as written.
   pub inside_macro: bool,
   /// Laying out a block's last expression as its statement: an expression from style
@@ -87,6 +89,7 @@ impl Limits {
       trailing_semicolon: config.trailing_semicolon,
       combine_control_expr: config.combine_control_expr,
       match_block_trailing_comma: config.match_block_trailing_comma,
+      struct_lit_single_line: config.struct_lit_single_line,
       inside_macro: false,
       block_tail: false,
     }
@@ -112,6 +115,7 @@ impl Limits {
       trailing_semicolon: self.trailing_semicolon,
       combine_control_expr: self.combine_control_expr,
       match_block_trailing_comma: self.match_block_trailing_comma,
+      struct_lit_single_line: self.struct_lit_single_line,
       ..self.spacing.config()
     }
   }
@@ -139,6 +143,7 @@ impl Default for Limits {
       trailing_semicolon: true,
       combine_control_expr: true,
       match_block_trailing_comma: false,
+      struct_lit_single_line: true,
       inside_macro: false,
       block_tail: false,
     }
@@ -226,7 +231,8 @@ impl std::hash::Hash for Shape {
         | u64::from(l.one_line_chains) << 37
         | u64::from(l.match_arm_indent) << 38
         | u64::from(l.trailing_semicolon) << 39
-        | u64::from(l.combine_control_expr) << 40,
+        | u64::from(l.combine_control_expr) << 40
+        | u64::from(l.struct_lit_single_line) << 41,
     );
   }
 }

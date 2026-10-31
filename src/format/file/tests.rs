@@ -125,6 +125,14 @@ fn test_a_comment_after_an_attribute_across_lines_moves_to_its_indentation() {
   );
 }
 
+/// After an `if` condition across lines whose last line closes delimiters no further in
+/// than where the expression starts (a `let`'s value), the `{` stays on that line.
+#[test]
+fn test_a_condition_closing_a_closure_keeps_its_brace_in_a_let() {
+  let source = "fn f() {\n    let x = if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n        && bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n        && c.is_some_and(|d| {\n            dddddddddddddddddddddddddddddddddddddddddddddddddddddddd(d)\n                && eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee(d)\n        }) {\n        1\n    } else {\n        2\n    };\n}\n";
+  assert_eq!(formatted(source), source);
+}
+
 /// A generic parameter whose bounds, broken over lines, leave its default no room (counted
 /// in bytes from all the text before it) fails the generics: the function's header is left
 /// as written, and its body's `{` follows it with no space.

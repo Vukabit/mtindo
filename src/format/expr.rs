@@ -1588,9 +1588,11 @@ pub(super) fn rewrite_if_lines(node: &SyntaxNode, shape: Shape, nested: bool) ->
   let fresh = if nested { fresh.offset_left(7)? } else { fresh };
   let condition = rewrite(condition, fresh.offset_left(3)?)?;
   let last = condition.rsplit('\n').next().unwrap_or("");
-  let closes_at_head =
-    last_line_extendable(&condition) && last.width() - last.trim_start().width() == shape.indent;
   let column = shape.indent + shape.offset + if nested { 7 } else { 0 };
+  // No further in than where the expression starts (`last_line_offsetted`), an `else if`
+  // counted from the block's indentation.
+  let closes_at_head = last_line_extendable(&condition)
+    && last.width() - last.trim_start().width() <= shape.indent + shape.offset;
   let breaks_brace = (condition.contains('\n') || condition.width() > fresh.width)
     && !closes_at_head
     || !condition.contains('\n') && column + 3 + condition.width() + 2 > shape.limits.max_width;

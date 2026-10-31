@@ -1713,8 +1713,16 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
       crate::format::reorder::control_braces(&laid, &body, style, edition).unwrap_or(body)
     }
   };
-  // An item's body holding one block comment on the line of its braces.
-  let body = if body.contains("/*") {
+  // An item's body holding one block comment on the line of its braces: looked for only
+  // where a block comment follows a `{` or `(` on its line, as one there must.
+  let lone = |body: &str| {
+    body.match_indices("/*").any(|(at, _)| {
+      body[..at]
+        .trim_end_matches([' ', '\t'])
+        .ends_with(['{', '('])
+    })
+  };
+  let body = if lone(&body) {
     let laid = parse(&body, edition).syntax_node();
     crate::format::comment::lone_comments(&laid, &body, config, config.normalize_comments)
       .unwrap_or(body)

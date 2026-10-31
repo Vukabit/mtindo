@@ -2,14 +2,14 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-31T22:01:59.995Z"
-commit: "4dc37c8-dirty.c35c4cf6"
+generated: "2026-10-31T22:57:34.155Z"
+commit: "0e4148e-dirty.acbbf682"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
   - compat/corpus.txt
 toolchain:
-  reference_formatter: "1.9.0-stable (88d9e12ae1 2026-08-18)"
+  reference_formatter: "1.10.0-stable (58cf8f9c35 2026-10-13)"
 corpus_fingerprint: "sha256:0d26c0baa5577082"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
@@ -49,7 +49,7 @@ metrics:
 ## Abstract
 
 <!-- generated: abstract -->
-Against the standard formatter 1.9.0-stable (88d9e12ae1 2026-08-18), mto's
+Against the standard formatter 1.10.0-stable (58cf8f9c35 2026-10-13), mto's
 output equals the expected output for 455 of 460 test files (98.91%) and for
 9358 of 9361 corpus files (99.97%). On whitespace-scrambled corpus files it
 matches 9267 of 9348 files (99.13%) and keeps 99.93% of the expected lines.
@@ -138,6 +138,7 @@ repeated.
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
 | current |  | 99.88 | 92.10 | 100.00 | 99.93 | 99.13 |
+| 2026-10-31 | e7aa7d0 | 99.88 | 92.10 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | 454723c | 99.88 | 91.80 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | 0a75123 | 99.88 | 91.53 | 100.00 | 99.92 | 99.12 |
 | 2026-10-31 | b14c7ee | 99.88 | 89.93 | 100.00 | 99.92 | 99.12 |

@@ -4,10 +4,10 @@
 # whether a value is stable. `hidden` marks options rustfmt leaves out of its own
 # listings (deprecated or internal).
 
-source  local          rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18), installed binary
+source  local          rustfmt 1.10.0-stable (58cf8f9c35 2026-10-13), installed binary
 source  local-nightly  rustfmt 1.11.0-nightly (2822155926 2026-10-04), installed binary
-source  stable         rustfmt 1.10.0, rust-lang/rust b940084d7eb6a299eb4bfeb8e34901bc051e7ac4, released 2026-10-01
-source  nightly        rustfmt 1.11.0-nightly, rust-lang/rust 32dba69d69c5b10ea89a4042de8d0619f7756203, released 2026-10-10
+source  stable         rustfmt 1.10.0, rust-lang/rust 58cf8f9c35b355199727627d07ae34a4e2846d67, released 2026-10-15
+source  nightly        rustfmt 1.11.0-nightly, rust-lang/rust 92b5b8c87c61b20adc9001b41baf587634a74734, released 2026-10-31
 
 option  array_width                                      in=all stable=all
 option  attr_fn_like_width                               in=all stable=all
@@ -22,7 +22,7 @@ option  comment_width                                    in=all stable=none
 option  condense_wildcard_suffixes                       in=all stable=none
 option  control_brace_style                              in=all stable=none
 option  disable_all_formatting                           in=all stable=all
-option  doc_comment_code_block_small_heuristics          in=local-nightly,stable,nightly stable=none
+option  doc_comment_code_block_small_heuristics          in=all stable=none
 option  doc_comment_code_block_width                     in=all stable=none
 option  edition                                          in=all stable=all
 option  emit_mode                                        in=all stable=none
@@ -46,7 +46,7 @@ option  format_strings                                   in=all stable=none
 option  generated_marker_line_search_limit               in=all stable=none
 option  group_imports                                    in=all stable=none
 option  hard_tabs                                        in=all stable=all
-option  hex_literal_case                                 in=all stable=local-nightly,stable,nightly
+option  hex_literal_case                                 in=all stable=all
 option  hide_parse_errors                                in=stable,nightly stable=none hidden
 option  ignore                                           in=all stable=none
 option  imports_granularity                              in=all stable=none
@@ -131,9 +131,9 @@ value   fn_params_layout=Vertical                        in=all stable=stable,ni
 value   group_imports=One                                in=stable,nightly stable=none
 value   group_imports=Preserve                           in=stable,nightly stable=none
 value   group_imports=StdExternalCrate                   in=stable,nightly stable=none
-value   hex_literal_case=Lower                           in=local-nightly,stable,nightly stable=stable,nightly
-value   hex_literal_case=Preserve                        in=local-nightly,stable,nightly stable=stable,nightly
-value   hex_literal_case=Upper                           in=local-nightly,stable,nightly stable=stable,nightly
+value   hex_literal_case=Lower                           in=all stable=stable,nightly
+value   hex_literal_case=Preserve                        in=all stable=stable,nightly
+value   hex_literal_case=Upper                           in=all stable=stable,nightly
 value   imports_granularity=Crate                        in=stable,nightly stable=none
 value   imports_granularity=Item                         in=stable,nightly stable=none
 value   imports_granularity=Module                       in=stable,nightly stable=none

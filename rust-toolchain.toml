@@ -2,6 +2,6 @@
 # [tools.stable] pins the same, and its standard formatter is the answer key
 # the corpus is compared against. `cargo xtask bootstrap` installs it.
 [toolchain]
-channel = "1.98.0"
+channel = "1.99.1"
 components = ["clippy", "rustfmt"]
 profile = "minimal"

@@ -4,10 +4,10 @@ generated_by: cargo xtask docs
 standard_formatter:
   stable:
     version: "1.10.0"
-    released: "2026-10-01"
+    released: "2026-10-15"
   nightly:
     version: "1.11.0-nightly"
-    released: "2026-10-10"
+    released: "2026-10-31"
 keys:
   total: 90
   hidden: 7

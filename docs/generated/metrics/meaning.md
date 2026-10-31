@@ -2,14 +2,14 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-31T22:23:01.264Z"
-commit: "e7aa7d0-dirty.476603b2"
+generated: "2026-10-31T22:57:34.155Z"
+commit: "0e4148e-dirty.acbbf682"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
   - compat/compatibility.txt
 toolchain:
-  reference_formatter: "1.9.0-stable (88d9e12ae1 2026-08-18)"
+  reference_formatter: "1.10.0-stable (58cf8f9c35 2026-10-13)"
 corpus_fingerprint: "sha256:0d26c0baa5577082"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:

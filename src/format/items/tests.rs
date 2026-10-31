@@ -17,6 +17,17 @@ fn formatted(source: &str) -> String {
   once
 }
 
+/// A static in an `extern` block keeps its initializer, which an attribute macro may read
+/// (wasm-bindgen's `static_string`), where the standard formatter drops it
+/// (its issue 6267): the meaning check would refuse the write otherwise.
+#[test]
+fn test_an_extern_static_keeps_its_initializer() {
+  assert_eq!(
+    formatted("extern \"C\" {\n    static TEST: i32 = 42;\n    pub static S: &str  =  \"s\";\n}\n"),
+    "extern \"C\" {\n    static TEST: i32 = 42;\n    pub static S: &str = \"s\";\n}\n"
+  );
+}
+
 #[test]
 fn test_brace_after_a_broken_parameter_list() {
   // The `{` stays while the closing line is within the line width less its indentation.

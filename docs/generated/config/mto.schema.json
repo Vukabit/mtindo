@@ -127,7 +127,7 @@
       "default": 70
     },
     "binop_separator": {
-      "description": "Where to put a binary operator when a binary expression goes multiline.\n\nIn mto: missing.",
+      "description": "Where to put a binary operator when a binary expression goes multiline.\n\nIn mto: supported. With format = true.",
       "type": "string",
       "enum": ["Front", "Back"],
       "default": "Front"

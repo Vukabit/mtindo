@@ -1755,10 +1755,17 @@ fn binary_lines(
       result.push_str(&snug);
       continue;
     }
-    result.push('\n');
-    result.push_str(&" ".repeat(nested.indent));
-    result.push_str(operator);
-    result.push(' ');
+    if shape.limits.binop_back {
+      result.push(' ');
+      result.push_str(operator);
+      result.push('\n');
+      result.push_str(&" ".repeat(nested.indent));
+    } else {
+      result.push('\n');
+      result.push_str(&" ".repeat(nested.indent));
+      result.push_str(operator);
+      result.push(' ');
+    }
     result.push_str(text.as_ref()?);
   }
   Some(result)
@@ -3651,8 +3658,13 @@ fn rewrite_binary(node: &SyntaxNode, shape: Shape) -> Option<String> {
       }
       let nested = shape
         .block_indent(shape.limits.tab)
-        .sub_width(shape.rhs_overhead())?
-        .offset_left(separator + 1)?;
+        .sub_width(shape.rhs_overhead())?;
+      // Room for the operator and its space: before it on its line, or after it.
+      let nested = if shape.limits.binop_back {
+        nested.sub_width(separator + 1)?
+      } else {
+        nested.offset_left(separator + 1)?
+      };
       rewrite(operand, nested)
     })
     .collect();
@@ -4675,13 +4687,16 @@ fn rewrite_or_pattern(node: &SyntaxNode, shape: Shape) -> Option<String> {
     .zip(&texts)
     .all(|(a, t)| t.len() <= 20 && !t.contains('\n') && short_pattern(a));
   let pad = " ".repeat(shape.indent);
+  // `|` ending a line rather than starting the next (`binop_separator`).
+  let back = shape.limits.binop_back;
   if short {
-    // As `write_list` packs them: each after the first counted with its ` |`, and a space
-    // between.
+    // As `write_list` packs them: each counted with its ` |` (after the first, or before the
+    // last), and a space between.
     let mut text = String::new();
     let mut line = 0;
     for (i, alternative) in texts.iter().enumerate() {
-      let total = alternative.len() + if i > 0 { 2 } else { 0 };
+      let separated = if back { i + 1 < texts.len() } else { i > 0 };
+      let total = alternative.len() + if separated { 2 } else { 0 };
       if line > 0 && line + 1 + total > shape.width {
         text.push_str(&format!("\n{}", pad));
         line = 0;
@@ -4689,10 +4704,13 @@ fn rewrite_or_pattern(node: &SyntaxNode, shape: Shape) -> Option<String> {
         text.push(' ');
         line += 1;
       }
-      if i > 0 {
+      if i > 0 && !back {
         text.push_str("| ");
       }
       text.push_str(alternative);
+      if separated && back {
+        text.push_str(" |");
+      }
       line += total;
     }
     return Some(text);
@@ -4700,6 +4718,9 @@ fn rewrite_or_pattern(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let total: usize = texts.iter().map(|t| t.width()).sum::<usize>() + 3 * (texts.len() - 1);
   if total <= shape.width && !texts.iter().any(|t| t.contains('\n')) {
     return Some(texts.join(" | "));
+  }
+  if back {
+    return Some(texts.join(&format!(" |\n{}", pad)));
   }
   Some(texts.join(&format!("\n{}| ", pad)))
 }
@@ -4715,8 +4736,13 @@ fn rewrite_pair(
   shape: Shape,
 ) -> Option<String> {
   let used = shape.indent + shape.offset;
+  // Room on the left's last line for an operator ending it.
+  let back = shape.limits.binop_back && infix.trim() != ";";
   let left_shape = Shape {
-    width: shape.limits.max_width.saturating_sub(used),
+    width: shape
+      .limits
+      .max_width
+      .saturating_sub(used + if back { infix.trim_end().width() } else { 0 }),
     ..shape
   };
   let left_text = rewrite(left, left_shape)?;
@@ -4744,6 +4770,20 @@ fn rewrite_pair(
     return Some(format!(
       "{};\n{}{}",
       left_text,
+      " ".repeat(nested.indent),
+      right_text
+    ));
+  }
+  if back {
+    let right_shape = Shape {
+      width: nested.width.checked_sub(shape.rhs_overhead())?,
+      ..nested
+    };
+    let right_text = rewrite(right, right_shape)?;
+    return Some(format!(
+      "{}{}\n{}{}",
+      left_text,
+      infix.trim_end(),
       " ".repeat(nested.indent),
       right_text
     ));

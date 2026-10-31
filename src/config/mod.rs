@@ -367,6 +367,7 @@ impl Config {
       Some("lower") => crate::options::format::HexLiteralCase::Lower,
       _ => crate::options::format::HexLiteralCase::Preserve,
     };
+    config.binop_back = choice("binop_separator").as_deref() == Some("back");
     config.control_brace_style = match choice("control_brace_style").as_deref() {
       Some("closingnextline") => crate::options::format::ControlBraceStyle::ClosingNextLine,
       Some("alwaysnextline") => crate::options::format::ControlBraceStyle::AlwaysNextLine,

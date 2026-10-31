@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 45
+  supported: 46
   partial: 27
-  missing: 32
+  missing: 31
   not_planned: 4
 ---
 
@@ -142,7 +142,7 @@ behavior, so the column does not apply to them.
 <code>binop_separator</code></a></td>
 <td>rustfmt.toml</td>
 <td>Where to put a binary operator when a binary expression goes multiline.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="mto.toml.md#blank_lines_between_blocks">

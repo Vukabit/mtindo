@@ -344,6 +344,23 @@ fn test_attributes_extern_crates_and_macro_calls() {
   );
 }
 
+/// `binop_separator = "Back"`: an operator broken after ends its line, in an expression, a
+/// pair and an or-pattern alike.
+#[test]
+fn test_binop_separator_back() {
+  let config = FormatConfig {
+    binop_back: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn main() {\n    if abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ && abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ || abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ {\n        //\n    }\n    let value = abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ..abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ;\n    match val {\n        ThisIsA::ReallyLongPatternNameToHelpOverflowTheNextValueOntoTheNextLine | ThisIsA::SecondValueSeparatedByAPipe | ThisIsA::ThirdValueSeparatedByAPipe => {\n            //\n        }\n    }\n}\n",
+      &config
+    ),
+    "fn main() {\n    if abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ &&\n        abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ||\n        abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n    {\n        //\n    }\n    let value = abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ..\n        abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ;\n    match val {\n        ThisIsA::ReallyLongPatternNameToHelpOverflowTheNextValueOntoTheNextLine |\n        ThisIsA::SecondValueSeparatedByAPipe |\n        ThisIsA::ThirdValueSeparatedByAPipe => {\n            //\n        }\n    }\n}\n"
+  );
+}
+
 #[test]
 fn test_blank_lines_and_trailing_whitespace() {
   assert_eq!(

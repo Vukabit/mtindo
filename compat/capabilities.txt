@@ -10,7 +10,7 @@
 
 option  array_width                                      partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  attr_fn_like_width                               supported    # with format = true, for attributes (src/format/attrs/tests.rs)
-option  binop_separator                                  missing
+option  binop_separator                                  supported    # with format = true (src/format/file/tests.rs)
 option  blank_lines_lower_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); formatting does not add blank lines yet
 option  blank_lines_upper_bound                          partial      # layout keeps the blank lines between items within it (src/config/tests.rs); with format = true, within blocks too (src/format/file/tests.rs)
 option  brace_style                                      partial      # with format = true, for item headers and their where clauses (src/format/items/tests.rs)
@@ -99,8 +99,8 @@ option  where_single_line                                missing
 option  width_heuristics                                 missing
 option  wrap_comments                                    missing
 
-value   binop_separator=Back                             missing
-value   binop_separator=Front                            missing
+value   binop_separator=Back                             supported    # with format = true (src/format/file/tests.rs)
+value   binop_separator=Front                            supported    # with format = true (src/format/file/tests.rs)
 value   brace_style=AlwaysNextLine                       partial      # with format = true, for item headers (src/format/items/tests.rs)
 value   brace_style=PreferSameLine                       missing
 value   brace_style=SameLineWhere                        partial      # with format = true, for item headers without a where clause (src/format/items/tests.rs)

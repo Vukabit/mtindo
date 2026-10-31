@@ -135,6 +135,8 @@ pub struct FormatConfig {
   pub normalize_doc_attributes: bool,
   /// `control_brace_style`.
   pub control_brace_style: ControlBraceStyle,
+  /// `binop_separator = "Back"`: a binary operator ends the line it breaks after.
+  pub binop_back: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -210,6 +212,7 @@ impl Default for FormatConfig {
       condense_wildcards: false,
       normalize_doc_attributes: false,
       control_brace_style: ControlBraceStyle::AlwaysSameLine,
+      binop_back: false,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

@@ -16,8 +16,8 @@ keys:
 in_mto:
   supported: 59
   partial: 28
-  missing: 17
-  not_planned: 4
+  missing: 16
+  not_planned: 5
 ---
 
 # mto settings reference
@@ -315,7 +315,7 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Lines to format; this is not supported in rustfmt.toml, and can only be
     specified via the --file-lines option.</td>
-<td>missing</td>
+<td>not planned</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#float_literal_trailing_zero">

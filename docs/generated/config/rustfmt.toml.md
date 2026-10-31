@@ -14,8 +14,8 @@ keys:
 in_mto:
   supported: 42
   partial: 27
-  missing: 17
-  not_planned: 4
+  missing: 16
+  not_planned: 5
 ---
 
 # `rustfmt.toml` settings
@@ -1138,7 +1138,8 @@ specified via the --file-lines option
     value.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing. Planned future work, after 0.1.0, with indentation styles.
+*   In mto: not planned. A flag only, as its ranges change from run to run:
+    --file-lines (planned).
 
 ### `fn_args_layout`
 

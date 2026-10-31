@@ -36,7 +36,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("enum_discrim_align_threshold", "supported"),
   ("error_on_line_overflow", "missing"),
   ("error_on_unformatted", "missing"),
-  ("file_lines", "missing"),
+  ("file_lines", "not-planned"),
   ("float_literal_trailing_zero", "supported"),
   ("fn_args_layout", "not-planned"),
   ("fn_call_width", "partial"),

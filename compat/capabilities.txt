@@ -29,7 +29,7 @@ option  empty_item_single_line                           supported    # with for
 option  enum_discrim_align_threshold                     supported    # with format = true (src/format/reorder/tests.rs)
 option  error_on_line_overflow                           missing
 option  error_on_unformatted                             missing
-option  file_lines                                       missing      # planned future work, after 0.1.0, with indentation styles
+option  file_lines                                       not-planned  # a flag only, as its ranges change from run to run: --file-lines (planned)
 option  float_literal_trailing_zero                      supported    # with format = true (src/format/reorder/tests.rs)
 option  fn_args_layout                                   not-planned  # deprecated in rustfmt in favour of fn_params_layout
 option  fn_call_width                                    partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
@@ -186,7 +186,7 @@ flag    rustfmt:--config-path                            supported    # tests/do
 flag    rustfmt:--edition                                partial      # sets the edition behind the style edition (tests/domain_8_cli.rs); parsing still detects the edition itself
 flag    rustfmt:--emit                                   supported    # files, stdout and json, as rustfmt writes them (tests/domain_8_cli.rs)
 flag    rustfmt:--error-on-unformatted                   missing
-flag    rustfmt:--file-lines                             missing      # planned future work, after 0.1.0, with indentation styles
+flag    rustfmt:--file-lines                             missing      # planned future work, after 0.1.0, with indentation styles; a flag only, never a setting
 flag    rustfmt:--files-with-diff                        supported    # tests/domain_8_cli.rs
 flag    rustfmt:--help                                   partial      # mto -h and --help (tests/domain_8_cli.rs); no help topics such as --help=config
 flag    rustfmt:--print-config                           supported    # default, minimal, current, with PATH (tests/domain_8_cli.rs)

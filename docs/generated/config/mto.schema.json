@@ -235,7 +235,7 @@
       "default": false
     },
     "file_lines": {
-      "description": "Lines to format; this is not supported in rustfmt.toml, and can only be specified via the --file-lines option\n\nIn mto: missing. Planned future work, after 0.1.0, with indentation styles."
+      "description": "Lines to format; this is not supported in rustfmt.toml, and can only be specified via the --file-lines option\n\nIn mto: not planned. A flag only, as its ranges change from run to run: --file-lines (planned)."
     },
     "float_literal_trailing_zero": {
       "description": "Control the presence of trailing zero in floating-point literal values\n\nIn mto: supported. With format = true.",

@@ -334,6 +334,16 @@ pub fn rewrite_arm_in(
             if inside_macro {
               return Arm::Whole(format!("{} =>\n{}{},", lhs, " ".repeat(indent + tab), next));
             }
+            // From style edition 2024 the body is the block's statement: a `return`, `break`
+            // or `continue` ends with `;` (`semicolon_for_expr`).
+            let next = if config.style_edition >= 2024
+              && config.trailing_semicolon
+              && matches!(body.kind(), K::ReturnExpr | K::BreakExpr | K::ContinueExpr)
+            {
+              format!("{};", next)
+            } else {
+              next
+            };
             // The block it is put in ends with a comma under `match_block_trailing_comma`.
             Arm::Whole(format!(
               "{} =>{}\n{}{}\n{}}}{}",

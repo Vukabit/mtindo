@@ -233,6 +233,25 @@ fn test_an_arm_body_too_wide_for_its_line_goes_in_a_block() {
   );
 }
 
+/// From style edition 2024 an arm's `return`, `break` or `continue` put in a block of its
+/// own ends with `;`, as a statement there; before it, it is the block's last expression.
+#[test]
+fn test_an_arm_return_put_in_a_block_takes_a_semicolon_from_style_2024() {
+  let source = "fn f() {\n    match k {\n        SyntaxKind::LineComment | SyntaxKind::BlockComment if after_attribute_xxxxxxxxxx => return true,\n        _ => x = true,\n    }\n}\n";
+  let c2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(source, &c2024),
+    "fn f() {\n    match k {\n        SyntaxKind::LineComment | SyntaxKind::BlockComment if after_attribute_xxxxxxxxxx => {\n            return true;\n        }\n        _ => x = true,\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted(source),
+    "fn f() {\n    match k {\n        SyntaxKind::LineComment | SyntaxKind::BlockComment if after_attribute_xxxxxxxxxx => {\n            return true\n        }\n        _ => x = true,\n    }\n}\n"
+  );
+}
+
 /// An arm whose pattern and guard leave no room for ` => ` (a guard kept as written past
 /// the width): its block starts the next line, as the standard formatter lays it out.
 #[test]

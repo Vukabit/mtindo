@@ -5,7 +5,7 @@ Every release of mtindo, newest first. The layout follows
 [Semantic Versioning](https://semver.org/). Sections after 0.1.0 are written
 from commit subjects by `cargo xtask changelog`.
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-31
 
 ### Added
 

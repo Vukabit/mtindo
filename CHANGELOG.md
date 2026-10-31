@@ -10,7 +10,7 @@ from commit subjects by `cargo xtask changelog`.
 ### Added
 
 - Format Rust source as the standard formatter writes it with the same
-  settings, byte for byte: 9249 of 9263 files and 99.99% of the lines of a
+  settings, byte for byte: 9354 of 9361 files and 99.99% of the lines of a
   pinned corpus of real crates match, and 99.90% of lines once their
   formatting is scrambled
 - Read the same `rustfmt.toml` and `.rustfmt.toml` files, with `--config`,
@@ -85,10 +85,10 @@ from commit subjects by `cargo xtask changelog`.
 
 ### Performance
 
-- Check a laid-out corpus 17 times as fast as the standard formatter, on ten
+- Check a laid-out corpus 20 times as fast as the standard formatter, on ten
   cores
-- Lay out and format 8.4 MB/s on one thread, with at most 31.5 MB of memory
+- Lay out and format 9.1 MB/s on one thread, with at most 31.5 MB of memory
   live while formatting serde
 - Take time in step with the size of the code: growth exponents near 1 for
-  items, lines, chains and matches, and 1.26 for nesting
+  items, lines, chains and matches, and 1.43 for nesting
 - Skip a second pass over a file the first left as it was

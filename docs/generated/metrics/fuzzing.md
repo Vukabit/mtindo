@@ -2,8 +2,8 @@
 paper: "fuzzing"
 title: "Fuzzing"
 status: "measured"
-generated: "2026-10-31T03:26:40.237Z"
-commit: "096bd3f-dirty.e6703cea"
+generated: "2026-10-31T04:24:15.156Z"
+commit: "64afff2-dirty.bac24851"
 command: "cargo xtask fuzz run TARGET"
 sources:
   - fuzz/fuzz_targets/
@@ -134,7 +134,7 @@ status:
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
 | `fuzz-crash` | 0 | 0 | 24 | 1 |
-| `fuzz-oom` | 0 | 0 | 1 | 0 |
+| `fuzz-oom` | 0 | 0 | 2 | 0 |
 | `fuzz-timeout` | 0 | 0 | 0 | 0 |
 | `fuzz-slow` | 0 | 0 | 46 | 2 |
 | `fuzz-leak` | 0 | 0 | 0 | 0 |
@@ -148,14 +148,14 @@ sanitizer), and the share of src/ lines its corpus reaches.
 
 | target | inputs/s | peak MB | lines reached % |
 |---|---:|---:|---:|
-| `comments` | 286 | 453 | 31.03 |
-| `format` | 237 | 1469 | 43.90 |
-| `generated` | 356 | 859 | 47.85 |
-| `layout` | 2978 | 255 | 20.17 |
-| `lexer` | 59420 | 225 | 2.55 |
-| `parser` | 1602 | 514 | 15.60 |
-| `toml` | 35260 | 246 | 4.39 |
-| `verify` | 1820 | 522 | 19.63 |
+| `comments` | 291 | 460 | 31.03 |
+| `format` | 243 | 1489 | 43.90 |
+| `generated` | 104 | 1652 | 47.85 |
+| `layout` | 1233 | 439 | 20.17 |
+| `lexer` | 48704 | 197 | 2.55 |
+| `parser` | 1406 | 474 | 15.60 |
+| `toml` | 23073 | 215 | 4.39 |
+| `verify` | 1664 | 446 | 19.63 |
 
 Also: every corpus together reaches 63.65% of the lines of src/ (2026-10-12); in
 the last differential run, mto and the standard formatter agreed on 80.00% of

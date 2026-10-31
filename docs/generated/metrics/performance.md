@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-30T03:21:06.757Z"
-commit: "bffdb0d-dirty.bc32e290"
+generated: "2026-10-31T04:24:15.156Z"
+commit: "64afff2-dirty.bac24851"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -15,28 +15,28 @@ metrics:
   corpus.lex.mb_per_s: 363.5
   corpus.lex_parse.mb_per_s: 57.6
 limits:
-  speed.speedup.stable: 17.03
-  speed.speedup.nightly: 17.29
-  speed.mto.laid_out.mb_per_s: 159.6
-  speed.mto.as_fetched.mb_per_s: 143.7
-  speed.layout.one_thread.mb_per_s: 80.8
+  speed.speedup.stable: 20.28
+  speed.speedup.nightly: 20.66
+  speed.mto.laid_out.mb_per_s: 186.3
+  speed.mto.as_fetched.mb_per_s: 169.1
+  speed.layout.one_thread.mb_per_s: 93.43
   memst.serde.allocs: 1319498
   memst.serde.bytes: 365171393
   memst.serde.peak_live: 31516777
-  doctor.held.cost.x: 1.119
-  doctor.narrow.n10.k1.checks: 9.7
-  doctor.narrow.n100.k1.checks: 15.5
-  doctor.narrow.n100.k3.checks: 49.6
+  doctor.held.cost.x: 1.104
+  doctor.narrow.n10.k1.checks: 11.3
+  doctor.narrow.n100.k1.checks: 15.8
+  doctor.narrow.n100.k3.checks: 47.4
   doctor.narrow.found_rate: 1
-  io.write.batch.history.ms_per_file: 0.659
-  io.write.batch.plain.ms_per_file: 0.281
-  perf.scaling.one_thread.mb_per_s: 8.449
-  perf.latency.check.median_ms: 2.075
-  perf.growth.items.exponent: 1.03
-  perf.growth.nesting.exponent: 1.259
-  perf.growth.line.exponent: 0.999
-  perf.growth.chain.exponent: 0.97
-  perf.growth.match.exponent: 1.026
+  io.write.batch.history.ms_per_file: 0.708
+  io.write.batch.plain.ms_per_file: 0.318
+  perf.scaling.one_thread.mb_per_s: 9.103
+  perf.latency.check.median_ms: 2.104
+  perf.growth.items.exponent: 1.048
+  perf.growth.nesting.exponent: 1.425
+  perf.growth.line.exponent: 0.982
+  perf.growth.chain.exponent: 0.96
+  perf.growth.match.exponent: 0.988
 ---
 
 # Performance
@@ -45,8 +45,8 @@ limits:
 
 <!-- generated: abstract -->
 On the recording machine (macos aarch64, 10 cores), the ratchet holds 22
-figures. At their recorded values, mto lays out and formats 8.449 MB/s on one
-thread, checks a laid-out corpus 17.03 times as fast as the standard formatter's
+figures. At their recorded values, mto lays out and formats 9.103 MB/s on one
+thread, checks a laid-out corpus 20.28 times as fast as the standard formatter's
 stable release, and holds at most 31.5 MB of memory live at once while laying
 out and formatting serde.
 <!-- end generated -->
@@ -108,28 +108,28 @@ measurement is allowed in the worse direction.
 <!-- generated: results -->
 | series | before | limit | slack | better |
 |---|---:|---:|---:|---|
-| `speed.speedup.stable` | 19.48 | 17.03 | 15% | higher |
-| `speed.speedup.nightly` | 18.02 | 17.29 | 15% | higher |
-| `speed.mto.laid_out.mb_per_s` | 120 | 159.6 | 15% | higher |
-| `speed.mto.as_fetched.mb_per_s` | 65.63 | 143.7 | 15% | higher |
-| `speed.layout.one_thread.mb_per_s` | 45.3 | 80.8 | 15% | higher |
+| `speed.speedup.stable` | 19.48 | 20.28 | 15% | higher |
+| `speed.speedup.nightly` | 18.02 | 20.66 | 15% | higher |
+| `speed.mto.laid_out.mb_per_s` | 120 | 186.3 | 15% | higher |
+| `speed.mto.as_fetched.mb_per_s` | 65.63 | 169.1 | 15% | higher |
+| `speed.layout.one_thread.mb_per_s` | 45.3 | 93.43 | 15% | higher |
 | `memst.serde.allocs` | 3200300 | 1319498 | 1% | lower |
 | `memst.serde.bytes` | 534467036 | 365171393 | 1% | lower |
 | `memst.serde.peak_live` | 33128643 | 31516777 | 25% | lower |
-| `doctor.held.cost.x` | 1.271 | 1.119 | 25% | lower |
-| `doctor.narrow.n10.k1.checks` | 9.7 | 9.7 | 10% | lower |
-| `doctor.narrow.n100.k1.checks` | 15.5 | 15.5 | 10% | lower |
-| `doctor.narrow.n100.k3.checks` | 49.6 | 49.6 | 10% | lower |
+| `doctor.held.cost.x` | 1.271 | 1.104 | 25% | lower |
+| `doctor.narrow.n10.k1.checks` | 9.7 | 11.3 | 10% | lower |
+| `doctor.narrow.n100.k1.checks` | 15.5 | 15.8 | 10% | lower |
+| `doctor.narrow.n100.k3.checks` | 49.6 | 47.4 | 10% | lower |
 | `doctor.narrow.found_rate` | - | 1 | 0% | higher |
-| `io.write.batch.history.ms_per_file` | 13.19 | 0.659 | 50% | lower |
-| `io.write.batch.plain.ms_per_file` | - | 0.281 | 50% | lower |
-| `perf.scaling.one_thread.mb_per_s` | 5.731 | 8.449 | 15% | higher |
-| `perf.latency.check.median_ms` | 6.469 | 2.075 | 50% | lower |
-| `perf.growth.items.exponent` | 1.057 | 1.03 | 20% | lower |
-| `perf.growth.nesting.exponent` | - | 1.259 | 20% | lower |
-| `perf.growth.line.exponent` | 0.989 | 0.999 | 20% | lower |
-| `perf.growth.chain.exponent` | 0.976 | 0.97 | 20% | lower |
-| `perf.growth.match.exponent` | 1.256 | 1.026 | 20% | lower |
+| `io.write.batch.history.ms_per_file` | 13.19 | 0.708 | 50% | lower |
+| `io.write.batch.plain.ms_per_file` | - | 0.318 | 50% | lower |
+| `perf.scaling.one_thread.mb_per_s` | 5.731 | 9.103 | 15% | higher |
+| `perf.latency.check.median_ms` | 6.469 | 2.104 | 50% | lower |
+| `perf.growth.items.exponent` | 1.057 | 1.048 | 20% | lower |
+| `perf.growth.nesting.exponent` | - | 1.425 | 20% | lower |
+| `perf.growth.line.exponent` | 0.989 | 0.982 | 20% | lower |
+| `perf.growth.chain.exponent` | 0.976 | 0.96 | 20% | lower |
+| `perf.growth.match.exponent` | 1.256 | 0.988 | 20% | lower |
 
 Parsing speed on one thread, release build, on macos aarch64, 10 cores, over
 10731 files, 90345059 bytes (compat/corpus.txt):
@@ -149,7 +149,8 @@ record equals it is not repeated.
 <!-- generated: history -->
 | date | commit | one thread MB/s | speedup | serde peak MB |
 |---|---|---:|---:|---:|
-| current |  | 8.449 | 17.03 | 31.5 |
+| current |  | 9.103 | 20.28 | 31.5 |
+| 2026-10-29 | 0018fb0 | 8.449 | 17.03 | 31.5 |
 | 2026-10-13 | 031a9ac | 9.702 | 31.39 | 36.1 |
 <!-- end generated -->
 
@@ -165,28 +166,28 @@ timing taken while the machine was busy is not judged:
 
 | series | latest | within | date |
 |---|---:|---|---|
-| `speed.speedup.stable` | 17.03 | yes | 2026-10-24 |
-| `speed.speedup.nightly` | 17.29 | yes | 2026-10-24 |
-| `speed.mto.laid_out.mb_per_s` | 159.65 | yes | 2026-10-24 |
-| `speed.mto.as_fetched.mb_per_s` | 143.69 | yes | 2026-10-24 |
-| `speed.layout.one_thread.mb_per_s` | 80.80 | yes | 2026-10-24 |
+| `speed.speedup.stable` | 20.28 | yes | 2026-10-31 |
+| `speed.speedup.nightly` | 20.66 | yes | 2026-10-31 |
+| `speed.mto.laid_out.mb_per_s` | 186.26 | yes | 2026-10-31 |
+| `speed.mto.as_fetched.mb_per_s` | 169.08 | yes | 2026-10-31 |
+| `speed.layout.one_thread.mb_per_s` | 93.43 | yes | 2026-10-31 |
 | `memst.serde.allocs` | 1.32M | yes | 2026-10-27 |
 | `memst.serde.bytes` | 365.17M | yes | 2026-10-27 |
 | `memst.serde.peak_live` | 31.52M | yes | 2026-10-27 |
-| `doctor.held.cost.x` | 1.12 | yes | 2026-10-20 |
-| `doctor.narrow.n10.k1.checks` | 9.70 | yes | 2026-10-20 |
-| `doctor.narrow.n100.k1.checks` | 15.50 | yes | 2026-10-20 |
-| `doctor.narrow.n100.k3.checks` | 49.60 | yes | 2026-10-20 |
-| `doctor.narrow.found_rate` | 1 | yes | 2026-10-20 |
-| `io.write.batch.history.ms_per_file` | 0.66 | yes | 2026-10-24 |
-| `io.write.batch.plain.ms_per_file` | 0.28 | yes | 2026-10-24 |
-| `perf.scaling.one_thread.mb_per_s` | 8.45 | yes | 2026-10-25 |
-| `perf.latency.check.median_ms` | 2.08 | yes | 2026-10-25 |
-| `perf.growth.items.exponent` | 1.03 | yes | 2026-10-25 |
-| `perf.growth.nesting.exponent` | 1.26 | yes | 2026-10-25 |
-| `perf.growth.line.exponent` | 1.00 | yes | 2026-10-25 |
-| `perf.growth.chain.exponent` | 0.97 | yes | 2026-10-25 |
-| `perf.growth.match.exponent` | 1.03 | yes | 2026-10-25 |
+| `doctor.held.cost.x` | 1.10 | yes | 2026-10-31 |
+| `doctor.narrow.n10.k1.checks` | 11.30 | yes | 2026-10-31 |
+| `doctor.narrow.n100.k1.checks` | 15.80 | yes | 2026-10-31 |
+| `doctor.narrow.n100.k3.checks` | 47.40 | yes | 2026-10-31 |
+| `doctor.narrow.found_rate` | 1 | yes | 2026-10-31 |
+| `io.write.batch.history.ms_per_file` | 0.71 | yes | 2026-10-31 |
+| `io.write.batch.plain.ms_per_file` | 0.32 | yes | 2026-10-31 |
+| `perf.scaling.one_thread.mb_per_s` | 9.10 | yes | 2026-10-31 |
+| `perf.latency.check.median_ms` | 2.10 | yes | 2026-10-31 |
+| `perf.growth.items.exponent` | 1.05 | yes | 2026-10-31 |
+| `perf.growth.nesting.exponent` | 1.43 | yes | 2026-10-31 |
+| `perf.growth.line.exponent` | 0.98 | yes | 2026-10-31 |
+| `perf.growth.chain.exponent` | 0.96 | yes | 2026-10-31 |
+| `perf.growth.match.exponent` | 0.99 | yes | 2026-10-31 |
 <!-- end generated -->
 
 ## 4 Threats to validity

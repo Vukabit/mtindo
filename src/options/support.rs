@@ -45,7 +45,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("hex_literal_case", "supported"),
   ("hide_parse_errors", "not-planned"),
   ("ignore", "partial"),
-  ("imports_granularity", "missing"),
+  ("imports_granularity", "supported"),
   ("imports_indent", "missing"),
   ("imports_layout", "partial"),
   ("indent_style", "missing"),

@@ -40,6 +40,22 @@ pub enum HexLiteralCase {
   Lower,
 }
 
+/// How imports are merged or split (`imports_granularity`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ImportsGranularity {
+  /// As written.
+  #[default]
+  Preserve,
+  /// One `use` per crate.
+  Crate,
+  /// One `use` per module.
+  Module,
+  /// One `use` per name imported.
+  Item,
+  /// One `use` for all.
+  One,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImportsLayout {
   /// Items fill lines.
@@ -144,6 +160,8 @@ pub struct FormatConfig {
   /// `overflow_delimited_expr`: a struct literal, array, `match` or bracketed macro call
   /// overflows the last of any number of arguments.
   pub overflow_delimited_expr: bool,
+  /// `imports_granularity`.
+  pub imports_granularity: ImportsGranularity,
   /// `empty_item_single_line`: an empty function, impl or trait body written `{}`.
   pub empty_item_single_line: bool,
   /// `fn_single_line`: a function of one simple statement on one line.
@@ -237,6 +255,7 @@ impl Default for FormatConfig {
       match_arm_blocks: true,
       force_multiline_blocks: false,
       overflow_delimited_expr: false,
+      imports_granularity: ImportsGranularity::Preserve,
       empty_item_single_line: true,
       fn_single_line: false,
       where_single_line: false,

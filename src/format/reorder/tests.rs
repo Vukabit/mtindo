@@ -143,6 +143,47 @@ fn test_extern_given_its_abi() {
   );
 }
 
+/// `imports_granularity`: a run of imports merged by crate, by module or into one, or split
+/// into one per name; a public one apart from the others. A name and that name renamed
+/// both stay, which the standard formatter merges into one.
+#[test]
+fn test_imports_granularity() {
+  use crate::order::Granularity;
+  let source = "use a::b::c;\nuse a::b::d;\nuse a::e::{f, g};\nuse h;\npub use a::x;\n";
+  for (by, expected) in [
+    (
+      Granularity::Crate,
+      "pub use a::x;\nuse a::{\n    b::{c, d},\n    e::{f, g},\n};\nuse h;\n",
+    ),
+    (
+      Granularity::Module,
+      "use a::b::{c, d};\nuse a::e::{f, g};\npub use a::x;\nuse h;\n",
+    ),
+    (
+      Granularity::Item,
+      "use a::b::c;\nuse a::b::d;\nuse a::e::f;\nuse a::e::g;\npub use a::x;\nuse h;\n",
+    ),
+    (
+      Granularity::One,
+      "pub use a::x;\nuse {\n    a::{\n        b::{c, d},\n        e::{f, g},\n    },\n    h,\n};\n",
+    ),
+  ] {
+    let config = FormatConfig {
+      imports_granularity: by,
+      ..FormatConfig::default()
+    };
+    assert_eq!(formatted(source, &config), expected, "{:?}", by);
+  }
+  let one = FormatConfig {
+    imports_granularity: Granularity::One,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted("use a::b::f;\nuse a::b::f as g;\nuse a::b::h;\n", &one),
+    "use a::b::{f, f as g, h};\n"
+  );
+}
+
 /// `inline_attribute_width`: an import, `extern crate` or `mod` and its one attribute on a
 /// line when the two are at most that wide; two attributes stay apart.
 #[test]

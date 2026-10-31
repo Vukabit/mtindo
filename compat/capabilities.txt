@@ -48,7 +48,7 @@ option  hard_tabs                                        partial      # with for
 option  hex_literal_case                                 supported    # with format = true (src/format/reorder/tests.rs)
 option  hide_parse_errors                                not-planned  # deprecated in rustfmt in favour of show_parse_errors
 option  ignore                                           partial      # mto.toml's ignore_dirs skips directories by name (tests/domain_9_config_hierarchy.rs); no paths or globs
-option  imports_granularity                              missing
+option  imports_granularity                              supported    # with format = true (src/format/reorder/tests.rs)
 option  imports_indent                                   missing
 option  imports_layout                                   partial      # with format = true, for use declarations; Horizontal leaves a list too wide for its line as written (src/format/imports/tests.rs)
 option  indent_style                                     missing
@@ -133,11 +133,11 @@ value   group_imports=StdExternalCrate                   missing
 value   hex_literal_case=Lower                           supported    # with format = true (src/format/reorder/tests.rs)
 value   hex_literal_case=Preserve                        supported    # with format = true (src/format/reorder/tests.rs)
 value   hex_literal_case=Upper                           supported    # with format = true (src/format/reorder/tests.rs)
-value   imports_granularity=Crate                        missing
-value   imports_granularity=Item                         missing
-value   imports_granularity=Module                       missing
-value   imports_granularity=One                          missing
-value   imports_granularity=Preserve                     missing
+value   imports_granularity=Crate                        supported    # with format = true (src/format/reorder/tests.rs)
+value   imports_granularity=Item                         supported    # with format = true (src/format/reorder/tests.rs)
+value   imports_granularity=Module                       supported    # with format = true (src/format/reorder/tests.rs)
+value   imports_granularity=One                          supported    # with format = true (src/format/reorder/tests.rs)
+value   imports_granularity=Preserve                     supported    # with format = true (src/format/reorder/tests.rs)
 value   imports_indent=Block                             missing
 value   imports_indent=Visual                            missing
 value   imports_layout=Horizontal                        partial      # with format = true, for use declarations; a list too wide for its line is left as written (src/format/imports/tests.rs)

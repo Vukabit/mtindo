@@ -9,10 +9,12 @@
 //! `self`, `super`, `crate`, names, `*`, then `{...}` lists. Names compare, before style
 //! edition 2024, snake_case first, then CamelCase, then UPPER_SNAKE_CASE, each by bytes;
 //! from 2024 by [`version_sort`], ignoring `r#`. Module declarations compare by bytes
-//! through style edition 2024 and by [`version_sort`] after it.
+//! through style edition 2024 and by [`version_sort`] after it. [`regroup`] merges or
+//! splits a run of imports first, as `imports_granularity` says.
 
 use std::cmp::Ordering;
 
+pub use crate::options::format::ImportsGranularity as Granularity;
 use crate::syntax::{SyntaxKind, SyntaxNode};
 
 #[derive(Clone, Copy, Debug)]
@@ -134,6 +136,26 @@ impl Segment {
   }
 }
 
+impl Segment {
+  /// Equal but for their aliases.
+  fn equal_except_alias(&self, other: &Segment) -> bool {
+    use Segment::*;
+    match (self, other) {
+      (Ident(a, _), Ident(b, _)) => a == b,
+      (Slf(_), Slf(_)) | (Super(_), Super(_)) | (Crate(_), Crate(_)) | (Glob, Glob) => true,
+      (List(a), List(b)) => a == b,
+      _ => false,
+    }
+  }
+
+  fn alias(&self) -> Option<String> {
+    match self {
+      Segment::Ident(_, a) | Segment::Slf(a) | Segment::Super(a) | Segment::Crate(a) => a.clone(),
+      _ => None,
+    }
+  }
+}
+
 struct Chunks<'a> {
   rest: &'a str,
 }
@@ -173,6 +195,17 @@ impl<'a> Iterator for Chunks<'a> {
     self.rest = rest;
     Some(Chunk::Str(text))
   }
+}
+
+/// One `use` item: its attributes as written (empty for none), its visibility with a space
+/// after it (empty for none), and its tree; `written`, the item as written when a comment
+/// is in it, which is kept as it is.
+#[derive(Clone, Debug)]
+pub struct Import {
+  pub attributes: String,
+  pub visibility: String,
+  pub tree: UseTree,
+  pub written: Option<String>,
 }
 
 /// A use tree as the standard formatter models it for sorting.
@@ -284,6 +317,90 @@ impl UseTree {
   }
 }
 
+impl UseTree {
+  fn from_path(path: Vec<Segment>) -> UseTree {
+    UseTree {
+      path,
+      has_comment: false,
+    }
+  }
+
+  /// Whether `other` shares this tree's crate, module (all but its last segment, or its
+  /// first), or anything (`share_prefix`).
+  fn share_prefix(&self, other: &UseTree, by: Granularity) -> bool {
+    if self.path.is_empty() || other.path.is_empty() || self.has_comment {
+      return false;
+    }
+    let module = |path: &[Segment]| path[..(path.len() - 1).max(1)].to_vec();
+    match by {
+      Granularity::Crate => self.path[0] == other.path[0],
+      Granularity::Module => module(&self.path) == module(&other.path),
+      _ => true,
+    }
+  }
+
+  /// The tree split at its last list into a tree per item, recursively (`flatten`); but a
+  /// list holding `self` alone.
+  fn flatten(self) -> Vec<UseTree> {
+    if self.path.is_empty() || self.has_comment {
+      return vec![self];
+    }
+    match self.path.last() {
+      Some(Segment::List(list)) => {
+        if let [only] = list.as_slice()
+          && let [Segment::Slf(_)] = only.path.as_slice()
+        {
+          return vec![self];
+        }
+        let prefix = &self.path[..self.path.len() - 1];
+        let mut result = Vec::new();
+        for nested in list {
+          for flattened in nested.clone().flatten() {
+            let mut path = prefix.to_vec();
+            path.extend(flattened.path);
+            result.push(UseTree::from_path(path));
+          }
+        }
+        result
+      }
+      _ => vec![self],
+    }
+  }
+
+  /// A tree ending in `self` ending in `{self}` instead (`nest_trailing_self`).
+  fn nest_trailing_self(mut self) -> UseTree {
+    if let Some(Segment::Slf(_)) = self.path.last() {
+      let last = self.path.pop().unwrap_or(Segment::Glob);
+      self
+        .path
+        .push(Segment::List(vec![UseTree::from_path(vec![last])]));
+    }
+    self
+  }
+
+  /// `other` merged into this tree (`merge`); `false` when they differ in an alias alone,
+  /// which the standard formatter then drops (`f` and `f as g` merged are `f`): that one
+  /// is not merged, so nothing is lost.
+  fn merge(&mut self, other: &UseTree, by: Granularity, version: bool) -> bool {
+    let mut prefix = 0;
+    for (a, b) in self.path.iter().zip(other.path.iter()) {
+      // An alias set aside at the root only.
+      if prefix == 0 && a.equal_except_alias(b) || a == b {
+        prefix += 1;
+      } else {
+        break;
+      }
+    }
+    match merge_rest(&self.path, &other.path, prefix, by, version) {
+      Some(path) => {
+        self.path = path;
+        true
+      }
+      None => self.path == other.path,
+    }
+  }
+}
+
 impl Eq for UseTree {}
 
 /// Trees are equal when their paths are, as in the standard formatter.
@@ -291,6 +408,64 @@ impl PartialEq for UseTree {
   fn eq(&self, other: &UseTree) -> bool {
     self.path == other.path
   }
+}
+
+/// The standard formatter's `normalize_use_trees_with_granularity`: `imports` merged into
+/// trees sharing a crate, a module or nothing, or split into one per name, in the order the
+/// first of each comes; one with attributes is kept apart, but for `Item`, which gives each
+/// part the attributes, and one with a comment is kept as it is. `version` orders lists as
+/// [`UseTree::compare`] does.
+pub fn regroup(imports: Vec<Import>, by: Granularity, version: bool) -> Vec<Import> {
+  if by == Granularity::Preserve {
+    return imports;
+  }
+  if by == Granularity::Item {
+    let mut result: Vec<Import> = Vec::new();
+    for import in imports {
+      if import.written.is_some() {
+        result.push(import);
+        continue;
+      }
+      for tree in import.tree.clone().flatten() {
+        let tree = tree.nest_trailing_self();
+        if !result.iter().any(|r| r.tree == tree) {
+          result.push(Import {
+            tree,
+            ..import.clone()
+          });
+        }
+      }
+    }
+    return result;
+  }
+  let mut result: Vec<Import> = Vec::new();
+  for import in imports {
+    if !import.attributes.is_empty() || import.written.is_some() {
+      result.push(import);
+      continue;
+    }
+    for mut flattened in import.tree.clone().flatten() {
+      let merged = result
+        .iter_mut()
+        .find(|r| {
+          r.attributes.is_empty()
+            && r.written.is_none()
+            && r.visibility == import.visibility
+            && r.tree.share_prefix(&flattened, by)
+        })
+        .is_some_and(|r| r.tree.merge(&flattened, by, version));
+      if !merged {
+        if by == Granularity::Module {
+          flattened = flattened.nest_trailing_self();
+        }
+        result.push(Import {
+          tree: flattened,
+          ..import.clone()
+        });
+      }
+    }
+  }
+  result
 }
 
 /// The version sort of the Rust style guide, as the standard formatter's `sort.rs`
@@ -332,6 +507,96 @@ fn first_token_is_colons(node: &SyntaxNode) -> bool {
     .children_with_tokens_iter()
     .find(|e| !e.kind().is_trivia())
     .is_some_and(|e| e.kind() == SyntaxKind::Colon2)
+}
+
+/// The standard formatter's `merge_use_trees_inner`: `tree` merged into the most alike of
+/// `trees`, or added to them.
+fn merge_into(trees: &mut Vec<UseTree>, tree: UseTree, by: Granularity, version: bool) {
+  let similar: Vec<usize> = (0..trees.len())
+    .filter(|&i| trees[i].share_prefix(&tree, by))
+    .collect();
+  if tree.path.len() == 1 && by == Granularity::Crate {
+    if let Some(&i) = similar.iter().min_by_key(|&&i| trees[i].path.len())
+      && trees[i].path.len() == 1
+    {
+      return;
+    }
+  } else if by == Granularity::One {
+    let alike = |i: usize| {
+      trees[i]
+        .path
+        .iter()
+        .zip(&tree.path)
+        .take_while(|(a, b)| a.equal_except_alias(b))
+        .count()
+    };
+    // The last of the most alike, as `max_by_key` takes.
+    if let Some(&i) = similar.iter().max_by_key(|&&i| alike(i))
+      && alike(i) > 0
+      && trees[i].merge(&tree, by, version)
+    {
+      return;
+    }
+  } else if let Some(&i) = similar.iter().max_by_key(|&&i| trees[i].path.len())
+    && trees[i].path.len() > 1
+    && trees[i].merge(&tree, by, version)
+  {
+    return;
+  }
+  trees.push(tree);
+  trees.sort_by(|x, y| x.compare(y, version));
+  trees.dedup();
+}
+
+/// The standard formatter's `merge_rest`: the merged path of `a` and `b` sharing their first
+/// `len` segments, or `None` when they are the same.
+fn merge_rest(
+  a: &[Segment],
+  b: &[Segment],
+  mut len: usize,
+  by: Granularity,
+  version: bool,
+) -> Option<Vec<Segment>> {
+  if a.len() == len && b.len() == len {
+    return None;
+  }
+  if a.len() != len && b.len() != len {
+    if let Segment::List(list) = &a[len] {
+      let mut list = list.clone();
+      merge_into(
+        &mut list,
+        UseTree::from_path(b[len..].to_vec()),
+        by,
+        version,
+      );
+      let mut path = b[..len].to_vec();
+      path.push(Segment::List(list));
+      return Some(path);
+    }
+  } else if len == 1 {
+    let (common, rest) = if a.len() == len {
+      (&a[0], &b[1..])
+    } else {
+      (&b[0], &a[1..])
+    };
+    let mut list = vec![UseTree::from_path(vec![Segment::Slf(common.alias())])];
+    match rest {
+      [Segment::List(items)] => list.extend(items.iter().cloned()),
+      _ => list.push(UseTree::from_path(rest.to_vec())),
+    }
+    return Some(vec![b[0].clone(), Segment::List(list)]);
+  } else {
+    len -= 1;
+  }
+  let mut list = vec![
+    UseTree::from_path(a[len..].to_vec()),
+    UseTree::from_path(b[len..].to_vec()),
+  ];
+  list.sort_by(|x, y| x.compare(y, version));
+  list.dedup();
+  let mut path = b[..len].to_vec();
+  path.push(Segment::List(list));
+  Some(path)
 }
 
 /// The segment names of a `PATH`, in order, and whether it starts with `::`.

@@ -688,6 +688,110 @@ pub fn field_commas(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -> Opt
   Some(out)
 }
 
+/// `text` with each run of imports merged or split as `imports_granularity` says (the
+/// standard formatter's `normalize_use_trees_with_granularity`), each written on one line
+/// for the layout to lay out, one with a comment in it as written; `None` when none
+/// changes. Not a run with a doc comment, nor in a `// mto: off` region or a skipped item.
+pub fn granular_imports(
+  root: &SyntaxNode,
+  nodes: &mut PassNodes,
+  text: &str,
+  edition: Edition,
+  config: &FormatConfig,
+) -> Option<String> {
+  use crate::order::{Granularity, Import, regroup};
+  if config.imports_granularity == Granularity::Preserve || !text.contains("use") {
+    return None;
+  }
+  let off = off_regions(root);
+  let version = config.style_edition >= 2024;
+  let global_paths = edition >= Edition::E2018;
+  let containers = |kind| matches!(kind, K::SourceFile | K::ItemList | K::BlockExpr);
+  let mut changes: Vec<(usize, usize, String)> = Vec::new();
+  for node in nodes.of(root, containers) {
+    for run in runs(node, config.blank_lines_upper_bound > 0) {
+      if run[0].kind() != K::Use {
+        continue;
+      }
+      let start = run[0].text_range().start as usize;
+      let end = run[run.len() - 1].text_range().end as usize;
+      let doc = root
+        .token_texts_between(start as u32, end as u32)
+        .any(|(kind, _, _)| super::items::is_doc(kind));
+      if doc || run.iter().any(skipped_within) || off.iter().any(|&(s, e)| s < end && start < e) {
+        continue;
+      }
+      let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+      let indent = &text[line_start..start];
+      if !indent.trim().is_empty() {
+        continue;
+      }
+      let imports: Option<Vec<Import>> = run
+        .iter()
+        .map(|item| {
+          let attributes: String = item
+            .children_iter()
+            .filter(|c| c.kind() == K::Attr)
+            .map(|a| format!("{}\n{}", a.text(), indent))
+            .collect();
+          let visibility = item
+            .children_iter()
+            .find(|c| c.kind() == K::Visibility)
+            .map(|v| {
+              format!(
+                "{} ",
+                super::expr::flat(&v, super::shape::Spacing::of(config))
+              )
+            })
+            .unwrap_or_default();
+          let tree = UseTree::from_syntax(
+            &item.children_iter().find(|c| c.kind() == K::UseTree)?,
+            global_paths,
+            version,
+          );
+          // One with a comment in it is kept as written.
+          let written = item
+            .subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
+            .then(|| item.text().to_string());
+          (!tree.is_empty()).then_some(Import {
+            attributes,
+            visibility,
+            tree,
+            written,
+          })
+        })
+        .collect();
+      let Some(imports) = imports else {
+        continue;
+      };
+      let written: Vec<String> = regroup(imports, config.imports_granularity, version)
+        .into_iter()
+        .map(|i| match i.written {
+          Some(written) => written,
+          None => format!("{}{}use {};", i.attributes, i.visibility, i.tree.text()),
+        })
+        .collect();
+      let joined = written.join(&format!("\n{}", indent));
+      if joined != text[start..end] {
+        changes.push((start, end, joined));
+      }
+    }
+  }
+  if changes.is_empty() {
+    return None;
+  }
+  changes.sort_by_key(|c| c.0);
+  let mut out = String::with_capacity(text.len());
+  let mut from = 0;
+  for (start, end, rewritten) in changes {
+    out.push_str(&text[from..start]);
+    out.push_str(&rewritten);
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text`, laid out, with each `use`, `extern crate` and `mod name;` that has one attribute,
 /// not a doc comment, written after it on its line when the two, a space between, are at
 /// most `inline_attribute_width` long, the item counted whole (the standard formatter's

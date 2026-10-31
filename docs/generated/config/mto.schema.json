@@ -337,7 +337,7 @@
       "default": []
     },
     "imports_granularity": {
-      "description": "Controls how imports are structured in `use` statements. Imports will be merged or split to the configured level of granularity.\n\nSimilar to other `import` related configuration options, this option operates within the bounds of user-defined groups of imports. See `group_imports` for more information on import groups.\n\nNote that the formatter will not modify the granularity of imports containing comments if doing so could potentially lose or misplace said comments.\n\nIn mto: missing.",
+      "description": "Controls how imports are structured in `use` statements. Imports will be merged or split to the configured level of granularity.\n\nSimilar to other `import` related configuration options, this option operates within the bounds of user-defined groups of imports. See `group_imports` for more information on import groups.\n\nNote that the formatter will not modify the granularity of imports containing comments if doing so could potentially lose or misplace said comments.\n\nIn mto: supported. With format = true.",
       "type": "string",
       "enum": ["Preserve", "Crate", "Module", "Item", "One"],
       "default": "Preserve"

@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 55
+  supported: 56
   partial: 27
-  missing: 22
+  missing: 21
   not_planned: 4
 ---
 
@@ -528,7 +528,7 @@ behavior, so the column does not apply to them.
 <code>imports_granularity</code></a></td>
 <td>rustfmt.toml</td>
 <td>Merge or split imports to the provided granularity.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#imports_indent">

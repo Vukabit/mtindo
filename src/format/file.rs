@@ -1596,6 +1596,16 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     }
     None => (text, root),
   };
+  // Imports merged or split as `imports_granularity` says, before they are sorted.
+  let (text, root) =
+    match crate::format::reorder::granular_imports(&root, &mut nodes, &text, edition, config) {
+      Some(written) => {
+        let root = parse(&written, edition).syntax_node();
+        nodes = PassNodes::default();
+        (Cow::Owned(written), root)
+      }
+      None => (text, root),
+    };
   // Imports and module declarations sorted first; the sorted text is what is formatted.
   let (text, root) =
     match crate::format::reorder::reorder(&root, &mut nodes, &text, edition, config) {

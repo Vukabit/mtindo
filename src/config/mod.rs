@@ -374,6 +374,13 @@ impl Config {
       _ => crate::options::format::HexLiteralCase::Preserve,
     };
     config.binop_back = choice("binop_separator").as_deref() == Some("back");
+    config.imports_granularity = match choice("imports_granularity").as_deref() {
+      Some("crate") => crate::options::format::ImportsGranularity::Crate,
+      Some("module") => crate::options::format::ImportsGranularity::Module,
+      Some("item") => crate::options::format::ImportsGranularity::Item,
+      Some("one") => crate::options::format::ImportsGranularity::One,
+      _ => crate::options::format::ImportsGranularity::Preserve,
+    };
     config.control_brace_style = match choice("control_brace_style").as_deref() {
       Some("closingnextline") => crate::options::format::ControlBraceStyle::ClosingNextLine,
       Some("alwaysnextline") => crate::options::format::ControlBraceStyle::AlwaysNextLine,

@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-31T00:55:36.964Z"
-commit: "7e236de-dirty.68b37548"
+generated: "2026-10-31T01:28:17.834Z"
+commit: "f9803aa-dirty.2f8bbe13"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -100,7 +100,8 @@ The reasons given, with how many files give each:
 - `format_code_in_doc_comments` changes code in docs beyond whitespace (4)
 - `wrap_comments` reflows a markdown blockquote: not modelled (3)
 - `wrap_comments` splits words: not modelled (2)
-- a static in an extern block loses its initializer (`= "string"`) (2)
+- a static in an extern block loses its initializer (`= "string"`): the
+  formatter's issue 6267 (2)
 - an attributed match arm body wrapped in a block: equivalent, not modelled (2)
 - the formatter drops a `for` without a binder list (invalid input) (2)
 - `cfg_select!` arm bodies unwrapped: macro-specific, not modelled (1)
@@ -138,6 +139,7 @@ repeated.
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
 | current |  | 31 | 10 | 21 |
+| 2026-10-30 | b380cfa | 31 | 10 | 21 |
 | 2026-10-24 | 06bd578 | 29 | 10 | 19 |
 | 2026-10-21 | f76bf49 | 32 | 10 | 22 |
 | 2026-10-17 | 793f665 | 32 | 10 | 22 |

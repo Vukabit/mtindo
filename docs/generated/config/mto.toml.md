@@ -148,8 +148,9 @@ the program's tokens and comments, and a second run changes nothing.
 
 *   Type: `true` or `false`.
 *   Default: `true`, in every style edition.
-*   In mto: partial. Indentation, spacing within lines, blank lines, trailing
-    whitespace and line endings; no line breaking yet.
+*   In mto: partial. Every construct, matching the standard formatter on the
+    corpus (cargo xtask diff); some of its settings not yet (mto config
+    options); what it gives up on is left as written.
 
 ### `layout_generated_files`
 

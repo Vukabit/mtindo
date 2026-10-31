@@ -37,5 +37,5 @@ excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro
 excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
 excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
 excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
-wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus]  a static in an extern block loses its initializer (`= "string"`)
-wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus-unformatted]  a static in an extern block loses its initializer (`= "string"`)
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus-unformatted]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267

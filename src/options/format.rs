@@ -143,6 +143,9 @@ pub struct FormatConfig {
   pub empty_item_single_line: bool,
   /// `fn_single_line`: a function of one simple statement on one line.
   pub fn_single_line: bool,
+  /// `inline_attribute_width`: the widest `use`, `extern crate` or `mod` written on its
+  /// attribute's line.
+  pub inline_attribute_width: usize,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -222,6 +225,7 @@ impl Default for FormatConfig {
       match_arm_blocks: true,
       empty_item_single_line: true,
       fn_single_line: false,
+      inline_attribute_width: 0,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

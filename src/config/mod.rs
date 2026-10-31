@@ -385,6 +385,7 @@ impl Config {
     if let Some(markers) = self.get("generated_markers").and_then(Value::as_list) {
       config.generated_markers = markers.to_vec();
     }
+    config.inline_attribute_width = number("inline_attribute_width", 0);
     config.generated_marker_line_search_limit = number(
       "generated_marker_line_search_limit",
       config.generated_marker_line_search_limit,

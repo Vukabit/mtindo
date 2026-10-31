@@ -567,6 +567,73 @@ pub fn field_commas(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -> Opt
   Some(out)
 }
 
+/// `text`, laid out, with each `use`, `extern crate` and `mod name;` that has one attribute,
+/// not a doc comment, written after it on its line when the two, a space between, are at
+/// most `inline_attribute_width` long, the item counted whole (the standard formatter's
+/// `rewrite_attrs`); `None` when none is. Not one with a comment between them, nor in a
+/// `// mto: off` region or a skipped item.
+pub fn inline_attributes(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Option<String> {
+  let off = off_regions(root);
+  let mut gaps: Vec<(usize, usize)> = Vec::new();
+  for item in
+    root.descendant_nodes_where(|kind| matches!(kind, K::Use | K::ExternCrate | K::Module))
+  {
+    if item.kind() == K::Module && item.children_iter().any(|c| c.kind() == K::ItemList) {
+      continue;
+    }
+    let attributes: Vec<SyntaxNode> = item
+      .children_iter()
+      .filter(|c| c.kind() == K::Attr)
+      .collect();
+    let [attribute] = attributes.as_slice() else {
+      continue;
+    };
+    if super::items::is_doc(attribute.kind())
+      || attribute.text().starts_with("///")
+      || attribute.text().starts_with("//!")
+      || item
+        .children_with_tokens_iter()
+        .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+    {
+      continue;
+    }
+    let attribute_end = attribute.text_range().end as usize;
+    let item_end = item.text_range().end as usize;
+    let gap_end =
+      attribute_end + text[attribute_end..].len() - text[attribute_end..].trim_start().len();
+    let gap = &text[attribute_end..gap_end];
+    if !gap.contains('\n') || gap.matches('\n').count() > 1 {
+      continue;
+    }
+    let rest = &text[gap_end..item_end];
+    let line_start = text[..attribute_end].rfind('\n').map_or(0, |i| i + 1);
+    let indent = attribute.text_range().start as usize - line_start;
+    let first = rest.lines().next().unwrap_or("");
+    if attribute.text().contains('\n')
+      || attribute.text().len() + 1 + rest.len() > config.inline_attribute_width
+      || indent + attribute.text().len() + 1 + first.len() > config.max_width
+      || skipped_within(&item)
+      || off.iter().any(|&(s, e)| s < item_end && line_start < e)
+    {
+      continue;
+    }
+    gaps.push((attribute_end, gap_end));
+  }
+  if gaps.is_empty() {
+    return None;
+  }
+  gaps.sort_unstable();
+  let mut out = String::with_capacity(text.len());
+  let mut from = 0;
+  for (start, end) in gaps {
+    out.push_str(&text[from..start]);
+    out.push(' ');
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text` with the comments on lines of their own after a `match`'s last arm, written
 /// without a comma (or with one after a plain block, which goes), moved to the end of the
 /// arm's line, as the standard formatter takes them

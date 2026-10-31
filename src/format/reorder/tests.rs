@@ -126,6 +126,23 @@ fn test_extern_given_its_abi() {
   );
 }
 
+/// `inline_attribute_width`: an import, `extern crate` or `mod` and its one attribute on a
+/// line when the two are at most that wide; two attributes stay apart.
+#[test]
+fn test_inline_attributes() {
+  let config = FormatConfig {
+    inline_attribute_width: 50,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(
+      "#[cfg(feature = \"alloc\")]\nuse core::slice;\n\n#[cfg(feature = \"alloc\")]\nuse total_len_is::_51___;\n\n#[cfg(feature = \"alloc\")]\nextern crate len_is_50_;\n\n#[cfg(unix)]\nmod m;\n\n#[a]\n#[b]\nuse c;\n",
+      &config
+    ),
+    "#[cfg(feature = \"alloc\")] use core::slice;\n\n#[cfg(feature = \"alloc\")]\nuse total_len_is::_51___;\n\n#[cfg(feature = \"alloc\")] extern crate len_is_50_;\n\n#[cfg(unix)] mod m;\n\n#[a]\n#[b]\nuse c;\n"
+  );
+}
+
 #[test]
 fn test_module_declarations_are_sorted() {
   assert_eq!(

@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 49
+  supported: 50
   partial: 27
-  missing: 28
+  missing: 27
   not_planned: 4
 ---
 
@@ -557,7 +557,7 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Write an item and its attribute on the same line if their combined width is
     below a threshold.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="mto.toml.md#layout">

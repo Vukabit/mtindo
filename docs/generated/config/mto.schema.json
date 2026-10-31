@@ -361,7 +361,7 @@
       "default": "Block"
     },
     "inline_attribute_width": {
-      "description": "Write an item and its attribute on the same line if their combined width is below a threshold\n\nIn mto: missing.",
+      "description": "Write an item and its attribute on the same line if their combined width is below a threshold\n\nIn mto: supported. With format = true.",
       "type": "integer",
       "minimum": 0,
       "default": 0

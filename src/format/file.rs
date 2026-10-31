@@ -1608,6 +1608,14 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   let body = reindent(&root, &text, edition, config);
   // Empty items' bodies, and functions of one statement, as `empty_item_single_line` and
   // `fn_single_line` say, once the rest is laid out.
+  // An import, `extern crate` or `mod` with one attribute on that attribute's line when
+  // short enough (`inline_attribute_width`).
+  let body = if config.inline_attribute_width == 0 {
+    body
+  } else {
+    let laid = parse(&body, edition).syntax_node();
+    crate::format::reorder::inline_attributes(&laid, &body, config).unwrap_or(body)
+  };
   let body = if config.empty_item_single_line && !config.fn_single_line {
     body
   } else {

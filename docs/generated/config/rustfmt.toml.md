@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 32
+  supported: 33
   partial: 26
-  missing: 28
+  missing: 27
   not_planned: 4
 ---
 
@@ -597,7 +597,7 @@ below a threshold
 *   Default: `0`; from style edition 2024: `0`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `make_backup`
 

@@ -24,6 +24,10 @@ use crate::syntax::marker;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 use crate::text::unicode::str_width;
 
+/// What a code block's line hidden from its rendering (`# `) is held as while the block is
+/// formatted (`hide_sharp_behind_comment`).
+const HIDDEN: &str = "//#### ";
+
 /// Where a comment stands, which sets the width its text may take.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Place {
@@ -287,8 +291,8 @@ impl Itemized {
 /// A comment being rewritten line by line (`CommentRewrite`).
 struct Rewrite<'a> {
   result: String,
-  /// The lines of a fenced code block being read, while one is.
-  code: Option<String>,
+  /// The lines of a fenced code block being read, while one is, and whether it holds Rust.
+  code: Option<(String, bool)>,
   /// The lines of a list item or block quote being read, while one is.
   item: Option<Itemized>,
   /// Whether the line before was broken over lines, so the next joins its last.
@@ -303,7 +307,7 @@ struct Rewrite<'a> {
   block: bool,
   newlines: usize,
   is_doc: bool,
-  rules: Rules,
+  rules: Rules<'a>,
   /// The width a line's text may take, less the markers.
   max_width: usize,
   /// The width the next text may take, and where it starts, after a line broken over lines.
@@ -381,13 +385,22 @@ impl Rewrite<'_> {
       }
       self.prev_multi = false;
       self.flush_item(item, needs_new_line);
-    } else if let Some(code) = &mut self.code {
+    } else if let Some((code, _)) = &mut self.code {
       if !line.starts_with("```") {
-        code.push_str(line);
+        code.push_str(&hide_sharp(line));
         code.push('\n');
         return false;
       }
-      let code = self.code.take().unwrap_or_default();
+      let (code, rust) = self.code.take().unwrap_or_default();
+      // Formatted as code when it is Rust in a doc comment (`format_code_block`), the
+      // lines it hides (`# `) kept behind a comment meanwhile.
+      let formatted = match self.rules.code {
+        Some(config) if rust && self.is_doc && !code.trim().is_empty() => {
+          super::macros::format_code_block(&code, super::file::edition(), config)
+        }
+        _ => None,
+      };
+      let code = unhide_sharp(formatted.as_deref().unwrap_or(&code));
       if !code.is_empty() {
         self.result.push_str(&self.separator);
         self.result.push_str(&join(&code, &self.separator));
@@ -396,8 +409,8 @@ impl Rewrite<'_> {
       self.result.push_str(line);
       return false;
     }
-    if line.starts_with("```") {
-      self.code = Some(String::new());
+    if let Some(attributes) = line.strip_prefix("```") {
+      self.code = Some((String::new(), rust_attributes(attributes)));
     } else if self.rules.wrap
       && let Some(item) = Itemized::new(line)
     {
@@ -484,10 +497,12 @@ impl Rewrite<'_> {
   }
 
   fn finish(mut self) -> String {
-    if let Some(code) = self.code.take().filter(|c| !c.is_empty()) {
+    if let Some((code, _)) = self.code.take().filter(|(c, _)| !c.is_empty()) {
       // A code block never closed is kept as it is.
       self.result.push_str(&self.separator);
-      self.result.push_str(&join(&code, &self.separator));
+      self
+        .result
+        .push_str(&join(&unhide_sharp(&code), &self.separator));
     }
     if let Some(item) = self.item.take() {
       let new_line = self.result.len() != self.opener.len();
@@ -501,13 +516,16 @@ impl Rewrite<'_> {
   }
 }
 
-/// What a rewrite does, from the settings: `normalize_comments`, `wrap_comments`, and the
-/// line width.
+/// What a rewrite does, from the settings: `normalize_comments`, `wrap_comments`, the line
+/// width and `format_code_in_doc_comments`.
 #[derive(Clone, Copy)]
-pub struct Rules {
+pub struct Rules<'a> {
   pub normalize: bool,
   pub wrap: bool,
   pub max_width: usize,
+  /// With `format_code_in_doc_comments`, the settings a doc comment's Rust code blocks are
+  /// formatted with.
+  pub code: Option<&'a FormatConfig>,
 }
 
 /// An item's body whose braces (or a tuple struct's parentheses) hold one block comment, on
@@ -641,6 +659,7 @@ pub fn normalized(orig: &str, block: bool, indent: &str) -> String {
     normalize: true,
     wrap: false,
     max_width: usize::MAX,
+    code: None,
   };
   rewritten(orig, block, indent, usize::MAX, false, rules)
 }
@@ -648,10 +667,24 @@ pub fn normalized(orig: &str, block: bool, indent: &str) -> String {
 /// The text with its comments rewritten as `normalize_comments` and `wrap_comments` say,
 /// or `None` when none changes.
 pub fn rewrite_comments(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Option<String> {
+  // A doc comment's code blocks formatted with comments left as they are, within their own
+  // width and with their own small heuristics.
+  let code_config = config.format_code_in_doc_comments.then(|| {
+    let mut code = config.clone();
+    code.wrap_comments = false;
+    code.max_width = config.doc_comment_code_block_width.min(config.max_width);
+    code.set_heuristics(
+      config
+        .doc_comment_code_block_small_heuristics
+        .unwrap_or(config.small_heuristics),
+    );
+    code
+  });
   let rules = Rules {
     normalize: config.normalize_comments,
     wrap: config.wrap_comments,
     max_width: config.max_width,
+    code: code_config.as_ref(),
   };
   let column = |text: &str| {
     text
@@ -852,7 +885,8 @@ pub fn rewritten(
   let (first, rest) = orig.split_at(end.min(orig.len()));
   // A block comment with lines not starting `*` keeps its layout unless normalized
   // (`trim_left_preserve_layout`), as one under neither setting does.
-  let first = if !rules.normalize && (bare && style.is_block() || !rules.wrap) {
+  let code = is_doc && rules.code.is_some();
+  let first = if !rules.normalize && (bare && style.is_block() || !rules.wrap && !code) {
     first.trim_end().to_string()
   } else {
     group(first, block, style, indent, width, is_doc, rules)
@@ -981,6 +1015,15 @@ fn held(parent: &SyntaxNode) -> bool {
   })
 }
 
+fn hide_sharp(line: &str) -> std::borrow::Cow<'_, str> {
+  let trimmed = line.trim();
+  if trimmed.starts_with("# ") || trimmed == "#" {
+    std::borrow::Cow::Owned(format!("{}{}", HIDDEN, line))
+  } else {
+    std::borrow::Cow::Borrowed(line)
+  }
+}
+
 fn is_comment(kind: SyntaxKind) -> bool {
   matches!(
     kind,
@@ -1040,6 +1083,33 @@ fn left_trim<'a>(line: &'a str, style: Style) -> (&'a str, bool) {
   } else {
     (line, line.starts_with(' '))
   }
+}
+
+/// Whether a code block's attributes (after its opening fence) say it holds Rust: none, or
+/// only `rust`, `should_panic`, `no_run` and edition ones (`CodeBlockAttribute`).
+fn rust_attributes(attributes: &str) -> bool {
+  attributes.split(',').all(|attribute| {
+    matches!(
+      attribute.trim(),
+      "" | "rust" | "should_panic" | "no_run" | "edition2015" | "edition2018" | "edition2021"
+    )
+  })
+}
+
+/// A code block with its hidden lines given back (`trim_custom_comment_prefix`).
+fn unhide_sharp(code: &str) -> String {
+  code
+    .lines()
+    .map(|line| {
+      let trimmed = line.trim_start();
+      if trimmed.starts_with(HIDDEN) {
+        trimmed.trim_start_matches(HIDDEN)
+      } else {
+        line
+      }
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 #[cfg(test)]

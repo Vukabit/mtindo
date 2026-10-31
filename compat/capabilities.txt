@@ -21,8 +21,8 @@ option  comment_width                                    supported    # with for
 option  condense_wildcard_suffixes                       supported    # with format = true (src/format/reorder/tests.rs)
 option  control_brace_style                              supported    # with format = true (src/format/reorder/tests.rs)
 option  disable_all_formatting                           supported    # formatting leaves the file as written; layout follows mto.toml (src/format/file/tests.rs)
-option  doc_comment_code_block_small_heuristics          missing
-option  doc_comment_code_block_width                     missing
+option  doc_comment_code_block_small_heuristics          supported    # with format = true; code blocks laid out as mto lays out code (src/format/comment/tests.rs)
+option  doc_comment_code_block_width                     supported    # with format = true; code blocks laid out as mto lays out code (src/format/comment/tests.rs)
 option  edition                                          partial      # read from --edition, Cargo.toml and config files (src/config/tests.rs); parsing still detects the edition itself
 option  emit_mode                                        missing
 option  empty_item_single_line                           supported    # with format = true (src/format/reorder/tests.rs)
@@ -37,7 +37,7 @@ option  fn_params_layout                                 partial      # with for
 option  fn_single_line                                   supported    # with format = true (src/format/reorder/tests.rs)
 option  force_explicit_abi                               supported    # with format = true, `extern` alone written `extern "C"` on functions, blocks and function pointer types (src/format/reorder/tests.rs)
 option  force_multiline_blocks                           supported    # with format = true (src/format/file/tests.rs)
-option  format_code_in_doc_comments                      missing
+option  format_code_in_doc_comments                      supported    # with format = true; code blocks laid out as mto lays out code (src/format/comment/tests.rs)
 option  format_generated_files                           supported    # with format = true; also on stdin, which the standard formatter does not check (src/format/file/tests.rs)
 option  format_macro_bodies                              supported    # with format = true: rules laid out, transcribers as written (src/format/macros/tests.rs)
 option  format_macro_matchers                            missing
@@ -110,9 +110,9 @@ value   color=Never                                      missing
 value   control_brace_style=AlwaysNextLine               supported    # with format = true (src/format/reorder/tests.rs)
 value   control_brace_style=AlwaysSameLine               supported    # with format = true (src/format/reorder/tests.rs)
 value   control_brace_style=ClosingNextLine              supported    # with format = true (src/format/reorder/tests.rs)
-value   doc_comment_code_block_small_heuristics=Default  missing
-value   doc_comment_code_block_small_heuristics=Max      missing
-value   doc_comment_code_block_small_heuristics=Off      missing
+value   doc_comment_code_block_small_heuristics=Default  supported    # with format = true; code blocks laid out as mto lays out code (src/format/comment/tests.rs)
+value   doc_comment_code_block_small_heuristics=Max      supported    # with format = true; code blocks laid out as mto lays out code (src/format/comment/tests.rs)
+value   doc_comment_code_block_small_heuristics=Off      supported    # with format = true; code blocks laid out as mto lays out code (src/format/comment/tests.rs)
 value   edition=2015                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
 value   edition=2018                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
 value   edition=2021                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet

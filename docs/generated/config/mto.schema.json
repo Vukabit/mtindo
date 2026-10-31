@@ -190,13 +190,13 @@
       "default": false
     },
     "doc_comment_code_block_small_heuristics": {
-      "description": "Value for `use_small_heuristics` for use in code blocks in doc comments. Only used if `format_code_in_doc_comments` is true.\n\nIn mto: missing.",
+      "description": "Value for `use_small_heuristics` for use in code blocks in doc comments. Only used if `format_code_in_doc_comments` is true.\n\nIn mto: supported. With format = true; code blocks laid out as mto lays out code.",
       "type": "string",
       "enum": ["Inherit", "Off", "Max", "Default"],
       "default": "Inherit"
     },
     "doc_comment_code_block_width": {
-      "description": "Max width for code snippets included in doc comments. Only used if `format_code_in_doc_comments` is true.\n\nIn mto: missing.",
+      "description": "Max width for code snippets included in doc comments. Only used if `format_code_in_doc_comments` is true.\n\nIn mto: supported. With format = true; code blocks laid out as mto lays out code.",
       "type": "integer",
       "minimum": 0,
       "default": 100
@@ -278,7 +278,7 @@
       "default": false
     },
     "format_code_in_doc_comments": {
-      "description": "Format code snippet included in doc comments.\n\nIn mto: missing.",
+      "description": "Format code snippet included in doc comments.\n\nIn mto: supported. With format = true; code blocks laid out as mto lays out code.",
       "type": "boolean",
       "default": false
     },

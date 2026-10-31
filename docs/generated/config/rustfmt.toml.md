@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 42
+  supported: 45
   partial: 28
-  missing: 15
+  missing: 12
   not_planned: 5
 ---
 
@@ -203,7 +203,8 @@ used if `format_code_in_doc_comments` is true.
 *   Default: `"Inherit"`; from style edition 2024: `"Inherit"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true; code blocks laid out as mto lays out
+    code.
 *   Values:
     *   `Inherit`: Inherit from the top-level configuration.
     *   `Off`: Turn off any heuristics.
@@ -219,7 +220,8 @@ Max width for code snippets included in doc comments. Only used if
 *   Default: `100`; from style edition 2024: `100`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true; code blocks laid out as mto lays out
+    code.
 
 ### `edition`
 
@@ -392,7 +394,8 @@ Format code snippet included in doc comments.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true; code blocks laid out as mto lays out
+    code.
 
 ### `format_generated_files`
 

@@ -102,6 +102,13 @@ pub const REWRITES: &[Rewrite] = &[
                  text without whitespace, nor the block quote markers (`>`) starting a line.",
   },
   Rewrite {
+    name: "doc-code",
+    reason: "Formatting a doc comment's code blocks (`format_code_in_doc_comments`) adds or \
+                 drops a trailing comma, and a block's last `;`, as laying out code does, so \
+                 inside a fenced block a comma before a closing delimiter and a `;` before a \
+                 `}` are not compared.",
+  },
+  Rewrite {
     name: "comment-text",
     reason: "Rewrapping, re-indenting or re-marking a comment (`wrap_comments`, \
                  `normalize_comments`) keeps its words, so comments are compared as the \

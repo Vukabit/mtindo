@@ -361,6 +361,8 @@ impl Config {
     config.normalize_comments = flag("normalize_comments", false);
     config.wrap_comments = flag("wrap_comments", false);
     config.format_strings = flag("format_strings", false);
+    config.format_code_in_doc_comments = flag("format_code_in_doc_comments", false);
+    config.doc_comment_code_block_width = number("doc_comment_code_block_width", 100);
     config.comment_width = number("comment_width", 80);
     config.normalize_doc_attributes = flag("normalize_doc_attributes", false);
     config.leading_pipes = match self.get("match_arm_leading_pipes").and_then(Value::as_text) {
@@ -392,6 +394,15 @@ impl Config {
       Some("alwaysnextline") => crate::options::format::ControlBraceStyle::AlwaysNextLine,
       _ => crate::options::format::ControlBraceStyle::AlwaysSameLine,
     };
+    let heuristics = |value: Option<String>| match value.as_deref() {
+      Some("max") => Some(crate::options::format::SmallHeuristics::Max),
+      Some("off") => Some(crate::options::format::SmallHeuristics::Off),
+      Some("default") => Some(crate::options::format::SmallHeuristics::Default),
+      _ => None,
+    };
+    config.small_heuristics = heuristics(choice("use_small_heuristics")).unwrap_or_default();
+    config.doc_comment_code_block_small_heuristics =
+      heuristics(choice("doc_comment_code_block_small_heuristics"));
     config.fn_params_layout = match choice("fn_params_layout").as_deref() {
       Some("compressed") => crate::options::format::FnParamsLayout::Compressed,
       Some("vertical") => crate::options::format::FnParamsLayout::Vertical,

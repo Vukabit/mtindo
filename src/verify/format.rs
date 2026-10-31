@@ -130,6 +130,14 @@ fn canonical<'a>(
     last_kind = kind;
     merged.push(token);
   }
+  // doc-code: a doc comment's code blocks laid out anew (`format_code_in_doc_comments`) gain
+  // or lose a comma before a closing delimiter, and a `;` closing a block, as code does.
+  for token in &mut merged {
+    if token.text.contains('\u{0}') && token.text.contains("```") {
+      let text = doc_code_commas(&token.text);
+      token.text = Cow::Owned(text);
+    }
+  }
   // comment-text: comments as the multiset of their words.
   let mut words: Vec<String> = comments
     .iter()
@@ -240,6 +248,32 @@ fn doc_attribute(attr: &SyntaxNode) -> Option<String> {
     .replace("\\\"", "\"")
     .replace("\\\\", "\\");
   Some(doc_text(kind, &format!("///{}", inner)))
+}
+
+/// A doc comment's text (whitespace already out) with a comma before a closing delimiter,
+/// and a `;` before a `}`, taken out inside its fenced code blocks, between each opening
+/// "```" and the next.
+fn doc_code_commas(text: &str) -> String {
+  let mut out = String::with_capacity(text.len());
+  for (i, piece) in text.split("```").enumerate() {
+    if i > 0 {
+      out.push_str("```");
+    }
+    if i % 2 == 0 {
+      out.push_str(piece);
+      continue;
+    }
+    let mut chars = piece.chars().peekable();
+    while let Some(c) = chars.next() {
+      if c == ',' && matches!(chars.peek(), Some(')' | ']' | '}'))
+        || c == ';' && chars.peek() == Some(&'}')
+      {
+        continue;
+      }
+      out.push(c);
+    }
+  }
+  out
 }
 
 /// A doc comment's text without its markers or any whitespace, behind its kind and a NUL:

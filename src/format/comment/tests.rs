@@ -99,6 +99,24 @@ fn test_comments_in_macro_arguments_stay_as_written() {
   assert_eq!(normalize_text(text), text);
 }
 
+/// `format_code_in_doc_comments` formats a doc comment's Rust code block, its hidden lines
+/// (`# `) kept as written; one marked as another language, and a plain comment's, stay as written.
+#[test]
+fn test_doc_comment_code_blocks_are_formatted() {
+  let config = FormatConfig {
+    format_code_in_doc_comments: true,
+    ..FormatConfig::default()
+  };
+  let text = "/// ```\n/// # use a ;\n/// let x=  1 ;\n/// ```\n/// ```text\n/// let y=  2 ;\n/// ```\n// ```\n// let z=  3 ;\n// ```\nfn f() {}\n";
+  let root = crate::syntax::parse(text, crate::syntax::Edition::E2015).syntax_node();
+  assert_eq!(
+    rewrite_comments(&root, text, &config).as_deref(),
+    Some(
+      "/// ```\n/// # use a ;\n/// let x = 1;\n/// ```\n/// ```text\n/// let y=  2 ;\n/// ```\n// ```\n// let z=  3 ;\n// ```\nfn f() {}\n"
+    )
+  );
+}
+
 #[test]
 fn test_line_comments_get_a_space_and_keep_a_trailing_empty_line() {
   assert_eq!(normalized("//a\n//b", false, ""), "// a\n// b");

@@ -11,10 +11,6 @@ tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with rena
 tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
 tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
 tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
-tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
-tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
-tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
-tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
 tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
 tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
 tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)

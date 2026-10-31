@@ -63,6 +63,55 @@ pub fn rewrite_macro_rules(
   stable.then_some(laid)
 }
 
+/// Statements formatted inside `fn main() { .. }`, then taken out of it one level less
+/// indented, as the standard formatter's `format_code_block` does; `None` when they do not
+/// format, or a line is longer than the line width.
+pub(super) fn format_code_block(
+  text: &str,
+  edition: Edition,
+  config: &FormatConfig,
+) -> Option<String> {
+  const PREFIX: &str = "fn main() {\n";
+  let tab = config.tab_spaces;
+  let indent_str = " ".repeat(tab);
+  let mut wrapped = String::from(PREFIX);
+  let continued = in_string(text, edition);
+  for (i, line) in text.split('\n').enumerate() {
+    if !continued[i] {
+      wrapped.push_str(&indent_str);
+    }
+    wrapped.push_str(line);
+    wrapped.push('\n');
+  }
+  wrapped.push('}');
+  let formatted = format_snippet(&wrapped, edition, config)?;
+  let block_len = formatted.rfind('}').map_or(formatted.len(), |i| {
+    formatted[..i]
+      .strip_suffix(char::is_whitespace)
+      .map_or(i, str::len)
+  });
+  let block_start = PREFIX.len().min(block_len);
+  let inside = &formatted[block_start..block_len];
+  let continued = in_string(inside, edition);
+  let mut out = String::with_capacity(inside.len());
+  for (i, line) in inside.split('\n').enumerate() {
+    if i > 0 {
+      out.push('\n');
+    }
+    let line = if continued[i] {
+      line
+    } else if line.len() > config.max_width {
+      return None;
+    } else if line.len() > indent_str.len() && line.starts_with(&indent_str) {
+      &line[tab..]
+    } else {
+      line
+    };
+    out.push_str(line);
+  }
+  Some(out)
+}
+
 /// An item standing as a macro call's argument, formatted as a file of its own would be and
 /// put at column `indent`: `None` as for [`format_snippet`].
 pub(super) fn format_item(text: &str, indent: usize, config: &FormatConfig) -> Option<String> {
@@ -348,51 +397,6 @@ fn fits(code: &str, max_width: usize, indent: usize, width: usize) -> bool {
     return false;
   }
   str_width(code.rsplit('\n').next().unwrap_or("")) <= indent + width
-}
-
-/// Statements formatted inside `fn main() { .. }`, then taken out of it one level less
-/// indented, as the standard formatter's `format_code_block` does; `None` when they do not
-/// format, or a line is longer than the line width.
-fn format_code_block(text: &str, edition: Edition, config: &FormatConfig) -> Option<String> {
-  const PREFIX: &str = "fn main() {\n";
-  let tab = config.tab_spaces;
-  let indent_str = " ".repeat(tab);
-  let mut wrapped = String::from(PREFIX);
-  let continued = in_string(text, edition);
-  for (i, line) in text.split('\n').enumerate() {
-    if !continued[i] {
-      wrapped.push_str(&indent_str);
-    }
-    wrapped.push_str(line);
-    wrapped.push('\n');
-  }
-  wrapped.push('}');
-  let formatted = format_snippet(&wrapped, edition, config)?;
-  let block_len = formatted.rfind('}').map_or(formatted.len(), |i| {
-    formatted[..i]
-      .strip_suffix(char::is_whitespace)
-      .map_or(i, str::len)
-  });
-  let block_start = PREFIX.len().min(block_len);
-  let inside = &formatted[block_start..block_len];
-  let continued = in_string(inside, edition);
-  let mut out = String::with_capacity(inside.len());
-  for (i, line) in inside.split('\n').enumerate() {
-    if i > 0 {
-      out.push('\n');
-    }
-    let line = if continued[i] {
-      line
-    } else if line.len() > config.max_width {
-      return None;
-    } else if line.len() > indent_str.len() && line.starts_with(&indent_str) {
-      &line[tab..]
-    } else {
-      line
-    };
-    out.push_str(line);
-  }
-  Some(out)
 }
 
 /// Code formatted as a file of its own, as the standard formatter's `format_snippet`

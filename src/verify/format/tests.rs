@@ -418,7 +418,12 @@ fn test_each_allowed_rewrite() {
     )
     .is_empty()
   );
-  assert_eq!(REWRITES.len(), 29);
+  // doc-code: a doc comment's code block gains a trailing comma and a block's last `;`.
+  same(
+    "/// ```\n/// f(a, b)\n/// let Some(x) = y else { return };\n/// ```\nfn f() {}\n",
+    "/// ```\n/// f(a, b,)\n/// let Some(x) = y else {\n///     return;\n/// };\n/// ```\nfn f() {}\n",
+  );
+  assert_eq!(REWRITES.len(), 30);
 }
 
 /// Punctuation rustc does not glue may touch or not in a macro's arguments.

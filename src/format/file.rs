@@ -1723,12 +1723,13 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   };
   // Comments ending their lines written as line comments (`normalize_comments`), and
   // broken to fit (`wrap_comments`).
-  let body = if config.normalize_comments || config.wrap_comments {
-    let laid = parse(&body, edition).syntax_node();
-    crate::format::comment::rewrite_comments(&laid, &body, config).unwrap_or(body)
-  } else {
-    body
-  };
+  let body =
+    if config.normalize_comments || config.wrap_comments || config.format_code_in_doc_comments {
+      let laid = parse(&body, edition).syntax_node();
+      crate::format::comment::rewrite_comments(&laid, &body, config).unwrap_or(body)
+    } else {
+      body
+    };
   // Line endings inside a multi-line string are part of the string: a file whose strings
   // hold line breaks keeps its own endings.
   let strings_span_lines = root

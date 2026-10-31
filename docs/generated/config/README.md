@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 59
+  supported: 62
   partial: 29
-  missing: 15
+  missing: 12
   not_planned: 5
 ---
 
@@ -227,7 +227,7 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Value for use_small_heuristics for code blocks in doc comments. No effect
     unless format_code_in_doc_comments = true.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#doc_comment_code_block_width">
@@ -235,7 +235,7 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Maximum width for code snippets in doc comments. No effect unless
     format_code_in_doc_comments = true.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="config.toml.md#doctorcommand">
@@ -379,7 +379,7 @@ behavior, so the column does not apply to them.
 <code>format_code_in_doc_comments</code></a></td>
 <td>rustfmt.toml</td>
 <td>Format the code snippet in doc comments.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#format_generated_files">

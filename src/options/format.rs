@@ -106,6 +106,19 @@ pub enum NewlineStyle {
   Windows,
 }
 
+/// How the widths of things kept on one line follow the line width
+/// (`use_small_heuristics`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SmallHeuristics {
+  /// The standard formatter's percentages of 100, scaled up past it.
+  #[default]
+  Default,
+  /// No limit but the line.
+  Off,
+  /// Each the line width.
+  Max,
+}
+
 /// The settings formatting uses, at their defaults until the configuration says otherwise.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FormatConfig {
@@ -168,6 +181,15 @@ pub struct FormatConfig {
   pub wrap_comments: bool,
   /// `format_strings`: a string literal too wide broken over lines with `\`.
   pub format_strings: bool,
+  /// `format_code_in_doc_comments`: Rust code blocks in doc comments formatted.
+  pub format_code_in_doc_comments: bool,
+  /// `doc_comment_code_block_width`: the line width in those code blocks, at most
+  /// `max_width`.
+  pub doc_comment_code_block_width: usize,
+  /// `use_small_heuristics`, which the widths are found from.
+  pub small_heuristics: SmallHeuristics,
+  /// `doc_comment_code_block_small_heuristics`, or `None` to inherit `use_small_heuristics`.
+  pub doc_comment_code_block_small_heuristics: Option<SmallHeuristics>,
   /// `comment_width`: the widest a wrapped comment's lines go.
   pub comment_width: usize,
   /// `control_brace_style`.
@@ -243,6 +265,34 @@ pub struct FormatConfig {
   pub combine_control_expr: bool,
 }
 
+impl FormatConfig {
+  /// The widths found anew from `heuristics` for the line width, as the standard formatter
+  /// sets them whenever the line width changes (`set_heuristics`).
+  pub fn set_heuristics(&mut self, heuristics: SmallHeuristics) {
+    let max_width = self.max_width;
+    let width = |percent: usize| match heuristics {
+      SmallHeuristics::Max => max_width,
+      SmallHeuristics::Off => usize::MAX,
+      SmallHeuristics::Default => {
+        let tenths = if max_width > 100 {
+          (max_width * 10 + 50) / 100
+        } else {
+          10
+        };
+        (percent * tenths + 5) / 10
+      }
+    };
+    self.fn_call_width = width(60);
+    self.attr_fn_like_width = width(70);
+    self.struct_lit_width = width(18);
+    self.struct_variant_width = width(35);
+    self.array_width = width(60);
+    self.chain_width = width(60);
+    self.single_line_if_else_max_width = width(50);
+    self.single_line_let_else_max_width = width(50);
+  }
+}
+
 impl Default for FormatConfig {
   fn default() -> Self {
     FormatConfig {
@@ -278,6 +328,10 @@ impl Default for FormatConfig {
       normalize_comments: false,
       wrap_comments: false,
       format_strings: false,
+      format_code_in_doc_comments: false,
+      doc_comment_code_block_width: 100,
+      small_heuristics: SmallHeuristics::Default,
+      doc_comment_code_block_small_heuristics: None,
       comment_width: 80,
       normalize_doc_attributes: false,
       control_brace_style: ControlBraceStyle::AlwaysSameLine,

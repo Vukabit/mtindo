@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-31T19:29:56.574Z"
-commit: "b14c7ee-dirty.8bd658be"
+generated: "2026-10-31T21:59:04.391Z"
+commit: "454723c-dirty.d3a8a5f3"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -14,12 +14,12 @@ corpus_fingerprint: "sha256:0d26c0baa5577082"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
   meaning.exceptions.tests: 8
-  meaning.exceptions.tests-with-settings: 15
+  meaning.exceptions.tests-with-settings: 11
   meaning.exceptions.corpus: 1
   meaning.exceptions.corpus-unformatted: 1
-  meaning.exceptions.total: 25
+  meaning.exceptions.total: 21
   meaning.exceptions.unmodelled: 5
-  meaning.exceptions.other: 20
+  meaning.exceptions.other: 16
 ---
 
 # Meaning and stability
@@ -29,8 +29,8 @@ metrics:
 <!-- generated: abstract -->
 Every output of mto that `cargo xtask diff` scores must keep the input's meaning
 and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 25 files, each listed
-with its reason: 5 are rewrites the check does not model yet, and 20 are the
+check, run on the standard formatter's own outputs, flags 21 files, each listed
+with its reason: 5 are rewrites the check does not model yet, and 16 are the
 formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
@@ -91,13 +91,12 @@ Exceptions listed for the standard formatter's output, by set:
 | set | listed | not modelled | other |
 |---|---:|---:|---:|
 | tests | 8 | 0 | 8 |
-| tests-with-settings | 15 | 5 | 10 |
+| tests-with-settings | 11 | 5 | 6 |
 | corpus | 1 | 0 | 1 |
 | corpus-scrambled | 1 | 0 | 1 |
 
 The reasons given, with how many files give each:
 
-- `format_code_in_doc_comments` changes code in docs beyond whitespace (4)
 - a static in an extern block loses its initializer (`= "string"`): the
   formatter's issue 6267 (2)
 - an attributed match arm body wrapped in a block: equivalent, not modelled (2)
@@ -135,7 +134,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
-| current |  | 25 | 5 | 20 |
+| current |  | 21 | 5 | 16 |
+| 2026-10-31 | af81de2 | 25 | 5 | 20 |
 | 2026-10-31 | c1e01b5 | 30 | 10 | 20 |
 | 2026-10-30 | 0022cfe | 31 | 10 | 21 |
 | 2026-10-30 | b380cfa | 31 | 10 | 21 |

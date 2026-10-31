@@ -2,15 +2,15 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-27T23:01:54.648Z"
-commit: "8836a42-dirty.8f3d8457"
+generated: "2026-10-31T00:55:36.964Z"
+commit: "7e236de-dirty.68b37548"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
   - compat/corpus.txt
 toolchain:
   reference_formatter: "1.9.0-stable (88d9e12ae1 2026-08-18)"
-corpus_fingerprint: "sha256:0bfa13269439c574"
+corpus_fingerprint: "sha256:0d26c0baa5577082"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
   compat.tests.files: 98.91
@@ -27,19 +27,19 @@ metrics:
   compat.tests-with-settings.lines_matched: 19108
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
-  compat.corpus.files: 99.85
-  compat.corpus.files_matched: 9249
-  compat.corpus.files_scored: 9263
+  compat.corpus.files: 99.93
+  compat.corpus.files_matched: 9354
+  compat.corpus.files_scored: 9361
   compat.corpus.lines: 99.99
-  compat.corpus.lines_matched: 2620801
-  compat.corpus.lines_total: 2620990
+  compat.corpus.lines_matched: 2653052
+  compat.corpus.lines_total: 2653185
   compat.corpus.skipped: 6
-  compat.corpus-unformatted.files: 99.09
-  compat.corpus-unformatted.files_matched: 9166
-  compat.corpus-unformatted.files_scored: 9250
+  compat.corpus-unformatted.files: 99.06
+  compat.corpus-unformatted.files_matched: 9260
+  compat.corpus-unformatted.files_scored: 9348
   compat.corpus-unformatted.lines: 99.90
-  compat.corpus-unformatted.lines_matched: 2736719
-  compat.corpus-unformatted.lines_total: 2739377
+  compat.corpus-unformatted.lines_matched: 2773838
+  compat.corpus-unformatted.lines_total: 2776485
   compat.corpus-unformatted.skipped: 17
   compat.corpus.repositories: 44
 ---
@@ -51,8 +51,8 @@ metrics:
 <!-- generated: abstract -->
 Against the standard formatter 1.9.0-stable (88d9e12ae1 2026-08-18), mto's
 output equals the expected output for 455 of 460 test files (98.91%) and for
-9249 of 9263 corpus files (99.85%). On whitespace-scrambled corpus files it
-matches 9166 of 9250 files (99.09%) and keeps 99.90% of the expected lines.
+9354 of 9361 corpus files (99.93%). On whitespace-scrambled corpus files it
+matches 9260 of 9348 files (99.06%) and keeps 99.90% of the expected lines.
 <!-- end generated -->
 
 ## 1 Question
@@ -123,8 +123,8 @@ The record as it stands (shares in percent):
 |---|---:|---:|---:|---:|---:|
 | tests | 455 of 460 | 98.91 | 11192 of 11205 | 99.88 | 0 |
 | tests-with-settings | 294 of 559 | 52.59 | 19108 of 22055 | 86.64 | 0 |
-| corpus | 9249 of 9263 | 99.85 | 2620801 of 2620990 | 99.99 | 6 |
-| corpus-scrambled | 9166 of 9250 | 99.09 | 2736719 of 2739377 | 99.90 | 17 |
+| corpus | 9354 of 9361 | 99.93 | 2653052 of 2653185 | 99.99 | 6 |
+| corpus-scrambled | 9260 of 9348 | 99.06 | 2773838 of 2776485 | 99.90 | 17 |
 <!-- end generated -->
 
 ### History
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.88 | 86.64 | 99.99 | 99.90 | 99.09 |
+| current |  | 99.88 | 86.64 | 99.99 | 99.90 | 99.06 |
+| 2026-10-21 | f76bf49 | 99.88 | 86.64 | 99.99 | 99.90 | 99.09 |
 | 2026-10-19 | 83b8cf8 | 99.56 | 86.63 | 99.99 | 99.37 | 99.01 |
 | 2026-10-18 | 86f8bff | 99.56 | 86.26 | 99.99 | 99.27 | 96.66 |
 | 2026-10-18 | a6cecbb | 99.55 | 86.25 | 99.99 | 99.24 | 96.12 |
@@ -193,23 +194,23 @@ does not check this part, and it may describe a newer run than the record.
 
 <!-- generated: last-run -->
 From the last `cargo xtask diff` run recorded on the machine that generated this
-page (2026-10-27), which need not be the run the record above was made from.
+page (2026-10-31), which need not be the run the record above was made from.
 Scored files by the share of their expected lines mto's output keeps:
 
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
 | tests | 456 | 0 | 1 | 3 |
 | tests-with-settings | 300 | 1 | 51 | 207 |
-| corpus | 9249 | 8 | 4 | 2 |
-| corpus-scrambled | 9166 | 33 | 37 | 14 |
+| corpus | 9354 | 1 | 4 | 2 |
+| corpus-scrambled | 9260 | 32 | 39 | 17 |
 
 The syntax at the first line where a mismatching file differs, the ten most
 common over every set:
 
 | syntax kind | files |
 |---|---:|
-| `LetStmt` | 65 |
-| `Fn` | 34 |
+| `LetStmt` | 55 |
+| `Fn` | 37 |
 | `Use` | 31 |
 | `SourceFile` | 25 |
 | `BlockExpr` | 21 |

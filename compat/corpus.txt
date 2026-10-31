@@ -3,9 +3,9 @@
 # repository's current HEAD. Opt-in repositories are fetched only with --with-rust.
 
 # The 15 crates of the real-world compile check (tests/domain_13_rw.rs).
-anyhow https://github.com/dtolnay/anyhow.git 2cbb4e1bcbf8e7015f8d8b04a291c4c0597030b4
-bitflags https://github.com/bitflags/bitflags.git 8df4d4ebb26fc35d49515972ede9dc77e5b43599
-bytes https://github.com/tokio-rs/bytes.git 7930d93d583757e922014312d4aa3e58a415131f
+anyhow https://github.com/dtolnay/anyhow.git bb1b0f9af0f645d5fdf1ac63a1fcbf3975ee452c
+bitflags https://github.com/bitflags/bitflags.git 8384f6f6e1fd1ab3f448ccf17d400a9e1d6a5280
+bytes https://github.com/tokio-rs/bytes.git c08f87663a04eac3b9ab2dfa1976852d9b525a8c
 clap https://github.com/clap-rs/clap.git ccc89b83875474399e9d9d70841163f6319d1a41
 crossbeam https://github.com/crossbeam-rs/crossbeam.git 099d0469efcfacb32527bd9451a4fb62586ae537
 itoa https://github.com/dtolnay/itoa.git 1577ed901354d0d7448ac162328f9dbf5183124c
@@ -13,45 +13,45 @@ lazy_static https://github.com/rust-lang-nursery/lazy-static.rs.git 4c1b9a170c15
 logos https://github.com/maciejhirsz/logos.git fba6c4d4255bb213ca9f876f5ae8ab3a62c2433e
 once_cell https://github.com/matklad/once_cell.git 80fe900b21f6d76c1a2ed74d3343e8a3a88c46d0
 rand https://github.com/rust-random/rand.git 9e7d328f60d6372ae22927f37d1a816fc980f25e
-rayon https://github.com/rayon-rs/rayon.git ee0a00bdb1ab039e178a215ad5712fb7fa58e58f
-serde https://github.com/serde-rs/serde.git 6693a89cca77e0151437da1c7f890090b9ebf04c
+rayon https://github.com/rayon-rs/rayon.git 599425d4a4c64714632817f48496dbc53f656a90
+serde https://github.com/serde-rs/serde.git 0db9b3b504bcb0a7fa9cf001429869519afd3e9a
 termcolor https://github.com/BurntSushi/termcolor.git d672e7b09f3ac3e8c0c12e67a67c5d46265df88d
-tokio https://github.com/tokio-rs/tokio.git 3eb95a40f1b88623470c4e902e2fa90e807fdeed
-uuid https://github.com/uuid-rs/uuid.git b62154e8be41ce42127cba08ee5e5cef3e2ea971
+tokio https://github.com/tokio-rs/tokio.git 6470b5e4b8e943ad014383a5bf6a93ba415678a3
+uuid https://github.com/uuid-rs/uuid.git 7c7326d55fd502d890169100f64c941b753500da
 
 # Popular crates with varied syntax: macros, async, unsafe, generics, FFI.
-axum https://github.com/tokio-rs/axum.git 618496288c41da835683ec149432c4869722779f
+axum https://github.com/tokio-rs/axum.git bebe175c334d2a4154b32cd9e477274c2aab5953
 base64 https://github.com/marshallpierce/rust-base64.git 5b98ee180cc7c2a64af6cb12c724b1721550e0d0
 chrono https://github.com/chronotope/chrono.git 6adaa5240c26fecb7bd9077334a91f8f67f4f3fe
-diesel https://github.com/diesel-rs/diesel.git 0c16ef378803671f19cdc3cdb986990a0c5e6cfd
+diesel https://github.com/diesel-rs/diesel.git a43c41419c4e38b83da86d7eb844c61db3859b8c
 futures-rs https://github.com/rust-lang/futures-rs.git 706e29bce353e3e72655b99a4a6411291cd4762a
-hashbrown https://github.com/rust-lang/hashbrown.git 7109e3a6388b0a6a0e843befc8876864e1d44d2e
-hyper https://github.com/hyperium/hyper.git f1b0876495cb042d228e8db00740056152ac131c
+hashbrown https://github.com/rust-lang/hashbrown.git 5b92ed0d3772945bfbb42876abe8e8c8f2eeecb0
+hyper https://github.com/hyperium/hyper.git 8abd0b4873f5a5fc3a9d16e72c0fda90dc70dd66
 indexmap https://github.com/indexmap-rs/indexmap.git 41a870887c4c77adf665886e63df08f406bfe37a
-itertools https://github.com/rust-itertools/itertools.git 1681e073235694595912283f65fd1d9cfe3492d5
-libc https://github.com/rust-lang/libc.git b739c733e06a5f184bae7e296919c15d6ccd8ec8
-log https://github.com/rust-lang/log.git 27e3cf7a021dab43430a70cb2909c06ca8141f79
+itertools https://github.com/rust-itertools/itertools.git a409cdd86c6bb19a9cbe181315d735807514cf02
+libc https://github.com/rust-lang/libc.git 9277f044b25dc46716caefc27e782de130874ad8
+log https://github.com/rust-lang/log.git 75fcb86da1cce3b9476c58c911482ec43ec235f4
 memchr https://github.com/BurntSushi/memchr.git bd6068c30e9074a90c285e47912fa0b047d07597
 nom https://github.com/rust-bakery/nom.git 51c3c4e44fa78a8a09b413419372b97b2cc2a787
-parking_lot https://github.com/Amanieu/parking_lot.git 6be7fac301b81bee512005ce529aabfa4d07aa0e
+parking_lot https://github.com/Amanieu/parking_lot.git 85827ffa2ffb0b60d416e2e2a091f36b0e8e5a91
 proc-macro2 https://github.com/dtolnay/proc-macro2.git 4626ab98d794f0ff1c3da3fdaf1d6b6e8e6d269c
-quote https://github.com/dtolnay/quote.git dcaa9aaf1f1c048eaaa209e8d881ffc3c82cd004
-regex https://github.com/rust-lang/regex.git 72d650cb0a880a01ab6dc2137c0888e8f89740f7
-reqwest https://github.com/seanmonstar/reqwest.git 2230ed3945fb2908692b88dad1dcd06db9fb2ca6
-ripgrep https://github.com/BurntSushi/ripgrep.git 3fce3b5bb0236da2df6d99672afb8a719642eca7
-rust-analyzer https://github.com/rust-lang/rust-analyzer.git 4b0d0842b6a1494ec30e92e5c9970d8aaebb419a
-serde_json https://github.com/serde-rs/json.git afdf6fc67247dd7fa4fcde1381e6ecc6bcc7a30e
-smallvec https://github.com/servo/rust-smallvec.git 8e72b70c5a824b51047341da22e05180d8db24d2
-syn https://github.com/dtolnay/syn.git 9cb6556a8e2461a4c303008f0609fbf4e0a2b6d1
-thiserror https://github.com/dtolnay/thiserror.git e7e9f4acbd12d8ee697f2cd60df8413f8563e617
-time https://github.com/time-rs/time.git 9b189628ecd0c5805b117a75729ad908626fd5f2
-tracing https://github.com/tokio-rs/tracing.git 7a1f0d19901a8310e0acb403b9aa71c9520cee23
-url https://github.com/servo/rust-url.git 00a6ce58d02f4e0d43c5ca0702c0bedb8b1ebf3a
-wasm-bindgen https://github.com/wasm-bindgen/wasm-bindgen.git a3696298fc411e82248ec2c3c1ddd5a1d650666d
+quote https://github.com/dtolnay/quote.git 27be8db3c8eb07e7ccd83c2e695d5297c2466253
+regex https://github.com/rust-lang/regex.git 94ac45b2a6e7b1c30927feb5b66c5ded5b7ad447
+reqwest https://github.com/seanmonstar/reqwest.git 8e1c8061e5dd936762dcef08a64ef2cff584b295
+ripgrep https://github.com/BurntSushi/ripgrep.git 91f5d22ef48bde459d90a8c7dbeab416e97d0f2b
+rust-analyzer https://github.com/rust-lang/rust-analyzer.git 9e0d1ec24eb81de12160ecfa7f31c89735bda951
+serde_json https://github.com/serde-rs/json.git 8c535a260ce561eaab4111aafc29038eb9f77ff3
+smallvec https://github.com/servo/rust-smallvec.git e022a94cbfdab5a7e7b5c678ae0f17367e9569c8
+syn https://github.com/dtolnay/syn.git 38318bf9ee5f9e0e26b347256ff2cd77958c8bba
+thiserror https://github.com/dtolnay/thiserror.git 3b29f0107e7900860c7a061c069958569eb458e7
+time https://github.com/time-rs/time.git 3ce1048391093bfd058b06140357856a9a9e06e1
+tracing https://github.com/tokio-rs/tracing.git 79b80a9095944cef1006ec2893510325e157639d
+url https://github.com/servo/rust-url.git 13b385b299238306d2601ddc1c0043afcd2f2046
+wasm-bindgen https://github.com/wasm-bindgen/wasm-bindgen.git c93b8ae848d4d9e6beaeaf9516e18a7cadd818a2
 
 # rustfmt itself, including its tests/source and tests/target files (test data
 # only, never vendored).
-rustfmt https://github.com/rust-lang/rustfmt.git 9f967277c9fbc593287fbe8f834d7969e9affded
+rustfmt https://github.com/rust-lang/rustfmt.git a0383e9bf5c72aa16c748a297044be4f0f130653
 
 # The Rust compiler and standard library: large, so opt-in.
-rust https://github.com/rust-lang/rust.git 0f6e5bf4c63a0ab336cc62de446b77123effaffc opt-in
+rust https://github.com/rust-lang/rust.git 92b5b8c87c61b20adc9001b41baf587634a74734 opt-in

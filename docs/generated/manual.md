@@ -63,9 +63,8 @@ Prebuilt binaries are on the GitHub release (Linux, macOS and Windows, with
 
 ```bash
 cargo install mtindo
+cargo install --path .   # from a clone of the repository
 ```
-
-From a clone of the repository: `cargo install --path .`.
 
 ## Command line
 ```text

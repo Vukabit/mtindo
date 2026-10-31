@@ -214,7 +214,7 @@
       "default": "Files"
     },
     "empty_item_single_line": {
-      "description": "Put empty-body functions and impls on a single line\n\nIn mto: missing.",
+      "description": "Put empty-body functions and impls on a single line\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": true
     },
@@ -263,7 +263,7 @@
       "default": "Tall"
     },
     "fn_single_line": {
-      "description": "Put single-expression functions on a single line\n\nIn mto: missing.",
+      "description": "Put single-expression functions on a single line\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

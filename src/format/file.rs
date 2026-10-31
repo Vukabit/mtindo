@@ -1606,6 +1606,14 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
       None => (text, root),
     };
   let body = reindent(&root, &text, edition, config);
+  // Empty items' bodies, and functions of one statement, as `empty_item_single_line` and
+  // `fn_single_line` say, once the rest is laid out.
+  let body = if config.empty_item_single_line && !config.fn_single_line {
+    body
+  } else {
+    let laid = parse(&body, edition).syntax_node();
+    crate::format::reorder::single_line_items(&laid, &body, config).unwrap_or(body)
+  };
   // Control expressions' braces and `else` moved to lines of their own
   // (`control_brace_style`), once the rest is laid out.
   let body = match config.control_brace_style {

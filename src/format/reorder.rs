@@ -1064,6 +1064,101 @@ pub fn reorder(
   Some(out)
 }
 
+/// `text`, laid out, with each empty function, impl and trait body written `{` and `}` on
+/// lines of their own without `empty_item_single_line`, and with `fn_single_line` each
+/// function whose body is one statement on one line, without a comment, written on its
+/// header's line when that fits (the standard formatter's `single_line_fn`); `None` when
+/// nothing changes. Not in a `// mto: off` region or a skipped item.
+pub fn single_line_items(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Option<String> {
+  let off = off_regions(root);
+  let width = |s: &str| {
+    s.chars()
+      .map(|c| if c == '\t' { config.tab_spaces } else { 1 })
+      .sum::<usize>()
+  };
+  let mut changes: Vec<(usize, usize, String)> = Vec::new();
+  for item in root.descendant_nodes_where(|kind| matches!(kind, K::Fn | K::Impl | K::Trait)) {
+    let body = item
+      .children_iter()
+      .find(|c| matches!(c.kind(), K::BlockExpr | K::AssocItemList));
+    let Some(body) = body else {
+      continue;
+    };
+    let range = body.text_range();
+    let (start, end) = (range.start as usize, range.end as usize);
+    if skipped_within(&item) || off.iter().any(|&(s, e)| s < end && start < e) {
+      continue;
+    }
+    let inside: Vec<SyntaxElement> = body
+      .children_with_tokens_iter()
+      .filter(|e| !matches!(e.kind(), K::LBrace | K::RBrace | K::Whitespace))
+      .collect();
+    let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let indent: String = text[line_start..start]
+      .chars()
+      .take_while(|c| *c == ' ' || *c == '\t')
+      .collect();
+    if inside.is_empty() {
+      if !config.empty_item_single_line && &text[start..end] == "{}" {
+        changes.push((start, end, format!("{{\n{}}}", indent)));
+      }
+      continue;
+    }
+    // One statement or expression, nothing else, on one line, in a function written on one
+    // line before its body.
+    let [SyntaxElement::Node(statement)] = inside.as_slice() else {
+      continue;
+    };
+    let header_start =
+      crate::format::items::header_start(&item).unwrap_or(item.text_range().start as usize);
+    let header = text[header_start..start].trim_end();
+    let line = statement.text();
+    if !config.fn_single_line
+      || item.kind() != K::Fn
+      || body.kind() != K::BlockExpr
+      || text[header_start..start].contains('\n')
+      || line.contains('\n')
+      || statement.subtree_has(|kind| kind == K::Attr)
+      // Not a macro call standing as a statement, with a `;` or in braces, nor an item
+      // (`format_stmt` gives up).
+      || statement.kind() == K::ExprStmt
+        && statement.children_iter().next().is_some_and(|e| e.kind() == K::MacroExpr)
+      || statement.kind() == K::MacroExpr
+        && statement
+          .descendant_nodes_where(|kind| kind == K::TokenTree)
+          .next()
+          .and_then(|tree| tree.first_token())
+          .is_some_and(|t| t.kind() == K::LBrace)
+      || crate::format::items::is_item(statement.kind())
+      || text[line_start..header_start].trim() != ""
+    {
+      continue;
+    }
+    let joined = format!("{{ {} }}", line);
+    if width(&text[line_start..header_start]) + width(header) + 1 + width(&joined)
+      <= config.max_width
+    {
+      changes.push((start, end, joined));
+    }
+  }
+  if changes.is_empty() {
+    return None;
+  }
+  changes.sort_by_key(|c| c.0);
+  let mut out = String::with_capacity(text.len());
+  let mut from = 0;
+  for (start, end, rewritten) in changes {
+    if start < from {
+      continue;
+    }
+    out.push_str(&text[from..start]);
+    out.push_str(&rewritten);
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text` without the `;`s standing alone in a block (empty statements), which the standard
 /// formatter drops; `None` when there are none. Not in a `// mto: off` region or a skipped
 /// item.

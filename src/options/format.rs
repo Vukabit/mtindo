@@ -139,6 +139,10 @@ pub struct FormatConfig {
   pub binop_back: bool,
   /// `match_arm_blocks`: an arm's body on the next line is put in a block.
   pub match_arm_blocks: bool,
+  /// `empty_item_single_line`: an empty function, impl or trait body written `{}`.
+  pub empty_item_single_line: bool,
+  /// `fn_single_line`: a function of one simple statement on one line.
+  pub fn_single_line: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -216,6 +220,8 @@ impl Default for FormatConfig {
       control_brace_style: ControlBraceStyle::AlwaysSameLine,
       binop_back: false,
       match_arm_blocks: true,
+      empty_item_single_line: true,
+      fn_single_line: false,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

@@ -202,6 +202,34 @@ fn test_runs_of_imports_are_sorted() {
   assert_eq!(formatted(kept, &config), kept);
 }
 
+/// `fn_single_line` puts a function of one statement on its header's line, not a macro
+/// statement nor one with a comment; without `empty_item_single_line` an empty body's
+/// braces take a line each.
+#[test]
+fn test_single_line_items() {
+  let config = FormatConfig {
+    fn_single_line: true,
+    empty_item_single_line: false,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(
+      "fn a() -> i32 {\n    1\n}\nfn b() {\n    print!(\"x\");\n}\nfn c() {\n    // note\n    1\n}\nfn d() {}\nimpl A {}\n",
+      &config
+    ),
+    "fn a() -> i32 { 1 }\nfn b() {\n    print!(\"x\");\n}\nfn c() {\n    // note\n    1\n}\nfn d() {\n}\nimpl A {\n}\n"
+  );
+  // A `{` on a line of its own (`brace_style`) leaves the function on lines.
+  let next_line = FormatConfig {
+    brace_next_line: true,
+    ..config.clone()
+  };
+  assert_eq!(
+    formatted("fn lorem() -> i32\n{\n    42\n}\n", &next_line),
+    "fn lorem() -> i32\n{\n    42\n}\n"
+  );
+}
+
 /// `try!(e)` written `e?`, one inside another too; arguments `?` would not bind to whole,
 /// or that are not one expression, are left as written.
 #[test]

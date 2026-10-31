@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 47
+  supported: 49
   partial: 27
-  missing: 30
+  missing: 28
   not_planned: 4
 ---
 
@@ -285,7 +285,7 @@ behavior, so the column does not apply to them.
 <code>empty_item_single_line</code></a></td>
 <td>rustfmt.toml</td>
 <td>Put empty-body functions and impls on a single line.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#enum_discrim_align_threshold">
@@ -351,7 +351,7 @@ behavior, so the column does not apply to them.
 <code>fn_single_line</code></a></td>
 <td>rustfmt.toml</td>
 <td>Put single-expression functions on a single line.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#force_explicit_abi">

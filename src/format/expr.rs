@@ -226,6 +226,16 @@ impl Width for str {
   }
 }
 
+/// Whether a [`leading_pipe`] is a match arm's own, before its pattern.
+pub fn arm_pipe(token: &SyntaxToken) -> bool {
+  let parent = token.parent();
+  parent.kind() == SyntaxKind::MatchArm
+    || parent.kind() == SyntaxKind::OrPat
+      && parent
+        .parent()
+        .is_some_and(|p| p.kind() == SyntaxKind::MatchArm)
+}
+
 /// `head` and then `value`: on the same line when it fits there, else on the next one, one
 /// level in, as the standard formatter's `choose_rhs` decides; nothing after it.
 pub fn assign_value(head: &str, value: &SyntaxNode, shape: Shape) -> Option<String> {
@@ -445,7 +455,9 @@ pub fn code_tokens_through(
 /// `remove_nested_parens` one of the parentheses directly around parentheses, no comment
 /// in them (`rewrite_paren`).
 pub fn dropped(token: &SyntaxToken, spacing: Spacing) -> bool {
+  // An arm's own leading `|` stays unless `match_arm_leading_pipes = "Never"`.
   if leading_pipe(token)
+    && !(arm_pipe(token) && spacing.leading_pipes != crate::options::format::LeadingPipes::Never)
     || root_of_visibility(token)
     || keyword_visibility_in(token)
     || empty_where(token)

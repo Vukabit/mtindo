@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 36
+  supported: 37
   partial: 27
-  missing: 41
+  missing: 40
   not_planned: 4
 ---
 
@@ -600,7 +600,7 @@ behavior, so the column does not apply to them.
 <code>match_arm_leading_pipes</code></a></td>
 <td>rustfmt.toml</td>
 <td>Determines whether leading pipes are emitted on match arms.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#match_block_trailing_comma">

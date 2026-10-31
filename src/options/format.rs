@@ -1,7 +1,5 @@
 //! The formatting settings the formatter reads, resolved from the settings table.
 
-/// How the items of a `use` list are laid out when they do not fit on one line
-/// (`imports_layout`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImportsLayout {
   /// Items fill lines.
@@ -13,6 +11,20 @@ pub enum ImportsLayout {
   Vertical,
   /// One line.
   Horizontal,
+}
+
+/// How the items of a `use` list are laid out when they do not fit on one line
+/// (`imports_layout`).
+/// Whether a match arm's pattern starts with `|` (`match_arm_leading_pipes`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum LeadingPipes {
+  /// None.
+  #[default]
+  Never,
+  /// Every arm's.
+  Always,
+  /// As written.
+  Preserve,
 }
 
 /// How lines end in the output (`newline_style`).
@@ -67,6 +79,8 @@ pub struct FormatConfig {
   pub format_macro_bodies: bool,
   /// `match_block_trailing_comma`: a match arm whose body is a block ends with a comma.
   pub match_block_trailing_comma: bool,
+  /// `match_arm_leading_pipes`.
+  pub leading_pipes: LeadingPipes,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -133,6 +147,7 @@ impl Default for FormatConfig {
       generated_markers: vec!["@generated".to_string()],
       format_macro_bodies: true,
       match_block_trailing_comma: false,
+      leading_pipes: LeadingPipes::Never,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

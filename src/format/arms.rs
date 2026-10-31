@@ -16,6 +16,7 @@ use super::items::header_start;
 use super::shape::{Limits, Shape, Spacing};
 use super::stmt::{Head, clean_expression, compared, rewrite_control_head, statement_shape};
 use crate::options::format::FormatConfig;
+use crate::options::format::LeadingPipes;
 use crate::syntax::{Edition, SyntaxKind, SyntaxNode};
 use crate::text::unicode::str_width;
 
@@ -31,10 +32,11 @@ pub enum Arm {
 /// as written. One with a leading `|` is left as written: laid out alone, its `match` may be
 /// one the standard formatter keeps as written whole (a comment among an arm's patterns).
 pub fn rewrite_arm(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Arm> {
+  // A leading `|` is left to the whole-file pass to drop, unless the setting keeps arms'.
   let leading = node
     .descendants_where(|kind| kind == K::Pipe)
     .any(|e| matches!(&e, crate::syntax::SyntaxElement::Token(t) if super::expr::leading_pipe(t)));
-  if leading {
+  if leading && config.leading_pipes == LeadingPipes::Never {
     return None;
   }
   rewrite_arm_in(
@@ -90,8 +92,22 @@ pub fn rewrite_arm_in(
   shape.limits.inside_macro = inside_macro;
   shape.limits.one_line_chains = outer.one_line_chains;
   let tab = config.tab_spaces;
+  // `| ` before the pattern with `match_arm_leading_pipes` "Always", or with "Preserve"
+  // where one is written; the pattern and guard laid out after it.
+  let written_pipe = node
+    .descendants_where(|kind| kind == K::Pipe)
+    .any(|e| matches!(&e, crate::syntax::SyntaxElement::Token(t) if super::expr::leading_pipe(t) && super::expr::arm_pipe(t)));
+  let pipe = match config.leading_pipes {
+    LeadingPipes::Always => "| ",
+    LeadingPipes::Preserve if written_pipe => "| ",
+    _ => "",
+  };
   // 5 = ` => {`
-  let pattern_text = rewrite(pattern, shape.sub_width(5)?)?;
+  let pattern_text = rewrite(pattern, shape.offset_left(pipe.len())?.sub_width(5)?)?;
+  if !pipe.is_empty() && pattern_text.contains('\n') {
+    return None;
+  }
+  let pattern_text = format!("{}{}", pipe, pattern_text);
   let guard_text = match &condition {
     Some(condition) => rewrite_guard(condition, shape, &pattern_text, tab, written_guard)?,
     None => String::new(),
@@ -420,6 +436,12 @@ pub fn rewrite_arm_in(
       }
     })
     .collect();
+  // A leading `|` the setting adds.
+  let written = if !pipe.is_empty() && !written_pipe {
+    format!("|{}", written)
+  } else {
+    written
+  };
   let ours: String = crate::syntax::parse_tokens(laid_text, Edition::E2021)
     .into_iter()
     .filter(|(kind, _)| compared(*kind))

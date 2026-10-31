@@ -56,7 +56,7 @@ option  inline_attribute_width                           missing
 option  make_backup                                      not-planned  # every run that writes files is recorded in history; `mto restore` undoes it
 option  match_arm_blocks                                 missing
 option  match_arm_indent                                 supported    # with format = true (src/format/file/tests.rs)
-option  match_arm_leading_pipes                          missing
+option  match_arm_leading_pipes                          supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
 option  match_block_trailing_comma                       supported    # with format = true (src/format/file/tests.rs)
 option  max_width                                        partial      # with format = true: lines broken and joined for the statements laid out so far, and statements too long left as written (src/format/stmt/tests.rs, src/format/file/tests.rs)
 option  merge_derives                                    supported    # with format = true, runs of `#[derive(..)]` with no blank line or comment between them merged into one (src/format/reorder/tests.rs)
@@ -146,9 +146,9 @@ value   imports_layout=Mixed                             supported    # with for
 value   imports_layout=Vertical                          supported    # with format = true, for use declarations (src/format/imports/tests.rs)
 value   indent_style=Block                               missing
 value   indent_style=Visual                              missing
-value   match_arm_leading_pipes=Always                   missing
-value   match_arm_leading_pipes=Never                    missing
-value   match_arm_leading_pipes=Preserve                 missing
+value   match_arm_leading_pipes=Always                   supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
+value   match_arm_leading_pipes=Never                    supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
+value   match_arm_leading_pipes=Preserve                 supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
 value   newline_style=Auto                               supported    # with format = true (src/format/file/tests.rs)
 value   newline_style=Native                             supported    # with format = true; the platform's ending, as Unix or Windows (src/format/file/tests.rs)
 value   newline_style=Unix                               supported    # with format = true (src/format/file/tests.rs)

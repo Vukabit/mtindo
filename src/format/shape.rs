@@ -242,6 +242,8 @@ pub struct Spacing {
   pub compressed_type_punctuation: bool,
   pub remove_nested_parens: bool,
   pub style_edition: u16,
+  /// `match_arm_leading_pipes`: whether an arm's leading `|` is kept.
+  pub leading_pipes: crate::options::format::LeadingPipes,
 }
 
 impl Spacing {
@@ -253,6 +255,7 @@ impl Spacing {
       compressed_type_punctuation: config.compressed_type_punctuation,
       remove_nested_parens: config.remove_nested_parens,
       style_edition: config.style_edition,
+      leading_pipes: config.leading_pipes,
     }
   }
 
@@ -265,6 +268,7 @@ impl Spacing {
       compressed_type_punctuation: self.compressed_type_punctuation,
       remove_nested_parens: self.remove_nested_parens,
       style_edition: self.style_edition,
+      leading_pipes: self.leading_pipes,
       ..FormatConfig::default()
     }
   }

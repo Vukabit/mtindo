@@ -1037,6 +1037,35 @@ fn test_match_arm_indent_off_keeps_arms_at_the_match() {
   assert_eq!(format_file(&once, Edition::E2021, &config), once);
 }
 
+/// `match_arm_leading_pipes`: "Never" drops an arm's leading `|`, "Always" writes one before
+/// every arm's pattern, "Preserve" keeps those written.
+#[test]
+fn test_match_arm_leading_pipes() {
+  use crate::options::format::LeadingPipes;
+  let source = "fn f() {\n    match x {\n        | A => 1,\n        B | C => 2,\n    }\n}\n";
+  let with = |leading_pipes| {
+    formatted_with(
+      source,
+      &FormatConfig {
+        leading_pipes,
+        ..FormatConfig::default()
+      },
+    )
+  };
+  assert_eq!(
+    with(LeadingPipes::Never),
+    "fn f() {\n    match x {\n        A => 1,\n        B | C => 2,\n    }\n}\n"
+  );
+  assert_eq!(
+    with(LeadingPipes::Always),
+    "fn f() {\n    match x {\n        | A => 1,\n        | B | C => 2,\n    }\n}\n"
+  );
+  assert_eq!(
+    with(LeadingPipes::Preserve),
+    "fn f() {\n    match x {\n        | A => 1,\n        B | C => 2,\n    }\n}\n"
+  );
+}
+
 /// With `match_block_trailing_comma`, a match arm whose body is a block, or put in one,
 /// ends with a comma; without it, as the standard formatter does by default.
 #[test]

@@ -382,7 +382,7 @@
       "default": true
     },
     "match_arm_leading_pipes": {
-      "description": "Controls whether to include a leading pipe on match arms\n\nIn mto: missing.",
+      "description": "Controls whether to include a leading pipe on match arms\n\nIn mto: supported. With format = true, for arms mto lays out.",
       "type": "string",
       "enum": ["Always", "Never", "Preserve"],
       "default": "Never"

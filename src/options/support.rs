@@ -53,7 +53,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("make_backup", "not-planned"),
   ("match_arm_blocks", "missing"),
   ("match_arm_indent", "supported"),
-  ("match_arm_leading_pipes", "missing"),
+  ("match_arm_leading_pipes", "supported"),
   ("match_block_trailing_comma", "supported"),
   ("max_width", "partial"),
   ("merge_derives", "supported"),

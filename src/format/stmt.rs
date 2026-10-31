@@ -10,6 +10,7 @@
 //! written; its attributes, and comments before it, are laid out on their own.
 
 use std::cell::Cell;
+use std::collections::HashSet;
 
 use SyntaxKind as K;
 
@@ -2038,7 +2039,46 @@ fn same_tokens_once(node: &SyntaxNode, text: &str, start: usize, end: usize) -> 
     }
     laid.next().is_none()
   };
-  if !theirs(false).eq(ours()) && !theirs(true).eq(ours()) && (brackets.is_empty() || !each()) {
+  // Or with a `|` before an arm's pattern that the laid text has and the written one does
+  // not (`match_arm_leading_pipes` "Always" adds them), found in the laid text's own tree.
+  let arm_pipes_aside = || {
+    if !node.subtree_has(|kind| kind == K::MatchArm) {
+      return false;
+    }
+    let tree = crate::syntax::parse(&wrapped, Edition::E2021).syntax_node();
+    let pipes: HashSet<usize> = tree
+      .descendants_with_tokens_iter()
+      .filter_map(|e| match e {
+        SyntaxElement::Token(t) if super::expr::leading_pipe(&t) && super::expr::arm_pipe(&t) => {
+          Some(t.text_range().start as usize)
+        }
+        _ => None,
+      })
+      .collect();
+    if pipes.is_empty() {
+      return false;
+    }
+    let mut at = 0;
+    let mut opened = false;
+    let mut laid = Vec::new();
+    for &(kind, text) in &tokens {
+      let start = at;
+      at += text.len();
+      if !opened {
+        opened = kind == K::LBrace;
+        continue;
+      }
+      if compared(kind) && !pipes.contains(&start) {
+        laid.push(unindented(text));
+      }
+    }
+    theirs(true).eq(laid)
+  };
+  if !theirs(false).eq(ours())
+    && !theirs(true).eq(ours())
+    && (brackets.is_empty() || !each())
+    && !arm_pipes_aside()
+  {
     return false;
   }
   // Every comment kept, each once; one across lines with its lines re-indented.

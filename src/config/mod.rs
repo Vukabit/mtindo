@@ -346,6 +346,11 @@ impl Config {
     config.format_generated_files = flag("format_generated_files", true);
     config.format_macro_bodies = flag("format_macro_bodies", true);
     config.match_block_trailing_comma = flag("match_block_trailing_comma", false);
+    config.leading_pipes = match self.get("match_arm_leading_pipes").and_then(Value::as_text) {
+      Some("Always") => crate::options::format::LeadingPipes::Always,
+      Some("Preserve") => crate::options::format::LeadingPipes::Preserve,
+      _ => crate::options::format::LeadingPipes::Never,
+    };
     if let Some(markers) = self.get("generated_markers").and_then(Value::as_list) {
       config.generated_markers = markers.to_vec();
     }

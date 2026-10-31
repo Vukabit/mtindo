@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 19
+  supported: 20
   partial: 26
-  missing: 41
+  missing: 40
   not_planned: 4
 ---
 
@@ -646,7 +646,7 @@ Controls whether to include a leading pipe on match arms
 *   Default: `"Never"`; from style edition 2024: `"Never"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true, for arms mto lays out.
 *   Values:
     *   `Always`: Place leading pipes on all match arms.
     *   `Never`: Never emit leading pipes on match arms.

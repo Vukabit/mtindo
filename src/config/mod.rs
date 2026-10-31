@@ -746,6 +746,41 @@ impl Resolver {
       }
     }
 
+    // A setting of the standard formatter's that mto does not honor yet is ignored: said
+    // once, when it is set to anything but its default and formatting is on.
+    let format_on = values
+      .get("format")
+      .and_then(|(value, _)| value.as_bool())
+      .unwrap_or(true);
+    if format_on {
+      for (name, (value, source)) in &values {
+        let Some(setting) = options::find(name) else {
+          continue;
+        };
+        let honored = !matches!(
+          options::support::OPTIONS
+            .binary_search_by_key(name, |&(n, _)| n)
+            .map(|i| options::support::OPTIONS[i].1),
+          Ok("missing" | "not-planned")
+        );
+        let default = value.to_toml() == setting.default
+          || setting.default_2024 == Some(value.to_toml().as_str());
+        // A deprecated name has its own warning, naming the one to use.
+        if setting.file == File::Format
+          && setting.replaced_by.is_none()
+          && !honored
+          && !default
+          && !matches!(source, Source::Default | Source::Derived(_))
+        {
+          self.warn(format!(
+            "{}: `{}` is not honored by mto yet, so it is ignored (`mto config options` \
+             lists what is)",
+            source, name
+          ));
+        }
+      }
+    }
+
     if layout_on
       && let Some((Value::Integer(lines), source)) = values.get("blank_lines_between_blocks")
       && *source != Source::Default

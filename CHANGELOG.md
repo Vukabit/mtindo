@@ -16,6 +16,8 @@ from commit subjects by `cargo xtask changelog`.
 - Read the same `rustfmt.toml` and `.rustfmt.toml` files, with `--config`,
   `--config-path`, `--edition` and `--style-edition`; `mto config options`
   lists every setting and whether mto honors it yet
+- Warn when a setting mto does not honor yet is set, naming it, instead of
+  ignoring it silently
 - Follow the modules a file declares, through `cfg_attr`, `cfg_if` and
   `cfg_select`, as the standard formatter does; `--skip-children` formats the
   named files alone

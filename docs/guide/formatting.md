@@ -10,8 +10,9 @@ in scripts, CI and editors.
 `mto` reads `rustfmt.toml` (and `.rustfmt.toml`) as the standard formatter
 does. Each setting it supports applies on every channel, the ones the
 standard formatter only offers on nightly too. Some settings are not honored
-yet, and those are ignored: `mto config options` says for each one whether it
-is honored, in part or not yet (its `MTO` column), and the
+yet: one of those set to anything but its default is ignored with a warning
+naming it. `mto config options` says for each setting whether it is honored,
+in part or not yet (its `MTO` column), and the
 [settings reference](../generated/config/README.md) lists them all with their
 values. `format = false` in an `mto.toml` turns formatting off and leaves only
 layout.

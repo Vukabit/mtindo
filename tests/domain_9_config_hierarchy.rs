@@ -115,3 +115,28 @@ fn test_malformed_toml_handling() {
   let output = cmd.output().unwrap();
   assert!(!output.status.success());
 }
+
+/// A standard setting mto does not honor yet, set to anything but its default, is said to
+/// be ignored; one at its default, and one mto honors, say nothing.
+#[test]
+fn test_settings_mto_does_not_honor_are_reported() {
+  let env = TestEnvironment::new();
+  fs::write(
+    env.dir.path().join("rustfmt.toml"),
+    "use_field_init_shorthand = true\nwrap_comments = false\nmax_width = 90\n",
+  )
+  .unwrap();
+  fs::write(env.dir.path().join("a.rs"), "fn f() {}\n").unwrap();
+  let output = env.mto_cmd().args(["--check", "a.rs"]).output().unwrap();
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(
+    stderr.contains("`use_field_init_shorthand` is not honored by mto yet"),
+    "{}",
+    stderr
+  );
+  assert!(
+    !stderr.contains("wrap_comments") && !stderr.contains("max_width"),
+    "{}",
+    stderr
+  );
+}

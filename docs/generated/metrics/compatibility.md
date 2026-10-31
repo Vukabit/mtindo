@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-31T18:50:37.378Z"
-commit: "13a28d2-dirty.64830589"
+generated: "2026-10-31T19:32:42.960Z"
+commit: "af81de2-dirty.a49f4d0d"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -20,11 +20,11 @@ metrics:
   compat.tests.lines_matched: 11192
   compat.tests.lines_total: 11205
   compat.tests.skipped: 0
-  compat.tests-with-settings.files: 67.98
-  compat.tests-with-settings.files_matched: 380
+  compat.tests-with-settings.files: 72.45
+  compat.tests-with-settings.files_matched: 405
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 89.93
-  compat.tests-with-settings.lines_matched: 19833
+  compat.tests-with-settings.lines: 91.53
+  compat.tests-with-settings.lines_matched: 20187
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
   compat.corpus.files: 99.97
@@ -122,7 +122,7 @@ The record as it stands (shares in percent):
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
 | tests | 455 of 460 | 98.91 | 11192 of 11205 | 99.88 | 0 |
-| tests-with-settings | 380 of 559 | 67.98 | 19833 of 22055 | 89.93 | 0 |
+| tests-with-settings | 405 of 559 | 72.45 | 20187 of 22055 | 91.53 | 0 |
 | corpus | 9358 of 9361 | 99.97 | 2653089 of 2653185 | 100.00 | 6 |
 | corpus-scrambled | 9266 of 9348 | 99.12 | 2774159 of 2776485 | 99.92 | 17 |
 <!-- end generated -->
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.88 | 89.93 | 100.00 | 99.92 | 99.12 |
+| current |  | 99.88 | 91.53 | 100.00 | 99.92 | 99.12 |
+| 2026-10-31 | b14c7ee | 99.88 | 89.93 | 100.00 | 99.92 | 99.12 |
 | 2026-10-31 | d30fe90 | 99.88 | 89.64 | 100.00 | 99.92 | 99.12 |
 | 2026-10-31 | 15d372d | 99.88 | 89.15 | 100.00 | 99.92 | 99.12 |
 | 2026-10-31 | 5e24e3a | 99.88 | 88.61 | 100.00 | 99.92 | 99.12 |
@@ -226,7 +227,7 @@ Scored files by the share of their expected lines mto's output keeps:
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
 | tests | 456 | 0 | 1 | 3 |
-| tests-with-settings | 383 | 1 | 39 | 136 |
+| tests-with-settings | 408 | 1 | 40 | 110 |
 | corpus | 9358 | 0 | 1 | 2 |
 | corpus-scrambled | 9266 | 32 | 33 | 17 |
 
@@ -236,15 +237,15 @@ common over every set:
 | syntax kind | files |
 |---|---:|
 | `LetStmt` | 31 |
-| `Fn` | 28 |
 | `Use` | 22 |
-| `SourceFile` | 20 |
-| `TokenTree` | 19 |
-| `BlockExpr` | 15 |
+| `TokenTree` | 21 |
+| `Fn` | 19 |
+| `BlockExpr` | 13 |
 | `MatchArm` | 11 |
 | `MethodCallExpr` | 11 |
 | `MacroRules` | 9 |
-| `Struct` | 7 |
+| `SourceFile` | 9 |
+| `Visibility` | 7 |
 <!-- end generated -->
 
 ## 4 Threats to validity

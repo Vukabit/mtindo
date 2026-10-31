@@ -62,6 +62,58 @@ impl PassNodes {
   }
 }
 
+/// `text`, laid out, with the fields of each struct, variant and struct literal laid out a
+/// line each lined up: in each group of them (fields between blank lines, a skipped one
+/// ending its group) whose widths before their types differ by at most
+/// `struct_field_align_threshold`, each type starts one space after the widest (`vis name:`
+/// for a field, the name for a literal's, whose value follows `: `), as the standard
+/// formatter's `rewrite_with_alignment` writes them; a literal only without a `..base` or
+/// a field written by its name alone. `None` when nothing moves. A field
+/// whose type starts on a later line, or that would pass the line width, is left as it is.
+/// Not in a `// mto: off` region or a skipped item.
+pub fn aligned_fields(
+  root: &SyntaxNode,
+  text: &str,
+  config: &FormatConfig,
+  edition: Edition,
+) -> Option<String> {
+  let off = off_regions(root);
+  let mut inserts: Vec<(usize, usize)> = Vec::new();
+  let mut commas: Vec<usize> = Vec::new();
+  field_edits(
+    root,
+    text,
+    0,
+    config,
+    edition,
+    &off,
+    &mut inserts,
+    &mut commas,
+  );
+  if inserts.is_empty() && commas.is_empty() {
+    return None;
+  }
+  // A comma is a pad of none written before its spaces.
+  let mut edits: Vec<(usize, Option<usize>)> = inserts
+    .into_iter()
+    .map(|(at, pad)| (at, Some(pad)))
+    .chain(commas.into_iter().map(|at| (at, None)))
+    .collect();
+  edits.sort_unstable();
+  let mut out = String::with_capacity(text.len() + edits.len() * 4);
+  let mut from = 0;
+  for (at, pad) in edits {
+    out.push_str(&text[from..at]);
+    match pad {
+      Some(pad) => out.push_str(&" ".repeat(pad)),
+      None => out.push(','),
+    }
+    from = at;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text` with the last two or more `_` of each tuple pattern (`(a, _, _)`, `S(a, _, _)`)
 /// written `..` (the standard formatter's `count_wildcard_suffix_len`); `None` when there is
 /// none; a wildcard with a comment around it is the first of them. Not a pattern that has a
@@ -1613,6 +1665,181 @@ fn control_gaps(
     }
     let from = tree.text_range().start as isize + 1 + shift - prefix.len() as isize;
     control_gaps(&parsed.syntax_node(), &wrapped, from, style, edition, gaps);
+  }
+}
+
+/// [`aligned_fields`]'s pads (where, how many spaces) and commas in `root`, whose text is
+/// `text`, at `text`'s offsets moved by `shift`; into macros' arguments that read as a
+/// call's too, as [`control_gaps`] goes.
+#[allow(clippy::too_many_arguments)]
+fn field_edits(
+  root: &SyntaxNode,
+  text: &str,
+  shift: isize,
+  config: &FormatConfig,
+  edition: Edition,
+  off: &[(usize, usize)],
+  inserts: &mut Vec<(usize, usize)>,
+  commas: &mut Vec<usize>,
+) {
+  let column = |at: usize| {
+    let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+    text[line_start..at]
+      .chars()
+      .map(|c| if c == '\t' { config.tab_spaces } else { 1 })
+      .sum::<usize>()
+  };
+  let line_end = |at: usize| text[at..].find('\n').map_or(text.len(), |i| at + i);
+  for list in
+    root.descendant_nodes_where(|kind| matches!(kind, K::RecordFieldList | K::RecordExprFieldList))
+  {
+    let range = list.text_range();
+    let (start, end) = (range.start as usize, range.end as usize);
+    if !text[start..end].contains('\n')
+      || skipped_within(&list)
+      || off
+        .iter()
+        .any(|&(s, e)| (s as isize) < end as isize + shift && (start as isize + shift) < e as isize)
+    {
+      continue;
+    }
+    let literal = list.kind() == K::RecordExprFieldList;
+    let fields: Vec<SyntaxNode> = list
+      .children_iter()
+      .filter(|c| matches!(c.kind(), K::RecordField | K::RecordExprField))
+      .collect();
+    // A literal with a `..base`, or a field written `name` alone, is not lined up
+    // (`struct_lit_can_be_aligned`).
+    if literal
+      && (list
+        .children_with_tokens_iter()
+        .any(|e| e.kind() == K::Dot2)
+        || fields
+          .iter()
+          .any(|f| !f.children_with_tokens_iter().any(|e| e.kind() == K::Colon)))
+    {
+      continue;
+    }
+    // Each field: the width before its type, and where its type starts when on that line.
+    struct Field {
+      prefix: usize,
+      value: Option<usize>,
+      line_width: usize,
+    }
+    let measure = |field: &SyntaxNode| -> Option<Field> {
+      let name = field
+        .children_iter()
+        .find(|c| matches!(c.kind(), K::Name | K::NameRef))?;
+      let name_end = name.text_range().end as usize;
+      // From the field's first token after its attributes and doc comments, a comment
+      // before it aside.
+      let first = field
+        .children_with_tokens_iter()
+        .find(|e| e.kind() != K::Attr && !e.kind().is_trivia() && !super::items::is_doc(e.kind()))?
+        .text_range()
+        .start as usize;
+      if text[first..name_end].contains('\n') {
+        return None;
+      }
+      let indent = column(first);
+      let colon = field
+        .children_with_tokens_iter()
+        .find(|e| e.kind() == K::Colon)
+        .map(|e| e.text_range().end as usize);
+      let prefix_end = if literal { name_end } else { colon? };
+      let value = colon.and_then(|colon| {
+        let after = colon + text[colon..].len() - text[colon..].trim_start_matches(' ').len();
+        (!text[colon..after].contains('\n') && after < line_end(colon)).then_some(after)
+      });
+      Some(Field {
+        prefix: column(prefix_end) - indent,
+        value,
+        line_width: column(line_end(name_end)),
+      })
+    };
+    // The last field ends with a comma, in a macro's arguments too: the list is written as
+    // `trailing_comma` says.
+    if literal
+      && let Some(last) = fields.last()
+      && list
+        .children_with_tokens_iter()
+        .skip_while(|e| e.text_range().start < last.text_range().end)
+        .find(|e| !e.kind().is_trivia())
+        .is_some_and(|e| e.kind() == K::RBrace)
+    {
+      commas.push((last.text_range().end as isize + shift) as usize);
+    }
+    let mut group: Vec<(SyntaxNode, Field)> = Vec::new();
+    let mut flush = |group: &mut Vec<(SyntaxNode, Field)>| {
+      let widest = group.iter().map(|(_, f)| f.prefix).max().unwrap_or(0);
+      let narrowest = group.iter().map(|(_, f)| f.prefix).min().unwrap_or(0);
+      if group.len() > 1 && widest - narrowest <= config.struct_field_align_threshold {
+        for (_, field) in group.iter() {
+          let pad = widest - field.prefix;
+          if let Some(at) = field.value
+            && pad > 0
+            && field.line_width + pad <= config.max_width
+          {
+            inserts.push(((at as isize + shift) as usize, pad));
+          }
+        }
+      }
+      group.clear();
+    };
+    let mut aligned = true;
+    for (i, field) in fields.iter().enumerate() {
+      let Some(measured) = measure(field) else {
+        aligned = false;
+        break;
+      };
+      let skipped = field
+        .children_iter()
+        .filter_map(crate::syntax::ast::Attr::cast)
+        .any(|a| a.is_rustfmt_skip());
+      group.push((field.clone(), measured));
+      // A blank line before the next field ends the group, as a skipped field does.
+      let blank = fields.get(i + 1).is_some_and(|next| {
+        let gap = &text[field.text_range().end as usize..next.text_range().start as usize];
+        let lines: Vec<&str> = gap.split('\n').collect();
+        lines.len() > 2
+          && lines[1..lines.len() - 1]
+            .iter()
+            .any(|l| l.trim().is_empty())
+      });
+      if blank || skipped {
+        flush(&mut group);
+      }
+    }
+    if aligned {
+      flush(&mut group);
+    }
+  }
+  for call in root.descendant_nodes_where(|kind| kind == K::MacroCall) {
+    let Some(tree) = call.children_iter().find(|c| c.kind() == K::TokenTree) else {
+      continue;
+    };
+    let whole = tree.text();
+    if !matches!(whole.as_bytes().first(), Some(b'(' | b'[')) || skipped_within(&call) {
+      continue;
+    }
+    let inner = &whole[1..whole.len() - 1];
+    let prefix = "fn __mto() {\n__mto_macro(";
+    let wrapped = format!("{}{});\n}}\n", prefix, inner);
+    let parsed = crate::syntax::parse(&wrapped, edition);
+    if !parsed.errors().is_empty() {
+      continue;
+    }
+    let from = tree.text_range().start as isize + 1 + shift - prefix.len() as isize;
+    field_edits(
+      &parsed.syntax_node(),
+      &wrapped,
+      from,
+      config,
+      edition,
+      off,
+      inserts,
+      commas,
+    );
   }
 }
 

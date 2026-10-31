@@ -247,6 +247,24 @@ fn test_single_line_items() {
   );
 }
 
+/// `struct_field_align_threshold`: fields' types lined up in each group between blank
+/// lines whose names' widths differ by at most it; a literal's too, but for one whose
+/// names differ more or that has a field written by its name alone.
+#[test]
+fn test_struct_fields_aligned() {
+  let config = FormatConfig {
+    struct_field_align_threshold: 20,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(
+      "struct Foo {\n    a: u8,\n    bbbbbb: u16,\n    /// doc\n    pub c: u32,\n\n    dddddddddd: u8,\n    e: u8,\n}\n\nfn f() {\n    let x = Foo {\n        a: 1,\n        bbbbbb: 2,\n        cccccccccccccccccccccccccccccccc: 3,\n        dddddddddddddddddddddddddddddddddddddddddd: 4,\n    };\n    let y = Foo {\n        a: 1,\n        bbbb: 2,\n        c: cccccccccccccccccccccccccccccccc(),\n        dddddddddd: d,\n        e,\n    };\n    m!(Foo {\n        a: 1,\n        bbbb: 2\n    });\n}\n",
+      &config
+    ),
+    "struct Foo {\n    a:      u8,\n    bbbbbb: u16,\n    /// doc\n    pub c:  u32,\n\n    dddddddddd: u8,\n    e:          u8,\n}\n\nfn f() {\n    let x = Foo {\n        a: 1,\n        bbbbbb: 2,\n        cccccccccccccccccccccccccccccccc: 3,\n        dddddddddddddddddddddddddddddddddddddddddd: 4,\n    };\n    let y = Foo {\n        a: 1,\n        bbbb: 2,\n        c: cccccccccccccccccccccccccccccccc(),\n        dddddddddd: d,\n        e,\n    };\n    m!(Foo { a: 1, bbbb: 2 });\n}\n"
+  );
+}
+
 /// `try!(e)` written `e?`, one inside another too; arguments `?` would not bind to whole,
 /// or that are not one expression, are left as written.
 #[test]

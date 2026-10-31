@@ -80,7 +80,7 @@ option  skip_macro_invocations                           supported    # with for
 option  space_after_colon                                supported    # with format = true (src/format/space/tests.rs)
 option  space_before_colon                               supported    # with format = true (src/format/space/tests.rs)
 option  spaces_around_ranges                             supported    # with format = true (src/format/space/tests.rs)
-option  struct_field_align_threshold                     missing
+option  struct_field_align_threshold                     supported    # with format = true (src/format/reorder/tests.rs)
 option  struct_lit_single_line                           supported    # with format = true (src/format/file/tests.rs)
 option  struct_lit_width                                 partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  struct_variant_width                             supported    # with format = true (src/format/items/tests.rs)

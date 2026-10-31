@@ -386,6 +386,7 @@ impl Config {
       config.generated_markers = markers.to_vec();
     }
     config.inline_attribute_width = number("inline_attribute_width", 0);
+    config.struct_field_align_threshold = number("struct_field_align_threshold", 0);
     config.generated_marker_line_search_limit = number(
       "generated_marker_line_search_limit",
       config.generated_marker_line_search_limit,

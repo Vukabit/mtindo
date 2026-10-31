@@ -510,7 +510,7 @@
       "default": false
     },
     "struct_field_align_threshold": {
-      "description": "The maximum diff of width between struct fields to be aligned with each other.\n\nIn mto: missing.",
+      "description": "The maximum diff of width between struct fields to be aligned with each other.\n\nIn mto: supported. With format = true.",
       "type": "integer",
       "minimum": 0,
       "default": 0

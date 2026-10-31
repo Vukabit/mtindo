@@ -146,6 +146,9 @@ pub struct FormatConfig {
   /// `inline_attribute_width`: the widest `use`, `extern crate` or `mod` written on its
   /// attribute's line.
   pub inline_attribute_width: usize,
+  /// `struct_field_align_threshold`: fields' types (or values) aligned in groups whose
+  /// names' widths differ by at most this.
+  pub struct_field_align_threshold: usize,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -226,6 +229,7 @@ impl Default for FormatConfig {
       empty_item_single_line: true,
       fn_single_line: false,
       inline_attribute_width: 0,
+      struct_field_align_threshold: 0,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

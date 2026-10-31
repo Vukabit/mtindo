@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 33
+  supported: 34
   partial: 26
-  missing: 27
+  missing: 26
   not_planned: 4
 ---
 
@@ -914,7 +914,7 @@ The maximum diff of width between struct fields to be aligned with each other.
 *   Default: `0`; from style edition 2024: `0`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `struct_lit_single_line`
 

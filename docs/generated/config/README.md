@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 50
+  supported: 51
   partial: 27
-  missing: 27
+  missing: 26
   not_planned: 4
 ---
 
@@ -824,7 +824,7 @@ behavior, so the column does not apply to them.
 <code>struct_field_align_threshold</code></a></td>
 <td>rustfmt.toml</td>
 <td>Align struct fields if their diffs fits within threshold.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#struct_lit_single_line">

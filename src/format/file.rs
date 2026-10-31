@@ -1608,6 +1608,13 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   let body = reindent(&root, &text, edition, config);
   // Empty items' bodies, and functions of one statement, as `empty_item_single_line` and
   // `fn_single_line` say, once the rest is laid out.
+  // Fields' types and values lined up (`struct_field_align_threshold`).
+  let body = if config.struct_field_align_threshold == 0 {
+    body
+  } else {
+    let laid = parse(&body, edition).syntax_node();
+    crate::format::reorder::aligned_fields(&laid, &body, config, edition).unwrap_or(body)
+  };
   // An import, `extern crate` or `mod` with one attribute on that attribute's line when
   // short enough (`inline_attribute_width`).
   let body = if config.inline_attribute_width == 0 {

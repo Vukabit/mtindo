@@ -388,7 +388,7 @@
       "default": "Never"
     },
     "match_block_trailing_comma": {
-      "description": "Put a trailing comma after a block based match arm (non-block arms are not affected)\n\nIn mto: missing.",
+      "description": "Put a trailing comma after a block based match arm (non-block arms are not affected)\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

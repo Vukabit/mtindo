@@ -57,7 +57,7 @@ option  make_backup                                      not-planned  # every ru
 option  match_arm_blocks                                 missing
 option  match_arm_indent                                 supported    # with format = true (src/format/file/tests.rs)
 option  match_arm_leading_pipes                          missing
-option  match_block_trailing_comma                       missing
+option  match_block_trailing_comma                       supported    # with format = true (src/format/file/tests.rs)
 option  max_width                                        partial      # with format = true: lines broken and joined for the statements laid out so far, and statements too long left as written (src/format/stmt/tests.rs, src/format/file/tests.rs)
 option  merge_derives                                    supported    # with format = true, runs of `#[derive(..)]` with no blank line or comment between them merged into one (src/format/reorder/tests.rs)
 option  merge_imports                                    not-planned  # deprecated in rustfmt in favour of imports_granularity

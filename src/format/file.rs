@@ -2404,6 +2404,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   // statement's indentation.
   let link_lines: std::cell::RefCell<HashMap<usize, usize>> = Default::default();
   let dropped: std::cell::RefCell<HashSet<usize>> = Default::default();
+  // Where a `}` starts that a comma follows, though none is written (a match arm's block
+  // with `match_block_trailing_comma`).
+  let comma_after: std::cell::RefCell<HashSet<usize>> = Default::default();
   let in_verbatim = |at: usize| {
     let idx = roles.verbatim.partition_point(|&(start, _)| start < at);
     (idx > 0 && at < roles.verbatim[idx - 1].1)
@@ -2940,6 +2943,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           for at in head.spaced {
             spaced_after.borrow_mut().insert(at);
           }
+          if let Some(at) = head.comma_after {
+            comma_after.borrow_mut().insert(at);
+          }
           (head.text, head.open)
         };
         // A control expression's head, as a statement or a tail, or after `} else `.
@@ -3465,6 +3471,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       } else {
         tok.text
       });
+    }
+    if comma_after.borrow().contains(&tok.start) {
+      out.push(',');
     }
     if tok.kind != SyntaxKind::Whitespace {
       written_end = out.len();

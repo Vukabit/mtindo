@@ -157,6 +157,13 @@ pub fn rewrite_arm_in(
       let opened = body
         .children_with_tokens_iter()
         .any(|e| e.kind() == K::LBrace);
+      // With `match_block_trailing_comma`, a comma after the block's `}`, written or not.
+      let block_comma = config.match_block_trailing_comma;
+      let close = body
+        .last_token()
+        .filter(|t| t.kind() == K::RBrace)
+        .map(|t| t.text_range().start as usize);
+      let comma_after = |written: bool| (block_comma && !written).then_some(close).flatten();
       let empty = opened
         && !body
           .children_with_tokens_iter()
@@ -178,7 +185,12 @@ pub fn rewrite_arm_in(
           && indent + used + 4 + str_width(&inside) + 4 <= config.max_width
         {
           one_line_comment = true;
-          Arm::Whole(format!("{} => {{ {} }}", lhs, inside))
+          Arm::Whole(format!(
+            "{} => {{ {} }}{}",
+            lhs,
+            inside,
+            if block_comma { "," } else { "" }
+          ))
         } else {
           let open = body
             .children_with_tokens_iter()
@@ -192,8 +204,9 @@ pub fn rewrite_arm_in(
           Arm::Head(Head {
             text: format!("{}{}", lhs, arrow),
             open,
+            comma_after: comma_after(!tail.is_empty()),
             tail,
-            keep_comma: false,
+            keep_comma: block_comma,
             spaced: Vec::new(),
             links: Vec::new(),
           })
@@ -201,10 +214,11 @@ pub fn rewrite_arm_in(
       } else if empty {
         // `{}`, after the arrow even below a guard of its own line; its `}` on the next line
         // when `{}` runs past the line width.
+        let comma = if block_comma { "," } else { "" };
         if indent + used + 4 + 2 > config.max_width {
-          Arm::Whole(format!("{} => {{\n{}}}", lhs, " ".repeat(indent)))
+          Arm::Whole(format!("{} => {{\n{}}}{}", lhs, " ".repeat(indent), comma))
         } else {
-          Arm::Whole(format!("{} => {{}}", lhs))
+          Arm::Whole(format!("{} => {{}}{}", lhs, comma))
         }
       } else {
         // On the arm's line when it fits there (`unsafe { f() }`), else its `{` after
@@ -226,11 +240,16 @@ pub fn rewrite_arm_in(
             .text_range()
             .start as usize;
           let prefix = flat_prefix(body, config)?;
-          let tail = match (&written_comma, prefixed) {
-            (Some(comma), _) => vec![(comma.text_range().start as usize, K::Comma)],
-            (None, true) => return None,
-            (None, false) => Vec::new(),
+          // A block with a prefix takes a comma, written or not, as with
+          // `match_block_trailing_comma` any block does.
+          let tail = match &written_comma {
+            Some(comma) => vec![(comma.text_range().start as usize, K::Comma)],
+            None => Vec::new(),
           };
+          let added = (prefixed || block_comma) && written_comma.is_none();
+          if added && close.is_none() {
+            return None;
+          }
           // No room for ` => ` after the arm's last line (a guard kept as written past the
           // width): the block starts the next line, as the standard formatter tries the
           // arm's line only with room on it.
@@ -242,8 +261,9 @@ pub fn rewrite_arm_in(
           Arm::Head(Head {
             text: format!("{}{}{}", lhs, arrow, prefix),
             open,
+            comma_after: added.then_some(close).flatten(),
             tail,
-            keep_comma: prefixed,
+            keep_comma: prefixed || block_comma,
             spaced: Vec::new(),
             links: Vec::new(),
           })
@@ -259,6 +279,7 @@ pub fn rewrite_arm_in(
         keep_comma: true,
         spaced: Vec::new(),
         links: Vec::new(),
+        comma_after: None,
       })
     }
     _ => {
@@ -297,13 +318,19 @@ pub fn rewrite_arm_in(
             if inside_macro {
               return Arm::Whole(format!("{} =>\n{}{},", lhs, " ".repeat(indent + tab), next));
             }
+            // The block it is put in ends with a comma under `match_block_trailing_comma`.
             Arm::Whole(format!(
-              "{} =>{}\n{}{}\n{}}}",
+              "{} =>{}\n{}{}\n{}}}{}",
               lhs,
               open,
               " ".repeat(indent + tab),
               next,
-              " ".repeat(indent)
+              " ".repeat(indent),
+              if config.match_block_trailing_comma {
+                ","
+              } else {
+                ""
+              }
             ))
           };
           let on_line = |same: String| Arm::Whole(format!("{}{}{},", lhs, arrow, same));

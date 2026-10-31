@@ -65,6 +65,8 @@ pub struct FormatConfig {
   /// `format_macro_bodies`: a `macro_rules!` rule's transcriber is formatted as code;
   /// without it, written as it is.
   pub format_macro_bodies: bool,
+  /// `match_block_trailing_comma`: a match arm whose body is a block ends with a comma.
+  pub match_block_trailing_comma: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -130,6 +132,7 @@ impl Default for FormatConfig {
       generated_marker_line_search_limit: 5,
       generated_markers: vec!["@generated".to_string()],
       format_macro_bodies: true,
+      match_block_trailing_comma: false,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

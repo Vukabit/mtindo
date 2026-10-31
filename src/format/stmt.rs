@@ -49,6 +49,9 @@ pub struct Head {
   /// its own at the statement's indentation, as the standard formatter writes a chain whose
   /// root ends in a block.
   pub links: Vec<usize>,
+  /// Where the block's `}` starts when a comma is to follow it that is not written (a match
+  /// arm's block with `match_block_trailing_comma`).
+  pub comma_after: Option<usize>,
 }
 
 /// Whether `node` is a block's tail: the expression ending it, with no `;`, laid out as a
@@ -469,6 +472,7 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
     keep_comma: false,
     spaced: Vec::new(),
     links: dots,
+    comma_after: None,
   })
 }
 
@@ -816,6 +820,7 @@ pub fn rewrite_hole_head(node: &SyntaxNode, indent: usize, config: &FormatConfig
     keep_comma: false,
     spaced,
     links: dots,
+    comma_after: None,
   })
 }
 
@@ -868,6 +873,7 @@ pub fn rewrite_let_control(
       keep_comma: false,
       spaced: Vec::new(),
       links: Vec::new(),
+      comma_after: None,
     });
   }
   // A `match` or an `if` (`rewrite_cond` puts a loop's head on its line).
@@ -892,6 +898,7 @@ pub fn rewrite_let_control(
     keep_comma: false,
     spaced: Vec::new(),
     links: Vec::new(),
+    comma_after: None,
   })
 }
 
@@ -1558,6 +1565,7 @@ fn control_head(
     keep_comma: false,
     spaced: Vec::new(),
     links: Vec::new(),
+    comma_after: None,
   })
 }
 

@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 35
+  supported: 36
   partial: 27
-  missing: 42
+  missing: 41
   not_planned: 4
 ---
 
@@ -608,7 +608,7 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Put a trailing comma after a block based match arm (non-block arms are not
     affected)</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#max_width">

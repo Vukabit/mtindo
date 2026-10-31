@@ -214,7 +214,7 @@ pub fn rewrite_match(node: &SyntaxNode, shape: Shape) -> Option<String> {
           K::LoopExpr => block_body(&body.children_iter().next_back()?, inner)?,
           _ => return None,
         };
-        let comma = if head.keep_comma && !head.tail.is_empty() {
+        let comma = if head.keep_comma && !head.tail.is_empty() || head.comma_after.is_some() {
           ","
         } else {
           ""

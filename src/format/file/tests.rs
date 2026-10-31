@@ -1037,6 +1037,25 @@ fn test_match_arm_indent_off_keeps_arms_at_the_match() {
   assert_eq!(format_file(&once, Edition::E2021, &config), once);
 }
 
+/// With `match_block_trailing_comma`, a match arm whose body is a block, or put in one,
+/// ends with a comma; without it, as the standard formatter does by default.
+#[test]
+fn test_match_block_trailing_comma() {
+  let source = "fn f() {\n    match x {\n        A => {\n            a();\n        }\n        B => unsafe { c() }\n        E => if x { 1 } else { 2 },\n        F => {}\n        G => 1,\n    }\n}\n";
+  let config = FormatConfig {
+    match_block_trailing_comma: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(source, &config),
+    "fn f() {\n    match x {\n        A => {\n            a();\n        },\n        B => unsafe { c() },\n        E => {\n            if x {\n                1\n            } else {\n                2\n            }\n        },\n        F => {},\n        G => 1,\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted(source),
+    "fn f() {\n    match x {\n        A => {\n            a();\n        }\n        B => unsafe { c() },\n        E => {\n            if x {\n                1\n            } else {\n                2\n            }\n        }\n        F => {}\n        G => 1,\n    }\n}\n"
+  );
+}
+
 #[test]
 fn test_nested_parentheses_dropped() {
   // Parentheses directly inside parentheses go, but around a comment.

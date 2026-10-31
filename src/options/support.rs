@@ -54,7 +54,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("match_arm_blocks", "missing"),
   ("match_arm_indent", "supported"),
   ("match_arm_leading_pipes", "missing"),
-  ("match_block_trailing_comma", "missing"),
+  ("match_block_trailing_comma", "supported"),
   ("max_width", "partial"),
   ("merge_derives", "supported"),
   ("merge_imports", "not-planned"),

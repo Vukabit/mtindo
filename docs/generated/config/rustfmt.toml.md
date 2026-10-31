@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 18
+  supported: 19
   partial: 26
-  missing: 42
+  missing: 41
   not_planned: 4
 ---
 
@@ -661,7 +661,7 @@ affected)
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `max_width`
 

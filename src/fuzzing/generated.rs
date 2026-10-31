@@ -14,6 +14,11 @@ use crate::{LayoutConfig, Settings, shape};
 
 /// Checks one input; panics on any violation.
 pub fn check(data: &[u8]) {
+  // On the stack mto's binaries give this work ([`crate::STACK`]).
+  crate::with_stack(|| checked(data))
+}
+
+fn checked(data: &[u8]) {
   let Some((settings, rest)) = data.split_first_chunk::<3>() else {
     return;
   };
@@ -45,14 +50,35 @@ pub fn check(data: &[u8]) {
     text,
     moved
   );
-  let formatted = verify_format(&once.laid_out, &once.text, edition);
-  assert!(
-    formatted.is_empty(),
-    "formatting after layout changed the meaning:\n{}\n---\n{}\n{:?}",
-    once.laid_out,
-    once.text,
-    formatted
-  );
+  // Each formatting against what it was given; a second layout pass, when formatting put
+  // a body on lines, against the text it was given (as a run checks them).
+  let mut formats = vec![(
+    once.laid_out.as_str(),
+    once
+      .relaid
+      .as_ref()
+      .map_or(once.text.as_str(), |(first, _)| first.as_str()),
+  )];
+  if let Some((first, again)) = &once.relaid {
+    let moved = verify_layout(first, again, edition);
+    assert!(
+      moved.is_empty(),
+      "layout after formatting changed the meaning:\n{}\n{:?}",
+      first,
+      moved
+    );
+    formats.push((again.as_str(), once.text.as_str()));
+  }
+  for (given, gave) in formats {
+    let formatted = verify_format(given, gave, edition);
+    assert!(
+      formatted.is_empty(),
+      "formatting after layout changed the meaning:\n{}\n---\n{}\n{:?}",
+      given,
+      gave,
+      formatted
+    );
+  }
   let twice = shape(&once.text, &both, &Held::default(), None).map(|s| s.text);
   assert_eq!(
     twice.as_deref(),

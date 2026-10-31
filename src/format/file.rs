@@ -2326,6 +2326,7 @@ fn overflowing(
       // Each part of the line that the layout starts a line of its own with is measured
       // apart, at the line's indentation.
       let indent = first - at;
+      let written_indent = width_of(&text[at..at + indent], tab);
       let mut too_wide = false;
       let mut widest = 0;
       let mut from = at;
@@ -2342,9 +2343,9 @@ fn overflowing(
             && text.is_char_boundary(p)
         {
           let width = if from == at {
-            width_of(text[at..p].trim_end(), tab)
+            written_indent + width_of(text[first..p].trim_end(), tab)
           } else {
-            width_of(&text[at..at + indent], tab) + width_of(text[from..p].trim(), tab)
+            written_indent + width_of(text[from..p].trim(), tab)
           };
           // A part in a statement starting on the line after its first token is that
           // statement's (the standard formatter gives up on a block's statement alone),
@@ -3014,9 +3015,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
               );
               // A function's body after a header given up on follows it with no space (the
               // standard formatter's `visit_fn` copies the header up to the `{`, its spaces
-              // dropped); after a comment it stays on its line.
+              // dropped); after a comment it stays on its line. Not with hard tabs, where no
+              // header is laid out, so none is given up on as the standard formatter would.
               let glue_body = |node: &SyntaxNode| {
                 if node.kind() == SyntaxKind::Fn
+                  && !config.hard_tabs
                   && let Some(body) = node
                     .children_iter()
                     .find(|c| c.kind() == SyntaxKind::BlockExpr)
@@ -3056,6 +3059,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 gave_up.borrow_mut().push((tok.start, end));
                 glue_body(node);
               }
+              } else if laid.is_none() && node.kind() == SyntaxKind::Fn && !config.hard_tabs {
+                // Its written lines kept, spaced anew: a line that grows past the width
+                // gives the header up on the next pass, which runs now so that this run
+                // settles.
+                note_kept();
               }
               // An empty body after a header on one line closes up (`{}`); after one across
               // lines its `}` goes on a line of its own.

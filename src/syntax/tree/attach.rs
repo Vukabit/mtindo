@@ -36,8 +36,9 @@ pub(super) fn leading(trivia: &[(SyntaxKind, &str)], after_code: bool) -> usize 
 
 /// How many tokens at the start of `trivia` (the trivia just after an attachable node) belong
 /// inside that node: a comment on the node's last line, and the spaces before it. A block
-/// comment only counts if it ends on that line and nothing else follows it there.
-pub(super) fn trailing(trivia: &[(SyntaxKind, &str)]) -> usize {
+/// comment only counts if it ends on that line and nothing else follows it there; the end
+/// of the file ends the line too (`at_end`: nothing but `trivia` follows).
+pub(super) fn trailing(trivia: &[(SyntaxKind, &str)], at_end: bool) -> usize {
   let mut idx = 0;
   if let Some((SyntaxKind::Whitespace, text)) = trivia.first() {
     if text.contains('\n') {
@@ -50,7 +51,9 @@ pub(super) fn trailing(trivia: &[(SyntaxKind, &str)]) -> usize {
     Some((SyntaxKind::BlockComment, text)) if !text.contains('\n') => {
       let line_ends_after = match trivia.get(idx + 1) {
         None => true,
-        Some((SyntaxKind::Whitespace, ws)) => ws.contains('\n'),
+        Some((SyntaxKind::Whitespace, ws)) => {
+          ws.contains('\n') || at_end && idx + 2 == trivia.len()
+        }
         Some(_) => false,
       };
       if line_ends_after { idx + 1 } else { 0 }
@@ -153,6 +156,13 @@ mod tests {
   }
 
   #[test]
+  fn test_the_end_of_the_file_ends_the_line() {
+    let trivia = [(BlockComment, "/**/"), (Whitespace, "\t\t")];
+    assert_eq!(super::trailing(&trivia, true), 1);
+    assert_eq!(super::trailing(&trivia, false), 0);
+  }
+
+  #[test]
   fn test_trailing_rejects_other_lines_and_shared_lines() {
     assert_eq!(trailing(&[(Whitespace, "\n"), (LineComment, "// next")]), 0);
     assert_eq!(
@@ -193,5 +203,10 @@ mod tests {
       trailing(&[(Whitespace, " "), (BlockComment, "/* note */")]),
       2
     );
+  }
+
+  /// [`super::trailing`] for trivia with code after it.
+  fn trailing(trivia: &[(SyntaxKind, &str)]) -> usize {
+    super::trailing(trivia, false)
   }
 }

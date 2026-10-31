@@ -1,6 +1,7 @@
 //! Formatting must keep a program's meaning and settle in one run, whatever the input and
 //! settings: the meaning check is clean on the output, and formatting the output again
-//! changes nothing. The first bytes pick the settings; the rest is the file.
+//! changes nothing. The first bytes pick the settings; the rest is the file. One nested
+//! past what mto follows is skipped, as mto skips it.
 
 use crate::format::file::format_file;
 use crate::options::format::{FormatConfig, NewlineStyle};
@@ -9,6 +10,11 @@ use crate::verify::format::verify_format;
 
 /// Checks one input; panics on any violation.
 pub fn check(data: &[u8]) {
+  // On the stack mto's binaries give this work ([`crate::STACK`]).
+  crate::with_stack(|| checked(data))
+}
+
+fn checked(data: &[u8]) {
   let Some((&[width, tabs, style], rest)) = data.split_first_chunk::<3>() else {
     return;
   };
@@ -29,6 +35,14 @@ pub fn check(data: &[u8]) {
     ..FormatConfig::default()
   };
   let edition = Edition::E2021;
+  // Nested past what mto follows: mto skips the file, as here.
+  if crate::syntax::parse(text, edition)
+    .errors()
+    .iter()
+    .any(|e| e.message == crate::syntax::TOO_DEEP)
+  {
+    return;
+  }
   let once = format_file(text, edition, &config);
   let found = verify_format(text, &once, edition);
   assert!(

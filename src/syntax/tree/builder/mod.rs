@@ -82,7 +82,8 @@ impl<'a> Sink<'a> {
       .is_some_and(|kind| attaches(kind, self.builder.parent_kind()))
     {
       self.pending_trivia();
-      let attached = attach::trailing(&self.trivia);
+      let at_end = self.pos + self.trivia.len() == self.tokens.len();
+      let attached = attach::trailing(&self.trivia, at_end);
       self.emit_raw(attached);
     }
     self.builder.finish_node();

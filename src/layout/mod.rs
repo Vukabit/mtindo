@@ -643,13 +643,29 @@ fn split_container(
     }
     if comment {
       // On the line of the item before, after the comments the tree gives it (a block
-      // comment followed by another), and with only comments after it there: it ends that
-      // item's line, so it moves with it. One with code after it belongs to neither.
+      // comment followed by another), and with only comments after it there, each ending
+      // on that line: it ends that item's line, so it moves with it. One with code after it,
+      // or a comment that runs onto the next line, belongs to neither.
       let line_end = text[end..].find('\n').map_or(text.len(), |at| end + at);
+      // Each block comment starting on the line ends on it.
+      let closes_on_line = || {
+        let mut at = end;
+        for t in tokenize(&text[end..], Edition::E2021) {
+          if at >= line_end {
+            break;
+          }
+          at += t.len as usize;
+          if t.kind == SyntaxKind::BlockComment && at > line_end {
+            return false;
+          }
+        }
+        true
+      };
       let ends_line = !text[start..end].contains('\n')
         && tokenize(&text[end..line_end], Edition::E2021)
           .iter()
-          .all(|t| t.kind.is_trivia());
+          .all(|t| t.kind.is_trivia())
+        && (!text[end..line_end].contains("/*") || closes_on_line());
       if loose.contains(&start)
         && ends_line
         && pending.is_empty()

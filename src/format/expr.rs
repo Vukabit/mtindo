@@ -4007,6 +4007,8 @@ fn rewrite_closure_once(node: &SyntaxNode, shape: Shape) -> Option<String> {
           plain_block(&body)
             .then(|| super::block::wrapped(&inside, body_shape))
             .flatten()
+            // Its statement kept as written, as the block's visitor keeps one that fails.
+            .or_else(|| super::block::rewrite_lines(&body, body_shape))
         })?,
         None => super::block::rewrite_lines(&body, body_shape)?,
       };

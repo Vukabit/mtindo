@@ -36,6 +36,19 @@ fn max_heuristics(max_width: usize) -> FormatConfig {
   }
 }
 
+/// A closure's block of one expression that fits no layout keeps its statement as written,
+/// its first line moved, as the standard formatter's block visitor keeps one it fails on;
+/// what holds the closure is still laid out.
+#[test]
+fn test_a_closure_block_whose_expression_fits_nowhere_keeps_it_as_written() {
+  assert_eq!(
+    formatted(
+      "fn f() {\n    {\n        {\n            let d = row\n                .map(|row| {\n                    <(i32, String) as FromSqlRow<\n                        (sql_types::Integer, sql_types::Text),\n                        _,\n                    >>::build_from_row(row)\n                    .unwrap()\n                });\n        }\n    }\n}\n"
+    ),
+    "fn f() {\n    {\n        {\n            let d = row.map(|row| {\n                <(i32, String) as FromSqlRow<\n                        (sql_types::Integer, sql_types::Text),\n                        _,\n                    >>::build_from_row(row)\n                    .unwrap()\n            });\n        }\n    }\n}\n"
+  );
+}
+
 /// A method chain overflowing a call keeps every chain inside it on one line, its closure's
 /// `match` included, up to a block's insides: a scrutinee or an arm that must break then
 /// puts the closure's body in a block.

@@ -292,6 +292,11 @@ fn test_each_allowed_rewrite() {
     "/// A long line that\n/// wraps.\nfn a() {}\n#[doc = \"Two words.\"]\nfn b() {}\n",
     "/// A long line\n/// that wraps.\nfn a() {}\n/// Two words.\nfn b() {}\n",
   );
+  // doc-text: `\t` and `\n` in a `#[doc]` string are the whitespace they stand for.
+  same(
+    "#[doc = \"a\\tb\\nc\"]\nfn b() {}\n",
+    "///a\tb\n///c\nfn b() {}\n",
+  );
   // comment-text: rewrapped and re-marked.
   same(
     "fn f() {} /* one two three */\n",

@@ -119,6 +119,8 @@ pub struct FormatConfig {
   pub try_shorthand: bool,
   /// `condense_wildcard_suffixes`: `(a, _, _)` written `(a, ..)`.
   pub condense_wildcards: bool,
+  /// `normalize_doc_attributes`: `#[doc = "a"]` written `///a`.
+  pub normalize_doc_attributes: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -192,6 +194,7 @@ impl Default for FormatConfig {
       float_trailing_zero: FloatTrailingZero::Preserve,
       try_shorthand: false,
       condense_wildcards: false,
+      normalize_doc_attributes: false,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

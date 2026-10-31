@@ -61,6 +61,24 @@ fn test_derives_merged_in_runs() {
   );
 }
 
+/// `#[doc = "..."]` written as doc comments, a line each, `//!` for an inner one; code after
+/// it on its line goes to the next. One with an escape doc comments cannot show plainly, or
+/// with a comment, is left as written.
+#[test]
+fn test_doc_attributes_normalized() {
+  let config = FormatConfig {
+    normalize_doc_attributes: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(
+      "#![doc = \" Crate\"]\n\n#[doc = \"One\\ntwo \\\"q\\\"\"]\n#[doc = \"\"]\n#[doc = \"\\u{1F600}\"]\nstruct A {\n    #[doc = \" field\"] b: i32,\n    #[doc = r#\"raw \"x\"\"#]\n    c: i32,\n}\n",
+      &config
+    ),
+    "//! Crate\n\n///One\n///two \"q\"\n///\n#[doc = \"\\u{1F600}\"]\nstruct A {\n    /// field\n    b: i32,\n    ///raw \"x\"\n    c: i32,\n}\n"
+  );
+}
+
 #[test]
 fn test_empty_statements_dropped() {
   let source = "fn f() {;\n    x();;\n    struct S {};\n}\n";

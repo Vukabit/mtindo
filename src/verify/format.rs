@@ -219,6 +219,7 @@ fn doc_attribute(attr: &SyntaxNode) -> Option<String> {
     .strip_prefix('"')?
     .strip_suffix('"')?
     .replace("\\n", " ")
+    .replace("\\t", " ")
     .replace("\\\"", "\"")
     .replace("\\\\", "\\");
   Some(doc_text(kind, &format!("///{}", inner)))

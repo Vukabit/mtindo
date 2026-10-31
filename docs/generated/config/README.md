@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 43
+  supported: 44
   partial: 27
-  missing: 34
+  missing: 33
   not_planned: 4
 ---
 
@@ -657,7 +657,7 @@ behavior, so the column does not apply to them.
 <code>normalize_doc_attributes</code></a></td>
 <td>rustfmt.toml</td>
 <td>Normalize doc attributes as doc comments.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="config.toml.md#outputcolor">

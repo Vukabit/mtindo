@@ -301,6 +301,37 @@ pub fn is_generated(text: &str, markers: &[String], limit: usize) -> bool {
   })
 }
 
+/// Whether an attribute is one a `#[rustfmt::skip::attributes(..)]` around it (or a file's
+/// `#![..]`) names: left exactly as written.
+pub(crate) fn skipped_attribute(attr: &SyntaxNode) -> bool {
+  if !SKIP_MARKS.with(|m| m.get().1) && CRATE_SKIPS.with(|names| names.borrow().1.is_empty()) {
+    return false;
+  }
+  let Some(path) = attr
+    .descendant_nodes_where(|kind| kind == SyntaxKind::Path)
+    .next()
+  else {
+    return false;
+  };
+  let name = path.text().to_string();
+  let name = name.split("::").next().unwrap_or("").trim().to_string();
+  if CRATE_SKIPS.with(|names| names.borrow().1.contains(&name)) {
+    return true;
+  }
+  attr.ancestors_iter().skip(1).any(|owner| {
+    owner
+      .children_iter()
+      .filter(|c| c.kind() == SyntaxKind::Attr && c != attr)
+      .any(|other| {
+        let text: String = other.text().to_string().split_whitespace().collect();
+        text
+          .split_once("rustfmt::skip::attributes(")
+          .and_then(|(_, rest)| rest.split_once(')'))
+          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
+      })
+  })
+}
+
 /// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names, or
 /// `skip_macro_invocations` does: left exactly as written.
 pub(crate) fn skipped_macro(call: &SyntaxNode) -> bool {
@@ -602,6 +633,23 @@ pub(super) fn style_2024() -> bool {
   STYLE.with(|e| e.get()) >= 2024
 }
 
+thread_local! {
+  /// `skip_macro_invocations` for the text being formatted.
+  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
+    const { std::cell::RefCell::new(Vec::new()) };
+  /// The crate root's skipped macros and attributes, for the text being formatted.
+  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
+    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
+  /// The edition of the text being formatted.
+  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
+  /// The style edition of the text being formatted.
+  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
+  /// Whether the text being formatted names macros, and attributes, to skip.
+  static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
+  /// Whether a statement or item was kept as written since [`format_file`] last looked.
+  static KEPT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// For a struct's fields, an enum's variants or a match's arms laid out one per line from
 /// column `indent`, the spaces before each item's comment after it on its line, as a list's
 /// are aligned (`write_list`); `None` where there is none.
@@ -656,23 +704,6 @@ fn align_list_comments(
     config.max_width,
     list.kind() != SyntaxKind::MatchArmList,
   ))
-}
-
-thread_local! {
-  /// `skip_macro_invocations` for the text being formatted.
-  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
-    const { std::cell::RefCell::new(Vec::new()) };
-  /// The crate root's skipped macros and attributes, for the text being formatted.
-  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
-    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
-  /// The edition of the text being formatted.
-  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
-  /// The style edition of the text being formatted.
-  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
-  /// Whether the text being formatted names macros, and attributes, to skip.
-  static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
-  /// Whether a statement or item was kept as written since [`format_file`] last looked.
-  static KEPT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Whether the comment after the whitespace `tokens[i]`, which follows an attribute's `]`
@@ -1462,6 +1493,18 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     root = parse(&written, edition).syntax_node();
     text = Cow::Owned(written);
   }
+  // `#[doc = "..."]` written as the doc comment it is (`normalize_doc_attributes`).
+  let (text, root) = match config
+    .normalize_doc_attributes
+    .then(|| crate::format::reorder::doc_attributes(&root, &text))
+    .flatten()
+  {
+    Some(written) => {
+      let root = parse(&written, edition).syntax_node();
+      (Cow::Owned(written), root)
+    }
+    None => (text, root),
+  };
   // A tuple pattern's last wildcards written `..` (`condense_wildcard_suffixes`).
   let (text, root) = match config
     .condense_wildcards
@@ -4499,37 +4542,6 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   }
   roles.verbatim = merged;
   roles
-}
-
-/// Whether an attribute is one a `#[rustfmt::skip::attributes(..)]` around it (or a file's
-/// `#![..]`) names: left exactly as written.
-fn skipped_attribute(attr: &SyntaxNode) -> bool {
-  if !SKIP_MARKS.with(|m| m.get().1) && CRATE_SKIPS.with(|names| names.borrow().1.is_empty()) {
-    return false;
-  }
-  let Some(path) = attr
-    .descendant_nodes_where(|kind| kind == SyntaxKind::Path)
-    .next()
-  else {
-    return false;
-  };
-  let name = path.text().to_string();
-  let name = name.split("::").next().unwrap_or("").trim().to_string();
-  if CRATE_SKIPS.with(|names| names.borrow().1.contains(&name)) {
-    return true;
-  }
-  attr.ancestors_iter().skip(1).any(|owner| {
-    owner
-      .children_iter()
-      .filter(|c| c.kind() == SyntaxKind::Attr && c != attr)
-      .any(|other| {
-        let text: String = other.text().to_string().split_whitespace().collect();
-        text
-          .split_once("rustfmt::skip::attributes(")
-          .and_then(|(_, rest)| rest.split_once(')'))
-          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
-      })
-  })
 }
 
 /// What of a skipped impl or trait member is left as written: the standard formatter writes

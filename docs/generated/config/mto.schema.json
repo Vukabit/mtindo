@@ -421,7 +421,7 @@
       "default": false
     },
     "normalize_doc_attributes": {
-      "description": "Convert `#![doc]` and `#[doc]` attributes to `//!` and `///` doc comments.\n\nIn mto: missing.",
+      "description": "Convert `#![doc]` and `#[doc]` attributes to `//!` and `///` doc comments.\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

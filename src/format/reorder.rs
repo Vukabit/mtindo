@@ -253,6 +253,126 @@ pub fn control_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) ->
   (out != text).then_some(out)
 }
 
+/// `text` with each `#[doc = "..."]` (and `#![doc = "..."]`) written as doc comments, `///`
+/// (`//!`) then each line of the string (the standard formatter's `DocCommentFormatter`);
+/// `None` when there is none. Only a string whose escapes are `\n`, `\t`, `\"` and `\\`, or a
+/// raw string without `\`; not one with a comment, a skipped attribute, nor in a
+/// `// mto: off` region or a skipped item.
+pub fn doc_attributes(root: &SyntaxNode, text: &str) -> Option<String> {
+  if !text.contains("doc") {
+    return None;
+  }
+  let off = off_regions(root);
+  let mut changes: Vec<(usize, usize, String)> = Vec::new();
+  for attr in root.descendant_nodes_where(|kind| kind == K::Attr) {
+    let tokens: Vec<(SyntaxKind, &str)> = attr
+      .token_texts()
+      .filter(|(kind, _, _)| *kind != K::Whitespace)
+      .map(|(kind, text, _)| (kind, text))
+      .collect();
+    let (marker, string) = match tokens.as_slice() {
+      [
+        (_, "#"),
+        (_, "["),
+        (_, "doc"),
+        (_, "="),
+        (kind, string),
+        (_, "]"),
+      ] => ("///", (*kind, *string)),
+      [
+        (_, "#"),
+        (_, "!"),
+        (_, "["),
+        (_, "doc"),
+        (_, "="),
+        (kind, string),
+        (_, "]"),
+      ] => ("//!", (*kind, *string)),
+      _ => continue,
+    };
+    let value = match string {
+      (K::Str, s) => {
+        let inner = &s[1..s.len() - 1];
+        let mut value = String::with_capacity(inner.len());
+        let mut chars = inner.chars();
+        let mut plain = true;
+        while let Some(c) = chars.next() {
+          if c != '\\' {
+            value.push(c);
+            continue;
+          }
+          match chars.next() {
+            Some('n') => value.push('\n'),
+            Some('t') => value.push('\t'),
+            Some('"') => value.push('"'),
+            Some('\\') => value.push('\\'),
+            _ => plain = false,
+          }
+        }
+        if !plain {
+          continue;
+        }
+        value
+      }
+      (K::RawStr, s) if !s.contains('\\') => {
+        let hashes = s[1..].bytes().take_while(|&b| b == b'#').count();
+        s[2 + hashes..s.len() - 1 - hashes].to_string()
+      }
+      _ => continue,
+    };
+    if value.contains('\r') {
+      continue;
+    }
+    let range = attr.text_range();
+    let (start, end) = (range.start as usize, range.end as usize);
+    if off.iter().any(|&(s, e)| s < end && start < e)
+      || skipped_within(&attr)
+      || crate::format::file::skipped_attribute(&attr)
+    {
+      continue;
+    }
+    // Later lines at the attribute's line's indentation, and the code after it on a line of
+    // its own.
+    let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let indent: String = text[line_start..start]
+      .chars()
+      .take_while(|c| c.is_whitespace())
+      .collect();
+    let mut comment = String::new();
+    let mut lines = value.lines().peekable();
+    if lines.peek().is_none() {
+      comment.push_str(marker);
+    }
+    while let Some(line) = lines.next() {
+      comment.push_str(marker);
+      comment.push_str(line);
+      if lines.peek().is_some() {
+        comment.push('\n');
+        comment.push_str(&indent);
+      }
+    }
+    let rest = &text[end..];
+    let line_rest = &rest[..rest.find('\n').unwrap_or(rest.len())];
+    if !line_rest.trim().is_empty() {
+      comment.push('\n');
+      comment.push_str(&indent);
+    }
+    changes.push((start, end, comment));
+  }
+  if changes.is_empty() {
+    return None;
+  }
+  let mut out = String::with_capacity(text.len());
+  let mut from = 0;
+  for (start, end, rewritten) in changes {
+    out.push_str(&text[from..start]);
+    out.push_str(&rewritten);
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text` without the `use` declarations of empty lists (`use a::{};`, `use a::{b::{}};`),
 /// each with its line when it stands alone there, which the standard formatter drops when it
 /// reorders imports; `None` when there are none. Kept: one with attributes or a comment, one

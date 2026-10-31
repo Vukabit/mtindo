@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 26
+  supported: 27
   partial: 26
-  missing: 34
+  missing: 33
   not_planned: 4
 ---
 
@@ -719,7 +719,7 @@ Convert `#![doc]` and `#[doc]` attributes to `//!` and `///` doc comments.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `overflow_delimited_expr`
 

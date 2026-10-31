@@ -351,6 +351,7 @@ impl Config {
     config.try_shorthand = flag("use_try_shorthand", false);
     config.match_arm_blocks = flag("match_arm_blocks", true);
     config.force_multiline_blocks = flag("force_multiline_blocks", false);
+    config.overflow_delimited_expr = flag("overflow_delimited_expr", false);
     config.empty_item_single_line = flag("empty_item_single_line", true);
     config.fn_single_line = flag("fn_single_line", false);
     config.where_single_line = flag("where_single_line", false);

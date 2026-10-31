@@ -141,6 +141,9 @@ pub struct FormatConfig {
   pub match_arm_blocks: bool,
   /// `force_multiline_blocks`: an arm's or closure's body on lines is put in a block.
   pub force_multiline_blocks: bool,
+  /// `overflow_delimited_expr`: a struct literal, array, `match` or bracketed macro call
+  /// overflows the last of any number of arguments.
+  pub overflow_delimited_expr: bool,
   /// `empty_item_single_line`: an empty function, impl or trait body written `{}`.
   pub empty_item_single_line: bool,
   /// `fn_single_line`: a function of one simple statement on one line.
@@ -233,6 +236,7 @@ impl Default for FormatConfig {
       binop_back: false,
       match_arm_blocks: true,
       force_multiline_blocks: false,
+      overflow_delimited_expr: false,
       empty_item_single_line: true,
       fn_single_line: false,
       where_single_line: false,

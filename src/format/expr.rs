@@ -301,8 +301,10 @@ pub fn binary_operator(node: &SyntaxNode) -> Option<String> {
 
 /// Whether the last of `count` arguments may overflow: a closure or block always; a call,
 /// struct literal, array or tuple when it is the only argument; an `if`, `for`, `loop` or
-/// `while` then too, with `combine_control_expr` (`control`). Never one with attributes.
-pub fn can_overflow(node: &SyntaxNode, count: usize, control: bool) -> bool {
+/// `while` then too, with `combine_control_expr` (`control`); a struct literal, array,
+/// `match` or macro call in brackets or braces whatever the count with
+/// `overflow_delimited_expr` (`delimited`). Never one with attributes.
+pub fn can_overflow(node: &SyntaxNode, count: usize, control: bool, delimited: bool) -> bool {
   if element_attributes(node).is_none_or(|a| !a.is_empty()) {
     return false;
   }
@@ -320,6 +322,17 @@ pub fn can_overflow(node: &SyntaxNode, count: usize, control: bool) -> bool {
     {
       false
     }
+    SyntaxKind::RecordExpr | SyntaxKind::ArrayExpr | SyntaxKind::MatchExpr if delimited => true,
+    SyntaxKind::MacroExpr
+      if delimited
+        && node
+          .descendant_nodes_where(|kind| kind == SyntaxKind::TokenTree)
+          .next()
+          .and_then(|tree| tree.first_token())
+          .is_some_and(|t| matches!(t.kind(), SyntaxKind::LBrack | SyntaxKind::LBrace)) =>
+    {
+      true
+    }
     SyntaxKind::RecordExpr
     | SyntaxKind::ArrayExpr
     | SyntaxKind::CallExpr
@@ -335,12 +348,12 @@ pub fn can_overflow(node: &SyntaxNode, count: usize, control: bool) -> bool {
     SyntaxKind::RefPat | SyntaxKind::BoxPat => node
       .children()
       .first()
-      .is_some_and(|c| can_overflow(c, count, control)),
+      .is_some_and(|c| can_overflow(c, count, control, delimited)),
     SyntaxKind::RefExpr | SyntaxKind::TryExpr | SyntaxKind::PrefixExpr | SyntaxKind::CastExpr => {
       node
         .children()
         .first()
-        .is_some_and(|c| can_overflow(c, count, control))
+        .is_some_and(|c| can_overflow(c, count, control, delimited))
     }
     _ => false,
   }
@@ -3046,7 +3059,12 @@ fn measured_list(
         || if super::types::is_type(items[last].kind()) {
           super::types::can_overflow_type(&items[last], items.len())
         } else {
-          can_overflow(&items[last], items.len(), shape.limits.combine_control_expr)
+          can_overflow(
+            &items[last],
+            items.len(),
+            shape.limits.combine_control_expr,
+            shape.limits.overflow_delimited_expr,
+          )
         });
     // A method chain overflowing a list it is not combined with keeps its links on one
     // line, though its last call's arguments may break (the standard formatter's

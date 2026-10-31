@@ -426,7 +426,7 @@
       "default": false
     },
     "overflow_delimited_expr": {
-      "description": "When structs, slices, arrays, and block/array-like macros are used as the last argument in an expression list, allow them to overflow (like blocks/closures) instead of being indented on a new line.\n\nIn mto: missing.",
+      "description": "When structs, slices, arrays, and block/array-like macros are used as the last argument in an expression list, allow them to overflow (like blocks/closures) instead of being indented on a new line.\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

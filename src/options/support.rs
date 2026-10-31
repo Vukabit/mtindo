@@ -61,7 +61,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("newline_style", "supported"),
   ("normalize_comments", "missing"),
   ("normalize_doc_attributes", "supported"),
-  ("overflow_delimited_expr", "missing"),
+  ("overflow_delimited_expr", "supported"),
   ("print_misformatted_file_names", "missing"),
   ("remove_nested_parens", "supported"),
   ("reorder_impl_items", "supported"),

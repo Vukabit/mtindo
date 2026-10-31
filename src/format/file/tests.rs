@@ -1213,6 +1213,23 @@ fn test_nested_tuple_fields_spaced() {
   );
 }
 
+/// With `overflow_delimited_expr`, a struct literal or a bracketed macro call last among
+/// several arguments overflows them, as a closure does.
+#[test]
+fn test_overflow_delimited_expr() {
+  let config = FormatConfig {
+    overflow_delimited_expr: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    foo(a, Bar { x: xxxxxxxxxxxxxxxxxxxxxxxxxxxx, y: yyyyyyyyyyyyyyyyyyyyyyyyyyy, z: zzzzzzzzzzzzzzzzzzz });\n    foo(a, vec![xxxxxxxxxxxxxxxxxxxxxxxxxxxx, yyyyyyyyyyyyyyyyyyyyyyyyyyy, zzzzzzzzzzzzzzzzzzzzzzzzzz]);\n}\n",
+      &config
+    ),
+    "fn f() {\n    foo(a, Bar {\n        x: xxxxxxxxxxxxxxxxxxxxxxxxxxxx,\n        y: yyyyyyyyyyyyyyyyyyyyyyyyyyy,\n        z: zzzzzzzzzzzzzzzzzzz,\n    });\n    foo(a, vec![\n        xxxxxxxxxxxxxxxxxxxxxxxxxxxx,\n        yyyyyyyyyyyyyyyyyyyyyyyyyyy,\n        zzzzzzzzzzzzzzzzzzzzzzzzzz,\n    ]);\n}\n"
+  );
+}
+
 #[test]
 fn test_parameter_and_tuple_field_attributes() {
   // An attribute too long for the parameter's line goes on a line of its own; one

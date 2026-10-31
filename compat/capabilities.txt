@@ -64,7 +64,7 @@ option  merge_imports                                    not-planned  # deprecat
 option  newline_style                                    supported    # with format = true (src/format/file/tests.rs)
 option  normalize_comments                               missing
 option  normalize_doc_attributes                         supported    # with format = true (src/format/reorder/tests.rs)
-option  overflow_delimited_expr                          missing
+option  overflow_delimited_expr                          supported    # with format = true (src/format/file/tests.rs)
 option  print_misformatted_file_names                    missing
 option  remove_nested_parens                             supported    # with format = true, parentheses directly inside parentheses dropped when no comment is among them (src/format/file/tests.rs)
 option  reorder_impl_items                               supported    # as rustfmt nightly applies it (src/layout/tests.rs; corpus check agreement)

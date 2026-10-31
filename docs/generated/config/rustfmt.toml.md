@@ -13,8 +13,8 @@ keys:
   hidden: 7
 in_mto:
   supported: 42
-  partial: 26
-  missing: 18
+  partial: 27
+  missing: 17
   not_planned: 4
 ---
 
@@ -580,12 +580,14 @@ Indent on expressions or items.
 *   Default: `"Block"`; from style edition 2024: `"Block"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: partial. With format = true, Block only; Visual is planned future
+    work on indentation styles.
 *   Values:
     *   `Visual`: First line on the same line as the opening brace, all lines
-        aligned with the first line.
+        aligned with the first line. In mto: missing. Planned future work on
+        indentation styles, after 0.1.0.
     *   `Block`: First line is on a new line and all lines align with **block**
-        indent.
+        indent. In mto: supported. The only layout mto writes.
 
 ### `inline_attribute_width`
 
@@ -963,13 +965,17 @@ Controls the edition of the Rust Style Guide to use for formatting (RFC 3338)
 *   In mto: partial. Resolved as the standard formatter resolves it and decides
     the defaults; import order follows it.
 *   Values:
-    *   `2015`: Edition 2015. In mto: missing.
-    *   `2018`: Edition 2018. In mto: missing.
-    *   `2021`: Edition 2021. In mto: missing.
-    *   `2024`: Edition 2024. In mto: missing.
+    *   `2015`: Edition 2015. In mto: supported. Resolved as the standard
+        formatter resolves it.
+    *   `2018`: Edition 2018. In mto: supported. Resolved as the standard
+        formatter resolves it.
+    *   `2021`: Edition 2021. In mto: supported. Resolved as the standard
+        formatter resolves it.
+    *   `2024`: Edition 2024. In mto: supported. Resolved as the standard
+        formatter resolves it.
     *   `2027`: Edition 2027. In the standard formatter: unstable in 1.10.0
         (stable channel), unstable in 1.11.0-nightly (nightly channel). In mto:
-        missing.
+        supported. Resolved as the standard formatter resolves it.
 
 ### `tab_spaces`
 

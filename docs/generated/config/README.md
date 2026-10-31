@@ -15,8 +15,8 @@ keys:
   user: 12
 in_mto:
   supported: 59
-  partial: 27
-  missing: 18
+  partial: 28
+  missing: 17
   not_planned: 4
 ---
 
@@ -549,7 +549,7 @@ behavior, so the column does not apply to them.
 <code>indent_style</code></a></td>
 <td>rustfmt.toml</td>
 <td>How do we indent expressions or items.</td>
-<td>missing</td>
+<td>partial</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#inline_attribute_width">

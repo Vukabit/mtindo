@@ -2,6 +2,16 @@
 //! edit. How far mto honors each of the standard formatter's options, for
 //! `mto config options`.
 
+/// The values not honored yet of the options honored in part (`partial`), as (option,
+/// value), sorted.
+pub const MISSING_VALUES: &[(&str, &str)] = &[
+  ("group_imports", "One"),
+  ("group_imports", "Preserve"),
+  ("group_imports", "StdExternalCrate"),
+  ("indent_style", "Visual"),
+  ("trailing_comma", "Always"),
+];
+
 /// Each option's name and status (`supported`, `partial`, `missing`, `not-planned`),
 /// sorted by name.
 pub const OPTIONS: &[(&str, &str)] = &[
@@ -48,7 +58,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("imports_granularity", "supported"),
   ("imports_indent", "missing"),
   ("imports_layout", "partial"),
-  ("indent_style", "missing"),
+  ("indent_style", "partial"),
   ("inline_attribute_width", "supported"),
   ("make_backup", "not-planned"),
   ("match_arm_blocks", "supported"),

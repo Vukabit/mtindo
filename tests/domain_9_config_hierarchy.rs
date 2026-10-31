@@ -117,13 +117,15 @@ fn test_malformed_toml_handling() {
 }
 
 /// A standard setting mto does not honor yet, set to anything but its default, is said to
-/// be ignored; one at its default, and one mto honors, say nothing.
+/// be ignored, as is a value not honored yet of one honored in part; one at its default,
+/// and one mto honors, say nothing.
 #[test]
 fn test_settings_mto_does_not_honor_are_reported() {
   let env = TestEnvironment::new();
   fs::write(
     env.dir.path().join("rustfmt.toml"),
-    "format_strings = true\nwrap_comments = false\nmax_width = 90\n",
+    "format_strings = true\nwrap_comments = false\nmax_width = 90\nindent_style = \"Visual\"\n\
+     trailing_comma = \"Vertical\"\n",
   )
   .unwrap();
   fs::write(env.dir.path().join("a.rs"), "fn f() {}\n").unwrap();
@@ -135,7 +137,14 @@ fn test_settings_mto_does_not_honor_are_reported() {
     stderr
   );
   assert!(
-    !stderr.contains("wrap_comments") && !stderr.contains("max_width"),
+    stderr.contains("`indent_style = \"Visual\"` is not honored by mto yet"),
+    "{}",
+    stderr
+  );
+  assert!(
+    !stderr.contains("wrap_comments")
+      && !stderr.contains("max_width")
+      && !stderr.contains("trailing_comma"),
     "{}",
     stderr
   );

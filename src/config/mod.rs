@@ -839,6 +839,19 @@ impl Resolver {
             source, name
           ));
         }
+        // An option honored in part, set to a value that is not.
+        if let Value::Text(text) = value
+          && honored
+          && !default
+          && !matches!(source, Source::Default | Source::Derived(_))
+          && options::support::MISSING_VALUES.contains(&(&**name, &**text))
+        {
+          self.warn(format!(
+            "{}: `{} = \"{}\"` is not honored by mto yet, so it is ignored (`mto config \
+             options` lists what is)",
+            source, name, text
+          ));
+        }
       }
     }
 

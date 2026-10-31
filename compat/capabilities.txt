@@ -51,7 +51,7 @@ option  ignore                                           partial      # mto.toml
 option  imports_granularity                              supported    # with format = true (src/format/reorder/tests.rs)
 option  imports_indent                                   missing
 option  imports_layout                                   partial      # with format = true, for use declarations; Horizontal leaves a list too wide for its line as written (src/format/imports/tests.rs)
-option  indent_style                                     missing
+option  indent_style                                     partial      # with format = true, Block only; Visual is planned future work on indentation styles
 option  inline_attribute_width                           supported    # with format = true (src/format/reorder/tests.rs)
 option  make_backup                                      not-planned  # every run that writes files is recorded in history; `mto restore` undoes it
 option  match_arm_blocks                                 supported    # with format = true (src/format/file/tests.rs)
@@ -144,8 +144,8 @@ value   imports_layout=Horizontal                        partial      # with for
 value   imports_layout=HorizontalVertical                supported    # with format = true, for use declarations (src/format/imports/tests.rs)
 value   imports_layout=Mixed                             supported    # with format = true, for use declarations (src/format/imports/tests.rs)
 value   imports_layout=Vertical                          supported    # with format = true, for use declarations (src/format/imports/tests.rs)
-value   indent_style=Block                               missing
-value   indent_style=Visual                              missing
+value   indent_style=Block                               supported    # the only layout mto writes (src/format/file/tests.rs)
+value   indent_style=Visual                              missing      # planned future work on indentation styles, after 0.1.0
 value   match_arm_leading_pipes=Always                   supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
 value   match_arm_leading_pipes=Never                    supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
 value   match_arm_leading_pipes=Preserve                 supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
@@ -153,11 +153,11 @@ value   newline_style=Auto                               supported    # with for
 value   newline_style=Native                             supported    # with format = true; the platform's ending, as Unix or Windows (src/format/file/tests.rs)
 value   newline_style=Unix                               supported    # with format = true (src/format/file/tests.rs)
 value   newline_style=Windows                            supported    # with format = true (src/format/file/tests.rs)
-value   style_edition=2015                               missing
-value   style_edition=2018                               missing
-value   style_edition=2021                               missing
-value   style_edition=2024                               missing
-value   style_edition=2027                               missing
+value   style_edition=2015                               supported    # resolved as rustfmt resolves it (src/config/tests.rs)
+value   style_edition=2018                               supported    # resolved as rustfmt resolves it (src/config/tests.rs)
+value   style_edition=2021                               supported    # resolved as rustfmt resolves it (src/config/tests.rs)
+value   style_edition=2024                               supported    # resolved as rustfmt resolves it (src/config/tests.rs)
+value   style_edition=2027                               supported    # resolved as rustfmt resolves it (src/config/tests.rs)
 value   trailing_comma=Always                            missing
 value   trailing_comma=Never                             partial      # with format = true, no comma added after the last field or variant (src/format/items/tests.rs)
 value   trailing_comma=Vertical                          partial      # with format = true, for struct fields and enum variants (src/format/items/tests.rs)

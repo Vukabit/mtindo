@@ -355,7 +355,7 @@
       "default": "Mixed"
     },
     "indent_style": {
-      "description": "Indent on expressions or items.\n\nIn mto: missing.",
+      "description": "Indent on expressions or items.\n\nIn mto: partial. With format = true, Block only; Visual is planned future work on indentation styles.",
       "type": "string",
       "enum": ["Visual", "Block"],
       "default": "Block"

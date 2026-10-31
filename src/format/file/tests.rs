@@ -870,6 +870,22 @@ fn test_for_head_with_commented_array() {
   );
 }
 
+/// With `force_multiline_blocks`, an arm's or a closure's body on lines is put in a block.
+#[test]
+fn test_force_multiline_blocks() {
+  let config = FormatConfig {
+    force_multiline_blocks: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn main() {\n    match lorem {\n        Lorem::Ipsum => if ipsum {\n            println!(\"dolor\");\n        },\n        Lorem::Dolor => println!(\"amet\"),\n    }\n    result.and_then(|maybe_value| match maybe_value {\n        None => Err(\"oops\"),\n        Some(value) => Ok(1),\n    });\n}\n",
+      &config
+    ),
+    "fn main() {\n    match lorem {\n        Lorem::Ipsum => {\n            if ipsum {\n                println!(\"dolor\");\n            }\n        }\n        Lorem::Dolor => println!(\"amet\"),\n    }\n    result.and_then(|maybe_value| {\n        match maybe_value {\n            None => Err(\"oops\"),\n            Some(value) => Ok(1),\n        }\n    });\n}\n"
+  );
+}
+
 #[test]
 fn test_imports_of_nothing_dropped() {
   // A `use` of an empty list goes, with its line.

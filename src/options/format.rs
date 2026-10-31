@@ -139,6 +139,8 @@ pub struct FormatConfig {
   pub binop_back: bool,
   /// `match_arm_blocks`: an arm's body on the next line is put in a block.
   pub match_arm_blocks: bool,
+  /// `force_multiline_blocks`: an arm's or closure's body on lines is put in a block.
+  pub force_multiline_blocks: bool,
   /// `empty_item_single_line`: an empty function, impl or trait body written `{}`.
   pub empty_item_single_line: bool,
   /// `fn_single_line`: a function of one simple statement on one line.
@@ -228,6 +230,7 @@ impl Default for FormatConfig {
       control_brace_style: ControlBraceStyle::AlwaysSameLine,
       binop_back: false,
       match_arm_blocks: true,
+      force_multiline_blocks: false,
       empty_item_single_line: true,
       fn_single_line: false,
       inline_attribute_width: 0,

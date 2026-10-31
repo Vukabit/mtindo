@@ -33,7 +33,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("fn_params_layout", "partial"),
   ("fn_single_line", "supported"),
   ("force_explicit_abi", "supported"),
-  ("force_multiline_blocks", "missing"),
+  ("force_multiline_blocks", "supported"),
   ("format_code_in_doc_comments", "missing"),
   ("format_generated_files", "supported"),
   ("format_macro_bodies", "supported"),

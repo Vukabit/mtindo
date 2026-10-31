@@ -1937,7 +1937,9 @@ fn closure_expression(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
   // One that may not span lines but holds what is always laid out on lines (a `match`'s
   // arms, a block of statements) is refused before it is laid out: closures nested in
   // closures would each lay out all the rest only to refuse it, at every level.
-  let multi_line = multi_line_body(body) || shape.limits.inside_macro;
+  // Never with `force_multiline_blocks` (`veto_multiline`).
+  let multi_line =
+    (multi_line_body(body) || shape.limits.inside_macro) && !shape.limits.force_multiline_blocks;
   if !multi_line && must_span_lines(body) {
     return None;
   }

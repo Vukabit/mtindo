@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 52
+  supported: 53
   partial: 27
-  missing: 25
+  missing: 24
   not_planned: 4
 ---
 
@@ -365,7 +365,7 @@ behavior, so the column does not apply to them.
 <code>force_multiline_blocks</code></a></td>
 <td>rustfmt.toml</td>
 <td>Force multiline closure bodies and match arms to be wrapped in a block.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="mto.toml.md#format">

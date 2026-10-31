@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 35
+  supported: 36
   partial: 26
-  missing: 25
+  missing: 24
   not_planned: 4
 ---
 
@@ -383,7 +383,7 @@ Force multiline closure and match arm bodies to be wrapped in a block
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `format_code_in_doc_comments`
 

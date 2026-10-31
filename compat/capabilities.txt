@@ -36,7 +36,7 @@ option  fn_call_width                                    partial      # with for
 option  fn_params_layout                                 partial      # with format = true, Tall only (src/format/items/tests.rs)
 option  fn_single_line                                   supported    # with format = true (src/format/reorder/tests.rs)
 option  force_explicit_abi                               supported    # with format = true, `extern` alone written `extern "C"` on functions, blocks and function pointer types (src/format/reorder/tests.rs)
-option  force_multiline_blocks                           missing
+option  force_multiline_blocks                           supported    # with format = true (src/format/file/tests.rs)
 option  format_code_in_doc_comments                      missing
 option  format_generated_files                           supported    # with format = true; also on stdin, which the standard formatter does not check (src/format/file/tests.rs)
 option  format_macro_bodies                              supported    # with format = true: rules laid out, transcribers as written (src/format/macros/tests.rs)

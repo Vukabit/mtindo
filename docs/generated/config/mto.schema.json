@@ -273,7 +273,7 @@
       "default": true
     },
     "force_multiline_blocks": {
-      "description": "Force multiline closure and match arm bodies to be wrapped in a block\n\nIn mto: missing.",
+      "description": "Force multiline closure and match arm bodies to be wrapped in a block\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

@@ -350,6 +350,7 @@ impl Config {
     config.struct_lit_single_line = flag("struct_lit_single_line", true);
     config.try_shorthand = flag("use_try_shorthand", false);
     config.match_arm_blocks = flag("match_arm_blocks", true);
+    config.force_multiline_blocks = flag("force_multiline_blocks", false);
     config.empty_item_single_line = flag("empty_item_single_line", true);
     config.fn_single_line = flag("fn_single_line", false);
     config.condense_wildcards = flag("condense_wildcard_suffixes", false);

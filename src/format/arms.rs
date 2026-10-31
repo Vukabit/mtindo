@@ -156,6 +156,7 @@ pub fn rewrite_arm_in(
   // line.
   let control_head = (matches!(body.kind(), K::MatchExpr | K::LoopExpr)
     && !forbid_same_line
+    && !config.force_multiline_blocks
     && written_comma.is_some()
     && *body == written_body)
     .then(|| rewrite_control_head(body, indent, indent + used + 4, config))
@@ -361,7 +362,8 @@ pub fn rewrite_arm_in(
             ))
           };
           let on_line = |same: String| Arm::Whole(format!("{}{}{},", lhs, arrow, same));
-          let extend = extends(body);
+          // Not beside `=>` across lines with `force_multiline_blocks` (`flatten_arm_body`).
+          let extend = !config.force_multiline_blocks && extends(body);
           match (same, next) {
             (Some(same), Some(next)) if prefer_next_line(&same, &next) => next_line(next),
             (Some(same), _) if extend && first_line_width(&same) <= budget => on_line(same),

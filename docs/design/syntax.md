@@ -68,9 +68,10 @@ from 2018 and `gen { }` blocks from 2024. A word that is not a keyword in the
 edition is an ordinary name, so `async` can name a function in 2015.
 
 mto picks the edition by trial. `parse_any_edition` in `src/layout/mod.rs`
-parses with 2021, then 2018, 2015 and 2024, and keeps the first parse without
-errors. Code valid only in an older edition still parses; when no edition
-parses cleanly, the 2021 result stands.
+parses with the configured edition first and keeps that parse when it has no
+errors; failing that, it tries 2021, 2018, 2015 and 2024 and keeps the first
+parse without errors. Code valid only in an older edition still parses; when
+no edition parses cleanly, the configured edition's result stands.
 
 ## The parser and its events
 
@@ -113,15 +114,17 @@ turns the errors into the reason given to the user.
 ## The tree
 
 `src/syntax/tree/` holds a red/green tree. The green side (`green.rs`) is the
-data: kinds, lengths and children. A whole parse is one `Arena` holding the
-text, every node's children side by side in one vector, and every token in
-text order, so a node's tokens are a slice read without walking down. Building
-is appending, and dropping a tree frees a few vectors however deep it nests. A
-`GreenNode` is a reference-counted arena and a node id.
+data: kinds, lengths and children, and each node's start and parent. A whole
+parse is one `Arena` holding the text, every node's children side by side in one
+vector, and every token in text order, so a node's tokens are a slice read
+without walking down. Building is appending, and dropping a tree frees a few
+vectors however deep it nests. A `GreenNode` is a reference-counted arena and a
+node id.
 
 The red side (`red.rs`) is the handle the rest of mto uses. A `SyntaxNode`
-adds a parent and an offset in the file, both worked out on the way down from
-the root, and is made only when reached. Walks such as `descendants_where` and
+is an entry in the arena: the counted arena and a node id. The arena records
+each node's parent and start, so a handle needs nothing more, and making one
+allocates nothing. Walks such as `descendants_where` and
 `token_texts` create handles only for what they return.
 
 The tree is lossless: every token's text is a slice of the parsed text, and a

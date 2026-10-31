@@ -30,6 +30,8 @@ Generated from the code and the recorded measurements; never edited by hand.
   default, and a JSON Schema of `mto.toml`.
 * [Manual](generated/manual.md): every command, flag, setting and value, as
   `mto --man` prints it.
+* [Development commands](generated/commands.md): every `cargo xtask`
+  command and its arguments.
 * [Metrics](generated/metrics/README.md): compatibility, speed, memory,
   fuzzing and more, as measured.
 
@@ -37,8 +39,12 @@ Generated from the code and the recorded measurements; never edited by hand.
 
 How `mto` works inside: the [design pages](design/README.md).
 
-## Development and credits
+## Project
 
-* [CONTRIBUTING.md](../CONTRIBUTING.md): building, testing, fuzzing,
-  benchmarking, and every development command.
+* [CHANGELOG.md](../CHANGELOG.md): what each release changed.
+* [CONTRIBUTING.md](../CONTRIBUTING.md): setting up, what a change keeps
+  true, commits, and the checks.
+* [MAINTAINING.md](../MAINTAINING.md): cutting and fixing releases, tool
+  pins, credentials and the repository's settings.
+* [SECURITY.md](../SECURITY.md): reporting a security problem.
 * [CREDITS.md](../CREDITS.md): everything `mto` builds on or tests against.

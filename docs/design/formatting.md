@@ -14,11 +14,14 @@ places formatting among the other parts of mto.
 
 ## The file pass
 
-`format_file` in `src/format/file.rs` opens the layout memo, keeps the
-edition, style edition and macros to skip in thread-local cells, and runs
-`format_text_with`. That returns the input unchanged under
-`disable_all_formatting`, for a generated file (an `@generated` marker near
-the top) unless `format_generated_files` is on, for a lone carriage return, a
+`format_file` in `src/format/file.rs` runs one pass, `format_text`, and runs
+it again on its own output, at most twice more, when a statement was kept as
+written or a list holds a comment, keeping the text it settles on. Each pass
+opens the layout memo, keeps the edition, style edition and macros to skip
+in thread-local cells, and runs `format_text_with`. That returns the input
+unchanged under `disable_all_formatting`, for a generated file (a comment
+near the top holding one of `generated_markers`) unless
+`format_generated_files` is on, for a lone carriage return, a
 parse error, or a file that skips itself with an inner `#[rustfmt::skip]`.
 
 It then applies text rewrites, each in `src/format/reorder.rs`, each followed by
@@ -54,7 +57,7 @@ byte offset:
   above them and move by as much as it moved, so a multi-line expression keeps
   its shape.
 - **Verbatim regions.** Ranges written out exactly as they are: anything under
-  `#[rustfmt::skip]`, `// mto: off` to `// mto: on` (or the file's end),
+  `#[rustfmt::skip]`, `// mto: off` regions as `syntax::marker` finds them,
   `macro_rules!` definitions whose rules cannot be formatted, attributes that do
   not read as names and values, comments the standard formatter cannot place,
   and statements with a written line past `max_width` that are not laid out
@@ -184,7 +187,7 @@ holds it, at every level of nesting. `RewriteMemo` in
 `src/format/expr.rs` holds, per thread and per file, the result of `rewrite`
 for each node identity and shape, plus macro arguments as read, flat texts and
 yes-or-no answers about nodes. It keeps the trees alive so no node identity is
-reused, and frees them when `format_file` returns. Nodes under 16 bytes are
+reused, and frees them when each pass returns. Nodes under 16 bytes are
 not stored, since laying them out is cheaper than the lookup.
 
 `remembered_block` keys a block's layout by only the part of the shape it
@@ -197,7 +200,9 @@ indentation. These keep deep nesting from growing exponentially.
 ## A second run changes nothing
 
 The formatter's output must be its own fixed point. Where the standard
-formatter is unstable, mto takes the settled result in one run. It merges
+formatter is unstable, mto takes the settled result in one run: the file
+pass formats its own output again where a kept statement or a commented list
+could still move (above). It merges
 derives across a blank line, which the standard formatter does only on its
 second run. Where a choice could
 depend on how code was written, mto decides from what a second run would see:

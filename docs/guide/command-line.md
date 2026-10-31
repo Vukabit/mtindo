@@ -1,7 +1,9 @@
 # Command line
 
 You can pass a single file or a whole directory. Directories are traversed
-recursively, skipping the folders listed in `ignore_dirs`.
+recursively, skipping the folders listed in `ignore_dirs`: by name anywhere,
+or, for an entry with a `/`, that one folder
+([Configuration](configuration.md#mtotoml)).
 
 ```bash
 # Format (and, with layout on, lay out) a single file
@@ -49,8 +51,8 @@ directory is walked.
   `minimal`).
 * `-q, --quiet`, `-v, --verbose`: Print less, or name each file.
 * `--color always|never|auto`: Color the output.
-* `--unstable-features`: Accepted; mto applies every setting on every
-  channel.
+* `--unstable-features`: Accepted; each setting mto supports applies on
+  every channel.
 * `--stdin-filepath <PATH>`: With `-`, where the source belongs, for its
   settings and in messages.
 * `-d, --dry-run`: List the files that would change without writing to disk.
@@ -59,7 +61,10 @@ directory is walked.
 * `--no-history`: Do not record this run, so it cannot be restored.
 * `--allow-dirty`: With history off, rewrite files that have uncommitted
   changes.
-* `--dbg`: Print how each file was split into items.
+* `--unguarded`: Do not check this run with the [build guard](build-guard.md),
+  nor hold back the edits it holds.
+* `--dbg`: With layout on, print how each file was split into items; the run
+  otherwise goes on as usual.
 * `--man`: Print the manual, which documents every setting and its values.
 * `-h, --help`: Print the short help menu.
 * `-V, --version`: Print the version.
@@ -74,11 +79,12 @@ Symlinked directories are skipped unless `--follow-links` is given, and every
 real path is visited at most once, so symlink cycles cannot cause repeated
 work. A folder below the starting one that holds a repository of its own
 (`.git`) is another project: the walk passes over it and says so; name it to
-lay it out.
+format it.
 
 ## Cargo
 
-`cargo mto` lays out a package or workspace the way `cargo fmt` formats it:
+`cargo mto` formats a package or workspace the way `cargo fmt` does (and lays
+it out where layout is on):
 every member when run from the workspace root, otherwise the current package.
 Each target (library, binaries, examples, tests, benches, build script, as
 Cargo discovers them) brings the modules it declares. `mto` reads the
@@ -92,7 +98,8 @@ cargo mto -- --config max_width=80   # options after -- go to mto
 ```
 
 It also takes `--manifest-path`, `--message-format short|json|human`, `-q`
-and `-v`, as `cargo fmt` does, and `--no-history` and `--allow-dirty`.
+and `-v`, as `cargo fmt` does, and `--no-history` and `--allow-dirty`. Any
+other `mto` option goes after `--`, as `cargo mto -- --unguarded`.
 
 ## Commands
 
@@ -103,7 +110,7 @@ and `-v`, as `cargo fmt` does, and `--no-history` and `--allow-dirty`.
 | `mto history`, `restore` | Past runs, undoing them ([Safety](safety.md)) |
 | `mto report ...` | Bug reports mto kept ([Safety](safety.md#bug-reports)) |
 | `mto doctor ...` | The build guard ([The build guard](build-guard.md)) |
-| `mto debug ...` | What mto sees in a file, and why it leaves code as written |
+| `mto debug ...` | What mto sees in a file, and why it keeps code |
 
 ## Exit codes
 
@@ -111,7 +118,7 @@ and `-v`, as `cargo fmt` does, and `--no-history` and `--allow-dirty`.
 |---|---|
 | 0 | Success |
 | 1 | `--check` found files that would change; `mto restore` skipped files |
-| 2 | Bad arguments or configuration |
+| 2 | Bad arguments or configuration, or a path that does not exist |
 | 3 | A file could not be read, written or parsed, or has uncommitted changes |
 | 4 | A bug in mto, kept as a report; the file is unchanged |
 | 5 | The guard's command failed before the run, or with every edit held back |

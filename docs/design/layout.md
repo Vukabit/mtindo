@@ -19,13 +19,12 @@ result means what the input meant. Tests named below are in
 
 ## Parsing and refusals
 
-`parse_any_edition` (`mod.rs`) parses the text as edition 2021, then 2018,
-2015 and 2024, and keeps the first parse without errors, so code valid only in
-an older edition (`fn async()`) still parses
+`parse_any_edition` (`mod.rs`) parses the text with the configured edition
+first, and failing that as edition 2021, 2018, 2015 and 2024, keeping the
+first parse without errors, so code valid only in an older edition
+(`fn async()`) still parses
 (`test_code_only_valid_in_an_older_edition_still_parses`). The edition found
 is returned with the layout and used by formatting and the meaning check.
-The configured `edition` plays no part here; it only decides whether a
-leading `::` in an import names the root.
 
 A file is refused, and left unchanged, when:
 
@@ -106,14 +105,15 @@ fn a() {}            fn b() {}
 ```
 
 Pinned are: `extern crate`, item-position macro calls, items with
-`#[rustfmt::skip]` (also under `cfg_attr`), items under a `// mto: pin`
-comment, loose or attached (`test_pinned_items_keep_their_place`), a
-`#[cfg(test)]` module with `test_module = "in_place"`, and `// mto: off`
-regions. A region runs from its `// mto: off` (with any loose comments above
-it) to the element carrying `// mto: on`, so an item with `// mto: on`
-attached above it stays inside; with no `// mto: on` it runs to the end of the
-container (`test_mto_off_regions_keep_their_slot`). A region is never looked
-into. A pinned module or impl keeps its body as written.
+`#[rustfmt::skip]` (also under `cfg_attr`), items under a `// mto: pin` comment,
+loose or attached (`test_pinned_items_keep_their_place`), a `#[cfg(test)]`
+module with `test_module = "in_place"`, and `// mto: off` regions. A region runs
+from its `// mto: off` (with any loose comments above it) to its `// mto: on`; a
+directive belongs to no item, so the item after `// mto: on` is laid out as any
+other. With no `// mto: on` a region runs to the end of the container
+(`test_mto_off_regions_keep_their_slot`); what is a directive is decided in one
+place, `src/syntax/marker.rs`. A region is never looked into. A pinned module or
+impl keeps its body as written.
 
 A **held** unit is stronger: `layout_holding` takes a set of unit starts, and
 `around_held` sorts only the runs between held units, so a held unit stays
@@ -161,7 +161,8 @@ the rules call equal keep their written order. In turn:
    (`test_modules_sort_as_the_standard_formatter_does`).
 8. Two impls of one type: inherent impls first, as written; then trait impls
    listed in `trait_impl_order`, in its order; then by trait name with
-   `trait_impl_sort = "name"`, or as written (`test_impls_under_a_type`).
+   `trait_impl_sort = "name"` and `sort_alphabetically` on, or as written
+   (`test_impls_under_a_type`).
 9. Visibility, by `visibility_order`.
 10. With `sort_alphabetically`, the name by `name_sort`: version sort (the
     Rust style guide's), bytes, or case-insensitive version sort with case as

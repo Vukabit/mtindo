@@ -184,7 +184,8 @@ repository are never treated as dirty.
 When the meaning check stops a write, or laying out a file panics, mto keeps
 a bug report in a `reports` folder beside history (`src/report/mod.rs`,
 `src/cli/report.rs`). A report holds the smallest part of the file that
-still fails, never the whole file unless asked, and the same bug is counted
+still fails (for a layout violation or a panic; a formatting violation has
+none), never the whole file unless asked, and the same bug is counted
 rather than kept twice. `mto report` lists, shows, saves and prunes reports;
 `mto report send` opens a prefilled issue in the browser and sends nothing
 itself. `report.save = false` prints the report instead of keeping it.

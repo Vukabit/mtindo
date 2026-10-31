@@ -3,9 +3,10 @@
 `mtindo` formats and lays out Rust source files. Its command is `mto`.
 
 * **Formatting**, on by default: spacing, indentation and line breaks in the
-  Rust style, exactly as the standard formatter writes them with the same
-  settings, reading the same `rustfmt.toml`. It can take the standard
-  formatter's place in scripts, CI and editors.
+  Rust style, exactly as the standard formatter writes them, reading the same
+  `rustfmt.toml` (`mto config options` shows which of its settings are
+  honored yet). It can take the standard formatter's place in scripts, CI and
+  editors.
 * **Layout**, when a project opts in: it reorders a file's items (modules,
   imports, macros, constants, types with their impls, functions) into a
   predictable top-down order, which the standard formatter leaves alone. No
@@ -17,17 +18,33 @@ run is recorded, so `mto restore last` undoes it. `mto` has no dependencies.
 
 ## Installation
 
-`mtindo` relies entirely on the Rust standard library and needs Rust 1.88 or
-later to build:
+With Homebrew, on macOS or Linux:
+
+```bash
+brew install vukabit/tap/mto
+```
+
+Or download a prebuilt archive from the
+[releases page](https://github.com/Vukabit/mtindo/releases): Linux (x86_64
+and aarch64, glibc 2.35 or newer), macOS (Apple silicon and Intel) and
+Windows (x86_64). Each holds `mto` and `cargo-mto`; put both on your `PATH`.
+Check an archive against the release's `SHA256SUMS` first:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS      # Linux
+shasum -a 256 --check --ignore-missing SHA256SUMS  # macOS
+```
+
+Or build it with Cargo, which needs Rust 1.88 or later and nothing beyond
+the Rust standard library:
 
 ```bash
 cargo install mtindo
 ```
 
-This builds the `mto` and `cargo-mto` binaries in release mode and places
-them in Cargo's binary directory (`~/.cargo/bin`), which should already be on
-your `PATH`. The second makes `cargo mto` work. To build from a clone of the
-repository instead, run `cargo install --path .` in its root.
+This places `mto` and `cargo-mto` in Cargo's binary directory
+(`~/.cargo/bin`); the second makes `cargo mto` work. From a clone of the
+repository, run `cargo install --path .` in its root.
 
 ## Quick start
 

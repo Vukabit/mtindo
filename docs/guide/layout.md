@@ -63,30 +63,36 @@ Some items depend on their position in the file. `mto` keeps them in place:
   other, and never end up below an item that originally came after them,
   since a macro is only visible to code that follows it. When the configured
   order would break that, macros are placed first.
-* **A file that defines the same macro name twice** is skipped, because there
-  the order of definitions changes behavior.
+* **A file that defines the same macro name twice** keeps its items where
+  they are, because there the order of definitions changes behavior. It is
+  still formatted, and a note says layout passed it over.
 * **`#[macro_use]` modules** move ahead of the other modules, in their
   original order, so every module that used their macros still can; like
   `macro_rules!`, nothing that came after one moves in front of it.
 * **`extern crate` declarations and item-position macro calls**
   (`thread_local! { .. }`, `include!(..)`, your own `make_items!();`) stay at
   their original position in the file.
-* **Items marked to stay:** `#[rustfmt::skip]` items, and items under a
-  `// mto: pin` comment, keep their position. A file whose header has
-  `#![rustfmt::skip]` is left alone.
+* **Items marked to stay:** `#[rustfmt::skip]` items, and the item under a
+  `// mto: pin` line (a comment may stand between them), keep their position.
+  A file whose header has `#![rustfmt::skip]` is left alone.
+* **Generated files:** a file with a comment near its top holding one of
+  `generated_markers` (`@generated` by default) keeps its items where they
+  are, unless `layout_generated_files = true`. Whether it is formatted follows
+  the standard formatter's `format_generated_files`. A folder of generated
+  code is better left out whole with `ignore_dirs`.
 * **`#[cfg]` variants** of one item (`#[cfg(unix)] fn f` and
   `#[cfg(windows)] fn f`, written next to each other) move as one.
 * **A `#[cfg(test)]` module** goes last (or stays where it is, with
   `test_module = "in_place"`).
 * **Anything between `// mto: off` and `// mto: on`** is left exactly as
-  written, in its original position. An item directly under `// mto: on`
-  (no blank line between) stays inside the region, and a region with no
-  `// mto: on` runs to the end of the file.
+  written, in its original position; see
+  [Leaving code as written](formatting.md#leaving-code-as-written) for the
+  rules.
 * **A file with syntax errors** is left unchanged, and the run exits with
   code `3`.
 * **A file nesting more than 1024 levels deep** (generated code; hand-written
-  code stays far below) is skipped and left unchanged, as mto does not follow
-  it that far.
+  code stays far below) is skipped and left unchanged, neither laid out nor
+  formatted, as mto does not follow it that far.
 
 ## Adopting layout in an existing project
 
@@ -97,6 +103,7 @@ it:
 ```bash
 mto init
 mto .
+git add mto.toml
 git commit -am "Lay out every file with mto"
 git rev-parse HEAD >> .git-blame-ignore-revs
 git config blame.ignoreRevsFile .git-blame-ignore-revs

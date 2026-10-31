@@ -123,8 +123,10 @@ comment to a node as [comment attachment](comment-attachment.md) specifies.
 The result is a lossless tree: printing it reproduces the input exactly. See
 [syntax](syntax.md).
 
-The file is parsed with the first edition in which it has no errors (2021,
-2018, 2015, then 2024), so code valid only in an older edition still parses.
+The file is parsed with the configured edition (from `Cargo.toml` or
+`edition`; 2015 when none), and failing that with the first of 2021, 2018,
+2015 and 2024 in which it has no errors, so code valid only in an older
+edition still parses.
 A file with errors in every edition, or nested deeper than `MAX_DEPTH` (1024
 levels), is left alone. Layout, formatting and both verifiers parse the same
 few texts, so `ParseCache` keeps a thread's recent parses for the length of
@@ -172,8 +174,9 @@ checks, each against its own step's input (see
 
 A violation means a bug in mto, not in the user's code. The file is left as
 it was, with the outcome `VerifierFailed`, and a bug report is saved (or
-printed whole when reports cannot be kept) with the smallest part of the file
-that still fails (`verify::report::minimize`).
+printed whole when reports cannot be kept): for a layout violation or a
+panic, with the smallest part of the file that still fails
+(`verify::report::minimize`); a formatting violation is reported without one.
 
 ## 8. Writing
 
@@ -197,16 +200,16 @@ history already holds what it was. At the end of the process
 
 ## 9. The build guard
 
-With the guard on (`mto doctor on`), a run that writes files and names more
-than one file is guarded; a single file, as editors pass, is not. The guard's
-command (by default `cargo check --workspace --all-targets --keep-going`)
-runs on its own thread while the files are laid out in memory, and the new
-texts are kept rather than written. `doctor::guard::finish` then writes
-nothing if the check already failed before mto changed anything; otherwise it
-writes every file and checks again. If the build broke, it narrows the edits
-down (delta debugging over files, then one move or changed line at a time),
-holds back what makes it pass, and remembers them by content for later runs. See
-[build guard](build-guard.md).
+With the guard on (`mto doctor on`), a run that writes files is guarded, unless
+it names a single file (as editors do) or passes `--unguarded`. The guard's
+command (by default `cargo check --workspace --all-targets --keep-going`) runs
+on its own thread while the files are laid out in memory, and the new texts are
+kept rather than written. `doctor::guard::finish` then writes nothing if the
+check already failed before mto changed anything; otherwise it writes every file
+and checks again. If the build broke, it narrows the edits down (delta debugging
+over files, then one move or changed line at a time), holds back what makes it
+pass, and remembers them by content for later runs. See [build
+guard](build-guard.md).
 
 ## Threads and failures
 

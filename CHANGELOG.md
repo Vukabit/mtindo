@@ -37,6 +37,15 @@ from commit subjects by `cargo xtask changelog`.
 - Layout, for projects that opt in with `mto init` or `layout = true`:
   a file's items reordered top-down, imports and modules sorted, impls
   grouped, tests last, set by `mto.toml`
+- Leave code exactly as written between `// mto: off` and `// mto: on`, and
+  keep an item in place with `// mto: pin`; a marker is a line of its own,
+  may give a reason after ` -- `, belongs to no item, and a near miss gets a
+  warning instead of being followed
+- Leave generated files' items where they are (`layout_generated_files`),
+  with `generated_markers` saying what marks one; formatting follows the
+  standard formatter's `format_generated_files`
+- Skip folders by name anywhere or, for an `ignore_dirs` entry with a `/`,
+  by path from the file that sets it
 - Check every write for meaning first: the tokens before and after are
   compared, and a file whose meaning would change is left as it is (exit
   code 4)

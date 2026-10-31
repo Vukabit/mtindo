@@ -7,10 +7,11 @@ files runs a command before and after, `cargo check --workspace
 edits that break the build, as few as it can find.
 
 ```bash
+mto doctor                     # on or off, its command, the edits it holds
 mto doctor on                  # or: mto doctor on -- cargo test -q
 mto .                          # checked before and after
 mto doctor holds               # edits held back, and how to keep them
-mto doctor release all
+mto doctor release 2           # write one of them after all; or: release all
 mto doctor last -- cargo build # narrow down a run already made
 mto doctor off
 ```
@@ -23,8 +24,9 @@ changed line at a time until the build passes. It
 writes every other edit, checks once more, and writes a report naming each
 held edit, the errors it caused and how to keep it (`// mto: pin`,
 `// mto: off`); reports are pruned with the runs they belong to. Held edits
-stay held on later runs, without the command, until mto's build or the text
-changes.
+stay held on later runs, without the command and with the guard off too,
+until mto's build or the text changes; `--unguarded` writes every edit for
+its run.
 
 ## When the build already fails
 

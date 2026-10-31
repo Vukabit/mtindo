@@ -77,7 +77,7 @@ mto history show last        # one run's files, and where each stands now
 mto restore last             # undo this project's last run
 mto restore last~1           # the one before it
 mto restore 3f9a src/lib.rs  # one file of run 3f9a
-mto history prune --keep 10  # also --older-than 30 (days; or 2w, 12h)
+mto history prune --keep 10  # or --older-than 2w; their guard reports go too
 ```
 
 History is shared by every project. A run belongs to the project it wrote

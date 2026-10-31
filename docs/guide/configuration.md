@@ -17,12 +17,14 @@ For each folder it formats, the settings come from, lowest precedence first:
    file wins key by key, and a file with `root = true` stops the search
    upwards. An `mto.toml` may also set the formatting settings, and wins over
    `rustfmt.toml` with a warning when they disagree.
-4. The package edition in the nearest `Cargo.toml`, as `cargo fmt` passes it.
+4. The package edition in the nearest `Cargo.toml` (or the workspace's, with
+   `edition.workspace = true`), as `cargo fmt` passes it.
 5. The command line: `--config`, `--edition`, `--style-edition`.
 
 `--config-path FILE` replaces steps 2 and 3 with that one file.
 
-Unknown keys are warnings. A value of the wrong type or outside the legal
+Unknown keys in a file are warnings; on the command line (`--config`) they
+stop the run with exit code `2`. A value of the wrong type or outside the legal
 values stops the run with exit code `2`, naming the file, line and column.
 With `format = false`, the formatting settings change nothing except the
 style edition.
@@ -51,9 +53,11 @@ their defaults, each with a comment; without the comments:
 ```toml
 layout = true
 format = true
+ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv"]
+generated_markers = ["@generated"]
+layout_generated_files = false
 blank_lines_between_blocks = 1
 group_impls = true
-ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv"]
 impl_method_order = "written"
 import_grouping = true
 import_sort = "style_edition"
@@ -69,6 +73,18 @@ type_order = ["ModDecl", "UseDecl", "MacroDecl", "MacroDef", "ConstDecl",
 visibility_order = ["Pub", "PubCrate", "PubIn", "PubSuper", "Private"]
 ```
 
+The settings for what mto leaves alone come first:
+
+* `ignore_dirs`: folders the walk never enters. A name (`"target"`) skips
+  every folder of that name; an entry with a `/` is a path from the folder
+  of the file that sets it (`"tests/fixtures"`, `"./cache"`, or an absolute
+  path) and skips that folder only.
+* `generated_markers`: texts that mark a file as generated, when a comment
+  among its first lines (`generated_marker_line_search_limit`, 5) holds one.
+* `layout_generated_files`: whether layout reorders a generated file; off by
+  default. Whether it is formatted follows the standard formatter's
+  `format_generated_files`, which formats it by default.
+
 `reorder_impl_items` is honored inside impl blocks, exactly as the standard
 formatter applies it. `tab_width` was renamed `tab_spaces`, the standard
 name.
@@ -78,9 +94,9 @@ name.
 How `mto` behaves for you, on every project, is set in
 `~/.config/mtindo/config.toml` (`$XDG_CONFIG_HOME` is honored;
 `%APPDATA%\mtindo\config.toml` on Windows; `MTINDO_CONFIG` names another
-file). It is created on the first run, with every setting commented out at
-its default, except when `CI` is set. It holds no layout or formatting
-settings, and project files cannot hold its settings.
+file, which must exist). It is created on the first run, with every setting
+commented out at its default, except when `CI` is set. It holds no layout or
+formatting settings, and project files cannot hold its settings.
 
 ```toml
 [history]

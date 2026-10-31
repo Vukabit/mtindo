@@ -11,8 +11,9 @@ builder in `src/syntax/tree/builder/`.
 
 ## Terms
 
-- **Trivia:** whitespace, plain comments (`//`, `/* */`), the byte-order mark
-  and the shebang line. The parser skips trivia; the tree builder puts it back.
+- **Trivia:** whitespace, plain comments (`//`, `/* */`), the byte-order mark,
+  the shebang line and cargo-script frontmatter. The parser skips trivia; the
+  tree builder puts it back.
 - **Doc comments** (`///`, `//!`, `/** */`, `/*! */`) are not trivia. They are
   attributes, so the parser places them like any other attribute.
 - **Attachable node:** an item: `fn`, `struct`, `enum`, `union`, `trait`,
@@ -51,8 +52,11 @@ never part of the run, and neither is anything before it:
 fn c() {}
 ```
 
-The byte-order mark and the shebang line never attach; they stay at the top of
-the file.
+The byte-order mark, the shebang line and frontmatter never attach; they stay
+at the top of the file. Neither does a directive (`// mto: off`, `// mto: on`,
+`// mto: pin` alone on its line, `src/syntax/marker.rs`): it belongs to no
+item, and the comments directly above an item stop at one, so a comment
+under a directive belongs to the item below it.
 
 ## Rule 2: a comment at the end of an item's last line belongs to the item
 

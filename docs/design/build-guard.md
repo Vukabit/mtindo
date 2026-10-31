@@ -119,7 +119,8 @@ of the lines before and after. A file held back whole is held for that run
 only.
 
 Every later writing run lays the file out with its holds applied, without
-running the command, guarded or not. A hold lapses when:
+running the command, with the guard on or off, except under `--unguarded`,
+which writes every edit for that run. A hold lapses when:
 
 - mto's build changes: each hold carries the full version string, and holds
   of another build are ignored when `holds.txt` is read, and left out when

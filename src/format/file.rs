@@ -1453,6 +1453,15 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     }
     None => (text, root),
   };
+  // `try!(e)` written `e?` (`use_try_shorthand`), until none is left: one inside another
+  // is written on the next round.
+  let (mut text, mut root) = (text, root);
+  while config.try_shorthand
+    && let Some(written) = crate::format::reorder::try_shorthand(&root, &text, edition)
+  {
+    root = parse(&written, edition).syntax_node();
+    text = Cow::Owned(written);
+  }
   // Number literals written as `hex_literal_case` and `float_literal_trailing_zero` say.
   let (text, root) = match crate::format::reorder::number_literals(&root, &text, config) {
     Some(written) => {

@@ -319,6 +319,8 @@ fn test_each_allowed_rewrite() {
     "fn f() { let a = try!(g(1)); }\n",
     "fn f() { let a = g(1)?; }\n",
   );
+  // try-shorthand, its expression compared by these rules: a closure's braces dropped.
+  same("fn f() { try!(g(|| { 1 })); }\n", "fn f() { g(|| 1)?; }\n");
   // match-arm-body with a block-like expression.
   same(
     "fn f() { match a { A => { loop {} } } }\n",

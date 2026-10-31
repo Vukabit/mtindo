@@ -159,6 +159,24 @@ fn test_runs_of_imports_are_sorted() {
   assert_eq!(formatted(kept, &config), kept);
 }
 
+/// `try!(e)` written `e?`, one inside another too; arguments `?` would not bind to whole,
+/// or that are not one expression, are left as written.
+#[test]
+fn test_try_shorthand() {
+  let config = FormatConfig {
+    try_shorthand: true,
+    ..FormatConfig::default()
+  };
+  let source = "fn f() {\n    let a = try!(try!(d).e);\n    try!(g(|| { 1 }));\n    let b = try!(a + b);\n    let c = try!(i(), j);\n}\n";
+  let once = format_file(source, Edition::E2015, &config);
+  assert!(verify_format(source, &once, Edition::E2015).is_empty());
+  assert_eq!(
+    once,
+    "fn f() {\n    let a = d?.e?;\n    g(|| 1)?;\n    let b = try!(a + b);\n    let c = try!(i(), j);\n}\n"
+  );
+  assert_eq!(format_file(&once, Edition::E2015, &config), once);
+}
+
 #[test]
 fn test_without_blank_lines_a_run_is_everything_adjacent() {
   let config = FormatConfig {

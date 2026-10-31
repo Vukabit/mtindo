@@ -30,7 +30,6 @@ tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an imp
 tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
 tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
 tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
-tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
 
 excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
 excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion

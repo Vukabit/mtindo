@@ -92,7 +92,7 @@ option  type_punctuation_density                         partial      # with for
 option  unstable_features                                missing
 option  use_field_init_shorthand                         supported    # with format = true (src/format/file/tests.rs)
 option  use_small_heuristics                             partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
-option  use_try_shorthand                                missing
+option  use_try_shorthand                                supported    # with format = true (src/format/reorder/tests.rs)
 option  verbose                                          missing
 option  version                                          partial      # deprecated in rustfmt; `Two` means style edition 2024, as in rustfmt (src/config/tests.rs)
 option  where_single_line                                missing

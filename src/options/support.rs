@@ -89,7 +89,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("unstable_features", "missing"),
   ("use_field_init_shorthand", "supported"),
   ("use_small_heuristics", "partial"),
-  ("use_try_shorthand", "missing"),
+  ("use_try_shorthand", "supported"),
   ("verbose", "missing"),
   ("version", "partial"),
   ("where_single_line", "missing"),

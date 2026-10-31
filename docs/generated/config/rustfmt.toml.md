@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 24
+  supported: 25
   partial: 26
-  missing: 36
+  missing: 35
   not_planned: 4
 ---
 
@@ -1074,7 +1074,7 @@ Replace uses of the try! macro by the ? shorthand
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `version`
 

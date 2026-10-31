@@ -115,6 +115,8 @@ pub struct FormatConfig {
   pub hex_literal_case: HexLiteralCase,
   /// `float_literal_trailing_zero`.
   pub float_trailing_zero: FloatTrailingZero,
+  /// `use_try_shorthand`: `try!(e)` written `e?`.
+  pub try_shorthand: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -186,6 +188,7 @@ impl Default for FormatConfig {
       struct_lit_single_line: true,
       hex_literal_case: HexLiteralCase::Preserve,
       float_trailing_zero: FloatTrailingZero::Preserve,
+      try_shorthand: false,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

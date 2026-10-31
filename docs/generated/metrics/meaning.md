@@ -2,8 +2,8 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-31T01:28:17.834Z"
-commit: "f9803aa-dirty.2f8bbe13"
+generated: "2026-10-31T06:55:43.369Z"
+commit: "461bffd-dirty.c84fdf0f"
 command: "cargo xtask diff"
 sources:
   - compat/meaning-exceptions.txt
@@ -14,12 +14,12 @@ corpus_fingerprint: "sha256:0d26c0baa5577082"
 seed: "FNV-1a of each file's text (scrambled set only)"
 metrics:
   meaning.exceptions.tests: 8
-  meaning.exceptions.tests-with-settings: 21
+  meaning.exceptions.tests-with-settings: 20
   meaning.exceptions.corpus: 1
   meaning.exceptions.corpus-unformatted: 1
-  meaning.exceptions.total: 31
+  meaning.exceptions.total: 30
   meaning.exceptions.unmodelled: 10
-  meaning.exceptions.other: 21
+  meaning.exceptions.other: 20
 ---
 
 # Meaning and stability
@@ -29,8 +29,8 @@ metrics:
 <!-- generated: abstract -->
 Every output of mto that `cargo xtask diff` scores must keep the input's meaning
 and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 31 files, each listed
-with its reason: 10 are rewrites the check does not model yet, and 21 are the
+check, run on the standard formatter's own outputs, flags 30 files, each listed
+with its reason: 10 are rewrites the check does not model yet, and 20 are the
 formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
@@ -91,7 +91,7 @@ Exceptions listed for the standard formatter's output, by set:
 | set | listed | not modelled | other |
 |---|---:|---:|---:|
 | tests | 8 | 0 | 8 |
-| tests-with-settings | 21 | 10 | 11 |
+| tests-with-settings | 20 | 10 | 10 |
 | corpus | 1 | 0 | 1 |
 | corpus-scrambled | 1 | 0 | 1 |
 
@@ -109,7 +109,6 @@ The reasons given, with how many files give each:
 - `trailing_semicolon` adds `;` after a macro call ending a loop body (1)
 - a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent,
   not modelled (1)
-- test input splits `::` into `: :`; the formatter joins it (1)
 - the expected `(|| ..).method()` puts parentheses around a closure, which
   changes what the closure covers (1)
 - the expected file differs from its input beyond formatting (1)
@@ -138,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
-| current |  | 31 | 10 | 21 |
+| current |  | 30 | 10 | 20 |
+| 2026-10-30 | 0022cfe | 31 | 10 | 21 |
 | 2026-10-30 | b380cfa | 31 | 10 | 21 |
 | 2026-10-24 | 06bd578 | 29 | 10 | 19 |
 | 2026-10-21 | f76bf49 | 32 | 10 | 22 |

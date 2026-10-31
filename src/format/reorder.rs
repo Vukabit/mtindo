@@ -880,6 +880,92 @@ pub fn strip_semicolons(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) ->
   Some(out)
 }
 
+/// `text` with each `try!(e)` (or `r#try!(e)`) whose arguments are one expression that `?`
+/// binds to whole written `e?` (the standard formatter's `convert_try_mac`); `None` when
+/// there is none. Not in a `// mto: off` region or a skipped item.
+pub fn try_shorthand(root: &SyntaxNode, text: &str, edition: Edition) -> Option<String> {
+  if !text.contains("try!") {
+    return None;
+  }
+  let off = off_regions(root);
+  let mut changes: Vec<(usize, usize, String)> = Vec::new();
+  for call in root.descendant_nodes_where(|kind| kind == K::MacroCall) {
+    let path = call.children_iter().find(|c| c.kind() == K::Path);
+    let tree = call.children_iter().find(|c| c.kind() == K::TokenTree);
+    let (Some(path), Some(tree)) = (path, tree) else {
+      continue;
+    };
+    if !matches!(path.text().trim(), "try" | "r#try")
+      || call.parent().is_none_or(|p| p.kind() != K::MacroExpr)
+    {
+      continue;
+    }
+    let range = call.text_range();
+    let (start, end) = (range.start as usize, range.end as usize);
+    if off.iter().any(|&(s, e)| s < end && start < e) || skipped_within(&call) {
+      continue;
+    }
+    // In parentheses, as the meaning check reads it.
+    let inner = tree.text();
+    if !inner.starts_with('(') {
+      continue;
+    }
+    let inner = inner[1..inner.len() - 1].trim();
+    // The arguments one expression, all of them.
+    let wrapped = format!("fn __mto() {{\n_ = {};\n}}", inner);
+    let parsed = crate::syntax::parse(&wrapped, edition);
+    if !parsed.errors().is_empty() {
+      continue;
+    }
+    let Some(expression) = parsed
+      .syntax_node()
+      .descendant_nodes_where(|kind| kind == K::BinExpr)
+      .next()
+      .and_then(|assign| assign.children_iter().nth(1))
+      .filter(|e| e.text().trim() == inner)
+    else {
+      continue;
+    };
+    let postfix = matches!(
+      expression.kind(),
+      K::PathExpr
+        | K::CallExpr
+        | K::MethodCallExpr
+        | K::FieldExpr
+        | K::IndexExpr
+        | K::MacroExpr
+        | K::ParenExpr
+        | K::TupleExpr
+        | K::ArrayExpr
+        | K::Literal
+        | K::TryExpr
+        | K::AwaitExpr
+    );
+    // Any other is left as written: the standard formatter writes `a + b?`, which is not
+    // what `try!(a + b)` means.
+    if postfix {
+      changes.push((start, end, format!("{}?", inner)));
+    }
+  }
+  if changes.is_empty() {
+    return None;
+  }
+  // Outermost first, and one inside another left to the next round.
+  changes.sort_by_key(|c| c.0);
+  let mut out = String::with_capacity(text.len());
+  let mut from = 0;
+  for (start, end, rewritten) in changes {
+    if start < from {
+      continue;
+    }
+    out.push_str(&text[from..start]);
+    out.push_str(&rewritten);
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// A `use`, an `extern crate` or a `mod name;`, with no `#[macro_use]` and not skipped.
 pub(super) fn sortable(node: &SyntaxNode) -> bool {
   let declaration = match node.kind() {

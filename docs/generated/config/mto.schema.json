@@ -578,7 +578,7 @@
       "default": "Default"
     },
     "use_try_shorthand": {
-      "description": "Replace uses of the try! macro by the ? shorthand\n\nIn mto: missing.",
+      "description": "Replace uses of the try! macro by the ? shorthand\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

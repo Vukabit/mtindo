@@ -645,11 +645,22 @@ fn emit_node<'a>(
       return;
     }
     SyntaxKind::MacroCall if words(node, "").starts_with("try!(") => {
-      // try-shorthand: `try!(e)` is `e?`.
+      // try-shorthand: `try!(e)` is `e?`; `e` compared as an expression when it reads as one.
       if let Some(tree) = node
         .children_iter()
         .find(|c| c.kind() == SyntaxKind::TokenTree)
       {
+        if let Some(tokens) = macro_arguments(&tree, source, false)
+          && tokens.len() >= 2
+        {
+          let inside = tokens.len() - 1;
+          out.extend(tokens.into_iter().take(inside).skip(1));
+          out.push(Token {
+            text: "?".into(),
+            start: node.text_range().start,
+          });
+          return;
+        }
         let inner: Vec<SyntaxElement> = tree
           .children_with_tokens_iter()
           .filter(significant)

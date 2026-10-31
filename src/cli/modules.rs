@@ -2,8 +2,9 @@
 //! formatter find them, so that `mto src/lib.rs` covers the files formatting `src/lib.rs`
 //! would.
 //!
-//! A file passed in owns its folder: `mod a;` there is `a.rs` or `a/mod.rs` beside it. A
-//! module file `a.rs` owns `a/`, and `a/mod.rs` owns `a/` too. Inline modules add their name
+//! A file passed in owns its folder: `mod a;` there is `a.rs` or `a/mod.rs` beside it; but
+//! one beside a folder named after it (`a.rs` and `a/`) owns that folder. A module file
+//! `a.rs` owns `a/`, and `a/mod.rs` owns `a/` too. Inline modules add their name
 //! to the folder (`mod a { mod b; }` finds `a/b.rs`). `#[path = "..."]` is relative to the
 //! folder of the file it is written in (or of the inline module it sits in), and a file
 //! reached that way owns its own folder. A module whose file cannot be found is reported and
@@ -61,7 +62,13 @@ pub fn module_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
   let mut files = Vec::new();
   let mut problems = Vec::new();
   let mut seen = HashSet::new();
-  let owned = root.parent().unwrap_or(Path::new("")).to_path_buf();
+  // A file beside a folder named after it is a module of its crate, which owns that
+  // folder (`to_directory_ownership`); any other its own.
+  let parent = root.parent().unwrap_or(Path::new(""));
+  let owned = match root.file_stem() {
+    Some(stem) if parent.join(stem).is_dir() => parent.join(stem),
+    _ => parent.to_path_buf(),
+  };
   let mut stack = vec![(root.to_path_buf(), owned)];
   while let Some((file, owned)) = stack.pop() {
     let key = crate::real_path(&file).unwrap_or_else(|_| file.clone());
@@ -336,6 +343,10 @@ mod tests {
       "{:?}",
       problems
     );
+    // A module file passed in finds its modules in the folder named after it.
+    let (files, problems) = module_files(&dir.join("src/a.rs"));
+    assert_eq!(files, [dir.join("src/a.rs"), dir.join("src/a/deep.rs")]);
+    assert!(problems.is_empty(), "{:?}", problems);
     let _ = fs::remove_dir_all(&dir);
   }
 }

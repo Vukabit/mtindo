@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 39
+  supported: 41
   partial: 27
-  missing: 38
+  missing: 36
   not_planned: 4
 ---
 
@@ -322,7 +322,7 @@ behavior, so the column does not apply to them.
 <code>float_literal_trailing_zero</code></a></td>
 <td>rustfmt.toml</td>
 <td>Add or remove trailing zero in floating-point literals.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#fn_args_layout">
@@ -450,7 +450,7 @@ behavior, so the column does not apply to them.
 <code>hex_literal_case</code></a></td>
 <td>rustfmt.toml</td>
 <td>Format hexadecimal integer literals.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#hide_parse_errors">

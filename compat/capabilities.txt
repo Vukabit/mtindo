@@ -30,7 +30,7 @@ option  enum_discrim_align_threshold                     missing
 option  error_on_line_overflow                           missing
 option  error_on_unformatted                             missing
 option  file_lines                                       missing
-option  float_literal_trailing_zero                      missing
+option  float_literal_trailing_zero                      supported    # with format = true (src/format/reorder/tests.rs)
 option  fn_args_layout                                   not-planned  # deprecated in rustfmt in favour of fn_params_layout
 option  fn_call_width                                    partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  fn_params_layout                                 partial      # with format = true, Tall only (src/format/items/tests.rs)
@@ -45,7 +45,7 @@ option  format_strings                                   missing
 option  generated_marker_line_search_limit               supported    # with format = true (src/format/file/tests.rs)
 option  group_imports                                    partial      # mto.toml's import_grouping groups use items (tests/domain_2_golden.rs); not rustfmt's StdExternalCrate
 option  hard_tabs                                        partial      # with format = true, indentation uses tabs (src/format/file/tests.rs)
-option  hex_literal_case                                 missing
+option  hex_literal_case                                 supported    # with format = true (src/format/reorder/tests.rs)
 option  hide_parse_errors                                not-planned  # deprecated in rustfmt in favour of show_parse_errors
 option  ignore                                           partial      # mto.toml's ignore_dirs skips directories by name (tests/domain_9_config_hierarchy.rs); no paths or globs
 option  imports_granularity                              missing

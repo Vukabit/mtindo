@@ -353,6 +353,23 @@ impl Config {
       Some("Preserve") => crate::options::format::LeadingPipes::Preserve,
       _ => crate::options::format::LeadingPipes::Never,
     };
+    let choice = |name: &str| {
+      self
+        .get(name)
+        .and_then(Value::as_text)
+        .map(str::to_ascii_lowercase)
+    };
+    config.hex_literal_case = match choice("hex_literal_case").as_deref() {
+      Some("upper") => crate::options::format::HexLiteralCase::Upper,
+      Some("lower") => crate::options::format::HexLiteralCase::Lower,
+      _ => crate::options::format::HexLiteralCase::Preserve,
+    };
+    config.float_trailing_zero = match choice("float_literal_trailing_zero").as_deref() {
+      Some("always") => crate::options::format::FloatTrailingZero::Always,
+      Some("ifnopostfix") => crate::options::format::FloatTrailingZero::IfNoPostfix,
+      Some("never") => crate::options::format::FloatTrailingZero::Never,
+      _ => crate::options::format::FloatTrailingZero::Preserve,
+    };
     if let Some(markers) = self.get("generated_markers").and_then(Value::as_list) {
       config.generated_markers = markers.to_vec();
     }

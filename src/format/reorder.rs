@@ -578,6 +578,103 @@ pub fn merge_derives(root: &SyntaxNode, text: &str) -> Option<String> {
   Some(out)
 }
 
+/// `text` with each number literal of an expression or a pattern written as
+/// `hex_literal_case` and `float_literal_trailing_zero` say (the standard formatter's
+/// `rewrite_int_lit` and `rewrite_float_lit`), in attributes and macro arguments too;
+/// `None` when none changes. Not a tuple field's index, nor in a `// mto: off` region, a
+/// skipped item or a skipped macro's arguments.
+pub fn number_literals(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Option<String> {
+  use crate::options::format::{FloatTrailingZero, HexLiteralCase};
+  if config.hex_literal_case == HexLiteralCase::Preserve
+    && config.float_trailing_zero == FloatTrailingZero::Preserve
+  {
+    return None;
+  }
+  let off = off_regions(root);
+  let mut changes: Vec<(usize, usize, String)> = Vec::new();
+  for token in root
+    .descendants_where(|kind| matches!(kind, K::IntNumber | K::FloatNumber))
+    .filter_map(|e| match e {
+      SyntaxElement::Token(t) => Some(t),
+      SyntaxElement::Node(_) => None,
+    })
+  {
+    let parent = token.parent();
+    let literal = match parent.kind() {
+      K::Literal | K::LiteralPat => true,
+      // In a token tree, not after a lone `.` (`x.0.0`); after `..`, two of them there, it
+      // ends a range.
+      K::TokenTree => {
+        let start = token.text_range().start;
+        let before: Vec<SyntaxKind> = parent
+          .children_with_tokens_iter()
+          .take_while(|e| e.text_range().start < start)
+          .filter(|e| !e.kind().is_trivia())
+          .map(|e| e.kind())
+          .collect();
+        !matches!(before.as_slice(), [.., before, K::Dot] if *before != K::Dot)
+          && !parent
+            .ancestors_iter()
+            .any(|a| a.kind() == K::MacroCall && crate::format::file::skipped_macro(&a))
+      }
+      _ => false,
+    };
+    if !literal {
+      continue;
+    }
+    let written = token.text();
+    let rewritten = if let Some(digits) = written.strip_prefix("0x") {
+      let end = digits
+        .find(|c: char| !c.is_ascii_hexdigit() && c != '_')
+        .unwrap_or(digits.len());
+      let (digits, suffix) = digits.split_at(end);
+      match config.hex_literal_case {
+        HexLiteralCase::Preserve => continue,
+        HexLiteralCase::Upper => format!("0x{}{}", digits.to_ascii_uppercase(), suffix),
+        HexLiteralCase::Lower => format!("0x{}{}", digits.to_ascii_lowercase(), suffix),
+      }
+    } else {
+      // An integer with a float's suffix is a float (`is_semantic_float`).
+      let semantic_float = token.kind() == K::FloatNumber
+        || !written.starts_with("0b")
+          && !written.starts_with("0o")
+          && (written.ends_with("f32") || written.ends_with("f64"));
+      if !semantic_float {
+        continue;
+      }
+      match float_literal(written, config.float_trailing_zero) {
+        Some(text) => text,
+        None => continue,
+      }
+    };
+    let range = token.text_range();
+    let (start, end) = (range.start as usize, range.end as usize);
+    if rewritten != written
+      && !off.iter().any(|&(s, e)| s < end && start < e)
+      && !skipped_within(&parent)
+    {
+      changes.push((start, end, rewritten));
+    }
+  }
+  if changes.is_empty() {
+    return None;
+  }
+  let mut out = String::with_capacity(text.len() + changes.len() * 2);
+  let mut from = 0;
+  for (start, end, rewritten) in changes {
+    out.push_str(&text[from..start]);
+    out.push_str(&rewritten);
+    // A float now ending in `.` before a `.` (a method's, a range's): spaced from it, as
+    // the layout writes such a float as written (`(1.).max()`, `1. ..2`).
+    if rewritten.ends_with('.') && text[end..].starts_with('.') {
+      out.push(' ');
+    }
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text` with its runs sorted, or `None` when nothing moves.
 pub fn reorder(
   root: &SyntaxNode,
@@ -873,6 +970,62 @@ fn code_start(item: &SyntaxNode) -> usize {
     .map_or(item.text_range().start as usize, |e| {
       e.text_range().start as usize
     })
+}
+
+/// A float literal as `float_literal_trailing_zero` writes it: its integer part, then its
+/// fraction, exponent and suffix, the `.0` added or dropped (`rewrite_float_lit`).
+fn float_literal(
+  written: &str,
+  style: crate::options::format::FloatTrailingZero,
+) -> Option<String> {
+  use crate::options::format::FloatTrailingZero;
+  let (symbol, suffix) = match written.find('f') {
+    Some(at) => written.split_at(at),
+    None => (written, ""),
+  };
+  let digits = |s: &str| {
+    s.bytes()
+      .take_while(|b| b.is_ascii_digit() || *b == b'_')
+      .count()
+  };
+  let integer_end = digits(symbol);
+  if integer_end == 0 {
+    return None;
+  }
+  let integer = &symbol[..integer_end];
+  let mut rest = &symbol[integer_end..];
+  let fraction = match rest.strip_prefix('.') {
+    Some(after) => {
+      let end = digits(after);
+      rest = &after[end..];
+      (end > 0).then(|| &after[..end])
+    }
+    None => None,
+  };
+  let exponent = (!rest.is_empty()).then_some(rest);
+  if exponent.is_some_and(|e| !e.starts_with(['e', 'E'])) {
+    return None;
+  }
+  let postfix = exponent.is_some() || !suffix.is_empty();
+  let nonzero = fraction.is_some_and(|f| f.bytes().any(|b| b != b'0' && b != b'_'));
+  let (period, keep_fraction) = match style {
+    FloatTrailingZero::Preserve => return None,
+    FloatTrailingZero::Always => (true, true),
+    FloatTrailingZero::IfNoPostfix => (nonzero || !postfix, nonzero || !postfix),
+    FloatTrailingZero::Never => (nonzero || !postfix, nonzero),
+  };
+  Some(format!(
+    "{}{}{}{}{}",
+    integer,
+    if period { "." } else { "" },
+    if keep_fraction {
+      fraction.unwrap_or("0")
+    } else {
+      ""
+    },
+    exponent.unwrap_or(""),
+    suffix
+  ))
 }
 
 /// Whether a run holds a comment that sorting would misplace: one inside a declaration's

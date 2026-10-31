@@ -238,7 +238,7 @@
       "description": "Lines to format; this is not supported in rustfmt.toml, and can only be specified via the --file-lines option\n\nIn mto: missing."
     },
     "float_literal_trailing_zero": {
-      "description": "Control the presence of trailing zero in floating-point literal values\n\nIn mto: missing.",
+      "description": "Control the presence of trailing zero in floating-point literal values\n\nIn mto: supported. With format = true.",
       "type": "string",
       "enum": ["Preserve", "Always", "IfNoPostfix", "Never"],
       "default": "Preserve"
@@ -320,7 +320,7 @@
       "default": false
     },
     "hex_literal_case": {
-      "description": "Control the case of the letters in hexadecimal literal values\n\nIn mto: missing.",
+      "description": "Control the case of the letters in hexadecimal literal values\n\nIn mto: supported. With format = true.",
       "type": "string",
       "enum": ["Preserve", "Upper", "Lower"],
       "default": "Preserve"

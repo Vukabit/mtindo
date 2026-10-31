@@ -1,5 +1,33 @@
 //! The formatting settings the formatter reads, resolved from the settings table.
 
+/// Whether a float literal ends in `.0` (`float_literal_trailing_zero`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FloatTrailingZero {
+  /// As written.
+  #[default]
+  Preserve,
+  /// Always: `1.0`, `1.0e3`, `1.0f32`.
+  Always,
+  /// Unless an exponent or a suffix follows: `1.0`, `1e3`, `1f32`.
+  IfNoPostfix,
+  /// Never: `1.`, `1e3`, `1f32`.
+  Never,
+}
+
+/// How the items of a `use` list are laid out when they do not fit on one line
+/// (`imports_layout`).
+/// How a hex literal's digits are written (`hex_literal_case`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HexLiteralCase {
+  /// As written.
+  #[default]
+  Preserve,
+  /// In uppercase.
+  Upper,
+  /// In lowercase.
+  Lower,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImportsLayout {
   /// Items fill lines.
@@ -13,8 +41,6 @@ pub enum ImportsLayout {
   Horizontal,
 }
 
-/// How the items of a `use` list are laid out when they do not fit on one line
-/// (`imports_layout`).
 /// Whether a match arm's pattern starts with `|` (`match_arm_leading_pipes`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum LeadingPipes {
@@ -85,6 +111,10 @@ pub struct FormatConfig {
   pub field_init_shorthand: bool,
   /// `struct_lit_single_line`: a short struct literal or pattern kept on one line.
   pub struct_lit_single_line: bool,
+  /// `hex_literal_case`.
+  pub hex_literal_case: HexLiteralCase,
+  /// `float_literal_trailing_zero`.
+  pub float_trailing_zero: FloatTrailingZero,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -154,6 +184,8 @@ impl Default for FormatConfig {
       leading_pipes: LeadingPipes::Never,
       field_init_shorthand: false,
       struct_lit_single_line: true,
+      hex_literal_case: HexLiteralCase::Preserve,
+      float_trailing_zero: FloatTrailingZero::Preserve,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

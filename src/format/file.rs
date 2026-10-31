@@ -301,6 +301,42 @@ pub fn is_generated(text: &str, markers: &[String], limit: usize) -> bool {
   })
 }
 
+/// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names, or
+/// `skip_macro_invocations` does: left exactly as written.
+pub(crate) fn skipped_macro(call: &SyntaxNode) -> bool {
+  // Nothing to skip: no setting names a macro and the text skips none.
+  if !SKIP_MARKS.with(|m| m.get().0)
+    && SKIPPED_INVOCATIONS.with(|names| names.borrow().is_empty())
+    && CRATE_SKIPS.with(|names| names.borrow().0.is_empty())
+  {
+    return false;
+  }
+  let Some(path) = call.children_iter().find(|c| c.kind() == SyntaxKind::Path) else {
+    return false;
+  };
+  let written: String = path.text().to_string().split_whitespace().collect();
+  if SKIPPED_INVOCATIONS.with(|names| names.borrow().iter().any(|n| n == "*" || *n == written)) {
+    return true;
+  }
+  let name = path.text().to_string();
+  let name = name.rsplit("::").next().unwrap_or("").trim().to_string();
+  if CRATE_SKIPS.with(|names| names.borrow().0.contains(&name)) {
+    return true;
+  }
+  call.ancestors_iter().any(|owner| {
+    owner
+      .children_iter()
+      .filter(|c| c.kind() == SyntaxKind::Attr)
+      .any(|attr| {
+        let text: String = attr.text().to_string().split_whitespace().collect();
+        text
+          .split_once("rustfmt::skip::macros(")
+          .and_then(|(_, rest)| rest.split_once(')'))
+          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
+      })
+  })
+}
+
 /// The edition of the text being formatted.
 pub(super) fn edition() -> Edition {
   EDITION.with(|e| e.get())
@@ -559,42 +595,6 @@ pub(super) fn reindent_block_comment(
     }
   }
   out
-}
-
-/// Whether a macro call is one a `#[rustfmt::skip::macros(..)]` around it names, or
-/// `skip_macro_invocations` does: left exactly as written.
-pub(super) fn skipped_macro(call: &SyntaxNode) -> bool {
-  // Nothing to skip: no setting names a macro and the text skips none.
-  if !SKIP_MARKS.with(|m| m.get().0)
-    && SKIPPED_INVOCATIONS.with(|names| names.borrow().is_empty())
-    && CRATE_SKIPS.with(|names| names.borrow().0.is_empty())
-  {
-    return false;
-  }
-  let Some(path) = call.children_iter().find(|c| c.kind() == SyntaxKind::Path) else {
-    return false;
-  };
-  let written: String = path.text().to_string().split_whitespace().collect();
-  if SKIPPED_INVOCATIONS.with(|names| names.borrow().iter().any(|n| n == "*" || *n == written)) {
-    return true;
-  }
-  let name = path.text().to_string();
-  let name = name.rsplit("::").next().unwrap_or("").trim().to_string();
-  if CRATE_SKIPS.with(|names| names.borrow().0.contains(&name)) {
-    return true;
-  }
-  call.ancestors_iter().any(|owner| {
-    owner
-      .children_iter()
-      .filter(|c| c.kind() == SyntaxKind::Attr)
-      .any(|attr| {
-        let text: String = attr.text().to_string().split_whitespace().collect();
-        text
-          .split_once("rustfmt::skip::macros(")
-          .and_then(|(_, rest)| rest.split_once(')'))
-          .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
-      })
-  })
 }
 
 /// Whether the text being formatted is in style edition 2024 or later.
@@ -1447,6 +1447,14 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     .then(|| crate::format::reorder::explicit_abi(&root, &text))
     .flatten()
   {
+    Some(written) => {
+      let root = parse(&written, edition).syntax_node();
+      (Cow::Owned(written), root)
+    }
+    None => (text, root),
+  };
+  // Number literals written as `hex_literal_case` and `float_literal_trailing_zero` say.
+  let (text, root) = match crate::format::reorder::number_literals(&root, &text, config) {
     Some(written) => {
       let root = parse(&written, edition).syntax_node();
       (Cow::Owned(written), root)

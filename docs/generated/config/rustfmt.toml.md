@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 22
+  supported: 24
   partial: 26
-  missing: 38
+  missing: 36
   not_planned: 4
 ---
 
@@ -318,14 +318,15 @@ Control the presence of trailing zero in floating-point literal values
 *   Default: `"Preserve"`; from style edition 2024: `"Preserve"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 *   Values:
-    *   `Preserve`: Leave the literal as-is.
-    *   `Always`: Add a trailing zero to the literal.
+    *   `Preserve`: Leave the literal as-is. In mto: missing.
+    *   `Always`: Add a trailing zero to the literal. In mto: missing.
     *   `IfNoPostfix`: Add a trailing zero by default. If the literal contains
         an exponent or a suffix, the zero and the preceding period are removed.
+        In mto: missing.
     *   `Never`: Remove the trailing zero. If the literal contains an exponent
-        or a suffix, the preceding period is also removed.
+        or a suffix, the preceding period is also removed. In mto: missing.
 
 ### `fn_call_width`
 
@@ -495,11 +496,11 @@ Control the case of the letters in hexadecimal literal values
 *   Default: `"Preserve"`; from style edition 2024: `"Preserve"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 *   Values:
-    *   `Preserve`: Leave the literal as-is.
-    *   `Upper`: Ensure all literals use uppercase lettering.
-    *   `Lower`: Ensure all literals use lowercase lettering.
+    *   `Preserve`: Leave the literal as-is. In mto: missing.
+    *   `Upper`: Ensure all literals use uppercase lettering. In mto: missing.
+    *   `Lower`: Ensure all literals use lowercase lettering. In mto: missing.
 
 ### `ignore`
 

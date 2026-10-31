@@ -91,6 +91,39 @@ fn test_module_declarations_are_sorted() {
   );
 }
 
+/// Number literals as `hex_literal_case` and `float_literal_trailing_zero` write them, in
+/// macro arguments too; a tuple field's index is left alone, and a float left ending in `.`
+/// before a method or a range is kept apart from it.
+#[test]
+fn test_number_literals_rewritten() {
+  use crate::options::format::{FloatTrailingZero, HexLiteralCase};
+  let source = "fn f() {\n    let a = [0xabu8, 1.0, 1f32, 1.5e3];\n    let b = 1.0.max(x.0.0);\n    m!(0xab, 1.0..2.0);\n}\n";
+  let upper = FormatConfig {
+    hex_literal_case: HexLiteralCase::Upper,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(source, &upper),
+    "fn f() {\n    let a = [0xABu8, 1.0, 1f32, 1.5e3];\n    let b = 1.0.max(x.0 .0);\n    m!(0xAB, 1.0..2.0);\n}\n"
+  );
+  let always = FormatConfig {
+    float_trailing_zero: FloatTrailingZero::Always,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(source, &always),
+    "fn f() {\n    let a = [0xabu8, 1.0, 1.0f32, 1.5e3];\n    let b = 1.0.max(x.0 .0);\n    m!(0xab, 1.0..2.0);\n}\n"
+  );
+  let never = FormatConfig {
+    float_trailing_zero: FloatTrailingZero::Never,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(source, &never),
+    "fn f() {\n    let a = [0xabu8, 1., 1f32, 1.5e3];\n    let b = (1.).max(x.0 .0);\n    m!(0xab, 1. ..2.);\n}\n"
+  );
+}
+
 #[test]
 fn test_runs_left_in_their_order() {
   let config = FormatConfig::default();

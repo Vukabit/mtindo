@@ -36,6 +36,19 @@ fn max_heuristics(max_width: usize) -> FormatConfig {
   }
 }
 
+/// A chain whose closure holds a line past the width, deep in its blocks, is given up on
+/// whole, a comment in those blocks or not: the standard formatter measures each of its
+/// lines.
+#[test]
+fn test_a_chain_with_a_wide_line_in_a_commented_closure_is_left_as_written() {
+  let config = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  let source = "fn f() {\n    let result = catch_unwind(|| {\n        if ptr.is_null() {\n            assert_fail!(\n            \"An unknown error occurred. {}_ptr is a null pointer. This should never happen today.\",\n            side\n        );\n        }\n        // a comment\n        Ok(1)\n    })\n    .unwrap_or_else(|p| 2);\n}\n";
+  assert_eq!(formatted_with(source, &config), source);
+}
+
 /// A closure's block of one expression that fits no layout keeps its statement as written,
 /// its first line moved, as the standard formatter's block visitor keeps one it fails on;
 /// what holds the closure is still laid out.

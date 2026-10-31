@@ -292,6 +292,11 @@ pub(super) fn gives_up(
     |n: &SyntaxNode| n.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment));
   super::expr::remembered_gives_up(node, inner, (any_string, string_lines), || {
     match hollowed(node) {
+      // Comments only inside blocks of a chain, whose every line the standard formatter
+      // measures whatever block it is in, comments aside (`wrap_str`): the rest decides.
+      None if commented(node) => {
+        uncommented(node).is_some_and(|bare| gives_up_whole(&bare, inner, any_string, string_lines))
+      }
       None => gives_up_whole(node, inner, any_string, string_lines),
       // Comments only inside its blocks, which the standard formatter lays out apart: the
       // rest decides (a closure's head too wide gives up the statement whatever its body
@@ -1040,4 +1045,47 @@ fn statement_without_attributes(
     return Some(semi(text));
   }
   laid_control(node, shape)
+}
+
+/// `node` without its comments, when each is inside a block within it and no doc comment or
+/// attribute is: what a statement's lines past the width are measured on when they are.
+fn uncommented(node: &SyntaxNode) -> Option<SyntaxNode> {
+  if node.subtree_has(|kind| kind == K::Attr || super::items::is_doc(kind)) {
+    return None;
+  }
+  let base = node.text_range().start as usize;
+  let text = node.text();
+  let mut source = String::new();
+  let mut from = 0;
+  for comment in node.descendants_with_tokens_iter() {
+    let SyntaxElement::Token(comment) = comment else {
+      continue;
+    };
+    if !matches!(comment.kind(), K::LineComment | K::BlockComment) {
+      continue;
+    }
+    let in_block = comment
+      .parent()
+      .ancestors_iter()
+      .take_while(|a| a != node)
+      .any(|a| a.kind() == K::BlockExpr);
+    if !in_block {
+      return None;
+    }
+    let range = comment.text_range();
+    source.push_str(&text[from..range.start as usize - base]);
+    source.push(' ');
+    from = range.end as usize - base;
+  }
+  source.push_str(&text[from..]);
+  let wrapped = format!("fn __mto() {{\n{}\n}}", source);
+  let parsed = crate::syntax::parse(&wrapped, crate::syntax::Edition::E2021);
+  if !parsed.errors().is_empty() {
+    return None;
+  }
+  let block = parsed
+    .syntax_node()
+    .descendant_nodes_where(|kind| kind == K::BlockExpr)
+    .next()?;
+  block.children_iter().find(|c| c.kind() == node.kind())
 }

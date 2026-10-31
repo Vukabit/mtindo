@@ -1138,7 +1138,7 @@ specified via the --file-lines option
     value.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: missing. Planned future work, after 0.1.0, with indentation styles.
 
 ### `fn_args_layout`
 

@@ -1113,6 +1113,13 @@ fn read(path: &Path, text: &str, kind: FileKind) -> Result<Loaded, Error> {
     }
     match value::check(setting, &entry.value) {
       Ok(Some(value)) => loaded.values.push((setting, value, entry.line)),
+      // The standard formatter refuses it in a file (it panics); its flag, `--file-lines`,
+      // is not taken yet either.
+      Ok(None) if key == "file_lines" => loaded.warnings.push(format!(
+        "{}: `file_lines` cannot be set in a file, and mto does not take `--file-lines` \
+         yet, so every line is formatted",
+        place
+      )),
       Ok(None) => {}
       Err(message) => return Err(Error::new(format!("{}: {}", place, message))),
     }

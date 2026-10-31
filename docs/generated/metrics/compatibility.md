@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-31T04:39:33.493Z"
-commit: "442a5da-dirty.8bd2a492"
+generated: "2026-10-31T04:47:24.948Z"
+commit: "fdbc17f-dirty.88410116"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -20,11 +20,11 @@ metrics:
   compat.tests.lines_matched: 11192
   compat.tests.lines_total: 11205
   compat.tests.skipped: 0
-  compat.tests-with-settings.files: 52.77
-  compat.tests-with-settings.files_matched: 295
+  compat.tests-with-settings.files: 52.95
+  compat.tests-with-settings.files_matched: 296
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 86.64
-  compat.tests-with-settings.lines_matched: 19109
+  compat.tests-with-settings.lines: 86.67
+  compat.tests-with-settings.lines_matched: 19115
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
   compat.corpus.files: 99.93
@@ -122,7 +122,7 @@ The record as it stands (shares in percent):
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
 | tests | 455 of 460 | 98.91 | 11192 of 11205 | 99.88 | 0 |
-| tests-with-settings | 295 of 559 | 52.77 | 19109 of 22055 | 86.64 | 0 |
+| tests-with-settings | 296 of 559 | 52.95 | 19115 of 22055 | 86.67 | 0 |
 | corpus | 9354 of 9361 | 99.93 | 2653052 of 2653185 | 99.99 | 6 |
 | corpus-scrambled | 9260 of 9348 | 99.06 | 2773838 of 2776485 | 99.90 | 17 |
 <!-- end generated -->
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.88 | 86.64 | 99.99 | 99.90 | 99.06 |
+| current |  | 99.88 | 86.67 | 99.99 | 99.90 | 99.06 |
+| 2026-10-30 | fdbc17f | 99.88 | 86.64 | 99.99 | 99.90 | 99.06 |
 | 2026-10-30 | b380cfa | 99.88 | 86.64 | 99.99 | 99.90 | 99.06 |
 | 2026-10-21 | f76bf49 | 99.88 | 86.64 | 99.99 | 99.90 | 99.09 |
 | 2026-10-19 | 83b8cf8 | 99.56 | 86.63 | 99.99 | 99.37 | 99.01 |
@@ -201,7 +202,7 @@ Scored files by the share of their expected lines mto's output keeps:
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
 | tests | 456 | 0 | 1 | 3 |
-| tests-with-settings | 301 | 1 | 51 | 206 |
+| tests-with-settings | 302 | 1 | 51 | 205 |
 | corpus | 9354 | 1 | 4 | 2 |
 | corpus-scrambled | 9260 | 32 | 39 | 17 |
 
@@ -215,7 +216,7 @@ common over every set:
 | `Use` | 31 |
 | `SourceFile` | 25 |
 | `BlockExpr` | 21 |
-| `TokenTree` | 21 |
+| `TokenTree` | 20 |
 | `MatchArm` | 19 |
 | `MethodCallExpr` | 12 |
 | `IfExpr` | 9 |

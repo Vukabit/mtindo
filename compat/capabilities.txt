@@ -90,7 +90,7 @@ option  trailing_comma                                   partial      # with for
 option  trailing_semicolon                               partial      # with format = true, a `;` after a block's last `return`, `break` or `continue` (src/format/stmt/tests.rs)
 option  type_punctuation_density                         partial      # with format = true, a bound's + and a type parameter's = (src/format/space/tests.rs)
 option  unstable_features                                missing
-option  use_field_init_shorthand                         missing
+option  use_field_init_shorthand                         supported    # with format = true (src/format/file/tests.rs)
 option  use_small_heuristics                             partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  use_try_shorthand                                missing
 option  verbose                                          missing

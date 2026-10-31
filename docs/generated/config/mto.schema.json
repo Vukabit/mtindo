@@ -567,7 +567,7 @@
       "default": false
     },
     "use_field_init_shorthand": {
-      "description": "Use field initialize shorthand if possible.\n\nIn mto: missing.",
+      "description": "Use field initialize shorthand if possible.\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

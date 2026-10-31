@@ -87,7 +87,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("trailing_semicolon", "partial"),
   ("type_punctuation_density", "partial"),
   ("unstable_features", "missing"),
-  ("use_field_init_shorthand", "missing"),
+  ("use_field_init_shorthand", "supported"),
   ("use_small_heuristics", "partial"),
   ("use_try_shorthand", "missing"),
   ("verbose", "missing"),

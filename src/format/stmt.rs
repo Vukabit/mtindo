@@ -1996,7 +1996,16 @@ fn same_tokens_once(node: &SyntaxNode, text: &str, start: usize, end: usize) -> 
         && (range.start as usize) < end
         && !(drop
           && dropped
-            .get_or_init(|| super::expr::dropped_tokens(node, Spacing::default()))
+            // `use_field_init_shorthand`'s too: a field written `a` for `a: a`.
+            .get_or_init(|| {
+              super::expr::dropped_tokens(
+                node,
+                Spacing {
+                  field_init_shorthand: true,
+                  ..Spacing::default()
+                },
+              )
+            })
             .contains(&(range.start as usize)))
     })
   };

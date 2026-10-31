@@ -462,6 +462,7 @@ pub fn dropped(token: &SyntaxToken, spacing: Spacing) -> bool {
     || keyword_visibility_in(token)
     || empty_where(token)
     || empty_generics(token)
+    || spacing.field_init_shorthand && shorthand_part(token)
   {
     return true;
   }
@@ -1005,6 +1006,33 @@ pub fn rewrite_or_written(node: &SyntaxNode, shape: Shape) -> Option<String> {
   })
 }
 
+/// Whether a struct expression's field is `a: a`, its value only its own name, with no
+/// comment or attribute: `use_field_init_shorthand` writes it `a`.
+pub fn shorthand_field(field: &SyntaxNode) -> bool {
+  if field.kind() != SyntaxKind::RecordExprField
+    || field.subtree_has(|kind| matches!(kind, SyntaxKind::LineComment | SyntaxKind::BlockComment))
+    || field.children_iter().any(|c| c.kind() == SyntaxKind::Attr)
+  {
+    return false;
+  }
+  let name = field
+    .children_iter()
+    .find(|c| c.kind() == SyntaxKind::NameRef);
+  let value = field
+    .children_iter()
+    .find(|c| c.kind() == SyntaxKind::PathExpr);
+  match (name, value) {
+    (Some(name), Some(value)) => {
+      let name = name.text().to_string();
+      let value = value.text().to_string();
+      name == value.trim()
+        && !name.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && !value.contains("::")
+    }
+    _ => false,
+  }
+}
+
 /// A closure's `|parameters|` (with `move`, `async` and a return type): flat, when the
 /// standard formatter keeps its parameters on one line.
 pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
@@ -1255,6 +1283,10 @@ pub(super) fn later_line_past(text: &str, max: usize) -> bool {
     && later_lines(text).any(|(_, width)| width > max)
 }
 
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
+}
+
 /// Each line of `text` after the first, with its width as the standard formatter's
 /// `filtered_str_fits` counts it (`filter_normal_code`): none for a line that is a comment,
 /// or that ends in a line comment. Each line is read on its own, as the standard
@@ -1279,10 +1311,6 @@ pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
       },
     )
   })
-}
-
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
 }
 
 /// Whether `node` is a struct literal with a comment between a field's attribute and the
@@ -2048,6 +2076,9 @@ fn droppable(kind: SyntaxKind) -> bool {
       | SyntaxKind::Gt
       | SyntaxKind::LParen
       | SyntaxKind::RParen
+      | SyntaxKind::Colon
+      | SyntaxKind::Ident
+      | SyntaxKind::RawIdent
   )
 }
 
@@ -4837,6 +4868,10 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
           // The value after `name:`; on the next line one level in, with the whole line's
           // width, only when it does not fit there (the standard formatter's
           // `rewrite_field`).
+          // `a: a` written `a` with `use_field_init_shorthand`.
+          [name, _] if shape.limits.spacing.field_init_shorthand && shorthand_field(n) => {
+            flat(name, shape.limits.spacing)
+          }
           [name, value] => {
             let name = flat(name, shape.limits.spacing);
             // 1 = the comma, which a literal's field is given room for and a pattern's is not
@@ -5264,6 +5299,37 @@ fn short_pattern(node: &SyntaxNode) -> bool {
     SyntaxKind::OrPat => node.children().iter().all(short_pattern),
     _ => false,
   }
+}
+
+/// A struct expression's field written `a: a`, its value only its own name: the `:` and
+/// the value's name, which `use_field_init_shorthand` drops (`S { a }`).
+fn shorthand_part(token: &SyntaxToken) -> bool {
+  let field = match token.kind() {
+    SyntaxKind::Colon => token.parent(),
+    SyntaxKind::Ident | SyntaxKind::RawIdent => {
+      let Some(field) = token
+        .parent()
+        .ancestors_iter()
+        .find(|a| a.kind() == SyntaxKind::RecordExprField)
+      else {
+        return false;
+      };
+      // The value's name, not the field's.
+      if !field
+        .children_iter()
+        .find(|c| c.kind() == SyntaxKind::PathExpr)
+        .is_some_and(|value| {
+          value.text_range().start <= token.text_range().start
+            && token.text_range().end <= value.text_range().end
+        })
+      {
+        return false;
+      }
+      field
+    }
+    _ => return false,
+  };
+  shorthand_field(&field)
 }
 
 /// Whether written text fits `shape` as the standard formatter's `filtered_str_fits` has

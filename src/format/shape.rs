@@ -244,6 +244,8 @@ pub struct Spacing {
   pub style_edition: u16,
   /// `match_arm_leading_pipes`: whether an arm's leading `|` is kept.
   pub leading_pipes: crate::options::format::LeadingPipes,
+  /// `use_field_init_shorthand`: a field's `: name` dropped when its value is its name.
+  pub field_init_shorthand: bool,
 }
 
 impl Spacing {
@@ -256,6 +258,7 @@ impl Spacing {
       remove_nested_parens: config.remove_nested_parens,
       style_edition: config.style_edition,
       leading_pipes: config.leading_pipes,
+      field_init_shorthand: config.field_init_shorthand,
     }
   }
 
@@ -269,6 +272,7 @@ impl Spacing {
       remove_nested_parens: self.remove_nested_parens,
       style_edition: self.style_edition,
       leading_pipes: self.leading_pipes,
+      field_init_shorthand: self.field_init_shorthand,
       ..FormatConfig::default()
     }
   }

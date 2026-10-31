@@ -1616,6 +1616,23 @@ fn test_use_comment_before_semicolon_moves_after_it() {
   );
 }
 
+/// With `use_field_init_shorthand`, a struct expression's field `a: a` is written `a`
+/// (raw names too); a pattern's, a tuple field's and one with more to its value are not.
+#[test]
+fn test_use_field_init_shorthand() {
+  let config = FormatConfig {
+    field_init_shorthand: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let s = S { a: a, b: b.c, r#c: r#c, 0: 0 };\n    let S { a: a } = s;\n}\n",
+      &config
+    ),
+    "fn f() {\n    let s = S {\n        a,\n        b: b.c,\n        r#c,\n        0: 0,\n    };\n    let S { a: a } = s;\n}\n"
+  );
+}
+
 #[test]
 fn test_use_lists_with_comments() {
   // Comments in a use list move with their items when sorted; block comments alone stay

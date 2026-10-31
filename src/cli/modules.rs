@@ -55,7 +55,8 @@ pub fn crate_skips(text: &str) -> (Vec<String>, Vec<String>) {
   (macros, attributes)
 }
 
-/// Every file `root` reaches, `root` first, each once; and what could not be found.
+/// Every file `root` reaches, `root` first, each once (one that cannot be read too); and
+/// the modules whose files could not be found.
 pub fn module_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
   let mut files = Vec::new();
   let mut problems = Vec::new();
@@ -67,11 +68,12 @@ pub fn module_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
     if !seen.insert(key) {
       continue;
     }
+    files.push(file.clone());
+    // One that cannot be read is still listed, for its run to report it as any file that
+    // cannot be read; it declares no modules.
     let Ok(text) = fs::read_to_string(&file) else {
-      problems.push(format!("cannot read {}", file.display()));
       continue;
     };
-    files.push(file.clone());
     let (_, parsed) = parse_any_edition(&text, Edition::E2021);
     let mut found = Vec::new();
     let here = file.parent().unwrap_or(Path::new("")).to_path_buf();

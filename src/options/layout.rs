@@ -110,7 +110,17 @@ pub struct LayoutConfig {
   /// Blank lines between consecutive imports of a group, and between `mod name;`
   /// declarations: the standard formatter's `blank_lines_lower_bound`.
   pub blank_lines_tight: usize,
+  /// Folder names skipped wherever they are (`ignore_dirs` entries without a `/`).
   pub ignore_dirs: Vec<String>,
+  /// Folders skipped by path (`ignore_dirs` entries with a `/`), made absolute from the
+  /// folder of the file that set them.
+  pub ignore_paths: Vec<std::path::PathBuf>,
+  /// Whether a generated file's items are laid out (`layout_generated_files`).
+  pub layout_generated_files: bool,
+  /// The texts that mark a file as generated near its top (`generated_markers`).
+  pub generated_markers: Vec<String>,
+  /// How many lines from the top hold the mark (`generated_marker_line_search_limit`).
+  pub generated_marker_line_search_limit: usize,
   /// The style edition (2015, 2018, 2021, 2024, ...): decides how imports and modules are
   /// sorted, as the standard formatter sorts them.
   pub style_edition: u16,
@@ -175,6 +185,10 @@ impl Default for LayoutConfig {
         "dist".to_string(),
         ".venv".to_string(),
       ],
+      ignore_paths: Vec::new(),
+      layout_generated_files: false,
+      generated_markers: vec!["@generated".to_string()],
+      generated_marker_line_search_limit: 5,
       style_edition: 2015,
       edition: 2015,
       import_sort: None,

@@ -80,10 +80,17 @@ const HARNESS_DIRECTIVES: &[&str] = &["target", "stable", "unstable"];
 const LAYOUT_DEFAULTS_ROW: &str = "layout (defaults)";
 
 /// mto's settings no layout row varies: `layout` is on in every row, `ignore_dirs` only
-/// steers directory walks, which the race does not do, and `format` is formatting, not
-/// layout, measured by `cargo xtask diff`.
+/// steers directory walks, which the race does not do, `format` is formatting, not
+/// layout, measured by `cargo xtask diff`, and the generated-file settings only decide
+/// whether a file is laid out at all.
 #[cfg(test)]
-const LAYOUT_EXEMPT: &[&str] = &["layout", "ignore_dirs", "format"];
+const LAYOUT_EXEMPT: &[&str] = &[
+  "layout",
+  "ignore_dirs",
+  "format",
+  "generated_markers",
+  "layout_generated_files",
+];
 
 /// The layout rows after the first: (label, the `mto.toml` lines it adds to `layout = true`,
 /// the rustfmt settings someone using it would pair it with, which the agreement check

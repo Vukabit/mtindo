@@ -46,6 +46,22 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "generated_markers",
+    file: File::Mto,
+    kind: Kind::List,
+    default: "[\"@generated\"]",
+    default_2024: None,
+    summary: "Texts that mark a file as generated",
+    doc: "A file is generated when a comment among its first \
+              `generated_marker_line_search_limit` lines holds one of these texts. Layout leaves \
+              a generated file's items where they are unless `layout_generated_files` is set, \
+              and formatting leaves it as written when `format_generated_files = false`. A \
+              folder of generated code is better left out with `ignore_dirs`.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "group_impls",
     file: File::Mto,
     kind: Kind::Bool,
@@ -64,9 +80,12 @@ pub(super) static SETTINGS: &[Setting] = &[
     kind: Kind::List,
     default: "[\".git\", \"target\", \"node_modules\", \"vendor\", \"dist\", \".venv\"]",
     default_2024: None,
-    summary: "Folder names mto never enters",
-    doc: "Folder names skipped when mto walks a directory. A folder is skipped wherever \
-              it appears; setting this list replaces the default list.",
+    summary: "Folders mto never enters, by name or by path",
+    doc: "Folders skipped when mto walks a directory. A name (`target`) skips every \
+              folder of that name, wherever it is; an entry with a `/` is a path \
+              (`tests/fixtures`, `./cache`, or an absolute one), read from the folder of the \
+              file that sets it, and skips that folder only. Setting this list replaces the \
+              default list.",
     channels: None,
     hidden: false,
     replaced_by: None,
@@ -174,6 +193,21 @@ pub(super) static SETTINGS: &[Setting] = &[
               that cannot fit within `max_width`, and files that `disable_all_formatting` or \
               `format_generated_files = false` leave alone. Every change is checked to keep \
               the program's tokens and comments, and a second run changes nothing.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
+    name: "layout_generated_files",
+    file: File::Mto,
+    kind: Kind::Bool,
+    default: "false",
+    default_2024: None,
+    summary: "Lay out generated files too",
+    doc: "Whether layout reorders the items of a generated file (one holding a \
+              `generated_markers` text near its top). Off by default, so generated code keeps \
+              the order its generator wrote; formatting follows `format_generated_files` \
+              instead.",
     channels: None,
     hidden: false,
     replaced_by: None,

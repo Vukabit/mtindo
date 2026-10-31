@@ -155,7 +155,34 @@ impl Config {
     }
     config.blank_lines_tight = lower;
     if let Some(dirs) = self.get("ignore_dirs").and_then(Value::as_list) {
-      config.ignore_dirs = dirs.to_vec();
+      // A relative path is read from the folder of the file that set it (the current
+      // folder for the command line).
+      let base = match self.source("ignore_dirs") {
+        Some(Source::File { path, .. }) => path.parent().map(Path::to_path_buf),
+        _ => std::env::current_dir().ok(),
+      }
+      .unwrap_or_default();
+      let (paths, names): (Vec<&String>, Vec<&String>) = dirs
+        .iter()
+        .partition(|d| d.contains('/') || d.contains('\\'));
+      config.ignore_dirs = names.into_iter().cloned().collect();
+      config.ignore_paths = paths
+        .into_iter()
+        .map(|d| {
+          let joined = base.join(d.trim_end_matches(['/', '\\']));
+          crate::real_path(&joined).unwrap_or_else(|_| lexical(&joined))
+        })
+        .collect();
+    }
+    config.layout_generated_files = flag("layout_generated_files", config.layout_generated_files);
+    if let Some(markers) = self.get("generated_markers").and_then(Value::as_list) {
+      config.generated_markers = markers.to_vec();
+    }
+    if let Some(lines) = self
+      .get("generated_marker_line_search_limit")
+      .and_then(Value::as_integer)
+    {
+      config.generated_marker_line_search_limit = lines as usize;
     }
     if let Some(kinds) = self.get("type_order").and_then(Value::as_list) {
       config.type_order = kinds.iter().map(|k| ItemKind::from_name(k)).collect();
@@ -317,6 +344,9 @@ impl Config {
     config.trailing_semicolon = flag("trailing_semicolon", true);
     config.combine_control_expr = flag("combine_control_expr", true);
     config.format_generated_files = flag("format_generated_files", true);
+    if let Some(markers) = self.get("generated_markers").and_then(Value::as_list) {
+      config.generated_markers = markers.to_vec();
+    }
     config.generated_marker_line_search_limit = number(
       "generated_marker_line_search_limit",
       config.generated_marker_line_search_limit,
@@ -701,9 +731,12 @@ impl Resolver {
     if !layout_on {
       for (name, (_, source)) in &values {
         let setting = options::find(name);
-        // `format` and `ignore_dirs` matter without layout too.
+        // `format`, `ignore_dirs` and `generated_markers` matter without layout too.
         let layout_key = setting.is_some_and(|s| s.file == File::Mto)
-          && !matches!(*name, "layout" | "format" | "ignore_dirs");
+          && !matches!(
+            *name,
+            "layout" | "format" | "ignore_dirs" | "generated_markers"
+          );
         if layout_key && !matches!(source, Source::Default) {
           self.warn(format!(
             "{}: `{}` has no effect while layout is off; add `layout = true`",
@@ -901,6 +934,21 @@ fn flatten<'a>(
       _ => out.push((key, entry)),
     }
   }
+}
+
+/// `path` with its `.` and `..` parts worked out by name, for a folder that does not exist.
+fn lexical(path: &Path) -> PathBuf {
+  let mut out = PathBuf::new();
+  for part in path.components() {
+    match part {
+      std::path::Component::CurDir => {}
+      std::path::Component::ParentDir => {
+        out.pop();
+      }
+      other => out.push(other),
+    }
+  }
+  out
 }
 
 /// Reads and checks one configuration file.

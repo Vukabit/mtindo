@@ -260,6 +260,14 @@ pub struct Shaped {
   pub moves: Vec<layout::Move>,
   /// The remembered holds found in the file, which the rest have lapsed against.
   pub found: Vec<doctor::holds::Kind>,
+  /// When layout moved more once formatting had put the text on lines: what formatting
+  /// gave first, and layout's second pass over it, which `text` is formatted from.
+  pub relaid: Option<(String, String)>,
+  /// Why layout left the file's items as they were, when the file is formatted all the
+  /// same (a reason of layout's own, as a macro defined twice).
+  pub unlaid: Option<String>,
+  /// What is wrong with the file's directives (`// mto: off`), each with its line.
+  pub directives: Vec<(usize, String)>,
 }
 
 /// The state of a directory walk.
@@ -486,11 +494,20 @@ pub fn init_template() -> String {
     "# mto configuration file; `mto --man` explains every setting.\n\n\
          # Rearrange the items of each file.\nlayout = true\n",
   );
-  // `format` beside `layout`, the other switch; then the rest in table order.
-  let switch = options::all().filter(|s| s.name == "format");
+  // `format` beside `layout`, the other switch; then what mto leaves alone, where it is
+  // easy to find; then the rest in table order.
+  const FIRST: [&str; 4] = [
+    "format",
+    "ignore_dirs",
+    "generated_markers",
+    "layout_generated_files",
+  ];
+  let first = FIRST
+    .iter()
+    .filter_map(|name| options::all().find(|s| s.name == *name));
   let others = options::all()
-    .filter(|s| s.file == options::File::Mto && !matches!(s.name, "layout" | "format"));
-  for setting in switch.chain(others) {
+    .filter(|s| s.file == options::File::Mto && s.name != "layout" && !FIRST.contains(&s.name));
+  for setting in first.chain(others) {
     out.push_str(&format!(
       "\n# {}\n{} = {}\n",
       setting.summary, setting.name, setting.default
@@ -589,13 +606,21 @@ pub fn process_stdin(
   let shaped = match caught(&shown, &source, &settings, || {
     shape(&source, &settings, &doctor::Held::default(), None)
   }) {
-    Ok(shaped) => shaped.map(|s| (s.laid_out, s.text, s.edition)),
+    Ok(shaped) => shaped.map(|s| {
+      report
+        .stderr
+        .push_str(&directive_notes(&shown, &s.directives));
+      if let Some(reason) = &s.unlaid {
+        report.stderr.push_str(&unlaid_note(&shown, reason));
+      }
+      (s.laid_out, s.text, s.edition, s.relaid)
+    }),
     Err(bug) => {
       report.stderr = deliver(&bug, reports.as_ref());
       return Ok(unchanged(report, Outcome::VerifierFailed));
     }
   };
-  let (laid_out, reorganized, edition) = match shaped {
+  let (laid_out, reorganized, edition, relaid) = match shaped {
     Ok(arranged) => arranged,
     Err(reason) => {
       let syntax = reason == layout::SYNTAX_ERRORS;
@@ -619,7 +644,15 @@ pub fn process_stdin(
     return Ok(unchanged(report, Outcome::Unchanged));
   }
   if let Err(bug) | Ok(Err(bug)) = caught(&shown, &source, &settings, || {
-    verified_all(&source, &laid_out, &reorganized, edition, &settings, &shown)
+    verified_all(
+      &source,
+      &laid_out,
+      &reorganized,
+      relaid.as_ref(),
+      edition,
+      &settings,
+      &shown,
+    )
   }) {
     report.stderr = deliver(&bug, reports.as_ref());
     return Ok(unchanged(report, Outcome::VerifierFailed));
@@ -714,16 +747,25 @@ pub fn run_file(
       return report.with(Outcome::VerifierFailed);
     }
   };
-  let (laid_out, reorganized, edition) = match shaped {
+  let (laid_out, reorganized, edition, relaid) = match shaped {
     Ok(Shaped {
       laid_out,
       text,
       edition,
       skipped,
       found,
+      relaid,
+      unlaid,
+      directives,
       ..
     }) => {
       report.holds = (!held.is_empty()).then_some(found);
+      report
+        .stderr
+        .push_str(&directive_notes(&shown, &directives));
+      if let Some(reason) = &unlaid {
+        report.stderr.push_str(&unlaid_note(&shown, reason));
+      }
       // Named as the standard formatter names them: not the files that tell it to skip
       // them.
       if opts.verbose && !skipped {
@@ -731,7 +773,7 @@ pub fn run_file(
           .stdout
           .insert_str(0, &format!("Formatting {}\n", shown));
       }
-      (laid_out, text, edition)
+      (laid_out, text, edition, relaid)
     }
     Err(reason) => {
       if opts.verbose {
@@ -766,7 +808,15 @@ pub fn run_file(
     return report.with(Outcome::Unchanged);
   }
   if let Err(bug) | Ok(Err(bug)) = caught(&shown, &source, settings, || {
-    verified_all(&source, &laid_out, &reorganized, edition, settings, &shown)
+    verified_all(
+      &source,
+      &laid_out,
+      &reorganized,
+      relaid.as_ref(),
+      edition,
+      settings,
+      &shown,
+    )
   }) {
     report.stderr = deliver(&bug, ctx.reports);
     return report.with(Outcome::VerifierFailed);
@@ -952,10 +1002,23 @@ pub fn shape(
       skipped: false,
       moves: Vec::new(),
       found,
+      relaid: None,
+      unlaid: None,
+      directives: Vec::new(),
     });
   }
+  let mut unlaid = None;
+  // A generated file keeps its items where they are, unless `layout_generated_files`.
+  let generated = settings.layout.as_ref().is_some_and(|config| {
+    !config.layout_generated_files
+      && format::file::is_generated(
+        source.trim_start_matches('\u{feff}'),
+        &config.generated_markers,
+        config.generated_marker_line_search_limit,
+      )
+  });
   let (laid_out, edition, skipped, moves) = match &settings.layout {
-    Some(config) => {
+    Some(config) if !generated => {
       let mut starts = held.moves.clone();
       if !held.move_ids.is_empty() {
         // Remembered holds name units by content: found among the moves of a first pass.
@@ -968,15 +1031,26 @@ pub fn shape(
           }
         }
       }
-      arrange_holding(source, config, &starts, debug.take())?
+      match arrange_holding(source, config, &starts, debug.take()) {
+        Ok(arranged) => arranged,
+        // A reason of layout's own: the file is formatted with its items where they are.
+        Err(reason) => {
+          let (edition, parsed) = layout::parse_any_edition(source, settings.edition);
+          if layout::refusal(&parsed).is_some() || settings.format.is_none() {
+            return Err(reason);
+          }
+          unlaid = Some(reason);
+          (source.to_string(), edition, false, Vec::new())
+        }
+      }
     }
-    None if source.trim_start_matches('\u{feff}').trim().is_empty() => (
+    _ if source.trim_start_matches('\u{feff}').trim().is_empty() => (
       source.to_string(),
       syntax::Edition::E2021,
       false,
       Vec::new(),
     ),
-    None => {
+    _ => {
       let (edition, parsed) = layout::parse_any_edition(source, settings.edition);
       if let Some(reason) = layout::refusal(&parsed) {
         return Err(reason);
@@ -988,6 +1062,22 @@ pub fn shape(
     Some(config) => format::file::format_file(&laid_out, edition, config),
     None => laid_out.clone(),
   };
+  let mut relaid = None;
+  // Layout leaves a body written on one line as it is; once formatting has put it on lines
+  // it can be laid out, so it is, and formatted again: one run gives what a second would.
+  // Not when edits are held, whose moves and lines are named by the first pass.
+  if let (Some(layout_config), Some(format_config)) = (&settings.layout, &settings.format)
+    && text != laid_out
+    && !generated
+    && held.moves.is_empty()
+    && held.move_ids.is_empty()
+    && held.lines.is_empty()
+    && let Ok((again, _, _, _)) = arrange_holding(&text, layout_config, &HashSet::new(), None)
+    && again != text
+  {
+    let formatted = format::file::format_file(&again, edition, format_config);
+    relaid = Some((std::mem::replace(&mut text, formatted), again));
+  }
   if !held.lines.is_empty() && text != laid_out {
     let hunks = doctor::hunks(&laid_out, &text);
     for hunk in &hunks {
@@ -1004,6 +1094,9 @@ pub fn shape(
     skipped,
     moves,
     found,
+    relaid,
+    unlaid,
+    directives: directive_problems(source, edition),
   })
 }
 
@@ -1286,6 +1379,7 @@ fn caught<T>(
           candidate,
           &shaped.laid_out,
           &shaped.text,
+          shaped.relaid.as_ref(),
           shaped.edition,
           settings,
           shown,
@@ -1411,6 +1505,36 @@ fn diff_range(
     }
   }
   ops.extend((0..suffix).map(|_| DiffOp::Equal));
+}
+
+/// The warnings for a file's directives, as printed.
+fn directive_notes(shown: &str, problems: &[(usize, String)]) -> String {
+  problems
+    .iter()
+    .map(|(line, problem)| {
+      format!(
+        "{}warning: {}:{}: {}{}\n",
+        c_yellow(true),
+        shown,
+        line,
+        problem,
+        c_reset(true)
+      )
+    })
+    .collect()
+}
+
+/// What is wrong with the directives in `source`, each with its line (from 1).
+fn directive_problems(source: &str, edition: syntax::Edition) -> Vec<(usize, String)> {
+  if !source.contains("mto") && !source.contains("MTO") {
+    return Vec::new();
+  }
+  let parsed = syntax::parse_cached(source, edition);
+  syntax::marker::scan(&parsed.syntax_node(), source)
+    .warnings
+    .into_iter()
+    .map(|(at, problem)| (source[..at].matches('\n').count() + 1, problem))
+    .collect()
 }
 
 /// `--emit stdout`: the file's name, as the standard formatter prints it, then its text.
@@ -1725,6 +1849,17 @@ fn settings_text(settings: &Settings) -> String {
   out
 }
 
+/// The note for a file formatted with its items where they are, because layout left it.
+fn unlaid_note(shown: &str, reason: &str) -> String {
+  format!(
+    "{}Not laid out {}: {} (formatted all the same){}\n",
+    c_yellow(true),
+    shown,
+    reason,
+    c_reset(true)
+  )
+}
+
 /// Checks layout's new text with the verifier before anything is written or shown. On a
 /// violation, the rules broken and the smallest part of the input that still breaks them.
 fn verified(
@@ -1753,6 +1888,7 @@ fn verified_all(
   source: &str,
   laid_out: &str,
   formatted: &str,
+  relaid: Option<&(String, String)>,
   edition: syntax::Edition,
   settings: &Settings,
   path: &str,
@@ -1770,17 +1906,40 @@ fn verified_all(
       None,
     )));
   }
-  if settings.format.is_some() && formatted != laid_out {
-    let violations = verify::format::verify_format(laid_out, formatted, edition);
-    if !violations.is_empty() {
+  // Each formatting against what it was given; a second layout pass against the text it
+  // was given.
+  let mut formats = vec![(
+    laid_out,
+    relaid.map_or(formatted, |(first, _)| first.as_str()),
+  )];
+  if let Some((first, again)) = relaid {
+    if let Some(config) = &settings.layout
+      && let Err((violations, minimal)) = verified(first, again, edition, config)
+    {
       return Err(Box::new(bug(
         path,
         source,
         settings,
         report::Failure::Verifier { violations },
-        None,
+        Some(minimal),
         None,
       )));
+    }
+    formats.push((again.as_str(), formatted));
+  }
+  for (given, gave) in formats {
+    if settings.format.is_some() && gave != given {
+      let violations = verify::format::verify_format(given, gave, edition);
+      if !violations.is_empty() {
+        return Err(Box::new(bug(
+          path,
+          source,
+          settings,
+          report::Failure::Verifier { violations },
+          None,
+          None,
+        )));
+      }
     }
   }
   Ok(())
@@ -1851,7 +2010,7 @@ fn walk_inner(
     .unwrap_or_default()
     .to_string_lossy()
     .to_string();
-  if config.ignore_dirs.contains(&dir_name) {
+  if config.ignore_dirs.contains(&dir_name) || config.ignore_paths.contains(&real) {
     return Ok(());
   }
   let Some(mut entries) = entries else {
@@ -1882,7 +2041,9 @@ fn walk_inner(
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-      if config.ignore_dirs.contains(&child_name) {
+      if config.ignore_dirs.contains(&child_name)
+        || config.ignore_paths.contains(&real.join(entry.file_name()))
+      {
         continue;
       }
       let child_real = if opts.follow_links {

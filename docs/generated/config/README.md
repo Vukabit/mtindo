@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-10"
 keys:
-  total: 118
-  mto: 16
+  total: 120
+  mto: 18
   formatting: 90
   user: 12
 in_mto:
-  supported: 32
+  supported: 34
   partial: 27
   missing: 43
   not_planned: 4
@@ -418,6 +418,13 @@ behavior, so the column does not apply to them.
 <td>supported</td>
 </tr>
 <tr>
+<td><a href="mto.toml.md#generated_markers">
+<code>generated_markers</code></a></td>
+<td>mto.toml</td>
+<td>Texts that mark a file as generated</td>
+<td>supported</td>
+</tr>
+<tr>
 <td><a href="mto.toml.md#group_impls">
 <code>group_impls</code></a></td>
 <td>mto.toml</td>
@@ -492,7 +499,7 @@ behavior, so the column does not apply to them.
 <td><a href="mto.toml.md#ignore_dirs">
 <code>ignore_dirs</code></a></td>
 <td>mto.toml</td>
-<td>Folder names mto never enters</td>
+<td>Folders mto never enters, by name or by path</td>
 <td>supported</td>
 </tr>
 <tr>
@@ -557,6 +564,13 @@ behavior, so the column does not apply to them.
 <code>layout</code></a></td>
 <td>mto.toml</td>
 <td>Rearrange the items of each file</td>
+<td>supported</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#layout_generated_files">
+<code>layout_generated_files</code></a></td>
+<td>mto.toml</td>
+<td>Lay out generated files too</td>
 <td>supported</td>
 </tr>
 <tr>

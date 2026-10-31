@@ -31,13 +31,13 @@ pub const CARGO_MTO_OPTIONS: &[(&str, &str, &str, &str)] = &[
     "Only these members (repeatable)",
   ),
   (
-    "layout",
+    "changes",
     "--check",
     "",
     "Print a diff for every file that would change; exit 1 if any",
   ),
   (
-    "layout",
+    "changes",
     "--message-format",
     "<short|json|human>",
     "short: name the files (-l); json: the JSON report (--emit json)",

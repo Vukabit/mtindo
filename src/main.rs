@@ -206,7 +206,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   }
   if skipped > 0 && !opts.quiet {
     eprintln!(
-      "{}{} file(s) skipped because they could not be laid out safely.{}",
+      "{}{} file(s) skipped, each for the reason given above.{}",
       c_yellow(true),
       skipped,
       c_reset(true)
@@ -402,7 +402,7 @@ fn nested_note(nested: &[PathBuf], verbose: bool) -> String {
   };
   format!(
     "note: passed over {} folder(s) holding a repository of their own: {}{}; name one to \
-         lay it out",
+         format it",
     nested.len(),
     names.join(", "),
     more

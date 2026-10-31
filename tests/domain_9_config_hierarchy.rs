@@ -70,6 +70,35 @@ fn test_deep_hierarchical_config_inheritance() {
   assert_eq!(layout.max_width, 100);
 }
 
+/// An `ignore_dirs` entry with a `/` is a path from the folder of the file that sets it:
+/// only that folder is skipped, not every folder of its name; a bare name still is.
+#[test]
+fn test_ignore_dirs_paths_skip_only_that_folder() {
+  let env = TestEnvironment::new();
+  fs::write(
+    env.dir.path().join("mto.toml"),
+    "layout = true\nignore_dirs = [\"tests/fixtures\", \"./cache\", \"vendored\"]",
+  )
+  .unwrap();
+  let messy = "fn b() {}\nfn a() {}\n";
+  let files = [
+    ("tests/fixtures", false),
+    ("src/fixtures", true),
+    ("cache", false),
+    ("src/cache", true),
+    ("src/vendored", false),
+  ];
+  for (dir, _) in files {
+    fs::write(env.create_dir(dir).join("lib.rs"), messy).unwrap();
+  }
+  let mut resolver = resolver();
+  walk_directory(env.dir.path(), &mut resolver, &RunOptions::default()).unwrap();
+  for (dir, laid_out) in files {
+    let content = fs::read_to_string(env.dir.path().join(dir).join("lib.rs")).unwrap();
+    assert_eq!(content != messy, laid_out, "{}: {}", dir, content);
+  }
+}
+
 #[test]
 fn test_malformed_toml_handling() {
   let env = TestEnvironment::new();

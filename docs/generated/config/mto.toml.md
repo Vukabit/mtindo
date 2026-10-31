@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-10"
 keys:
-  total: 16
+  total: 18
 in_mto:
-  supported: 15
+  supported: 17
   partial: 1
   missing: 0
   not_planned: 0
@@ -41,6 +41,19 @@ result alone; imports and declarations get the lower bound.
 *   Default: `1`, in every style edition.
 *   In mto: supported.
 
+### `generated_markers`
+
+A file is generated when a comment among its first
+`generated_marker_line_search_limit` lines holds one of these texts. Layout
+leaves a generated file's items where they are unless `layout_generated_files`
+is set, and formatting leaves it as written when
+`format_generated_files = false`. A folder of generated code is better left out
+with `ignore_dirs`.
+
+*   Type: an array of strings.
+*   Default: `["@generated"]`, in every style edition.
+*   In mto: supported.
+
 ### `group_impls`
 
 Rank each impl block as the struct, enum or trait it is for and place it right
@@ -52,8 +65,10 @@ after that item, instead of in the `ImplBlock` group of `type_order`.
 
 ### `ignore_dirs`
 
-Folder names skipped when mto walks a directory. A folder is skipped wherever it
-appears; setting this list replaces the default list.
+Folders skipped when mto walks a directory. A name (`target`) skips every folder
+of that name, wherever it is; an entry with a `/` is a path (`tests/fixtures`,
+`./cache`, or an absolute one), read from the folder of the file that sets it,
+and skips that folder only. Setting this list replaces the default list.
 
 *   Type: an array of strings.
 *   Default: `[".git", "target", "node_modules", "vendor", "dist", ".venv"]`, in
@@ -135,6 +150,17 @@ the program's tokens and comments, and a second run changes nothing.
 *   Default: `true`, in every style edition.
 *   In mto: partial. Indentation, spacing within lines, blank lines, trailing
     whitespace and line endings; no line breaking yet.
+
+### `layout_generated_files`
+
+Whether layout reorders the items of a generated file (one holding a
+`generated_markers` text near its top). Off by default, so generated code keeps
+the order its generator wrote; formatting follows `format_generated_files`
+instead.
+
+*   Type: `true` or `false`.
+*   Default: `false`, in every style edition.
+*   In mto: supported.
 
 ### `name_sort`
 

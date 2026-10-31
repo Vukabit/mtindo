@@ -204,11 +204,15 @@ with `layout = true` in an `mto.toml`; `mto init` writes one.
 
 ## Installation
 
-From a clone of the repository:
+With Homebrew, prebuilt binaries from the GitHub release (Linux, macOS and
+Windows, with `SHA256SUMS`), or from crates.io:
 
 ```bash
-cargo install --path .
+brew install vukabit/tap/mto
+cargo install mtindo
 ```
+
+From a clone of the repository: `cargo install --path .`.
 "#;
 
 /// The manual's chapter on how writes are kept safe and how to keep text in place.
@@ -250,9 +254,18 @@ there is no undo, so mto leaves alone any file git sees uncommitted changes
 in (exit code 3), unless `--allow-dirty` (or `allow_dirty = true` under
 `[safety]`). git is used only if it is installed.
 
-Text between `// mto: off` and `// mto: on` is never moved or changed. An
-item directly under `// mto: on` stays inside the region; a region with no
-`// mto: on` runs to the end of the file.
+Text between `// mto: off` and `// mto: on` is never moved or changed, the
+markers with it. Each marker is a line comment alone on its line; a reason
+may follow after ` -- ` (`// mto: off -- aligned by hand`). A marker belongs
+to no item: a comment under it belongs to the code below, and the item after
+`// mto: on` is formatted and laid out as any other. A region ends in the
+block it starts in, and with no `// mto: on` runs to the end of that block;
+one among the parts of a statement or item (list items, match arms) keeps
+that whole statement or item as written. `// mto: pin` keeps the next item
+in its place. A comment that looks meant as a marker and is not one
+(`//mto: off`, `// MTO: off`, words after it without ` -- `, one after code
+or in a `/* */` or doc comment) is reported and not followed, as is a marker
+without its partner.
 "#;
 
 /// The configuration chapter of the manual, in the manual's Markdown.

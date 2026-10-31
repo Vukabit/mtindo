@@ -58,11 +58,15 @@ in an `mto.toml`; `mto init` writes one.
 
 ## Installation
 
-From a clone of the repository:
+With Homebrew, prebuilt binaries from the GitHub release (Linux, macOS and
+Windows, with `SHA256SUMS`), or from crates.io:
 
 ```bash
-cargo install --path .
+brew install vukabit/tap/mto
+cargo install mtindo
 ```
+
+From a clone of the repository: `cargo install --path .`.
 
 ## Command line
 ```text
@@ -289,6 +293,17 @@ result alone; imports and declarations get the lower bound.
 *   Type: a whole number, zero or more.
 *   Default: `1`.
 
+#### `generated_markers`
+A file is generated when a comment among its first
+`generated_marker_line_search_limit` lines holds one of these texts. Layout
+leaves a generated file's items where they are unless `layout_generated_files`
+is set, and formatting leaves it as written when
+`format_generated_files = false`. A folder of generated code is better left out
+with `ignore_dirs`.
+
+*   Type: an array of strings.
+*   Default: `["@generated"]`.
+
 #### `group_impls`
 Rank each impl block as the struct, enum or trait it is for and place it right
 after that item, instead of in the `ImplBlock` group of `type_order`.
@@ -297,8 +312,10 @@ after that item, instead of in the `ImplBlock` group of `type_order`.
 *   Default: `true`.
 
 #### `ignore_dirs`
-Folder names skipped when mto walks a directory. A folder is skipped wherever it
-appears; setting this list replaces the default list.
+Folders skipped when mto walks a directory. A name (`target`) skips every folder
+of that name, wherever it is; an entry with a `/` is a path (`tests/fixtures`,
+`./cache`, or an absolute one), read from the folder of the file that sets it,
+and skips that folder only. Setting this list replaces the default list.
 
 *   Type: an array of strings.
 *   Default: `[".git", "target", "node_modules", "vendor", "dist", ".venv"]`.
@@ -367,6 +384,15 @@ the program's tokens and comments, and a second run changes nothing.
 
 *   Type: `true` or `false`.
 *   Default: `true`.
+
+#### `layout_generated_files`
+Whether layout reorders the items of a generated file (one holding a
+`generated_markers` text near its top). Off by default, so generated code keeps
+the order its generator wrote; formatting follows `format_generated_files`
+instead.
+
+*   Type: `true` or `false`.
+*   Default: `false`.
 
 #### `name_sort`
 How `sort_alphabetically` compares names. Imports and modules are not affected:
@@ -1494,9 +1520,17 @@ is no undo, so mto leaves alone any file git sees uncommitted changes in (exit
 code 3), unless `--allow-dirty` (or `allow_dirty = true` under `[safety]`). git
 is used only if it is installed.
 
-Text between `// mto: off` and `// mto: on` is never moved or changed. An item
-directly under `// mto: on` stays inside the region; a region with no
-`// mto: on` runs to the end of the file.
+Text between `// mto: off` and `// mto: on` is never moved or changed, the
+markers with it. Each marker is a line comment alone on its line; a reason may
+follow after ` -- ` (`// mto: off -- aligned by hand`). A marker belongs to no
+item: a comment under it belongs to the code below, and the item after
+`// mto: on` is formatted and laid out as any other. A region ends in the block
+it starts in, and with no `// mto: on` runs to the end of that block; one among
+the parts of a statement or item (list items, match arms) keeps that whole
+statement or item as written. `// mto: pin` keeps the next item in its place. A
+comment that looks meant as a marker and is not one (`//mto: off`,
+`// MTO: off`, words after it without ` -- `, one after code or in a `/* */` or
+doc comment) is reported and not followed, as is a marker without its partner.
 
 ## The build guard: mto doctor
 

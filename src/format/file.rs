@@ -290,6 +290,17 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   out
 }
 
+/// Whether a comment among the first `limit` lines of `text` holds one of `markers`.
+pub fn is_generated(text: &str, markers: &[String], limit: usize) -> bool {
+  text.lines().take(limit).any(|line| {
+    let line = line.trim_start();
+    (line.starts_with("//") || line.starts_with("/*"))
+      && markers
+        .iter()
+        .any(|m| !m.is_empty() && line.contains(m.as_str()))
+  })
+}
+
 /// The edition of the text being formatted.
 pub(super) fn edition() -> Edition {
   EDITION.with(|e| e.get())
@@ -647,6 +658,23 @@ fn align_list_comments(
   ))
 }
 
+thread_local! {
+  /// `skip_macro_invocations` for the text being formatted.
+  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
+    const { std::cell::RefCell::new(Vec::new()) };
+  /// The crate root's skipped macros and attributes, for the text being formatted.
+  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
+    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
+  /// The edition of the text being formatted.
+  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
+  /// The style edition of the text being formatted.
+  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
+  /// Whether the text being formatted names macros, and attributes, to skip.
+  static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
+  /// Whether a statement or item was kept as written since [`format_file`] last looked.
+  static KEPT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Whether the comment after the whitespace `tokens[i]`, which follows an attribute's `]`
 /// on `line` (the output's line so far), goes to the next line: see where it is called.
 fn attr_comment_moves(
@@ -705,23 +733,6 @@ fn attr_comment_moves(
     && comments
       .first()
       .is_some_and(|c| width_of(line, tab) + 1 + width_of(c, tab) > config.max_width)
-}
-
-thread_local! {
-  /// `skip_macro_invocations` for the text being formatted.
-  static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
-    const { std::cell::RefCell::new(Vec::new()) };
-  /// The crate root's skipped macros and attributes, for the text being formatted.
-  static CRATE_SKIPS: std::cell::RefCell<(Vec<String>, Vec<String>)> =
-    const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
-  /// The edition of the text being formatted.
-  static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
-  /// The style edition of the text being formatted.
-  static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
-  /// Whether the text being formatted names macros, and attributes, to skip.
-  static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
-  /// Whether a statement or item was kept as written since [`format_file`] last looked.
-  static KEPT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Whether a node is a macro call with braces (`m! { .. }`), or a statement of one.
@@ -1402,7 +1413,13 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     NewlineStyle::Native if cfg!(windows) => "\r\n",
     NewlineStyle::Native => "\n",
   };
-  if config.disable_all_formatting || (!config.format_generated_files && is_generated(rest, config))
+  if config.disable_all_formatting
+    || (!config.format_generated_files
+      && is_generated(
+        rest,
+        &config.generated_markers,
+        config.generated_marker_line_search_limit,
+      ))
   {
     return source.to_string();
   }
@@ -1556,18 +1573,6 @@ fn is_container(kind: SyntaxKind) -> bool {
       | SyntaxKind::RecordExprFieldList
       | SyntaxKind::UseTreeList
   )
-}
-
-/// Whether a comment among the file's first `generated_marker_line_search_limit` lines
-/// holds `@generated`.
-fn is_generated(text: &str, config: &FormatConfig) -> bool {
-  text
-    .lines()
-    .take(config.generated_marker_line_search_limit)
-    .any(|line| {
-      let line = line.trim_start();
-      (line.starts_with("//") || line.starts_with("/*")) && line.contains("@generated")
-    })
 }
 
 fn is_generics(kind: SyntaxKind) -> bool {
@@ -3507,7 +3512,6 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
       roles.starts.insert(start, None);
     }
   }
-  let mut region: Option<usize> = None;
   let mut statements = Vec::new();
   // Statements the standard formatter does not give up on alone (`flattened` in Spans).
   let mut flattened: OffsetSet = OffsetSet::default();
@@ -4239,29 +4243,14 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           });
           roles.verbatim.push((from, to));
         }
-        if token.kind() == SyntaxKind::LineComment {
-          let marker = token.text().trim();
-          if marker == "// mto: off" && region.is_none() {
-            region = Some(start);
-          } else if marker == "// mto: on"
-            && let Some(from) = region.take()
-          {
-            explain(
-              root,
-              from,
-              &text[from..token.text_range().end as usize],
-              || "// mto: off".to_string(),
-            );
-            roles.verbatim.push((from, token.text_range().end as usize));
-          }
-        }
         roles.tokens.push(token.clone());
       }
     }
   }
-  if let Some(from) = region {
-    explain(root, from, &text[from..], || "// mto: off".to_string());
-    roles.verbatim.push((from, text.len()));
+  // `// mto: off` regions, each kept as written whole.
+  for (from, to) in crate::syntax::marker::scan(root, text).regions {
+    explain(root, from, &text[from..to], || "// mto: off".to_string());
+    roles.verbatim.push((from, to));
   }
   // Where lines start, which the measuring below splits written lines at.
   line_starts(&walked, &mut roles, config);

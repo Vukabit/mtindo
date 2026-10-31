@@ -5,7 +5,8 @@ use crate::syntax::SyntaxKind;
 
 /// How many tokens at the end of `trivia` (the trivia just before an attachable node) belong
 /// inside that node: the comments directly above it, with no blank line between them and the
-/// node, plus the whitespace between those comments and the node.
+/// node and no directive (`// mto: off`) among them, plus the whitespace between those
+/// comments and the node.
 ///
 /// `after_code` says the run starts right after code on the same line. A comment before the
 /// run's first line break then trails that code (`#![allow(x)] // why`) and is never taken,
@@ -24,6 +25,8 @@ pub(super) fn leading(trivia: &[(SyntaxKind, &str)], after_code: bool) -> usize 
     match kind {
       SyntaxKind::Whitespace if text.matches('\n').count() >= 2 => break,
       SyntaxKind::Whitespace => {}
+      // One of mto's directives belongs to no item, and ends the comments above it.
+      SyntaxKind::LineComment if crate::syntax::marker::parse(text).is_some() => break,
       SyntaxKind::LineComment | SyntaxKind::BlockComment => attached = count + 1,
       _ => break,
     }
@@ -95,6 +98,23 @@ mod tests {
       (Whitespace, "\n"),
     ];
     assert_eq!(leading(&trivia, true), 2);
+  }
+
+  #[test]
+  fn test_leading_never_takes_a_directive_or_what_is_above_it() {
+    let trivia = [
+      (LineComment, "// a"),
+      (Whitespace, "\n"),
+      (LineComment, "// mto: on"),
+      (Whitespace, "\n"),
+      (LineComment, "// about the item"),
+      (Whitespace, "\n"),
+    ];
+    assert_eq!(leading(&trivia, false), 2);
+    assert_eq!(
+      leading(&[(LineComment, "// mto: pin"), (Whitespace, "\n")], false),
+      0
+    );
   }
 
   #[test]

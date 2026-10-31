@@ -17,6 +17,7 @@ use SyntaxKind as K;
 use crate::options::format::FormatConfig;
 use crate::order::{UseTree, version_sort};
 use crate::syntax::ast::Attr;
+use crate::syntax::marker;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode};
 
 /// The nodes the passes here look at, found in one walk of the tree when a pass first asks
@@ -964,28 +965,9 @@ fn module_name(node: &SyntaxNode) -> Option<String> {
   Some(name.text().to_string())
 }
 
-/// The ranges between a `// mto: off` comment and the next `// mto: on` (or the end).
+/// The regions `// mto: off` and `// mto: on` leave as written ([`marker::scan`]).
 fn off_regions(root: &SyntaxNode) -> Vec<(usize, usize)> {
-  let mut regions = Vec::new();
-  let mut start: Option<usize> = None;
-  for (_, text, range) in root
-    .token_texts()
-    .filter(|&(kind, _, _)| kind == K::LineComment)
-  {
-    match text.trim() {
-      "// mto: off" if start.is_none() => start = Some(range.start as usize),
-      "// mto: on" => {
-        if let Some(s) = start.take() {
-          regions.push((s, range.end as usize));
-        }
-      }
-      _ => {}
-    }
-  }
-  if let Some(s) = start {
-    regions.push((s, usize::MAX));
-  }
-  regions
+  marker::scan(root, root.text()).regions
 }
 
 /// Whether an item carries a comment before it on a line of its own.

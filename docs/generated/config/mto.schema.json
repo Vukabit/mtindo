@@ -17,13 +17,19 @@
       "minimum": 0,
       "default": 1
     },
+    "generated_markers": {
+      "description": "A file is generated when a comment among its first `generated_marker_line_search_limit` lines holds one of these texts. Layout leaves a generated file's items where they are unless `layout_generated_files` is set, and formatting leaves it as written when `format_generated_files = false`. A folder of generated code is better left out with `ignore_dirs`.\n\nIn mto: supported.",
+      "type": "array",
+      "items": {"type": "string"},
+      "default": ["@generated"]
+    },
     "group_impls": {
       "description": "Rank each impl block as the struct, enum or trait it is for and place it right after that item, instead of in the `ImplBlock` group of `type_order`.\n\nIn mto: supported.",
       "type": "boolean",
       "default": true
     },
     "ignore_dirs": {
-      "description": "Folder names skipped when mto walks a directory. A folder is skipped wherever it appears; setting this list replaces the default list.\n\nIn mto: supported.",
+      "description": "Folders skipped when mto walks a directory. A name (`target`) skips every folder of that name, wherever it is; an entry with a `/` is a path (`tests/fixtures`, `./cache`, or an absolute one), read from the folder of the file that sets it, and skips that folder only. Setting this list replaces the default list.\n\nIn mto: supported.",
       "type": "array",
       "items": {"type": "string"},
       "default": [".git", "target", "node_modules", "vendor", "dist", ".venv"]
@@ -54,6 +60,11 @@
       "description": "Formats the files this mto.toml applies to in the Rust style, as the standard formatter does with the same settings, beside or without `layout`. On by default, so mto with no configuration is a drop-in for the standard formatter; `format = false` turns it off. Formatting changes whitespace and the few tokens the Rust style rewrites (a trailing comma, the order of imports). Like the standard formatter, it leaves as written what it would give up on: macro bodies it cannot read as code, `macro_rules!` definitions, anything marked `#[rustfmt::skip]`, `// mto: off` regions, a statement or item that cannot fit within `max_width`, and files that `disable_all_formatting` or `format_generated_files = false` leave alone. Every change is checked to keep the program's tokens and comments, and a second run changes nothing.\n\nIn mto: partial. Indentation, spacing within lines, blank lines, trailing whitespace and line endings; no line breaking yet.",
       "type": "boolean",
       "default": true
+    },
+    "layout_generated_files": {
+      "description": "Whether layout reorders the items of a generated file (one holding a `generated_markers` text near its top). Off by default, so generated code keeps the order its generator wrote; formatting follows `format_generated_files` instead.\n\nIn mto: supported.",
+      "type": "boolean",
+      "default": false
     },
     "name_sort": {
       "description": "How `sort_alphabetically` compares names. Imports and modules are not affected: they are always sorted exactly as the standard formatter sorts them.\n\nIn mto: supported.",

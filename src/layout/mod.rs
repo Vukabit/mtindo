@@ -11,9 +11,9 @@
 //!   (`docs/design/comment-attachment.md`);
 //! - **pinned units** that keep their position: `extern crate`, item-position macro calls,
 //!   `#[rustfmt::skip]` items, items under a `// mto: pin` comment, and `// mto: off` ...
-//!   `// mto: on` regions. A marker may be a loose comment or one attached to an item; an
-//!   item with `// mto: on` attached above it stays inside the region, and a region with no
-//!   `// mto: on` runs to the end of the file;
+//!   `// mto: on` regions ([`marker`]). A marker belongs to no item: the region ends at
+//!   `// mto: on` itself, the item after it is laid out as any other, and a region with no
+//!   `// mto: on` runs to the end of its container;
 //! - adjacent `#[cfg]` items of the same kind and name (`#[cfg(unix)] fn f` and
 //!   `#[cfg(windows)] fn f`) are one unit, so the variants stay together;
 //! - **the tail:** comments after the last item, kept last.
@@ -40,6 +40,7 @@ pub use classify::import_group_of_text;
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
 use crate::syntax::ast::{Attr, Item};
 use crate::syntax::lexer::tokenize;
+use crate::syntax::marker::{self, Marker};
 use crate::syntax::{Edition, Parse, SyntaxElement, SyntaxKind, SyntaxNode, parse_cached};
 use crate::text::source::normalize;
 
@@ -311,25 +312,6 @@ fn joined(text: &str, pieces: &[(usize, usize)], apart: &str, loose: &HashSet<us
   out
 }
 
-/// The plain comments attached above a node, trimmed, in order.
-fn leading_comments(node: &crate::syntax::SyntaxNode) -> Vec<String> {
-  let mut comments = Vec::new();
-  for element in node.children_with_tokens_iter() {
-    match element {
-      SyntaxElement::Token(token) if token.kind().is_trivia() => {
-        if matches!(
-          token.kind(),
-          SyntaxKind::LineComment | SyntaxKind::BlockComment
-        ) {
-          comments.push(token.text().trim().to_string());
-        }
-      }
-      _ => break,
-    }
-  }
-  comments
-}
-
 /// The positions of a longest strictly increasing run of `values`, the first such run
 /// patience sorting finds.
 fn longest_increasing(values: &[usize]) -> HashSet<usize> {
@@ -599,13 +581,11 @@ fn split_container(
       loose.insert(start);
     }
     code_before = Some(end);
-    // Markers: the comment itself, or the comments attached above an item.
-    let markers: Vec<String> = match &element {
-      SyntaxElement::Token(_) if comment => vec![text[start..end].trim().to_string()],
-      SyntaxElement::Node(node) => leading_comments(node),
-      _ => Vec::new(),
-    };
-    let marker = |word: &str| markers.iter().any(|m| *m == format!("// mto: {}", word));
+    // A directive is a comment of its own, never one attached to an item.
+    let directive = (kind == SyntaxKind::LineComment)
+      .then(|| marker::at(text, start, end))
+      .flatten();
+    let marker = |want: Marker| directive == Some(want);
     let header_element = match &element {
       SyntaxElement::Token(_) => matches!(
         kind,
@@ -623,7 +603,7 @@ fn split_container(
       {
         skip_file = true;
       }
-      if header_element || (comment && !marker("off")) {
+      if header_element || (comment && !marker(Marker::Off)) {
         header_elements.push((start, end, comment));
         header_end = end;
         continue;
@@ -649,21 +629,16 @@ fn split_container(
       header_end = header_elements.last().map_or(base, |&(_, e, _)| e);
     }
     if let Some(region) = region_start {
-      if marker("on") {
+      if marker(Marker::On) {
         units.push(classify::pinned_region(text, region, end, units.len()));
         region_start = None;
       }
       continue;
     }
-    if marker("off") {
-      let region = pending.first().map(|r| r.0).unwrap_or(start);
+    if marker(Marker::Off) {
+      // The comments right above it describe the region, and go with it.
+      region_start = Some(pending.first().map(|r| r.0).unwrap_or(start));
       pending.clear();
-      // Both markers above one item: a region of just that item.
-      if !comment && marker("on") {
-        units.push(classify::pinned_region(text, region, end, units.len()));
-      } else {
-        region_start = Some(region);
-      }
       continue;
     }
     if comment {
@@ -699,10 +674,9 @@ fn split_container(
       }
       return Err(format!("unexpected {:?} at the top level", kind));
     };
-    let pinned_by_comment = marker("pin")
-      || pending
-        .iter()
-        .any(|(s, e)| text[*s..*e].trim() == "// mto: pin");
+    let pinned_by_comment = pending
+      .iter()
+      .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Pin));
     let loose_comments = !pending.is_empty();
     let mut pieces = std::mem::take(&mut pending);
     pieces.push((start, end));
@@ -753,7 +727,7 @@ fn split_container(
     last_item_end = Some(end);
   }
   if let Some(region) = region_start {
-    // A region with no `// mto: on` runs to the end of the file.
+    // A region with no `// mto: on` runs to the end of its container.
     units.push(classify::pinned_region(
       text,
       region,

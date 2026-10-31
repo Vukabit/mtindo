@@ -99,8 +99,13 @@ fn metric(name: &str, value: f64, unit: &str) {
 }
 
 fn narrowing(sources: &[(PathBuf, String)], trials: usize) {
+  // Generated files laid out too, as `layout::layout` lays out every file the moves are
+  // drawn from.
   let settings = Arc::new(Settings {
-    layout: Some(LayoutConfig::default()),
+    layout: Some(LayoutConfig {
+      layout_generated_files: true,
+      ..LayoutConfig::default()
+    }),
     format: None,
     edition: mtindo::syntax::Edition::E2021,
   });

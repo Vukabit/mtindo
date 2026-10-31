@@ -23,7 +23,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("edition", "partial"),
   ("emit_mode", "missing"),
   ("empty_item_single_line", "supported"),
-  ("enum_discrim_align_threshold", "missing"),
+  ("enum_discrim_align_threshold", "supported"),
   ("error_on_line_overflow", "missing"),
   ("error_on_unformatted", "missing"),
   ("file_lines", "missing"),

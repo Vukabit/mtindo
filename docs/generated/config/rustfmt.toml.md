@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 34
+  supported: 35
   partial: 26
-  missing: 26
+  missing: 25
   not_planned: 4
 ---
 
@@ -283,7 +283,7 @@ variant name that doesn't get ignored when aligning.
 *   Default: `0`; from style edition 2024: `0`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `error_on_line_overflow`
 

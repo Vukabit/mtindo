@@ -149,6 +149,8 @@ pub struct FormatConfig {
   /// `struct_field_align_threshold`: fields' types (or values) aligned in groups whose
   /// names' widths differ by at most this.
   pub struct_field_align_threshold: usize,
+  /// `enum_discrim_align_threshold`: variants' `=` lined up after names at most this wide.
+  pub enum_discrim_align_threshold: usize,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -230,6 +232,7 @@ impl Default for FormatConfig {
       fn_single_line: false,
       inline_attribute_width: 0,
       struct_field_align_threshold: 0,
+      enum_discrim_align_threshold: 0,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

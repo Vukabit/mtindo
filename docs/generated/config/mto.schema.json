@@ -219,7 +219,7 @@
       "default": true
     },
     "enum_discrim_align_threshold": {
-      "description": "The maximum length of enum variant having discriminant, that gets vertically aligned with others. Variants without discriminants would be ignored for the purpose of alignment.\n\nNote that this is not how much whitespace is inserted, but instead the longest variant name that doesn't get ignored when aligning.\n\nIn mto: missing.",
+      "description": "The maximum length of enum variant having discriminant, that gets vertically aligned with others. Variants without discriminants would be ignored for the purpose of alignment.\n\nNote that this is not how much whitespace is inserted, but instead the longest variant name that doesn't get ignored when aligning.\n\nIn mto: supported. With format = true.",
       "type": "integer",
       "minimum": 0,
       "default": 0

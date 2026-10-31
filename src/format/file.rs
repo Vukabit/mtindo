@@ -1608,6 +1608,13 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
   let body = reindent(&root, &text, edition, config);
   // Empty items' bodies, and functions of one statement, as `empty_item_single_line` and
   // `fn_single_line` say, once the rest is laid out.
+  // Variants' discriminants lined up (`enum_discrim_align_threshold`).
+  let body = if config.enum_discrim_align_threshold == 0 {
+    body
+  } else {
+    let laid = parse(&body, edition).syntax_node();
+    crate::format::reorder::aligned_discriminants(&laid, &body, config).unwrap_or(body)
+  };
   // Fields' types and values lined up (`struct_field_align_threshold`).
   let body = if config.struct_field_align_threshold == 0 {
     body

@@ -26,7 +26,7 @@ option  doc_comment_code_block_width                     missing
 option  edition                                          partial      # read from --edition, Cargo.toml and config files (src/config/tests.rs); parsing still detects the edition itself
 option  emit_mode                                        missing
 option  empty_item_single_line                           supported    # with format = true (src/format/reorder/tests.rs)
-option  enum_discrim_align_threshold                     missing
+option  enum_discrim_align_threshold                     supported    # with format = true (src/format/reorder/tests.rs)
 option  error_on_line_overflow                           missing
 option  error_on_unformatted                             missing
 option  file_lines                                       missing

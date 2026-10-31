@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 51
+  supported: 52
   partial: 27
-  missing: 26
+  missing: 25
   not_planned: 4
 ---
 
@@ -292,7 +292,7 @@ behavior, so the column does not apply to them.
 <code>enum_discrim_align_threshold</code></a></td>
 <td>rustfmt.toml</td>
 <td>Align enum variants discrims, if their diffs fit within threshold.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#error_on_line_overflow">

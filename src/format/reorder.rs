@@ -62,6 +62,75 @@ impl PassNodes {
   }
 }
 
+/// `text`, laid out, with each enum's variants given a discriminant lined up: the name of
+/// each padded to the widest of those names at most `enum_discrim_align_threshold` wide,
+/// so their `=` line up (the standard formatter's `format_variant_list`); `None` when
+/// nothing moves. Only a variant written `Name = value` on one line, within the line width.
+/// Not in a `// mto: off` region or a skipped item.
+pub fn aligned_discriminants(
+  root: &SyntaxNode,
+  text: &str,
+  config: &FormatConfig,
+) -> Option<String> {
+  let off = off_regions(root);
+  let mut inserts: Vec<(usize, usize)> = Vec::new();
+  for list in root.descendant_nodes_where(|kind| kind == K::VariantList) {
+    let range = list.text_range();
+    if skipped_within(&list)
+      || off
+        .iter()
+        .any(|&(s, e)| s < range.end as usize && (range.start as usize) < e)
+    {
+      continue;
+    }
+    // Each variant with a discriminant: its name's end and width, and the line's width.
+    let named: Vec<(usize, usize, usize, bool)> = list
+      .children_iter()
+      .filter(|v| {
+        v.kind() == K::Variant && v.children_with_tokens_iter().any(|e| e.kind() == K::Eq)
+      })
+      .filter_map(|variant| {
+        let name = variant.children_iter().find(|c| c.kind() == K::Name)?;
+        let end = name.text_range().end as usize;
+        let line_end = text[end..].find('\n').map_or(text.len(), |i| end + i);
+        let line_start = text[..end].rfind('\n').map_or(0, |i| i + 1);
+        // A unit variant: `=` right after its name.
+        let unit = text[end..].trim_start_matches(' ').starts_with('=');
+        Some((
+          end,
+          name.text().chars().count(),
+          line_end - line_start,
+          unit,
+        ))
+      })
+      .collect();
+    let pad_to = named
+      .iter()
+      .map(|&(_, width, _, _)| width)
+      .filter(|&w| w <= config.enum_discrim_align_threshold)
+      .max()
+      .unwrap_or(0);
+    for &(end, width, line, unit) in &named {
+      if unit && width < pad_to && line + pad_to - width <= config.max_width {
+        inserts.push((end, pad_to - width));
+      }
+    }
+  }
+  if inserts.is_empty() {
+    return None;
+  }
+  inserts.sort_unstable();
+  let mut out = String::with_capacity(text.len() + inserts.len() * 8);
+  let mut from = 0;
+  for (at, pad) in inserts {
+    out.push_str(&text[from..at]);
+    out.push_str(&" ".repeat(pad));
+    from = at;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text`, laid out, with the fields of each struct, variant and struct literal laid out a
 /// line each lined up: in each group of them (fields between blank lines, a skipped one
 /// ending its group) whose widths before their types differ by at most

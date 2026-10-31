@@ -86,6 +86,23 @@ fn test_derives_merged_in_runs() {
   );
 }
 
+/// `enum_discrim_align_threshold`: variants' `=` lined up after the widest name at most that
+/// wide; a wider one, and a variant without a discriminant, are left as they are.
+#[test]
+fn test_discriminants_aligned() {
+  let config = FormatConfig {
+    enum_discrim_align_threshold: 10,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(
+      "enum E {\n    A = 1,\n    Bcdef = 2,\n    C,\n    LongerThanTen = 3,\n}\n",
+      &config
+    ),
+    "enum E {\n    A     = 1,\n    Bcdef = 2,\n    C,\n    LongerThanTen = 3,\n}\n"
+  );
+}
+
 /// `#[doc = "..."]` written as doc comments, a line each, `//!` for an inner one; code after
 /// it on its line goes to the next. One with an escape doc comments cannot show plainly, or
 /// with a comment, is left as written.

@@ -2,8 +2,8 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-31T04:24:15.156Z"
-commit: "64afff2-dirty.bac24851"
+generated: "2026-10-31T23:39:02.063Z"
+commit: "a536de7-dirty.e560aa14"
 command: "cargo xtask metrics ratchet --update"
 sources:
   - compat/performance.txt
@@ -150,8 +150,8 @@ record equals it is not repeated.
 | date | commit | one thread MB/s | speedup | serde peak MB |
 |---|---|---:|---:|---:|
 | current |  | 9.103 | 20.28 | 31.5 |
-| 2026-10-29 | 0018fb0 | 8.449 | 17.03 | 31.5 |
-| 2026-10-13 | 031a9ac | 9.702 | 31.39 | 36.1 |
+| 2026-10-29 | 6c7b908 | 8.449 | 17.03 | 31.5 |
+| 2026-10-13 | b69b461 | 9.702 | 31.39 | 36.1 |
 <!-- end generated -->
 
 ### Latest measurements on the generating machine
@@ -166,11 +166,11 @@ timing taken while the machine was busy is not judged:
 
 | series | latest | within | date |
 |---|---:|---|---|
-| `speed.speedup.stable` | 20.28 | yes | 2026-10-31 |
-| `speed.speedup.nightly` | 20.66 | yes | 2026-10-31 |
-| `speed.mto.laid_out.mb_per_s` | 186.26 | yes | 2026-10-31 |
-| `speed.mto.as_fetched.mb_per_s` | 169.08 | yes | 2026-10-31 |
-| `speed.layout.one_thread.mb_per_s` | 93.43 | yes | 2026-10-31 |
+| `speed.speedup.stable` | 20.81 | yes | 2026-10-31 |
+| `speed.speedup.nightly` | 21.42 | yes | 2026-10-31 |
+| `speed.mto.laid_out.mb_per_s` | 190.70 | yes | 2026-10-31 |
+| `speed.mto.as_fetched.mb_per_s` | 189.51 | yes | 2026-10-31 |
+| `speed.layout.one_thread.mb_per_s` | 92.58 | yes | 2026-10-31 |
 | `memst.serde.allocs` | 1.32M | yes | 2026-10-27 |
 | `memst.serde.bytes` | 365.17M | yes | 2026-10-27 |
 | `memst.serde.peak_live` | 31.52M | yes | 2026-10-27 |

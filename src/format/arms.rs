@@ -331,7 +331,8 @@ pub fn rewrite_arm_in(
             " {".to_string()
           };
           let next_line = |next: String| {
-            if inside_macro {
+            // Without a block in a macro's arguments, or without `match_arm_blocks`.
+            if inside_macro || !config.match_arm_blocks {
               return Arm::Whole(format!("{} =>\n{}{},", lhs, " ".repeat(indent + tab), next));
             }
             // From style edition 2024 the body is the block's statement: a `return`, `break`

@@ -56,6 +56,8 @@ pub struct Limits {
   pub control_brace_style: crate::options::format::ControlBraceStyle,
   /// `binop_separator = "Back"`.
   pub binop_back: bool,
+  /// `match_arm_blocks`.
+  pub match_arm_blocks: bool,
   /// Laying out a macro's arguments: a closure's body keeps or lacks its block as written.
   pub inside_macro: bool,
   /// Laying out a block's last expression as its statement: an expression from style
@@ -103,6 +105,7 @@ impl Limits {
       struct_lit_single_line: config.struct_lit_single_line,
       control_brace_style: config.control_brace_style,
       binop_back: config.binop_back,
+      match_arm_blocks: config.match_arm_blocks,
       inside_macro: false,
       block_tail: false,
     }
@@ -131,6 +134,7 @@ impl Limits {
       struct_lit_single_line: self.struct_lit_single_line,
       control_brace_style: self.control_brace_style,
       binop_back: self.binop_back,
+      match_arm_blocks: self.match_arm_blocks,
       ..self.spacing.config()
     }
   }
@@ -161,6 +165,7 @@ impl Default for Limits {
       struct_lit_single_line: true,
       control_brace_style: crate::options::format::ControlBraceStyle::AlwaysSameLine,
       binop_back: false,
+      match_arm_blocks: true,
       inside_macro: false,
       block_tail: false,
     }
@@ -251,7 +256,8 @@ impl std::hash::Hash for Shape {
         | u64::from(l.combine_control_expr) << 40
         | u64::from(l.struct_lit_single_line) << 41
         | (l.control_brace_style as u64) << 42
-        | u64::from(l.binop_back) << 44,
+        | u64::from(l.binop_back) << 44
+        | u64::from(l.match_arm_blocks) << 45,
     );
   }
 }

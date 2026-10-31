@@ -51,7 +51,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("indent_style", "missing"),
   ("inline_attribute_width", "missing"),
   ("make_backup", "not-planned"),
-  ("match_arm_blocks", "missing"),
+  ("match_arm_blocks", "supported"),
   ("match_arm_indent", "supported"),
   ("match_arm_leading_pipes", "supported"),
   ("match_block_trailing_comma", "supported"),

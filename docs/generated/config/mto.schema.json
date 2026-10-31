@@ -372,7 +372,7 @@
       "default": false
     },
     "match_arm_blocks": {
-      "description": "Controls whether arm bodies are wrapped in cases where the first line of the body cannot fit on the same line as the `=>` operator.\n\nThe Style Guide requires that bodies are block wrapped by default if a line break is required after the `=>`, but this option can be used to disable that behavior to prevent wrapping arm bodies in that event, so long as the body contains neither multiple statements nor line comments.\n\nIn mto: missing.",
+      "description": "Controls whether arm bodies are wrapped in cases where the first line of the body cannot fit on the same line as the `=>` operator.\n\nThe Style Guide requires that bodies are block wrapped by default if a line break is required after the `=>`, but this option can be used to disable that behavior to prevent wrapping arm bodies in that event, so long as the body contains neither multiple statements nor line comments.\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": true
     },

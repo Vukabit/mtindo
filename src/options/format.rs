@@ -137,6 +137,8 @@ pub struct FormatConfig {
   pub control_brace_style: ControlBraceStyle,
   /// `binop_separator = "Back"`: a binary operator ends the line it breaks after.
   pub binop_back: bool,
+  /// `match_arm_blocks`: an arm's body on the next line is put in a block.
+  pub match_arm_blocks: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -213,6 +215,7 @@ impl Default for FormatConfig {
       normalize_doc_attributes: false,
       control_brace_style: ControlBraceStyle::AlwaysSameLine,
       binop_back: false,
+      match_arm_blocks: true,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

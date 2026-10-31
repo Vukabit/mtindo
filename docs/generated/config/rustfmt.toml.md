@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 29
+  supported: 30
   partial: 26
-  missing: 31
+  missing: 30
   not_planned: 4
 ---
 
@@ -624,7 +624,7 @@ contains neither multiple statements nor line comments.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `match_arm_indent`
 

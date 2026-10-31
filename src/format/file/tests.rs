@@ -1086,6 +1086,23 @@ fn test_macros_in_ranges_keep_their_arguments() {
   assert_eq!(formatted(kept), kept);
 }
 
+/// Without `match_arm_blocks`, an arm's body too wide for its line goes to the next one level
+/// in, in no block; one written in a block keeps it.
+#[test]
+fn test_match_arm_blocks_off() {
+  let config = FormatConfig {
+    match_arm_blocks: false,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn main() {\n    match lorem {\n        true => foooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo(x),\n        false => {\n            println!(\"{}\", sit)\n        }\n    }\n}\n",
+      &config
+    ),
+    "fn main() {\n    match lorem {\n        true =>\n            foooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo(x),\n        false => {\n            println!(\"{}\", sit)\n        }\n    }\n}\n"
+  );
+}
+
 #[test]
 fn test_match_arm_indent_off_keeps_arms_at_the_match() {
   let config = FormatConfig {

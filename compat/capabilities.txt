@@ -54,7 +54,7 @@ option  imports_layout                                   partial      # with for
 option  indent_style                                     missing
 option  inline_attribute_width                           missing
 option  make_backup                                      not-planned  # every run that writes files is recorded in history; `mto restore` undoes it
-option  match_arm_blocks                                 missing
+option  match_arm_blocks                                 supported    # with format = true (src/format/file/tests.rs)
 option  match_arm_indent                                 supported    # with format = true (src/format/file/tests.rs)
 option  match_arm_leading_pipes                          supported    # with format = true, for arms mto lays out (src/format/file/tests.rs)
 option  match_block_trailing_comma                       supported    # with format = true (src/format/file/tests.rs)

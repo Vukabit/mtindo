@@ -640,6 +640,13 @@ mod tests {
   #[cfg(unix)]
   #[test]
   fn test_a_child_is_timed_to_its_end() {
+    // Against the same child run by the standard library, so a loaded machine slows both.
+    let started = Instant::now();
+    Command::new("sh")
+      .args(["-c", "sleep 0.35"])
+      .output()
+      .unwrap();
+    let plain = started.elapsed();
     let started = Instant::now();
     let out = output(
       Command::new("sh")
@@ -650,7 +657,12 @@ mod tests {
     .unwrap();
     let took = started.elapsed();
     assert_eq!(out.code, 0);
-    assert!(took < Duration::from_millis(450), "{:?}", took);
+    assert!(
+      took < plain + Duration::from_millis(100),
+      "{:?} against {:?}",
+      took,
+      plain
+    );
   }
 
   #[test]

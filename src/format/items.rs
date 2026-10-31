@@ -2008,11 +2008,31 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
         comment.text(),
         " ".repeat(indent)
       ),
+      // A trait whose name and generics are one column wide keeps `where` on its header's
+      // line, as the standard formatter's `rewrite_trait` snuggles it (its
+      // `WhereClauseOption::snuggled` takes a last line one column wide).
+      None
+        if node.kind() == K::Trait
+          && !node
+            .children_iter()
+            .any(|c| c.kind() == K::GenericParamList)
+          && node
+            .children_iter()
+            .find(|c| c.kind() == K::Name)
+            .is_some_and(|name| str_width(name.text()) == 1) =>
+      {
+        " where".to_string()
+      }
       None => format!("\n{}where", " ".repeat(indent)),
     };
     for (i, predicate) in predicates.iter().enumerate() {
       let last = i + 1 == predicates.len();
-      let comma = if last && tail_text == ";" { "" } else { "," };
+      // None after the last before a `;`, nor with `trailing_comma = "Never"`.
+      let comma = if last && (tail_text == ";" || config.trailing_comma_never) {
+        ""
+      } else {
+        ","
+      };
       if blank_before.contains(&i) && config.style_edition < 2024 {
         block.push('\n');
       }

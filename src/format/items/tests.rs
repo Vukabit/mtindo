@@ -17,6 +17,24 @@ fn formatted(source: &str) -> String {
   once
 }
 
+/// A trait whose name and generics are one column wide keeps `where` on its header's line,
+/// as the standard formatter writes it; any other puts it on a line of its own.
+#[test]
+fn test_a_one_letter_trait_keeps_where_on_its_line() {
+  assert_eq!(
+    formatted("pub trait T: Clone where Self: Sized { fn f(); }\n"),
+    "pub trait T: Clone where\n    Self: Sized,\n{\n    fn f();\n}\n"
+  );
+  assert_eq!(
+    formatted("trait Ab where Self: Sized {}\n"),
+    "trait Ab\nwhere\n    Self: Sized,\n{\n}\n"
+  );
+  assert_eq!(
+    formatted("trait T<U> where U: Copy {}\n"),
+    "trait T<U>\nwhere\n    U: Copy,\n{\n}\n"
+  );
+}
+
 /// A static in an `extern` block keeps its initializer, which an attribute macro may read
 /// (wasm-bindgen's `static_string`), where the standard formatter drops it
 /// (its issue 6267): the meaning check would refuse the write otherwise.
@@ -188,6 +206,22 @@ fn test_parameters_with_comments_and_long_names() {
     ),
     "extern \"C\" {\n    pub fn init_storage_event_with_can_bubble_and_cancelable_and_key_and_old_value_and_new_value_and_url(\n        this: &StorageEvent,\n        type_arg: &str,\n    );\n}\n"
   );
+}
+
+/// With `trailing_comma = "Never"` the last predicate of a `where` on lines takes no comma.
+#[test]
+fn test_trailing_comma_never_in_a_where_clause() {
+  let config = FormatConfig {
+    trailing_comma_never: true,
+    max_width: 20,
+    ..FormatConfig::default()
+  };
+  let out = format_file(
+    "fn f<T>() where T: Clone, U: Copy {}\n",
+    Edition::E2021,
+    &config,
+  );
+  assert_eq!(out, "fn f<T>()\nwhere\n    T: Clone,\n    U: Copy\n{\n}\n");
 }
 
 #[test]

@@ -114,8 +114,10 @@ The hooks in `.githooks/` are one line each; [flow.toml](flow.toml)'s
 `[stages]` says what each runs, and CI runs the same checks.
 
 - **`commit-msg`**, every commit: the message, as above.
-- **`pre-commit`**, every commit: `no-internal`, `secrets`, `fmt`, `gates`.
-- **`pre-push`**, every push: `messages`, `hold`, `clippy`, `tests`.
+- **`pre-commit`**, every commit: `no-internal`, `secrets`, `fmt`, `gates`,
+  on what is staged (a change left unstaged neither fails nor passes it).
+- **`pre-push`**, every push: `messages`, `hold`, `clippy`; the test suites
+  run in CI.
 - **`ci`**, once per push in CI: `messages`, `no-internal`, `secrets`,
   `fmt`, `gates`, pinned actions and tools, the command reference.
 - **`build`**, on each CI platform: `clippy`, `tests`.

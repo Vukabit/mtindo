@@ -1462,11 +1462,13 @@ pub fn single_line_items(root: &SyntaxNode, text: &str, config: &FormatConfig) -
     let header_start =
       crate::format::items::header_start(&item).unwrap_or(item.text_range().start as usize);
     let header = text[header_start..start].trim_end();
+    let header_line = text[..header_start].rfind('\n').map_or(0, |i| i + 1);
     let line = statement.text();
     if !config.fn_single_line
       || item.kind() != K::Fn
       || body.kind() != K::BlockExpr
-      || text[header_start..start].contains('\n')
+      // Its `{` on the next line by `brace_style = "AlwaysNextLine"` joins it.
+      || header.contains('\n')
       || line.contains('\n')
       || statement.subtree_has(|kind| kind == K::Attr)
       // Not a macro call standing as a statement, with a `;` or in braces, nor an item
@@ -1480,15 +1482,14 @@ pub fn single_line_items(root: &SyntaxNode, text: &str, config: &FormatConfig) -
           .and_then(|tree| tree.first_token())
           .is_some_and(|t| t.kind() == K::LBrace)
       || crate::format::items::is_item(statement.kind())
-      || text[line_start..header_start].trim() != ""
+      || text[header_line..header_start].trim() != ""
     {
       continue;
     }
-    let joined = format!("{{ {} }}", line);
-    if width(&text[line_start..header_start]) + width(header) + 1 + width(&joined)
-      <= config.max_width
+    let joined = format!(" {{ {} }}", line);
+    if width(&text[header_line..header_start]) + width(header) + width(&joined) <= config.max_width
     {
-      changes.push((start, end, joined));
+      changes.push((header_start + header.len(), end, joined));
     }
   }
   if changes.is_empty() {

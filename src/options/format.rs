@@ -26,6 +26,19 @@ pub enum FloatTrailingZero {
   Never,
 }
 
+/// How a function's parameters are laid out when they do not fit on its line
+/// (`fn_params_layout`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FnParamsLayout {
+  /// On the line when they fit there, else one per line.
+  #[default]
+  Tall,
+  /// As many on each line as fit.
+  Compressed,
+  /// One per line, but a lone one.
+  Vertical,
+}
+
 /// How the items of a `use` list are laid out when they do not fit on one line
 /// (`imports_layout`).
 /// How a hex literal's digits are written (`hex_literal_case`).
@@ -153,6 +166,8 @@ pub struct FormatConfig {
   pub normalize_comments: bool,
   /// `control_brace_style`.
   pub control_brace_style: ControlBraceStyle,
+  /// `fn_params_layout`.
+  pub fn_params_layout: FnParamsLayout,
   /// `binop_separator = "Back"`: a binary operator ends the line it breaks after.
   pub binop_back: bool,
   /// `match_arm_blocks`: an arm's body on the next line is put in a block.
@@ -203,6 +218,9 @@ pub struct FormatConfig {
   pub crate_skipped_attributes: Vec<String>,
   /// `brace_style = "AlwaysNextLine"`: an item's `{` on the line after its header.
   pub brace_next_line: bool,
+  /// `brace_style = "PreferSameLine"`: an item's `{` after its `where` clause's last
+  /// predicate.
+  pub brace_prefer_same_line: bool,
   /// `struct_variant_width`: the widest struct-like variant's fields kept on one line.
   pub struct_variant_width: usize,
   /// `single_line_if_else_max_width`: the widest `if ... { .. } else { .. }` kept on one
@@ -254,6 +272,7 @@ impl Default for FormatConfig {
       normalize_comments: false,
       normalize_doc_attributes: false,
       control_brace_style: ControlBraceStyle::AlwaysSameLine,
+      fn_params_layout: FnParamsLayout::Tall,
       binop_back: false,
       match_arm_blocks: true,
       force_multiline_blocks: false,
@@ -277,6 +296,7 @@ impl Default for FormatConfig {
       crate_skipped_macros: Vec::new(),
       crate_skipped_attributes: Vec::new(),
       brace_next_line: false,
+      brace_prefer_same_line: false,
       struct_variant_width: 35,
       single_line_if_else_max_width: 50,
       single_line_let_else_max_width: 50,

@@ -73,6 +73,38 @@ fn test_brace_style_always_next_line() {
   assert_eq!(once, "fn f(a: u8)\n{\n    a;\n}\n");
 }
 
+/// An empty body written `{}` stays on its header's line, but a module's.
+#[test]
+fn test_brace_style_always_next_line_keeps_empty_bodies() {
+  let config = FormatConfig {
+    brace_next_line: true,
+    ..FormatConfig::default()
+  };
+  let once = format_file(
+    "fn f(a: u8) {}\nstruct S {}\nimpl X {}\nmod m {}\n",
+    Edition::E2021,
+    &config,
+  );
+  assert_eq!(once, "fn f(a: u8) {}\nstruct S {}\nimpl X {}\nmod m\n{}\n");
+}
+
+/// `brace_style = "PreferSameLine"`: the body's `{` after a `where` clause's last predicate.
+#[test]
+fn test_brace_style_prefer_same_line() {
+  let config = FormatConfig {
+    brace_prefer_same_line: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    format_file(
+      "struct D<T> where T: Eq { a: T }\nenum C<T> where T: Copy {}\n",
+      Edition::E2021,
+      &config
+    ),
+    "struct D<T>\nwhere\n    T: Eq, {\n    a: T,\n}\nenum C<T>\nwhere\n    T: Copy, {}\n"
+  );
+}
+
 #[test]
 fn test_declarations_keep_a_column_free() {
   // One line at 99 columns; at 100 the return type moves down; past it, parameters do.
@@ -115,6 +147,37 @@ fn test_fields_and_variants_take_a_line_each() {
   assert_eq!(
     formatted("enum E {\n    /// doc\n    A,\n    B { x: u8 },\n}\n"),
     "enum E {\n    /// doc\n    A,\n    B {\n        x: u8,\n    },\n}\n"
+  );
+}
+
+/// `fn_params_layout`: `Vertical` puts two parameters or more one per line, `Compressed`
+/// as many on each line as fit.
+#[test]
+fn test_fn_params_layout() {
+  let vertical = FormatConfig {
+    fn_params_layout: crate::options::format::FnParamsLayout::Vertical,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    format_file(
+      "fn f(a: u8, b: u8) {}\nfn g(a: u8) {}\n",
+      Edition::E2021,
+      &vertical
+    ),
+    "fn f(\n    a: u8,\n    b: u8,\n) {\n}\nfn g(a: u8) {}\n"
+  );
+  let compressed = FormatConfig {
+    fn_params_layout: crate::options::format::FnParamsLayout::Compressed,
+    max_width: 40,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    format_file(
+      "fn f(aaaa: u8, bbbb: u8, cccc: u8, dddd: u8, eeee: u8);\n",
+      Edition::E2021,
+      &compressed
+    ),
+    "fn f(\n    aaaa: u8, bbbb: u8, cccc: u8,\n    dddd: u8, eeee: u8,\n);\n"
   );
 }
 

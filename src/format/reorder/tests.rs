@@ -294,14 +294,14 @@ fn test_single_line_items() {
     ),
     "fn a() -> i32 { 1 }\nfn b() {\n    print!(\"x\");\n}\nfn c() {\n    // note\n    1\n}\nfn d() {\n}\nimpl A {\n}\n"
   );
-  // A `{` on a line of its own (`brace_style`) leaves the function on lines.
+  // A `{` on a line of its own (`brace_style`) joins the header's line too.
   let next_line = FormatConfig {
     brace_next_line: true,
     ..config.clone()
   };
   assert_eq!(
     formatted("fn lorem() -> i32\n{\n    42\n}\n", &next_line),
-    "fn lorem() -> i32\n{\n    42\n}\n"
+    "fn lorem() -> i32 { 42 }\n"
   );
 }
 

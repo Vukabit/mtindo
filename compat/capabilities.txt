@@ -33,7 +33,7 @@ option  file_lines                                       missing
 option  float_literal_trailing_zero                      supported    # with format = true (src/format/reorder/tests.rs)
 option  fn_args_layout                                   not-planned  # deprecated in rustfmt in favour of fn_params_layout
 option  fn_call_width                                    partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
-option  fn_params_layout                                 partial      # with format = true, Tall only (src/format/items/tests.rs)
+option  fn_params_layout                                 partial      # with format = true (src/format/items/tests.rs)
 option  fn_single_line                                   supported    # with format = true (src/format/reorder/tests.rs)
 option  force_explicit_abi                               supported    # with format = true, `extern` alone written `extern "C"` on functions, blocks and function pointer types (src/format/reorder/tests.rs)
 option  force_multiline_blocks                           supported    # with format = true (src/format/file/tests.rs)
@@ -102,7 +102,7 @@ option  wrap_comments                                    missing
 value   binop_separator=Back                             supported    # with format = true (src/format/file/tests.rs)
 value   binop_separator=Front                            supported    # with format = true (src/format/file/tests.rs)
 value   brace_style=AlwaysNextLine                       partial      # with format = true, for item headers (src/format/items/tests.rs)
-value   brace_style=PreferSameLine                       missing
+value   brace_style=PreferSameLine                       partial      # with format = true, for item headers (src/format/items/tests.rs)
 value   brace_style=SameLineWhere                        partial      # with format = true, for item headers without a where clause (src/format/items/tests.rs)
 value   color=Always                                     missing
 value   color=Auto                                       missing
@@ -124,9 +124,9 @@ value   float_literal_trailing_zero=Preserve             supported    # with for
 value   fn_args_layout=Compressed                        not-planned  # fn_args_layout is deprecated
 value   fn_args_layout=Tall                              not-planned  # fn_args_layout is deprecated
 value   fn_args_layout=Vertical                          not-planned  # fn_args_layout is deprecated
-value   fn_params_layout=Compressed                      missing
+value   fn_params_layout=Compressed                      partial      # with format = true; generics that would break, and trait bounds, are left as written (src/format/items/tests.rs)
 value   fn_params_layout=Tall                            partial      # with format = true; generics that would break, and trait bounds, are left as written (src/format/items/tests.rs)
-value   fn_params_layout=Vertical                        missing
+value   fn_params_layout=Vertical                        partial      # with format = true; generics that would break, and trait bounds, are left as written (src/format/items/tests.rs)
 value   group_imports=One                                missing
 value   group_imports=Preserve                           missing
 value   group_imports=StdExternalCrate                   missing

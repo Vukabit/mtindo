@@ -257,7 +257,7 @@
       "default": 60
     },
     "fn_params_layout": {
-      "description": "Control the layout of parameters in function signatures.\n\nIn mto: partial. With format = true, Tall only.",
+      "description": "Control the layout of parameters in function signatures.\n\nIn mto: partial. With format = true.",
       "type": "string",
       "enum": ["Compressed", "Tall", "Vertical"],
       "default": "Tall"

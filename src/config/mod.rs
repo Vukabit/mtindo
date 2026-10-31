@@ -336,6 +336,8 @@ impl Config {
     }
     config.brace_next_line =
       self.get("brace_style").and_then(Value::as_text) == Some("AlwaysNextLine");
+    config.brace_prefer_same_line =
+      self.get("brace_style").and_then(Value::as_text) == Some("PreferSameLine");
     config.short_array_element_width_threshold = number(
       "short_array_element_width_threshold",
       config.short_array_element_width_threshold,
@@ -386,6 +388,11 @@ impl Config {
       Some("closingnextline") => crate::options::format::ControlBraceStyle::ClosingNextLine,
       Some("alwaysnextline") => crate::options::format::ControlBraceStyle::AlwaysNextLine,
       _ => crate::options::format::ControlBraceStyle::AlwaysSameLine,
+    };
+    config.fn_params_layout = match choice("fn_params_layout").as_deref() {
+      Some("compressed") => crate::options::format::FnParamsLayout::Compressed,
+      Some("vertical") => crate::options::format::FnParamsLayout::Vertical,
+      _ => crate::options::format::FnParamsLayout::Tall,
     };
     config.float_trailing_zero = match choice("float_literal_trailing_zero").as_deref() {
       Some("always") => crate::options::format::FloatTrailingZero::Always,

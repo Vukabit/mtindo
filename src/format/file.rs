@@ -3243,9 +3243,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                   && text.matches('\n').count() == 1
                   && last.trim().is_empty()
                   && text.contains(" where ");
+                // A module's on the next line (`brace_style = "AlwaysNextLine"`), as `{}`.
+                let next_line = node.kind() == SyntaxKind::Module
+                  && text.matches('\n').count() == 1
+                  && last.trim().is_empty();
                 if past
                   || text.contains('\n')
                     && !where_line
+                    && !next_line
                     && !matches!(
                       node.kind(),
                       SyntaxKind::Struct | SyntaxKind::Enum | SyntaxKind::Union

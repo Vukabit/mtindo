@@ -105,7 +105,6 @@ Brace style for items
 *   Values:
     *   `AlwaysNextLine`: Put the opening brace on the next line.
     *   `PreferSameLine`: Put the opening brace on the same line, if possible.
-        In mto: missing.
     *   `SameLineWhere`: Prefer the same line except where there is a
         where-clause, in which case force the brace to be put on the next line.
 
@@ -347,12 +346,12 @@ Control the layout of parameters in function signatures.
 *   Default: `"Tall"`; from style edition 2024: `"Tall"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: partial. With format = true, Tall only.
+*   In mto: partial. With format = true.
 *   Values:
-    *   `Compressed`: Fit as much on one line as possible. In mto: missing.
+    *   `Compressed`: Fit as much on one line as possible.
     *   `Tall`: Items are placed horizontally if sufficient space, vertically
         otherwise.
-    *   `Vertical`: Place every item on a separate line. In mto: missing.
+    *   `Vertical`: Place every item on a separate line.
 
 ### `fn_single_line`
 

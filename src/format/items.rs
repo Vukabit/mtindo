@@ -1649,6 +1649,25 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
         | K::ItemList
     )
   });
+  // An empty body written `{}` stays on the header's line whatever `brace_style` says, but
+  // a module's.
+  let same_line;
+  let config = if config.brace_next_line
+    && (config.empty_item_single_line || matches!(node.kind(), K::Struct | K::Enum | K::Union))
+    && body.as_ref().is_some_and(|b| {
+      b.kind() != K::ItemList
+        && b
+          .children_with_tokens_iter()
+          .all(|e| matches!(e.kind(), K::Whitespace | K::LBrace | K::RBrace))
+    }) {
+    same_line = FormatConfig {
+      brace_next_line: false,
+      ..config.clone()
+    };
+    &same_line
+  } else {
+    config
+  };
   // Without a body, up to its last code token: a comment after its `;` is not its own.
   let end = match &body {
     Some(body) => body.text_range().start as usize,
@@ -2111,7 +2130,10 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
       _ if indent + str_width(&tail_text) > config.max_width => return None,
       _ => block.push_str(&format!("\n{}{}", " ".repeat(indent), tail_text)),
     }
-    if body.is_some() {
+    // `brace_style = "PreferSameLine"` puts the body's `{` after the last predicate.
+    if body.is_some() && config.brace_prefer_same_line && block.ends_with(',') {
+      block.push(' ');
+    } else if body.is_some() {
       block.push_str(&format!("\n{}", " ".repeat(indent)));
     }
     // A type alias's `where` before its value: its head on one line, then the clause and
@@ -2398,7 +2420,10 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
           .children_with_tokens_iter()
           .filter(|e| e.kind() == K::BlockComment)
           .count();
+      let vertical = config.fn_params_layout == crate::options::format::FnParamsLayout::Vertical
+        && params.len() > 1;
       if !inside.contains('\n')
+        && !vertical
         && indent + str_width(&laid) + brace + if params.is_empty() { 0 } else { counted }
           <= config.max_width
       {
@@ -2808,7 +2833,10 @@ fn rewrite_fn(
     .collect();
   let variadic = texts.last().is_some_and(|t| t.ends_with("..."));
   let total = texts.iter().map(|t| str_width(t)).sum::<usize>() + 2 * texts.len().saturating_sub(1);
-  let horizontal = total <= one_line_budget && !texts.iter().any(|t| t.contains('\n'));
+  // `fn_params_layout = "Vertical"` puts two or more one per line whatever fits.
+  let vertical =
+    config.fn_params_layout == crate::options::format::FnParamsLayout::Vertical && texts.len() > 1;
+  let horizontal = !vertical && total <= one_line_budget && !texts.iter().any(|t| t.contains('\n'));
   // A blank line written after a parameter's comma, before another, stays.
   let mut blank_after = Vec::new();
   let (mut seen, mut comma, mut blank) = (0, false, false);
@@ -2851,6 +2879,21 @@ fn rewrite_fn(
     lone_comments.join(" ")
   } else if horizontal {
     texts.join(", ")
+  } else if config.fn_params_layout == crate::options::format::FnParamsLayout::Compressed
+    && blank_after.is_empty()
+    && !texts.iter().any(|t| t.contains('\n'))
+  {
+    // As many on each line as fit (`Mixed`).
+    let comments = vec![super::lists::ItemComments::default(); texts.len()];
+    super::lists::write_vertical(
+      &texts,
+      &comments,
+      param_indent,
+      multi_line_budget,
+      max,
+      !variadic && !config.trailing_comma_never,
+      true,
+    )?
   } else {
     let pad = " ".repeat(param_indent);
     let mut text = String::new();
@@ -3027,7 +3070,13 @@ fn rewrite_generic_item(
     }
     // An empty body's `{}` stays after the last predicate (`BracePos::ForceSameLine`).
     if body == Some(true) {
-      let trimmed = result.trim_end_matches(' ').strip_suffix('\n')?.to_string();
+      // Already there with `brace_style = "PreferSameLine"`.
+      let trimmed = result.trim_end_matches(' ');
+      let trimmed = match trimmed.strip_suffix('\n') {
+        Some(before) => before.to_string(),
+        None if config.brace_prefer_same_line && trimmed.ends_with(',') => trimmed.to_string(),
+        None => return None,
+      };
       result = format!("{} ", trimmed);
     }
     return Some(result);

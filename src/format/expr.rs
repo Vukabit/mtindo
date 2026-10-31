@@ -909,15 +909,26 @@ pub fn plain_tail_block(block: &SyntaxNode) -> bool {
 /// The standard formatter moves a right-hand side that does not fit on one line where it is
 /// to the next line when it is on one line there, when that saves more than one line, or
 /// when its first line would otherwise end by opening a delimiter that the next line's does
-/// not. Callers keep one fitting on one line where it is first.
+/// not. Callers keep one fitting on one line where it is first. Each is weighed with its
+/// control expressions' braces where `control_brace_style` puts them.
 pub fn prefer_next_line(same: &str, next: &str) -> bool {
-  let lines = |text: &str| text.matches('\n').count();
-  let opens = |text: &str, c: char| text.lines().next().is_some_and(|l| l.ends_with(c));
-  lines(next) == 0
-    || lines(same) > lines(next) + 1
-    || ['(', '{', '[']
-      .iter()
-      .any(|&c| opens(same, c) && !opens(next, c))
+  let style = super::file::control_style();
+  if style != crate::options::format::ControlBraceStyle::AlwaysSameLine {
+    let braced = |text: &str| {
+      let (head, tail) = ("fn __mto() {\nlet _ = ", ";\n}\n");
+      let wrapped = format!("{}{}{}", head, text, tail);
+      let edition = super::file::edition();
+      let parsed = crate::syntax::parse(&wrapped, edition);
+      if !parsed.errors().is_empty() {
+        return text.to_string();
+      }
+      super::reorder::control_braces(&parsed.syntax_node(), &wrapped, style, edition)
+        .and_then(|out| Some(out.strip_prefix(head)?.strip_suffix(tail)?.to_string()))
+        .unwrap_or_else(|| text.to_string())
+    };
+    return weigh(&braced(same), &braced(next));
+  }
+  weigh(same, next)
 }
 
 /// The node printed into `shape`, or `None` when it does not fit.
@@ -1283,10 +1294,6 @@ pub(super) fn later_line_past(text: &str, max: usize) -> bool {
     && later_lines(text).any(|(_, width)| width > max)
 }
 
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
-}
-
 /// Each line of `text` after the first, with its width as the standard formatter's
 /// `filtered_str_fits` counts it (`filter_normal_code`): none for a line that is a comment,
 /// or that ends in a line comment. Each line is read on its own, as the standard
@@ -1313,6 +1320,10 @@ pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
   })
 }
 
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
+}
+
 /// Whether `node` is a struct literal with a comment between a field's attribute and the
 /// field, which the standard formatter's layout loses and so keeps the literal as written
 /// (`recover_comment_removed`).
@@ -1335,13 +1346,20 @@ pub(super) fn lost_field_comment(node: &SyntaxNode) -> bool {
       })
 }
 
-/// Whether a control expression's head spans lines laid out in `shape`.
+/// Whether a control expression's head spans lines laid out in `shape`, its `{` included.
 pub(super) fn multi_line_condition(node: &SyntaxNode, shape: Shape) -> bool {
   if !matches!(
     node.kind(),
     SyntaxKind::IfExpr | SyntaxKind::MatchExpr | SyntaxKind::WhileExpr | SyntaxKind::ForExpr
   ) {
     return false;
+  }
+  // With `{` on a line of its own, any other's: the standard formatter's `rewrite_cond` holds
+  // the line break before it.
+  if node.kind() != SyntaxKind::MatchExpr
+    && shape.limits.control_brace_style == crate::options::format::ControlBraceStyle::AlwaysNextLine
+  {
+    return true;
   }
   // A `match`'s: its scrutinee alone, after `match ` and before ` {` (8 columns).
   if node.kind() == SyntaxKind::MatchExpr {
@@ -5379,6 +5397,17 @@ fn special_macro(name: &str, style_2024: bool) -> Option<usize> {
     .find(|(n, _)| *n == name)
     .map(|&(_, before)| before)
     .or_else(|| (style_2024 && name == "trace!").then_some(0))
+}
+
+/// [`prefer_next_line`]'s weighing, of the texts as they will be written.
+fn weigh(same: &str, next: &str) -> bool {
+  let lines = |text: &str| text.matches('\n').count();
+  let opens = |text: &str, c: char| text.lines().next().is_some_and(|l| l.ends_with(c));
+  lines(next) == 0
+    || lines(same) > lines(next) + 1
+    || ['(', '{', '[']
+      .iter()
+      .any(|&c| opens(same, c) && !opens(next, c))
 }
 
 fn wrap_str(text: String, shape: Shape) -> Option<String> {

@@ -367,6 +367,11 @@ impl Config {
       Some("lower") => crate::options::format::HexLiteralCase::Lower,
       _ => crate::options::format::HexLiteralCase::Preserve,
     };
+    config.control_brace_style = match choice("control_brace_style").as_deref() {
+      Some("closingnextline") => crate::options::format::ControlBraceStyle::ClosingNextLine,
+      Some("alwaysnextline") => crate::options::format::ControlBraceStyle::AlwaysNextLine,
+      _ => crate::options::format::ControlBraceStyle::AlwaysSameLine,
+    };
     config.float_trailing_zero = match choice("float_literal_trailing_zero").as_deref() {
       Some("always") => crate::options::format::FloatTrailingZero::Always,
       Some("ifnopostfix") => crate::options::format::FloatTrailingZero::IfNoPostfix,

@@ -38,6 +38,31 @@ fn test_comments_move_with_their_declarations() {
   );
 }
 
+/// `control_brace_style`: `{` and `else` on lines of their own, an arm's block's and a
+/// `let`'s `else` too, and a control expression no longer overflows a call; with
+/// `ClosingNextLine` only `else` moves. One on one line stays there.
+#[test]
+fn test_control_brace_styles() {
+  use crate::options::format::ControlBraceStyle;
+  let source = "fn f() {\n    if a { b(); } else if c { d(); } else { e(); }\n    let x = if a { 1 } else { 2 };\n    match m { A => {}, B if g => { h(); i() } }\n    while w { k(); }\n    let Some(v) = o else { return };\n    foo(if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa { bbbbbbbbbbbbbbbbbbbbbbbb() } else { ccccccccccccccccccccccc() });\n}\n";
+  let next = FormatConfig {
+    control_brace_style: ControlBraceStyle::AlwaysNextLine,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(source, &next),
+    "fn f() {\n    if a\n    {\n        b();\n    }\n    else if c\n    {\n        d();\n    }\n    else\n    {\n        e();\n    }\n    let x = if a { 1 } else { 2 };\n    match m\n    {\n        A =>\n        {}\n        B if g =>\n        {\n            h();\n            i()\n        }\n    }\n    while w\n    {\n        k();\n    }\n    let Some(v) = o\n    else\n    {\n        return;\n    };\n    foo(\n        if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n        {\n            bbbbbbbbbbbbbbbbbbbbbbbb()\n        }\n        else\n        {\n            ccccccccccccccccccccccc()\n        },\n    );\n}\n"
+  );
+  let closing = FormatConfig {
+    control_brace_style: ControlBraceStyle::ClosingNextLine,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(source, &closing),
+    "fn f() {\n    if a {\n        b();\n    }\n    else if c {\n        d();\n    }\n    else {\n        e();\n    }\n    let x = if a { 1 } else { 2 };\n    match m {\n        A => {}\n        B if g => {\n            h();\n            i()\n        }\n    }\n    while w {\n        k();\n    }\n    let Some(v) = o\n    else {\n        return;\n    };\n    foo(if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa {\n        bbbbbbbbbbbbbbbbbbbbbbbb()\n    }\n    else {\n        ccccccccccccccccccccccc()\n    });\n}\n"
+  );
+}
+
 #[test]
 fn test_derives_merged_in_runs() {
   let source = "#[derive(A)] #[derive(B, C,)]\n#[cfg(x)]\n#[derive(D)]\nstruct S;\n#[derive(A)]\n\n#[derive(B)]\nstruct T;\nfn f() {\n    #[derive(A)]\n    #[derive(B)]\n    enum E {}\n}\n";

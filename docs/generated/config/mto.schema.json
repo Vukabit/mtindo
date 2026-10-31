@@ -179,7 +179,7 @@
       "default": false
     },
     "control_brace_style": {
-      "description": "Brace style for control flow constructs\n\nIn mto: missing.",
+      "description": "Brace style for control flow constructs\n\nIn mto: supported. With format = true.",
       "type": "string",
       "enum": ["AlwaysSameLine", "ClosingNextLine", "AlwaysNextLine"],
       "default": "AlwaysSameLine"

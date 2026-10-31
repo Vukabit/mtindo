@@ -1,5 +1,17 @@
 //! The formatting settings the formatter reads, resolved from the settings table.
 
+/// Where a control expression's `{` and `else` go (`control_brace_style`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ControlBraceStyle {
+  /// `if a {` and `} else {`.
+  #[default]
+  AlwaysSameLine,
+  /// `}` and `else {` on lines of their own.
+  ClosingNextLine,
+  /// `{` and `else` on lines of their own, as `}` is.
+  AlwaysNextLine,
+}
+
 /// Whether a float literal ends in `.0` (`float_literal_trailing_zero`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FloatTrailingZero {
@@ -121,6 +133,8 @@ pub struct FormatConfig {
   pub condense_wildcards: bool,
   /// `normalize_doc_attributes`: `#[doc = "a"]` written `///a`.
   pub normalize_doc_attributes: bool,
+  /// `control_brace_style`.
+  pub control_brace_style: ControlBraceStyle,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -195,6 +209,7 @@ impl Default for FormatConfig {
       try_shorthand: false,
       condense_wildcards: false,
       normalize_doc_attributes: false,
+      control_brace_style: ControlBraceStyle::AlwaysSameLine,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

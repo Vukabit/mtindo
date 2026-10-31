@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 44
+  supported: 45
   partial: 27
-  missing: 33
+  missing: 32
   not_planned: 4
 ---
 
@@ -212,7 +212,7 @@ behavior, so the column does not apply to them.
 <code>control_brace_style</code></a></td>
 <td>rustfmt.toml</td>
 <td>Brace style for control flow constructs.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#disable_all_formatting">

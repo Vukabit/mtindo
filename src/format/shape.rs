@@ -52,6 +52,8 @@ pub struct Limits {
   pub match_block_trailing_comma: bool,
   /// `struct_lit_single_line`: a struct literal or pattern may stand on one line.
   pub struct_lit_single_line: bool,
+  /// `control_brace_style`.
+  pub control_brace_style: crate::options::format::ControlBraceStyle,
   /// Laying out a macro's arguments: a closure's body keeps or lacks its block as written.
   pub inside_macro: bool,
   /// Laying out a block's last expression as its statement: an expression from style
@@ -80,7 +82,14 @@ impl Limits {
       style_2024: config.style_edition >= 2024,
       one_line_chains: false,
       single_line_if_else: config.single_line_if_else_max_width,
-      single_line_let_else: config.single_line_let_else_max_width,
+      // A `let`'s `else` on a line of its own never leaves it on one line.
+      single_line_let_else: if config.control_brace_style
+        == crate::options::format::ControlBraceStyle::AlwaysSameLine
+      {
+        config.single_line_let_else_max_width
+      } else {
+        0
+      },
       blank_lines: (
         config.blank_lines_lower_bound,
         config.blank_lines_upper_bound,
@@ -90,6 +99,7 @@ impl Limits {
       combine_control_expr: config.combine_control_expr,
       match_block_trailing_comma: config.match_block_trailing_comma,
       struct_lit_single_line: config.struct_lit_single_line,
+      control_brace_style: config.control_brace_style,
       inside_macro: false,
       block_tail: false,
     }
@@ -116,6 +126,7 @@ impl Limits {
       combine_control_expr: self.combine_control_expr,
       match_block_trailing_comma: self.match_block_trailing_comma,
       struct_lit_single_line: self.struct_lit_single_line,
+      control_brace_style: self.control_brace_style,
       ..self.spacing.config()
     }
   }
@@ -144,6 +155,7 @@ impl Default for Limits {
       combine_control_expr: true,
       match_block_trailing_comma: false,
       struct_lit_single_line: true,
+      control_brace_style: crate::options::format::ControlBraceStyle::AlwaysSameLine,
       inside_macro: false,
       block_tail: false,
     }
@@ -232,7 +244,8 @@ impl std::hash::Hash for Shape {
         | u64::from(l.match_arm_indent) << 38
         | u64::from(l.trailing_semicolon) << 39
         | u64::from(l.combine_control_expr) << 40
-        | u64::from(l.struct_lit_single_line) << 41,
+        | u64::from(l.struct_lit_single_line) << 41
+        | (l.control_brace_style as u64) << 42,
     );
   }
 }

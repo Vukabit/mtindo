@@ -271,6 +271,7 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   });
   let edition_before = EDITION.with(|e| e.replace(edition));
   let style_before = STYLE.with(|e| e.replace(config.style_edition));
+  let control_before = CONTROL.with(|c| c.replace(config.control_brace_style));
   // Whether the text names any macros or attributes to skip, its spaces aside: most do not,
   // and then nothing needs looking up per call or attribute.
   let marks_before = SKIP_MARKS.with(|m| {
@@ -284,6 +285,7 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   let out = format_text_with(source, edition, config, strip);
   SKIP_MARKS.with(|m| m.set(marks_before));
   STYLE.with(|e| e.set(style_before));
+  CONTROL.with(|c| c.set(control_before));
   SKIPPED_INVOCATIONS.with(|names| names.replace(before));
   CRATE_SKIPS.with(|names| names.replace(crate_before));
   EDITION.with(|e| e.set(edition_before));
@@ -366,6 +368,11 @@ pub(crate) fn skipped_macro(call: &SyntaxNode) -> bool {
           .is_some_and(|(names, _)| names.split(',').any(|n| n == name))
       })
   })
+}
+
+/// The `control_brace_style` of the text being formatted.
+pub(super) fn control_style() -> crate::options::format::ControlBraceStyle {
+  CONTROL.with(|c| c.get())
 }
 
 /// The edition of the text being formatted.
@@ -644,6 +651,9 @@ thread_local! {
   static EDITION: std::cell::Cell<Edition> = const { std::cell::Cell::new(Edition::E2021) };
   /// The style edition of the text being formatted.
   static STYLE: std::cell::Cell<u16> = const { std::cell::Cell::new(2015) };
+  /// The `control_brace_style` of the text being formatted.
+  static CONTROL: std::cell::Cell<crate::options::format::ControlBraceStyle> =
+    const { std::cell::Cell::new(crate::options::format::ControlBraceStyle::AlwaysSameLine) };
   /// Whether the text being formatted names macros, and attributes, to skip.
   static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
   /// Whether a statement or item was kept as written since [`format_file`] last looked.
@@ -1596,6 +1606,15 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
       None => (text, root),
     };
   let body = reindent(&root, &text, edition, config);
+  // Control expressions' braces and `else` moved to lines of their own
+  // (`control_brace_style`), once the rest is laid out.
+  let body = match config.control_brace_style {
+    crate::options::format::ControlBraceStyle::AlwaysSameLine => body,
+    style => {
+      let laid = parse(&body, edition).syntax_node();
+      crate::format::reorder::control_braces(&laid, &body, style, edition).unwrap_or(body)
+    }
+  };
   // Line endings inside a multi-line string are part of the string: a file whose strings
   // hold line breaks keeps its own endings.
   let strings_span_lines = root

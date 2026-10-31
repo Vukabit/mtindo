@@ -153,6 +153,44 @@ pub fn condensed_wildcards(root: &SyntaxNode, text: &str) -> Option<String> {
   Some(out)
 }
 
+/// `text`, laid out, with each control expression's `{` that ends a line put on the next, at
+/// its line's indentation, and `else` after a `}` on a line of its own; with
+/// `ClosingNextLine` only the `else`, a `let`'s too. An empty block's `{}` moves as well, but
+/// for a `match`'s, and a match arm's block of any kind under `AlwaysNextLine` (the standard
+/// formatter's `ControlFlow`, `rewrite_match_body` and `rewrite_let_else_block`). `None` when
+/// nothing moves. Not in a `// mto: off` region or a skipped item.
+pub fn control_braces(
+  root: &SyntaxNode,
+  text: &str,
+  style: crate::options::format::ControlBraceStyle,
+  edition: Edition,
+) -> Option<String> {
+  let off = off_regions(root);
+  let mut gaps: Vec<(usize, usize, usize)> = Vec::new();
+  control_gaps(root, text, 0, style, edition, &mut gaps);
+  gaps.retain(|&(s, e, _)| !off.iter().any(|&(a, b)| a < e && s < b));
+  if gaps.is_empty() {
+    return None;
+  }
+  gaps.sort_unstable();
+  gaps.dedup();
+  let mut out = String::with_capacity(text.len() + gaps.len() * 8);
+  let mut from = 0;
+  for (start, end, anchor) in gaps {
+    let line_start = text[..anchor].rfind('\n').map_or(0, |i| i + 1);
+    let indent: String = text[line_start..anchor]
+      .chars()
+      .take_while(|c| *c == ' ' || *c == '\t')
+      .collect();
+    out.push_str(&text[from..start]);
+    out.push('\n');
+    out.push_str(&indent);
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text` with the comments between a `loop`, `while`, `for` or `if` head and its block each
 /// on a line of its own at the head's indentation, the block's `{` on the line after them,
 /// as the standard formatter writes them. `None` when there are none. Not in a `// mto: off`
@@ -1267,6 +1305,153 @@ fn code_start(item: &SyntaxNode) -> usize {
     .map_or(item.text_range().start as usize, |e| {
       e.text_range().start as usize
     })
+}
+
+/// [`control_braces`]'s gaps in `root`, whose text is `text`, each with where the line whose
+/// indentation it takes is, at `text`'s offsets moved by `shift` (a macro's arguments parsed
+/// apart sit elsewhere in the file). Into a macro's arguments too that read as a call's, as
+/// the standard formatter formats them.
+fn control_gaps(
+  root: &SyntaxNode,
+  text: &str,
+  shift: isize,
+  style: crate::options::format::ControlBraceStyle,
+  edition: Edition,
+  gaps: &mut Vec<(usize, usize, usize)>,
+) {
+  use crate::options::format::ControlBraceStyle;
+  let next_line = style == ControlBraceStyle::AlwaysNextLine;
+  let moved = |at: usize| (at as isize + shift) as usize;
+  let mut push = |gap: Option<(usize, usize)>, anchor: Option<usize>| {
+    if let Some((s, e)) = gap {
+      gaps.push((moved(s), moved(e), moved(anchor.unwrap_or(s))));
+    }
+  };
+  // The whitespace before an element, when it is spaces on its line after code.
+  let gap = |element: &SyntaxElement| -> Option<(usize, usize)> {
+    let start = element.text_range().start as usize;
+    let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let before = &text[line_start..start];
+    let spaces = before.len() - before.trim_end_matches([' ', '\t']).len();
+    (spaces > 0 && !before.trim().is_empty()).then_some((start - spaces, start))
+  };
+  // A block's `{` that ends its line, or opens it empty (`{}`).
+  let brace = |block: &SyntaxNode| -> Option<SyntaxElement> {
+    let open = block
+      .children_with_tokens_iter()
+      .find(|e| !e.kind().is_trivia())
+      .filter(|e| e.kind() == K::LBrace)?;
+    let end = open.text_range().end as usize;
+    (text[end..].starts_with('\n') || text[end..].starts_with('}')).then_some(open)
+  };
+  for node in root.descendant_nodes_where(|kind| {
+    matches!(
+      kind,
+      K::IfExpr | K::WhileExpr | K::ForExpr | K::LoopExpr | K::MatchExpr | K::MatchArm | K::LetElse
+    )
+  }) {
+    if skipped_within(&node) {
+      continue;
+    }
+    match node.kind() {
+      K::IfExpr => {
+        let elements: Vec<SyntaxElement> = node.children_with_tokens_iter().collect();
+        if next_line
+          && let Some(then) = node.children_iter().find(|c| c.kind() == K::BlockExpr)
+          && let Some(open) = brace(&then)
+        {
+          push(gap(&open), None);
+        }
+        if let Some(at) = elements.iter().position(|e| e.kind() == K::ElseKw) {
+          // After a block's `}` on a line of its own.
+          let after_close = elements[..at]
+            .iter()
+            .rev()
+            .find(|e| !e.kind().is_trivia())
+            .is_some_and(|e| {
+              let close = e.text_range().end as usize - 1;
+              let line_start = text[..close].rfind('\n').map_or(0, |i| i + 1);
+              e.kind() == K::BlockExpr && text[line_start..close].trim().is_empty()
+            });
+          if after_close {
+            push(gap(&elements[at]), None);
+          }
+          if next_line
+            && let Some(SyntaxElement::Node(block)) =
+              elements[at + 1..].iter().find(|e| !e.kind().is_trivia())
+            && block.kind() == K::BlockExpr
+            && let Some(open) = brace(block)
+          {
+            push(gap(&open), None);
+          }
+        }
+      }
+      // Not an empty one's.
+      K::MatchExpr if next_line => {
+        if let Some(arms) = node.children_iter().find(|c| c.kind() == K::MatchArmList)
+          && let Some(open) = brace(&arms)
+          && !text[open.text_range().end as usize..].starts_with('}')
+        {
+          push(gap(&open), None);
+        }
+      }
+      // Any block, `unsafe` or labelled too (`rewrite_match_body`).
+      K::MatchArm if next_line => {
+        if let Some(body) = node
+          .children_iter()
+          .next_back()
+          .filter(|b| b.kind() == K::BlockExpr)
+          && let Some(first) = body
+            .children_with_tokens_iter()
+            .find(|e| !e.kind().is_trivia())
+        {
+          // At the arm's first line's indentation, below a guard too.
+          push(gap(&first), Some(node.text_range().start as usize));
+        }
+      }
+      // A `let`'s `else`, and its block's `{`.
+      K::LetElse => {
+        if let Some(keyword) = node
+          .children_with_tokens_iter()
+          .find(|e| e.kind() == K::ElseKw)
+        {
+          push(gap(&keyword), None);
+        }
+        if next_line
+          && let Some(block) = node.children_iter().find(|c| c.kind() == K::BlockExpr)
+          && let Some(open) = brace(&block)
+        {
+          push(gap(&open), None);
+        }
+      }
+      K::WhileExpr | K::ForExpr | K::LoopExpr if next_line => {
+        if let Some(body) = node.children_iter().rfind(|c| c.kind() == K::BlockExpr)
+          && let Some(open) = brace(&body)
+        {
+          push(gap(&open), None);
+        }
+      }
+      _ => {}
+    }
+  }
+  for call in root.descendant_nodes_where(|kind| kind == K::MacroCall) {
+    let Some(tree) = call.children_iter().find(|c| c.kind() == K::TokenTree) else {
+      continue;
+    };
+    let whole = tree.text();
+    if !matches!(whole.as_bytes().first(), Some(b'(' | b'[')) || skipped_within(&call) {
+      continue;
+    }
+    let inner = &whole[1..whole.len() - 1];
+    let prefix = "fn __mto() {\n__mto_macro(";
+    let wrapped = format!("{}{});\n}}\n", prefix, inner);
+    let parsed = crate::syntax::parse(&wrapped, edition);
+    if !parsed.errors().is_empty() {
+      continue;
+    }
+    let from = tree.text_range().start as isize + 1 + shift - prefix.len() as isize;
+    control_gaps(&parsed.syntax_node(), &wrapped, from, style, edition, gaps);
+  }
 }
 
 /// A float literal as `float_literal_trailing_zero` writes it: its integer part, then its

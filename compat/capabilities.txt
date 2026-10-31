@@ -19,7 +19,7 @@ option  color                                            missing
 option  combine_control_expr                             supported    # with format = true, an if, for, loop or while alone in a call does not overflow when false (src/format/stmt/tests.rs)
 option  comment_width                                    missing
 option  condense_wildcard_suffixes                       supported    # with format = true (src/format/reorder/tests.rs)
-option  control_brace_style                              missing
+option  control_brace_style                              supported    # with format = true (src/format/reorder/tests.rs)
 option  disable_all_formatting                           supported    # formatting leaves the file as written; layout follows mto.toml (src/format/file/tests.rs)
 option  doc_comment_code_block_small_heuristics          missing
 option  doc_comment_code_block_width                     missing
@@ -107,9 +107,9 @@ value   brace_style=SameLineWhere                        partial      # with for
 value   color=Always                                     missing
 value   color=Auto                                       missing
 value   color=Never                                      missing
-value   control_brace_style=AlwaysNextLine               missing
-value   control_brace_style=AlwaysSameLine               missing
-value   control_brace_style=ClosingNextLine              missing
+value   control_brace_style=AlwaysNextLine               supported    # with format = true (src/format/reorder/tests.rs)
+value   control_brace_style=AlwaysSameLine               supported    # with format = true (src/format/reorder/tests.rs)
+value   control_brace_style=ClosingNextLine              supported    # with format = true (src/format/reorder/tests.rs)
 value   doc_comment_code_block_small_heuristics=Default  missing
 value   doc_comment_code_block_small_heuristics=Max      missing
 value   doc_comment_code_block_small_heuristics=Off      missing
@@ -117,10 +117,10 @@ value   edition=2015                                     partial      # parsed (
 value   edition=2018                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
 value   edition=2021                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
 value   edition=2024                                     partial      # parsed (tests/fixtures/syntax/ok/editions-2024.rs); not settable in mto.toml yet
-value   float_literal_trailing_zero=Always               missing
-value   float_literal_trailing_zero=IfNoPostfix          missing
-value   float_literal_trailing_zero=Never                missing
-value   float_literal_trailing_zero=Preserve             missing
+value   float_literal_trailing_zero=Always               supported    # with format = true (src/format/reorder/tests.rs)
+value   float_literal_trailing_zero=IfNoPostfix          supported    # with format = true (src/format/reorder/tests.rs)
+value   float_literal_trailing_zero=Never                supported    # with format = true (src/format/reorder/tests.rs)
+value   float_literal_trailing_zero=Preserve             supported    # with format = true (src/format/reorder/tests.rs)
 value   fn_args_layout=Compressed                        not-planned  # fn_args_layout is deprecated
 value   fn_args_layout=Tall                              not-planned  # fn_args_layout is deprecated
 value   fn_args_layout=Vertical                          not-planned  # fn_args_layout is deprecated
@@ -130,9 +130,9 @@ value   fn_params_layout=Vertical                        missing
 value   group_imports=One                                missing
 value   group_imports=Preserve                           missing
 value   group_imports=StdExternalCrate                   missing
-value   hex_literal_case=Lower                           missing
-value   hex_literal_case=Preserve                        missing
-value   hex_literal_case=Upper                           missing
+value   hex_literal_case=Lower                           supported    # with format = true (src/format/reorder/tests.rs)
+value   hex_literal_case=Preserve                        supported    # with format = true (src/format/reorder/tests.rs)
+value   hex_literal_case=Upper                           supported    # with format = true (src/format/reorder/tests.rs)
 value   imports_granularity=Crate                        missing
 value   imports_granularity=Item                         missing
 value   imports_granularity=Module                       missing

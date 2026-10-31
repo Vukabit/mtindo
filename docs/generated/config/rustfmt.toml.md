@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 27
+  supported: 28
   partial: 26
-  missing: 33
+  missing: 32
   not_planned: 4
 ---
 
@@ -174,7 +174,7 @@ Brace style for control flow constructs
     the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 *   Values:
     *   `AlwaysSameLine`: K&R style, Rust community default.
     *   `ClosingNextLine`: Stroustrup style.
@@ -320,13 +320,12 @@ Control the presence of trailing zero in floating-point literal values
     1.11.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
-    *   `Preserve`: Leave the literal as-is. In mto: missing.
-    *   `Always`: Add a trailing zero to the literal. In mto: missing.
+    *   `Preserve`: Leave the literal as-is.
+    *   `Always`: Add a trailing zero to the literal.
     *   `IfNoPostfix`: Add a trailing zero by default. If the literal contains
         an exponent or a suffix, the zero and the preceding period are removed.
-        In mto: missing.
     *   `Never`: Remove the trailing zero. If the literal contains an exponent
-        or a suffix, the preceding period is also removed. In mto: missing.
+        or a suffix, the preceding period is also removed.
 
 ### `fn_call_width`
 
@@ -498,9 +497,9 @@ Control the case of the letters in hexadecimal literal values
     1.11.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
-    *   `Preserve`: Leave the literal as-is. In mto: missing.
-    *   `Upper`: Ensure all literals use uppercase lettering. In mto: missing.
-    *   `Lower`: Ensure all literals use lowercase lettering. In mto: missing.
+    *   `Preserve`: Leave the literal as-is.
+    *   `Upper`: Ensure all literals use uppercase lettering.
+    *   `Lower`: Ensure all literals use lowercase lettering.
 
 ### `ignore`
 

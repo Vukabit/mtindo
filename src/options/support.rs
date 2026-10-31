@@ -36,7 +36,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("force_multiline_blocks", "missing"),
   ("format_code_in_doc_comments", "missing"),
   ("format_generated_files", "supported"),
-  ("format_macro_bodies", "missing"),
+  ("format_macro_bodies", "supported"),
   ("format_macro_matchers", "missing"),
   ("format_strings", "missing"),
   ("generated_marker_line_search_limit", "supported"),

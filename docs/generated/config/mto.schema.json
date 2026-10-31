@@ -288,7 +288,7 @@
       "default": true
     },
     "format_macro_bodies": {
-      "description": "Format the bodies of declarative macro definitions.\n\nIn mto: missing.",
+      "description": "Format the bodies of declarative macro definitions.\n\nIn mto: supported. With format = true: rules laid out, transcribers as written.",
       "type": "boolean",
       "default": true
     },

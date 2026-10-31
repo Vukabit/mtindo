@@ -344,6 +344,7 @@ impl Config {
     config.trailing_semicolon = flag("trailing_semicolon", true);
     config.combine_control_expr = flag("combine_control_expr", true);
     config.format_generated_files = flag("format_generated_files", true);
+    config.format_macro_bodies = flag("format_macro_bodies", true);
     if let Some(markers) = self.get("generated_markers").and_then(Value::as_list) {
       config.generated_markers = markers.to_vec();
     }

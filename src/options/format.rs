@@ -62,6 +62,9 @@ pub struct FormatConfig {
   pub generated_marker_line_search_limit: usize,
   /// The texts that mark a file as generated (`generated_markers` in `mto.toml`).
   pub generated_markers: Vec<String>,
+  /// `format_macro_bodies`: a `macro_rules!` rule's transcriber is formatted as code;
+  /// without it, written as it is.
+  pub format_macro_bodies: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -126,6 +129,7 @@ impl Default for FormatConfig {
       format_generated_files: true,
       generated_marker_line_search_limit: 5,
       generated_markers: vec!["@generated".to_string()],
+      format_macro_bodies: true,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

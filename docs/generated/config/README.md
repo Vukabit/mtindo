@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 34
+  supported: 35
   partial: 27
-  missing: 43
+  missing: 42
   not_planned: 4
 ---
 
@@ -393,7 +393,7 @@ behavior, so the column does not apply to them.
 <code>format_macro_bodies</code></a></td>
 <td>rustfmt.toml</td>
 <td>Format the bodies of declarative macro definitions.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#format_macro_matchers">

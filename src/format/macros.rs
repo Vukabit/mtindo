@@ -552,6 +552,15 @@ fn rewrite_rule(
   if rule.matcher.first_token()?.kind() != K::LParen {
     return failed("matcher is not in parentheses");
   }
+  // With `format_macro_bodies = false`, the rule on its line and its transcriber as
+  // written, byte for byte.
+  if !config.format_macro_bodies {
+    return Some(format!(
+      "{} => {}",
+      rule.matcher.text(),
+      rule.transcriber.text()
+    ));
+  }
   let tab = config.tab_spaces;
   let whole = rule.transcriber.text().to_string();
   let Some(old_body) = transcriber_body(&whole).map(str::trim) else {

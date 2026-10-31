@@ -235,6 +235,22 @@ pub fn output_with_input(
   } else {
     Stdio::null()
   });
+  // git gives a hook some paths relative to the repository's root (`GIT_INDEX_FILE` is
+  // `.git/index`); a child run in another folder, as the staged tree, gets them whole.
+  if let Ok(here) = std::env::current_dir() {
+    for name in [
+      "GIT_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_WORK_TREE",
+      "GIT_OBJECT_DIRECTORY",
+    ] {
+      if let Some(value) = std::env::var_os(name)
+        && std::path::Path::new(&value).is_relative()
+      {
+        command.env(name, here.join(value));
+      }
+    }
+  }
   let mut child = command.spawn()?;
   if let (Some(mut stdin), Some(input)) = (child.stdin.take(), input) {
     let bytes = input.to_vec();

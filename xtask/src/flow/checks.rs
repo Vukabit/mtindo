@@ -48,12 +48,63 @@ pub struct Scope {
   pub pushed: Vec<(String, String)>,
 }
 
-/// Runs `stage`'s checks in order, a line each; stops at the first that fails.
+/// Every repository rule `cargo xtask gates` checks.
+/// What is staged, written out as a tree of its own under `target/`, so checks of the
+/// whole tree see the commit being made and not what is left unstaged. Its `.git` file
+/// names the repository, so git there reads the same history and index, and the
+/// machine-local records the gates read (`.dev/`) are linked in. Removed when dropped.
+struct Staged {
+  dir: std::path::PathBuf,
+}
+
+impl Staged {
+  fn new(root: &Path) -> Result<Staged, String> {
+    let dir = root.join("target/flow-staged");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
+    let staged = Staged { dir };
+    let prefix = format!("{}/", staged.dir.display());
+    super::git::git(
+      root,
+      &["checkout-index", "--all", "--force", "--prefix", &prefix],
+    )?;
+    let git_dir = super::git::git(root, &["rev-parse", "--absolute-git-dir"])?;
+    std::fs::write(
+      staged.dir.join(".git"),
+      format!("gitdir: {}\n", git_dir.trim()),
+    )
+    .map_err(|e| format!("the staged tree's .git: {}", e))?;
+    let records = root.join(".dev");
+    if records.is_dir() {
+      #[cfg(unix)]
+      let linked = std::os::unix::fs::symlink(&records, staged.dir.join(".dev"));
+      #[cfg(windows)]
+      let linked = std::os::windows::fs::symlink_dir(&records, staged.dir.join(".dev"));
+      linked.map_err(|e| format!("the staged tree's .dev: {}", e))?;
+    }
+    Ok(staged)
+  }
+}
+
+impl Drop for Staged {
+  fn drop(&mut self) {
+    let _ = std::fs::remove_dir_all(&self.dir);
+  }
+}
+
+/// Runs `stage`'s checks in order, a line each; stops at the first that fails. With
+/// `scope.staged`, the checks that read the whole tree read what is staged.
 pub fn run_stage(root: &Path, flow: &Flow, names: &[String], scope: &Scope) -> Result<(), String> {
+  let snapshot = if scope.staged {
+    Some(Staged::new(root)?)
+  } else {
+    None
+  };
+  let tree = snapshot.as_ref().map_or(root, |s| s.dir.as_path());
   for name in names {
     let started = Instant::now();
     eprint!("{}  {} ", scope.stage, name);
-    let outcome = run_check(root, flow, name, scope);
+    let outcome = run_check(root, tree, flow, name, scope);
     let took = started.elapsed().as_secs_f64();
     match outcome {
       Ok(()) => eprintln!("ok ({:.1}s)", took),
@@ -239,7 +290,6 @@ fn days(date: &str) -> Option<i64> {
   Some(era * 146097 + doe - 719468)
 }
 
-/// Every repository rule `cargo xtask gates` checks.
 fn gates(root: &Path) -> Result<(), String> {
   let problems: Vec<String> = crate::gates::GATES
     .iter()
@@ -491,12 +541,20 @@ fn pushed(root: &Path, flow: &Flow) -> Result<(), String> {
     })
 }
 
-fn run_check(root: &Path, flow: &Flow, name: &str, scope: &Scope) -> Result<(), String> {
+/// One check, at `root`; those that read the tree read `tree` (what is staged, for
+/// `pre-commit`).
+fn run_check(
+  root: &Path,
+  tree: &Path,
+  flow: &Flow,
+  name: &str,
+  scope: &Scope,
+) -> Result<(), String> {
   match name {
     "no-internal" => no_internal(root, scope),
     "secrets" => secrets(root, flow, scope),
-    "fmt" => command(root, "cargo", &["fmt", "--all", "--check"]),
-    "gates" => gates(root),
+    "fmt" => command(tree, "cargo", &["fmt", "--all", "--check"]),
+    "gates" => gates(tree),
     "actions-pinned" => actions_pinned(root),
     "messages" => super::messages_in(root, flow, &scope.ranges),
     "hold" => hold(root, flow, scope),
@@ -763,5 +821,32 @@ mod tests {
     );
     assert_eq!(days(""), None);
     assert_eq!(days("2026-13-01"), None);
+  }
+
+  /// The staged tree holds what is staged, not what the work tree has since, and git run
+  /// in it reads the same repository.
+  #[test]
+  fn test_the_staged_tree_is_what_is_staged() {
+    let root = std::env::temp_dir().join(format!("xtask-staged-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let git = |args: &[&str]| super::super::git::git(&root, args).unwrap();
+    git(&["init", "--quiet"]);
+    std::fs::write(root.join("a.md"), "staged\n").unwrap();
+    git(&["add", "a.md"]);
+    std::fs::write(root.join("a.md"), "changed since\n").unwrap();
+    std::fs::write(root.join("b.md"), "never staged\n").unwrap();
+    let staged = Staged::new(&root).unwrap();
+    assert_eq!(
+      std::fs::read_to_string(staged.dir.join("a.md")).unwrap(),
+      "staged\n"
+    );
+    assert!(!staged.dir.join("b.md").exists());
+    let listed = super::super::git::git(&staged.dir, &["ls-files"]).unwrap();
+    assert_eq!(listed.trim(), "a.md");
+    let dir = staged.dir.clone();
+    drop(staged);
+    assert!(!dir.exists());
+    let _ = std::fs::remove_dir_all(&root);
   }
 }

@@ -55,6 +55,18 @@ use crate::syntax::{
 };
 use crate::text::unicode::char_width;
 
+/// The statements (`statements` in tree order) with a line of their own code wider than
+/// `max_width`, as written: a line belongs to the innermost statement it starts in, and its
+/// code ends where a line comment starts or the statement ends. A statement's first line is
+/// not measured: it is indented anew, so measuring it would decide differently on a second
+/// run. A line inside a chain (of `chains`) belongs instead to the outermost statement
+/// holding that chain: the standard formatter measures a chain's every line, those of the
+/// statements in its closures given up on alone included. A written line is measured in the
+/// parts the layout starts lines with (`breaks`). Each with its widest part's width and
+/// where the line it is on starts.
+/// The columns a string `format_strings` may break is counted as when measuring a line.
+const SHORT_STRING: usize = 12;
+
 /// A set of byte offsets.
 type OffsetSet = HashSet<usize, BuildHasherDefault<OffsetHasher>>;
 
@@ -192,6 +204,8 @@ struct Spans<'a> {
   /// kept however wide (`format_expr`, `rewrite_string_lit`): no line holding one is
   /// measured.
   continued_strings: &'a [(usize, usize)],
+  /// With `format_strings`, the strings that break over lines to fit: counted as short.
+  breakable_strings: &'a [(usize, usize)],
   attrs: &'a [(usize, usize)],
   line_comments: &'a [usize],
   block_comments: &'a [(usize, usize)],
@@ -273,6 +287,7 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   let style_before = STYLE.with(|e| e.replace(config.style_edition));
   let control_before = CONTROL.with(|c| c.replace(config.control_brace_style));
   let normalize_before = NORMALIZE.with(|n| n.replace(config.normalize_comments));
+  let strings_before = STRINGS.with(|n| n.replace(config.format_strings));
   // Whether the text names any macros or attributes to skip, its spaces aside: most do not,
   // and then nothing needs looking up per call or attribute.
   let marks_before = SKIP_MARKS.with(|m| {
@@ -288,6 +303,7 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   STYLE.with(|e| e.set(style_before));
   CONTROL.with(|c| c.set(control_before));
   NORMALIZE.with(|n| n.set(normalize_before));
+  STRINGS.with(|n| n.set(strings_before));
   SKIPPED_INVOCATIONS.with(|names| names.replace(before));
   CRATE_SKIPS.with(|names| names.replace(crate_before));
   EDITION.with(|e| e.set(edition_before));
@@ -372,6 +388,25 @@ pub(crate) fn skipped_macro(call: &SyntaxNode) -> bool {
   })
 }
 
+/// Whether a literal spans lines whatever its layout: any spanning lines, but a string
+/// `format_strings` lays out anew whose line breaks are all `\` continuations.
+pub(super) fn always_spans_lines(kind: SyntaxKind, text: &str) -> bool {
+  if !fixed_lines(kind, text) && kind == SyntaxKind::Str && text.contains('\n') {
+    // A line break not after a `\` (an odd run of them) stays.
+    return text.split('\n').rev().skip(1).any(|line| {
+      line
+        .trim_end_matches('\r')
+        .bytes()
+        .rev()
+        .take_while(|&b| b == b'\\')
+        .count()
+        % 2
+        == 0
+    });
+  }
+  fixed_lines(kind, text)
+}
+
 /// The `control_brace_style` of the text being formatted.
 pub(super) fn control_style() -> crate::options::format::ControlBraceStyle {
   CONTROL.with(|c| c.get())
@@ -380,6 +415,17 @@ pub(super) fn control_style() -> crate::options::format::ControlBraceStyle {
 /// The edition of the text being formatted.
 pub(super) fn edition() -> Edition {
   EDITION.with(|e| e.get())
+}
+
+/// Whether a literal spans lines its layout keeps: any but a string `format_strings`
+/// lays out anew.
+pub(super) fn fixed_lines(kind: SyntaxKind, text: &str) -> bool {
+  kind.is_literal() && text.contains('\n') && !(kind == SyntaxKind::Str && format_strings())
+}
+
+/// Whether the text being formatted has its strings broken to fit (`format_strings`).
+pub(super) fn format_strings() -> bool {
+  STRINGS.with(|n| n.get())
 }
 
 pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
@@ -642,11 +688,6 @@ pub(super) fn reindent_block_comment(
   out
 }
 
-/// Whether the text being formatted is in style edition 2024 or later.
-pub(super) fn style_2024() -> bool {
-  STYLE.with(|e| e.get()) >= 2024
-}
-
 thread_local! {
   /// `skip_macro_invocations` for the text being formatted.
   static SKIPPED_INVOCATIONS: std::cell::RefCell<Vec<String>> =
@@ -661,12 +702,19 @@ thread_local! {
   /// The `control_brace_style` of the text being formatted.
   static CONTROL: std::cell::Cell<crate::options::format::ControlBraceStyle> =
     const { std::cell::Cell::new(crate::options::format::ControlBraceStyle::AlwaysSameLine) };
+  /// Whether the text being formatted has its strings broken to fit.
+  static STRINGS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   /// Whether the text being formatted has its comments normalized.
   static NORMALIZE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   /// Whether the text being formatted names macros, and attributes, to skip.
   static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
   /// Whether a statement or item was kept as written since [`format_file`] last looked.
   static KEPT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the text being formatted is in style edition 2024 or later.
+pub(super) fn style_2024() -> bool {
+  STYLE.with(|e| e.get()) >= 2024
 }
 
 /// For a struct's fields, an enum's variants or a match's arms laid out one per line from
@@ -2318,7 +2366,7 @@ fn missing_part(node: &SyntaxNode, config: &FormatConfig) -> String {
   }
   if node
     .token_texts()
-    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+    .any(|(kind, text, _)| fixed_lines(kind, text))
   {
     holds.push("a string spanning lines".to_string());
   }
@@ -2351,15 +2399,6 @@ fn missing_part(node: &SyntaxNode, config: &FormatConfig) -> String {
   }
 }
 
-/// The statements (`statements` in tree order) with a line of their own code wider than
-/// `max_width`, as written: a line belongs to the innermost statement it starts in, and its
-/// code ends where a line comment starts or the statement ends. A statement's first line is
-/// not measured: it is indented anew, so measuring it would decide differently on a second
-/// run. A line inside a chain (of `chains`) belongs instead to the outermost statement
-/// holding that chain: the standard formatter measures a chain's every line, those of the
-/// statements in its closures given up on alone included. A written line is measured in the
-/// parts the layout starts lines with (`breaks`). Each with its widest part's width and
-/// where the line it is on starts.
 fn overflowing(
   spans: &Spans<'_>,
   text: &str,
@@ -2371,6 +2410,7 @@ fn overflowing(
     chains,
     raw_strings,
     continued_strings,
+    breakable_strings,
     attrs,
     line_comments,
     block_comments,
@@ -2396,8 +2436,12 @@ fn overflowing(
       })
       .collect()
   };
-  let (chain_reach, raw_reach, continued_reach) =
-    (reach(chains), reach(raw_strings), reach(continued_strings));
+  let (chain_reach, raw_reach, continued_reach, breakable_reach) = (
+    reach(chains),
+    reach(raw_strings),
+    reach(continued_strings),
+    reach(breakable_strings),
+  );
   let inside = |spans: &[(usize, usize)], reach: &[usize], below: usize, past: usize| {
     let k = spans.partition_point(|&(start, _)| start < below);
     k > 0 && reach[k - 1] > past
@@ -2451,9 +2495,11 @@ fn overflowing(
     // A line starting inside a raw string (written across lines), not one in a chain,
     // whose every line is measured.
     let in_chain = inside(chains, &chain_reach, at, at);
+    // Or inside a string `format_strings` lays out anew.
     let in_raw = (inside(raw_strings, &raw_reach, at, at)
       || inside(continued_strings, &continued_reach, line_end, at))
-      && !in_chain;
+      && !in_chain
+      || inside(breakable_strings, &breakable_reach, at, at);
     // A line of a block comment, which the standard formatter does not measure
     // (`filter_normal_code`): one starting in it, with no code after it on the line.
     // Comments are tokens, apart and in order: only the last starting by the line's first
@@ -2504,6 +2550,16 @@ fn overflowing(
           } else {
             written_indent + width_of(text[from..p].trim(), tab)
           };
+          // A string `format_strings` breaks counts as its first few columns.
+          let width = width.saturating_sub(
+            breakable_strings
+              .iter()
+              .filter(|&&(start, _)| from <= start && start < p)
+              .map(|&(start, end)| {
+                width_of(text[start..end.min(p)].trim_end(), tab).saturating_sub(SHORT_STRING)
+              })
+              .sum(),
+          );
           // A part in a statement starting on the line after its first token is that
           // statement's (the standard formatter gives up on a block's statement alone),
           // but in a chain holding it, measured whole; one starting the statement is its
@@ -3414,6 +3470,17 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         .map_or(code_end, |t| t.start);
       let width =
         width_of(&out[out_line_start..], tab) + width_of(text[tok.start..code_end].trim_end(), tab);
+      // A string `format_strings` breaks counts as its first few columns.
+      let width = width.saturating_sub(if config.format_strings {
+        tokens[i..]
+          .iter()
+          .take_while(|t| t.start < code_end)
+          .filter(|t| t.kind == SyntaxKind::Str && t.start + t.text.len() <= code_end)
+          .map(|t| width_of(t.text, tab).saturating_sub(SHORT_STRING))
+          .sum()
+      } else {
+        0
+      });
       if width > config.max_width {
         explain(root, tok.start, &text[tok.start..end], || {
           format!(
@@ -3697,6 +3764,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   let mut chains = Vec::new();
   let mut raw_strings = Vec::new();
   let mut continued_strings = Vec::new();
+  let mut breakable_strings = Vec::new();
   // Items' headers, by their range, with where their own text starts.
   let mut headers: HashMap<(usize, usize), usize> = HashMap::new();
   let mut attrs = Vec::new();
@@ -4302,6 +4370,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             after_pre_comments.insert(item.text_range().start as usize);
           }
         }
+        if config.format_strings && token.kind() == SyntaxKind::Str {
+          breakable_strings.push((start, token.text_range().end as usize));
+        }
         // A raw string's later lines are kept whatever their width.
         if matches!(
           token.kind(),
@@ -4569,6 +4640,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
     chains: &chains,
     raw_strings: &raw_strings,
     continued_strings: &continued_strings,
+    breakable_strings: &breakable_strings,
     attrs: &attrs,
     line_comments: &line_comments,
     block_comments: &block_comments,

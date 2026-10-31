@@ -1701,7 +1701,7 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
           ) && p.children_iter().filter(|c| c.kind() == K::Attr).count() == 1
       }) && !a
         .token_texts()
-        .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+        .any(|(kind, text, _)| super::file::fixed_lines(kind, text))
         // One the standard formatter leaves as written keeps its lines, a tuple field's
         // laid out on lines of their own.
         && (super::file::meta_like(a)
@@ -2438,6 +2438,40 @@ fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   // A type alias, const or static: on one line, its calls and lists each within their
   // widths, or left as written.
   if matches!(node.kind(), K::TypeAlias | K::Const | K::Static) {
+    // A string value `format_strings` breaks to fit, laid out as a `let`'s value is
+    // (`rewrite_assign_rhs`).
+    if config.format_strings
+      && node.kind() != K::TypeAlias
+      && let Some(eq) = node.children_with_tokens_iter().find(|e| e.kind() == K::Eq)
+      && let Some(value) = node
+        .children_iter()
+        .find(|c| c.text_range().start >= eq.text_range().end)
+      && value.kind() == K::Literal
+      && value.first_token().is_some_and(|t| t.kind() == K::Str)
+      && node
+        .children_with_tokens_iter()
+        .any(|e| e.kind() == K::Semi)
+    {
+      let head: Vec<SyntaxToken> = tokens
+        .iter()
+        .filter(|t| t.text_range().start < eq.text_range().end)
+        .cloned()
+        .collect();
+      let head = flat_tokens(&head, spacing);
+      let shape = super::shape::Shape {
+        indent,
+        align: 0,
+        offset: 0,
+        // 1 = `;`
+        width: config.max_width.checked_sub(indent + 1)?,
+        limits: super::shape::Limits::of(config),
+      };
+      if let Some(text) =
+        super::types::assign_rhs(&head, shape, |s| super::expr::rewrite(&value, s))
+      {
+        return Some((format!("{};", text), end));
+      }
+    }
     if width <= config.max_width && super::stmt::nested_fit_before(node, end, indent, config) {
       return Some((format!("{}{}", one_line, suffix), end));
     }
@@ -3676,6 +3710,10 @@ fn same_header_tokens(written: &str, laid: &str) -> bool {
           } else {
             "]"
           }));
+        }
+        // A string by its value: re-indented or broken anew (`format_strings`).
+        if kind == K::Str {
+          return Some(Cow::Owned(super::stmt::unindented(piece).into_owned()));
         }
         // A block comment across lines may be re-indented: its lines compared trimmed.
         if kind == K::BlockComment {

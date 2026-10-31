@@ -166,6 +166,8 @@ pub struct FormatConfig {
   pub normalize_comments: bool,
   /// `wrap_comments`: a comment's lines wider than `comment_width` broken between words.
   pub wrap_comments: bool,
+  /// `format_strings`: a string literal too wide broken over lines with `\`.
+  pub format_strings: bool,
   /// `comment_width`: the widest a wrapped comment's lines go.
   pub comment_width: usize,
   /// `control_brace_style`.
@@ -275,6 +277,7 @@ impl Default for FormatConfig {
       condense_wildcards: false,
       normalize_comments: false,
       wrap_comments: false,
+      format_strings: false,
       comment_width: 80,
       normalize_doc_attributes: false,
       control_brace_style: ControlBraceStyle::AlwaysSameLine,

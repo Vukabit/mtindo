@@ -48,7 +48,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("format_generated_files", "supported"),
   ("format_macro_bodies", "supported"),
   ("format_macro_matchers", "missing"),
-  ("format_strings", "missing"),
+  ("format_strings", "partial"),
   ("generated_marker_line_search_limit", "supported"),
   ("group_imports", "partial"),
   ("hard_tabs", "partial"),

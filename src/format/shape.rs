@@ -62,6 +62,8 @@ pub struct Limits {
   pub force_multiline_blocks: bool,
   /// `overflow_delimited_expr`.
   pub overflow_delimited_expr: bool,
+  /// `format_strings`: a string literal broken over lines with `\` to fit.
+  pub format_strings: bool,
   /// Laying out a macro's arguments: a closure's body keeps or lacks its block as written.
   pub inside_macro: bool,
   /// Laying out a block's last expression as its statement: an expression from style
@@ -112,6 +114,7 @@ impl Limits {
       match_arm_blocks: config.match_arm_blocks,
       force_multiline_blocks: config.force_multiline_blocks,
       overflow_delimited_expr: config.overflow_delimited_expr,
+      format_strings: config.format_strings,
       inside_macro: false,
       block_tail: false,
     }
@@ -143,6 +146,7 @@ impl Limits {
       match_arm_blocks: self.match_arm_blocks,
       force_multiline_blocks: self.force_multiline_blocks,
       overflow_delimited_expr: self.overflow_delimited_expr,
+      format_strings: self.format_strings,
       ..self.spacing.config()
     }
   }
@@ -176,6 +180,7 @@ impl Default for Limits {
       match_arm_blocks: true,
       force_multiline_blocks: false,
       overflow_delimited_expr: false,
+      format_strings: false,
       inside_macro: false,
       block_tail: false,
     }
@@ -269,7 +274,8 @@ impl std::hash::Hash for Shape {
         | u64::from(l.binop_back) << 44
         | u64::from(l.match_arm_blocks) << 45
         | u64::from(l.force_multiline_blocks) << 46
-        | u64::from(l.overflow_delimited_expr) << 47,
+        | u64::from(l.overflow_delimited_expr) << 47
+        | u64::from(l.format_strings) << 48,
     );
   }
 }

@@ -298,7 +298,7 @@
       "default": false
     },
     "format_strings": {
-      "description": "Format string literals where necessary\n\nIn mto: missing.",
+      "description": "Format string literals where necessary\n\nIn mto: partial. With format = true; a string spanning lines in a macro's arguments or a match guard is left as written.",
       "type": "boolean",
       "default": false
     },

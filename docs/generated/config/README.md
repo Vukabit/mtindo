@@ -15,8 +15,8 @@ keys:
   user: 12
 in_mto:
   supported: 59
-  partial: 28
-  missing: 16
+  partial: 29
+  missing: 15
   not_planned: 5
 ---
 
@@ -407,7 +407,7 @@ behavior, so the column does not apply to them.
 <code>format_strings</code></a></td>
 <td>rustfmt.toml</td>
 <td>Format string literals where necessary.</td>
-<td>missing</td>
+<td>partial</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#generated_marker_line_search_limit">

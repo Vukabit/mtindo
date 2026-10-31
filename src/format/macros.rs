@@ -604,12 +604,17 @@ fn rewrite_rule(
   if !fits(&formatted, inner.max_width, indent, width) {
     return failed("body is wider than max_width once laid out");
   }
-  // Indented as a block's insides, but for lines inside a string.
+  // Indented as a block's insides, but for lines inside a string; with `format_strings`
+  // one after a `\` ending the line before is indented too, as the string's own lines are
+  // laid out from its column (Rust skips the whitespace starting it).
   let continued = in_string(formatted.trim_end(), edition);
   let indent_str = " ".repeat(body_indent);
   let mut new_body = String::new();
+  let mut after_continuation = false;
   for (i, line) in formatted.trim_end().lines().enumerate() {
-    if !line.trim().is_empty() && !continued[i] {
+    let shifted = !continued[i] || config.format_strings && after_continuation;
+    after_continuation = line.bytes().rev().take_while(|&b| b == b'\\').count() % 2 == 1;
+    if !line.trim().is_empty() && shifted {
       new_body.push_str(&indent_str);
     }
     new_body.push_str(line);

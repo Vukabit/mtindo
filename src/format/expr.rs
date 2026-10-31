@@ -3364,7 +3364,7 @@ fn must_span_lines(node: &SyntaxNode) -> bool {
   remembered(node, Question::SpansLines, || {
     node
       .token_texts()
-      .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+      .any(|(kind, text, _)| super::file::always_spans_lines(kind, text))
       || node
         .descendant_nodes_where(|kind| {
           matches!(kind, SyntaxKind::MatchArmList | SyntaxKind::BlockExpr)
@@ -4223,7 +4223,7 @@ fn rewrite_macro(node: &SyntaxNode, shape: Shape) -> Option<String> {
     if node.kind() == SyntaxKind::MacroExpr
       && node
         .token_texts()
-        .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'))
+        .any(|(kind, text, _)| super::file::fixed_lines(kind, text))
       && node
         .parent()
         .is_some_and(|p| !matches!(p.kind(), SyntaxKind::ExprStmt | SyntaxKind::BlockExpr))
@@ -4571,6 +4571,32 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
           .first_token()
           .is_some_and(|t| t.kind() == SyntaxKind::Str)
         && text.lines().rev().skip(1).all(|line| line.ends_with('\\'));
+      // `format_strings`: a string, not a raw or byte one, broken with `\` to fit, its
+      // later lines a column past its opening quote (`rewrite_string_lit`).
+      let cooked = node
+        .first_token()
+        .is_some_and(|t| t.kind() == SyntaxKind::Str);
+      if shape.limits.format_strings && cooked && text.len() >= 2 {
+        let column = shape.indent + shape.offset;
+        let indent = " ".repeat(column);
+        let fmt = super::string::StringFormat {
+          opener: "\"",
+          closer: "\"",
+          line_start: " ",
+          line_end: "\\",
+          indent: &indent,
+          width: shape.width,
+          offset: 0,
+          trim_end: false,
+          max_width: shape.limits.max_width,
+          comment: false,
+        };
+        return super::string::rewrite_string(
+          &text[1..text.len() - 1],
+          &fmt,
+          shape.width.saturating_sub(2),
+        );
+      }
       if continued {
         Some(text)
       } else if raw {

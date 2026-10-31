@@ -360,6 +360,7 @@ impl Config {
     config.condense_wildcards = flag("condense_wildcard_suffixes", false);
     config.normalize_comments = flag("normalize_comments", false);
     config.wrap_comments = flag("wrap_comments", false);
+    config.format_strings = flag("format_strings", false);
     config.comment_width = number("comment_width", 80);
     config.normalize_doc_attributes = flag("normalize_doc_attributes", false);
     config.leading_pipes = match self.get("match_arm_leading_pipes").and_then(Value::as_text) {

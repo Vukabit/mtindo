@@ -894,6 +894,24 @@ fn test_force_multiline_blocks() {
   );
 }
 
+/// `format_strings` breaks a string too wide for its line with `\`, its later lines a column
+/// past its opening quote, a `const`'s as a `let`'s.
+#[test]
+fn test_format_strings_breaks_long_strings() {
+  let config = FormatConfig {
+    format_strings: true,
+    max_width: 50,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "const FOO: &str = \"trailing spaces keep them Amet neque Praesent rhoncus eros non velit\";\nfn f() {\n    let x = \"trailing spaces keep them Amet neque Praesent rhoncus eros non velit\";\n}\n",
+      &config
+    ),
+    "const FOO: &str = \"trailing spaces keep them \\\n                   Amet neque Praesent rhoncus \\\n                   eros non velit\";\nfn f() {\n    let x = \"trailing spaces keep them Amet \\\n             neque Praesent rhoncus eros non \\\n             velit\";\n}\n"
+  );
+}
+
 #[test]
 fn test_imports_of_nothing_dropped() {
   // A `use` of an empty list goes, with its line.

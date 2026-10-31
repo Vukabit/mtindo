@@ -124,7 +124,7 @@ fn test_settings_mto_does_not_honor_are_reported() {
   let env = TestEnvironment::new();
   fs::write(
     env.dir.path().join("rustfmt.toml"),
-    "format_strings = true\nwrap_comments = false\nmax_width = 90\nindent_style = \"Visual\"\n\
+    "format_macro_matchers = true\nwrap_comments = false\nmax_width = 90\nindent_style = \"Visual\"\n\
      trailing_comma = \"Vertical\"\nfile_lines = [{ file = \"a.rs\", range = [1, 1] }]\n",
   )
   .unwrap();
@@ -132,7 +132,7 @@ fn test_settings_mto_does_not_honor_are_reported() {
   let output = env.mto_cmd().args(["--check", "a.rs"]).output().unwrap();
   let stderr = String::from_utf8_lossy(&output.stderr);
   assert!(
-    stderr.contains("`format_strings` is not honored by mto yet"),
+    stderr.contains("`format_macro_matchers` is not honored by mto yet"),
     "{}",
     stderr
   );

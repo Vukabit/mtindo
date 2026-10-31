@@ -15,10 +15,9 @@
 //! after it on its line stays as written, and so does one over lines after code, one in a
 //! macro's arguments, a skipped item or a `// mto: off` region.
 
-mod string;
-
 use SyntaxKind as K;
 
+use crate::format::string::{StringFormat, rewrite_string};
 use crate::options::format::FormatConfig;
 use crate::syntax::ast::Attr;
 use crate::syntax::marker;
@@ -313,13 +312,18 @@ struct Rewrite<'a> {
 }
 
 impl Rewrite<'_> {
-  fn layout(&self) -> string::Layout<'_> {
-    string::Layout {
+  fn layout(&self) -> StringFormat<'_> {
+    StringFormat {
+      opener: "",
+      closer: "",
       line_start: self.prefix,
+      line_end: "",
       indent: self.indent,
       width: self.width,
       offset: self.offset,
+      trim_end: true,
       max_width: self.rules.max_width,
+      comment: true,
     }
   }
 
@@ -335,14 +339,19 @@ impl Rewrite<'_> {
       self.result.push_str(&self.separator);
     }
     self.result.push_str(&item.opener);
-    let layout = string::Layout {
+    let layout = StringFormat {
+      opener: "",
+      closer: "",
       line_start: "",
+      line_end: "",
       indent: "",
       width: self.width.saturating_sub(item.indent),
       offset: 0,
+      trim_end: true,
       max_width: self.rules.max_width,
+      comment: true,
     };
-    match string::rewrite_string(
+    match rewrite_string(
       &item.trimmed(),
       &layout,
       self.max_width.saturating_sub(item.indent),
@@ -435,7 +444,7 @@ impl Rewrite<'_> {
       self.prev_multi = false;
       return false;
     }
-    match string::rewrite_string(line, &self.layout(), self.max_width) {
+    match rewrite_string(line, &self.layout(), self.max_width) {
       Some(s) => {
         self.prev_multi = s.contains('\n');
         self.result.push_str(&s);
@@ -445,7 +454,7 @@ impl Rewrite<'_> {
         self.result.pop();
         self.result.push_str(&self.separator);
         self.reset_width();
-        match string::rewrite_string(line, &self.layout(), self.max_width) {
+        match rewrite_string(line, &self.layout(), self.max_width) {
           Some(s) => {
             self.prev_multi = s.contains('\n');
             self.result.push_str(&s);

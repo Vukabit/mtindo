@@ -19,4 +19,5 @@ pub mod reorder;
 pub mod shape;
 pub mod space;
 pub mod stmt;
+pub mod string;
 pub mod types;

@@ -436,6 +436,7 @@ pub fn rewrite_arm_in(
   let dropped = super::expr::dropped_tokens(node, Spacing::of(config));
   // `vec!(..)` and `vec! {..}` are written `vec![..]`.
   let brackets = super::stmt::vec_delimiters(node);
+  // A string by its value: re-indented or broken anew (`format_strings`).
   let written: String = node
     .token_texts()
     .filter_map(|(kind, text, range)| {
@@ -444,8 +445,8 @@ pub fn rewrite_arm_in(
         return None;
       }
       match brackets.iter().find(|b| b.0 == at) {
-        Some(b) => Some(b.1),
-        None => compared(kind).then_some(text),
+        Some(b) => Some(std::borrow::Cow::Borrowed(b.1)),
+        None => compared(kind).then(|| super::stmt::unindented(text)),
       }
     })
     .collect();
@@ -458,7 +459,7 @@ pub fn rewrite_arm_in(
   let ours: String = crate::syntax::parse_tokens(laid_text, Edition::E2021)
     .into_iter()
     .filter(|(kind, _)| compared(*kind))
-    .map(|(_, text)| text)
+    .map(|(_, text)| super::stmt::unindented(text))
     .collect();
   (written == ours).then_some(laid)
 }

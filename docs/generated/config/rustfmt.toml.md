@@ -13,8 +13,8 @@ keys:
   hidden: 7
 in_mto:
   supported: 42
-  partial: 27
-  missing: 16
+  partial: 28
+  missing: 15
   not_planned: 5
 ---
 
@@ -440,7 +440,8 @@ Format string literals where necessary
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: partial. With format = true; a string spanning lines in a macro's
+    arguments or a match guard is left as written.
 
 ### `generated_marker_line_search_limit`
 

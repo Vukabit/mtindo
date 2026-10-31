@@ -311,7 +311,7 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
         | K::OuterBlockDoc
         | K::InnerBlockDoc
     ) || t.kind() == K::Pound && t.parent().kind() != K::TokenTree
-      || t.kind().is_literal() && t.text().contains('\n')
+      || super::file::fixed_lines(t.kind(), t.text())
   }) {
     return None;
   }
@@ -343,7 +343,7 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
       .collect();
     if inner.iter().any(|t| {
       (t.kind().is_trivia() && t.kind() != K::Whitespace)
-        || t.kind().is_literal() && t.text().contains('\n')
+        || super::file::fixed_lines(t.kind(), t.text())
     }) || links.iter().any(|l| {
       l.children_iter()
         .skip(1)
@@ -676,7 +676,7 @@ pub fn rewrite_hole_head(node: &SyntaxNode, indent: usize, config: &FormatConfig
         .collect();
       if written.iter().any(|t| {
         (t.kind().is_trivia() && t.kind() != K::Whitespace)
-          || t.kind().is_literal() && t.text().contains('\n')
+          || super::file::fixed_lines(t.kind(), t.text())
           || matches!(t.kind(), K::LBrace | K::Pipe)
       }) {
         return None;
@@ -850,7 +850,7 @@ pub fn rewrite_let_control(
       && range.start < value.text_range().start
       && (kind.is_trivia() && kind != K::Whitespace
         || kind == K::Pound
-        || kind.is_literal() && text.contains('\n'))
+        || super::file::fixed_lines(kind, text))
   }) {
     return None;
   }
@@ -1104,7 +1104,7 @@ pub(super) fn safe(element: &SyntaxElement) -> bool {
           | K::InnerLineDoc
           | K::OuterBlockDoc
           | K::InnerBlockDoc
-      ) && !(t.kind().is_literal() && t.text().contains('\n') && !argument_string(t))
+      ) && !(super::file::fixed_lines(t.kind(), t.text()) && !argument_string(t))
     }
     // A block of one expression the layout code puts on one line.
     SyntaxElement::Node(n) if n.kind() == K::BlockExpr => {
@@ -1162,6 +1162,43 @@ pub(super) fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Sh
     width: config.max_width.checked_sub(indent)?,
     limits,
   })
+}
+
+/// A token's text with each `\\` ending a line of a string taken out with the line break
+/// and the whitespace after it: Rust skips them, so re-indenting the string's lines or
+/// breaking it anew (`format_strings`) leaves its value.
+pub(super) fn unindented(text: &str) -> std::borrow::Cow<'_, str> {
+  if !text.contains("\\\n")
+    || text.starts_with('r')
+    || text.starts_with("br")
+    || text.starts_with("cr")
+  {
+    return std::borrow::Cow::Borrowed(text);
+  }
+  let mut out = String::with_capacity(text.len());
+  let mut chars = text.chars().peekable();
+  while let Some(c) = chars.next() {
+    if c == '\\' {
+      match chars.peek() {
+        Some('\n') => {
+          chars.next();
+          while chars.peek().is_some_and(|c| c.is_whitespace()) {
+            chars.next();
+          }
+          continue;
+        }
+        Some(_) => {
+          // An escape: the character after it is never a line's end.
+          out.push(c);
+          out.push(chars.next().unwrap_or_default());
+          continue;
+        }
+        None => {}
+      }
+    }
+    out.push(c);
+  }
+  std::borrow::Cow::Owned(out)
 }
 
 /// Where the parentheses or braces of each `vec!` call in `node` start, with the bracket
@@ -1402,7 +1439,7 @@ fn control_head(
     (t.kind().is_trivia() && t.kind() != K::Whitespace && !listed(t) && !after_eq(t))
       || super::items::is_doc(t.kind())
       || t.kind() == K::Pound && !element_attribute(t) && t.parent().kind() != K::TokenTree
-      || t.kind().is_literal() && t.text().contains('\n')
+      || super::file::fixed_lines(t.kind(), t.text())
   }) {
     return None;
   }
@@ -1867,6 +1904,12 @@ fn on_one_line(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Optio
   (nested_fit(node, indent, config) && same_tokens(node, &text)).then_some(text)
 }
 
+thread_local! {
+  /// While a statement is laid out to be checked whole, how many checks of what it holds
+  /// were put off to its own.
+  static DEFERRED: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
 /// Whether nothing below `node` is one [`safe`] would look at twice: no comment, no
 /// attribute and no literal spanning lines. [`clean_inside`] would then let every element
 /// through.
@@ -1880,7 +1923,7 @@ fn plainly_clean(node: &SyntaxNode) -> bool {
         | K::InnerLineDoc
         | K::OuterBlockDoc
         | K::InnerBlockDoc
-    ) && !(kind.is_literal() && text.contains('\n'))
+    ) && !(super::file::fixed_lines(kind, text))
   };
   // Kept while a [`RewriteMemo`](super::expr::RewriteMemo) is open, as
   // [`super::expr::holds_comment`] is.
@@ -1895,12 +1938,6 @@ fn plainly_clean(node: &SyntaxNode) -> bool {
         SyntaxElement::Node(n) => plainly_clean(&n),
       })
   })
-}
-
-thread_local! {
-  /// While a statement is laid out to be checked whole, how many checks of what it holds
-  /// were put off to its own.
-  static DEFERRED: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 /// `head` (`let x =`, `a.b +=`) and then `value`, with its `;` when `semi`: on the same line
@@ -2208,33 +2245,6 @@ fn takes(node: &SyntaxNode) -> bool {
         || matches!(expression.kind(), K::ReturnExpr | K::BreakExpr)
           && !expression.children().is_empty()
     })
-}
-
-/// A token's text with the whitespace after each `\\` ending a line of a string taken out:
-/// Rust skips it, and re-indenting the string's lines changes it.
-fn unindented(text: &str) -> std::borrow::Cow<'_, str> {
-  if !text.contains("\\\n")
-    || text.starts_with('r')
-    || text.starts_with("br")
-    || text.starts_with("cr")
-  {
-    return std::borrow::Cow::Borrowed(text);
-  }
-  let mut out = String::with_capacity(text.len());
-  let mut backslashes = 0;
-  let mut skipping = false;
-  for c in text.chars() {
-    if skipping && c.is_whitespace() {
-      continue;
-    }
-    skipping = false;
-    out.push(c);
-    if c == '\n' && backslashes % 2 == 1 {
-      skipping = true;
-    }
-    backslashes = if c == '\\' { backslashes + 1 } else { 0 };
-  }
-  std::borrow::Cow::Owned(out)
 }
 
 #[cfg(test)]

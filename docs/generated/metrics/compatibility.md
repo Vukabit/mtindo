@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-31T19:32:42.960Z"
-commit: "af81de2-dirty.a49f4d0d"
+generated: "2026-10-31T21:37:01.172Z"
+commit: "182aeae-dirty.0df62370"
 command: "cargo xtask diff --update"
 sources:
   - compat/compatibility.txt
@@ -20,11 +20,11 @@ metrics:
   compat.tests.lines_matched: 11192
   compat.tests.lines_total: 11205
   compat.tests.skipped: 0
-  compat.tests-with-settings.files: 72.45
-  compat.tests-with-settings.files_matched: 405
+  compat.tests-with-settings.files: 74.06
+  compat.tests-with-settings.files_matched: 414
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 91.53
-  compat.tests-with-settings.lines_matched: 20187
+  compat.tests-with-settings.lines: 91.80
+  compat.tests-with-settings.lines_matched: 20246
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
   compat.corpus.files: 99.97
@@ -34,11 +34,11 @@ metrics:
   compat.corpus.lines_matched: 2653089
   compat.corpus.lines_total: 2653185
   compat.corpus.skipped: 6
-  compat.corpus-unformatted.files: 99.12
-  compat.corpus-unformatted.files_matched: 9266
+  compat.corpus-unformatted.files: 99.13
+  compat.corpus-unformatted.files_matched: 9267
   compat.corpus-unformatted.files_scored: 9348
-  compat.corpus-unformatted.lines: 99.92
-  compat.corpus-unformatted.lines_matched: 2774159
+  compat.corpus-unformatted.lines: 99.93
+  compat.corpus-unformatted.lines_matched: 2774589
   compat.corpus-unformatted.lines_total: 2776485
   compat.corpus-unformatted.skipped: 17
   compat.corpus.repositories: 44
@@ -52,7 +52,7 @@ metrics:
 Against the standard formatter 1.9.0-stable (88d9e12ae1 2026-08-18), mto's
 output equals the expected output for 455 of 460 test files (98.91%) and for
 9358 of 9361 corpus files (99.97%). On whitespace-scrambled corpus files it
-matches 9266 of 9348 files (99.12%) and keeps 99.92% of the expected lines.
+matches 9267 of 9348 files (99.13%) and keeps 99.93% of the expected lines.
 <!-- end generated -->
 
 ## 1 Question
@@ -122,9 +122,9 @@ The record as it stands (shares in percent):
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
 | tests | 455 of 460 | 98.91 | 11192 of 11205 | 99.88 | 0 |
-| tests-with-settings | 405 of 559 | 72.45 | 20187 of 22055 | 91.53 | 0 |
+| tests-with-settings | 414 of 559 | 74.06 | 20246 of 22055 | 91.80 | 0 |
 | corpus | 9358 of 9361 | 99.97 | 2653089 of 2653185 | 100.00 | 6 |
-| corpus-scrambled | 9266 of 9348 | 99.12 | 2774159 of 2776485 | 99.92 | 17 |
+| corpus-scrambled | 9267 of 9348 | 99.13 | 2774589 of 2776485 | 99.93 | 17 |
 <!-- end generated -->
 
 ### History
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.88 | 91.53 | 100.00 | 99.92 | 99.12 |
+| current |  | 99.88 | 91.80 | 100.00 | 99.93 | 99.13 |
+| 2026-10-31 | 0a75123 | 99.88 | 91.53 | 100.00 | 99.92 | 99.12 |
 | 2026-10-31 | b14c7ee | 99.88 | 89.93 | 100.00 | 99.92 | 99.12 |
 | 2026-10-31 | d30fe90 | 99.88 | 89.64 | 100.00 | 99.92 | 99.12 |
 | 2026-10-31 | 15d372d | 99.88 | 89.15 | 100.00 | 99.92 | 99.12 |
@@ -227,23 +228,23 @@ Scored files by the share of their expected lines mto's output keeps:
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
 | tests | 456 | 0 | 1 | 3 |
-| tests-with-settings | 408 | 1 | 40 | 110 |
+| tests-with-settings | 417 | 1 | 39 | 102 |
 | corpus | 9358 | 0 | 1 | 2 |
-| corpus-scrambled | 9266 | 32 | 33 | 17 |
+| corpus-scrambled | 9267 | 32 | 32 | 17 |
 
 The syntax at the first line where a mismatching file differs, the ten most
 common over every set:
 
 | syntax kind | files |
 |---|---:|
-| `LetStmt` | 31 |
+| `LetStmt` | 29 |
 | `Use` | 22 |
-| `TokenTree` | 21 |
 | `Fn` | 19 |
+| `TokenTree` | 19 |
 | `BlockExpr` | 13 |
-| `MatchArm` | 11 |
 | `MethodCallExpr` | 11 |
 | `MacroRules` | 9 |
+| `MatchArm` | 9 |
 | `SourceFile` | 9 |
 | `Visibility` | 7 |
 <!-- end generated -->

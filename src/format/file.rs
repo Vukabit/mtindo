@@ -1462,6 +1462,18 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     root = parse(&written, edition).syntax_node();
     text = Cow::Owned(written);
   }
+  // A tuple pattern's last wildcards written `..` (`condense_wildcard_suffixes`).
+  let (text, root) = match config
+    .condense_wildcards
+    .then(|| crate::format::reorder::condensed_wildcards(&root, &text))
+    .flatten()
+  {
+    Some(written) => {
+      let root = parse(&written, edition).syntax_node();
+      (Cow::Owned(written), root)
+    }
+    None => (text, root),
+  };
   // Number literals written as `hex_literal_case` and `float_literal_trailing_zero` say.
   let (text, root) = match crate::format::reorder::number_literals(&root, &text, config) {
     Some(written) => {

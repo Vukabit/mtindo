@@ -62,6 +62,97 @@ impl PassNodes {
   }
 }
 
+/// `text` with the last two or more `_` of each tuple pattern (`(a, _, _)`, `S(a, _, _)`)
+/// written `..` (the standard formatter's `count_wildcard_suffix_len`); `None` when there is
+/// none; a wildcard with a comment around it is the first of them. Not a pattern that has a
+/// `..` already (the standard formatter writes a second one), nor with a comment among those
+/// wildcards, nor in a `// mto: off` region or a skipped item.
+pub fn condensed_wildcards(root: &SyntaxNode, text: &str) -> Option<String> {
+  if !text.contains('_') {
+    return None;
+  }
+  let off = off_regions(root);
+  let mut changes: Vec<(usize, usize)> = Vec::new();
+  for pattern in root.descendant_nodes_where(|kind| matches!(kind, K::TuplePat | K::TupleStructPat))
+  {
+    let fields: Vec<SyntaxNode> = pattern
+      .children_iter()
+      .filter(|c| c.kind() != K::Path)
+      .collect();
+    if fields.iter().any(|f| f.kind() == K::RestPat) {
+      continue;
+    }
+    // Each field's span with the comments around it, to the separators on either side.
+    let separators: Vec<u32> = pattern
+      .children_with_tokens_iter()
+      .filter(|e| matches!(e.kind(), K::Comma | K::LParen | K::RParen))
+      .map(|e| e.text_range().start)
+      .collect();
+    let comments: Vec<u32> = pattern
+      .token_texts()
+      .filter(|(kind, _, _)| matches!(kind, K::LineComment | K::BlockComment))
+      .map(|(_, _, range)| range.start)
+      .collect();
+    let has_comment = |field: &SyntaxNode| {
+      let range = field.text_range();
+      let before = separators
+        .iter()
+        .rev()
+        .find(|&&s| s < range.start)
+        .copied()
+        .unwrap_or(0);
+      let after = separators
+        .iter()
+        .find(|&&s| s >= range.end)
+        .copied()
+        .unwrap_or(u32::MAX);
+      comments.iter().any(|&c| before < c && c < after)
+    };
+    // The wildcards ending the list; one with a comment is the last taken.
+    let mut run = 0;
+    for field in fields.iter().rev() {
+      if field.kind() != K::WildcardPat {
+        break;
+      }
+      run += 1;
+      if has_comment(field) {
+        break;
+      }
+    }
+    if run < 2 {
+      continue;
+    }
+    let first = &fields[fields.len() - run];
+    let last = &fields[fields.len() - 1];
+    let (start, end) = (
+      first.text_range().start as usize,
+      last.text_range().end as usize,
+    );
+    // A comment the wildcards' `..` would take the place of.
+    let commented = comments
+      .iter()
+      .any(|&c| start <= c as usize && (c as usize) < end);
+    if commented || off.iter().any(|&(s, e)| s < end && start < e) || skipped_within(&pattern) {
+      continue;
+    }
+    changes.push((start, end));
+  }
+  if changes.is_empty() {
+    return None;
+  }
+  // A pattern inside another's wildcards is not one: the ranges never overlap.
+  changes.sort_unstable();
+  let mut out = String::with_capacity(text.len());
+  let mut from = 0;
+  for (start, end) in changes {
+    out.push_str(&text[from..start]);
+    out.push_str("..");
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  Some(out)
+}
+
 /// `text` with the comments between a `loop`, `while`, `for` or `if` head and its block each
 /// on a line of its own at the head's indentation, the block's `{` on the line after them,
 /// as the standard formatter writes them. `None` when there are none. Not in a `// mto: off`

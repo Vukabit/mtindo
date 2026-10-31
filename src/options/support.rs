@@ -15,7 +15,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("color", "missing"),
   ("combine_control_expr", "supported"),
   ("comment_width", "missing"),
-  ("condense_wildcard_suffixes", "missing"),
+  ("condense_wildcard_suffixes", "supported"),
   ("control_brace_style", "missing"),
   ("disable_all_formatting", "supported"),
   ("doc_comment_code_block_small_heuristics", "missing"),

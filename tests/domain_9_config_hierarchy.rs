@@ -123,14 +123,14 @@ fn test_settings_mto_does_not_honor_are_reported() {
   let env = TestEnvironment::new();
   fs::write(
     env.dir.path().join("rustfmt.toml"),
-    "condense_wildcard_suffixes = true\nwrap_comments = false\nmax_width = 90\n",
+    "binop_separator = \"Back\"\nwrap_comments = false\nmax_width = 90\n",
   )
   .unwrap();
   fs::write(env.dir.path().join("a.rs"), "fn f() {}\n").unwrap();
   let output = env.mto_cmd().args(["--check", "a.rs"]).output().unwrap();
   let stderr = String::from_utf8_lossy(&output.stderr);
   assert!(
-    stderr.contains("`condense_wildcard_suffixes` is not honored by mto yet"),
+    stderr.contains("`binop_separator` is not honored by mto yet"),
     "{}",
     stderr
   );

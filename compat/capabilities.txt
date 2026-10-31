@@ -18,7 +18,7 @@ option  chain_width                                      partial      # with for
 option  color                                            missing
 option  combine_control_expr                             supported    # with format = true, an if, for, loop or while alone in a call does not overflow when false (src/format/stmt/tests.rs)
 option  comment_width                                    missing
-option  condense_wildcard_suffixes                       missing
+option  condense_wildcard_suffixes                       supported    # with format = true (src/format/reorder/tests.rs)
 option  control_brace_style                              missing
 option  disable_all_formatting                           supported    # formatting leaves the file as written; layout follows mto.toml (src/format/file/tests.rs)
 option  doc_comment_code_block_small_heuristics          missing

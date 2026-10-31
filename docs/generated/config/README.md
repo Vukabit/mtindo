@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 42
+  supported: 43
   partial: 27
-  missing: 35
+  missing: 34
   not_planned: 4
 ---
 
@@ -205,7 +205,7 @@ behavior, so the column does not apply to them.
 <code>condense_wildcard_suffixes</code></a></td>
 <td>rustfmt.toml</td>
 <td>Replace strings of _ wildcards by a single .. in tuple patterns.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#control_brace_style">

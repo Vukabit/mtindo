@@ -117,6 +117,8 @@ pub struct FormatConfig {
   pub float_trailing_zero: FloatTrailingZero,
   /// `use_try_shorthand`: `try!(e)` written `e?`.
   pub try_shorthand: bool,
+  /// `condense_wildcard_suffixes`: `(a, _, _)` written `(a, ..)`.
+  pub condense_wildcards: bool,
   pub imports_layout: ImportsLayout,
   /// `attr_fn_like_width`: the widest attribute argument list kept on one line.
   pub attr_fn_like_width: usize,
@@ -189,6 +191,7 @@ impl Default for FormatConfig {
       hex_literal_case: HexLiteralCase::Preserve,
       float_trailing_zero: FloatTrailingZero::Preserve,
       try_shorthand: false,
+      condense_wildcards: false,
       imports_layout: ImportsLayout::Mixed,
       attr_fn_like_width: 70,
       style_edition: 2015,

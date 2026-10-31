@@ -177,6 +177,23 @@ fn test_try_shorthand() {
   assert_eq!(format_file(&once, Edition::E2015, &config), once);
 }
 
+/// The last two or more wildcards of a tuple pattern written `..`, a wildcard with a comment
+/// the first of them; not one with a `..` already, which would then have two.
+#[test]
+fn test_wildcard_suffixes_condensed() {
+  let config = FormatConfig {
+    condense_wildcards: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let (a, _, _) = t;\n    let S(_, _) = s;\n    let (a, _) = t;\n    let (a, .., _, _) = t;\n    let (a, _, /* c */ _, _) = t;\n}\n",
+      &config
+    ),
+    "fn f() {\n    let (a, ..) = t;\n    let S(..) = s;\n    let (a, _) = t;\n    let (a, .., _, _) = t;\n    let (a, _, /* c */ ..) = t;\n}\n"
+  );
+}
+
 #[test]
 fn test_without_blank_lines_a_run_is_everything_adjacent() {
   let config = FormatConfig {

@@ -349,6 +349,7 @@ impl Config {
     config.field_init_shorthand = flag("use_field_init_shorthand", false);
     config.struct_lit_single_line = flag("struct_lit_single_line", true);
     config.try_shorthand = flag("use_try_shorthand", false);
+    config.condense_wildcards = flag("condense_wildcard_suffixes", false);
     config.leading_pipes = match self.get("match_arm_leading_pipes").and_then(Value::as_text) {
       Some("Always") => crate::options::format::LeadingPipes::Always,
       Some("Preserve") => crate::options::format::LeadingPipes::Preserve,

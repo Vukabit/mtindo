@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 25
+  supported: 26
   partial: 26
-  missing: 35
+  missing: 34
   not_planned: 4
 ---
 
@@ -163,7 +163,7 @@ Replace strings of _ wildcards by a single .. in tuple patterns
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported. With format = true.
 
 ### `control_brace_style`
 

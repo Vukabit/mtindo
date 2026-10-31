@@ -95,7 +95,7 @@ option  use_small_heuristics                             partial      # with for
 option  use_try_shorthand                                supported    # with format = true (src/format/reorder/tests.rs)
 option  verbose                                          missing
 option  version                                          partial      # deprecated in rustfmt; `Two` means style edition 2024, as in rustfmt (src/config/tests.rs)
-option  where_single_line                                missing
+option  where_single_line                                supported    # with format = true (src/format/reorder/tests.rs)
 option  width_heuristics                                 missing
 option  wrap_comments                                    missing
 

@@ -595,7 +595,7 @@
       "default": "One"
     },
     "where_single_line": {
-      "description": "Forces the `where` clause to be laid out on a single line.\n\nIn mto: missing.",
+      "description": "Forces the `where` clause to be laid out on a single line.\n\nIn mto: supported. With format = true.",
       "type": "boolean",
       "default": false
     },

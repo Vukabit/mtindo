@@ -14,9 +14,9 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 53
+  supported: 54
   partial: 27
-  missing: 24
+  missing: 23
   not_planned: 4
 ---
 
@@ -968,7 +968,7 @@ behavior, so the column does not apply to them.
 <code>where_single_line</code></a></td>
 <td>rustfmt.toml</td>
 <td>Force where-clauses to be on a single line.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#width_heuristics">

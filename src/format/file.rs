@@ -1630,7 +1630,8 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     let laid = parse(&body, edition).syntax_node();
     crate::format::reorder::inline_attributes(&laid, &body, config).unwrap_or(body)
   };
-  let body = if config.empty_item_single_line && !config.fn_single_line {
+  let body = if config.empty_item_single_line && !config.fn_single_line && !config.where_single_line
+  {
     body
   } else {
     let laid = parse(&body, edition).syntax_node();

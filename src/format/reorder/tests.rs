@@ -300,6 +300,23 @@ fn test_try_shorthand() {
   assert_eq!(format_file(&once, Edition::E2015, &config), once);
 }
 
+/// `where_single_line`: a `where` of one predicate on its line, a function's `{` after it
+/// and a struct's on the next line; one of two predicates stays on lines.
+#[test]
+fn test_where_single_line() {
+  let config = FormatConfig {
+    where_single_line: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted(
+      "fn f<T>() -> T where T: Eq { x }\nstruct GroupInner<K, I, F> where I: Iterator { key: F, iter: I, current_key: Option<K> }\nfn g<T, U>() where T: Eq, U: Eq {}\n",
+      &config
+    ),
+    "fn f<T>() -> T\nwhere T: Eq {\n    x\n}\nstruct GroupInner<K, I, F>\nwhere I: Iterator\n{\n    key: F,\n    iter: I,\n    current_key: Option<K>,\n}\nfn g<T, U>()\nwhere\n    T: Eq,\n    U: Eq,\n{\n}\n"
+  );
+}
+
 /// The last two or more wildcards of a tuple pattern written `..`, a wildcard with a comment
 /// the first of them; not one with a `..` already, which would then have two.
 #[test]

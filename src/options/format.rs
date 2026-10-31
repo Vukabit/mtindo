@@ -145,6 +145,8 @@ pub struct FormatConfig {
   pub empty_item_single_line: bool,
   /// `fn_single_line`: a function of one simple statement on one line.
   pub fn_single_line: bool,
+  /// `where_single_line`: a function's `where` of one predicate on one line.
+  pub where_single_line: bool,
   /// `inline_attribute_width`: the widest `use`, `extern crate` or `mod` written on its
   /// attribute's line.
   pub inline_attribute_width: usize,
@@ -233,6 +235,7 @@ impl Default for FormatConfig {
       force_multiline_blocks: false,
       empty_item_single_line: true,
       fn_single_line: false,
+      where_single_line: false,
       inline_attribute_width: 0,
       struct_field_align_threshold: 0,
       enum_discrim_align_threshold: 0,

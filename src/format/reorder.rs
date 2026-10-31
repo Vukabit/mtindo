@@ -1265,6 +1265,64 @@ pub fn single_line_items(root: &SyntaxNode, text: &str, config: &FormatConfig) -
       .sum::<usize>()
   };
   let mut changes: Vec<(usize, usize, String)> = Vec::new();
+  // A `where` of one predicate: `where` and it on a line, a function's `{` (or `;`) after
+  // them when its parameters are on one line, another item's on the next (`where_single_line`).
+  if config.where_single_line {
+    for item in root.descendant_nodes_where(|kind| {
+      matches!(
+        kind,
+        K::Fn | K::Impl | K::Struct | K::Enum | K::Union | K::Trait
+      )
+    }) {
+      let Some(clause) = item.children_iter().find(|c| c.kind() == K::WhereClause) else {
+        continue;
+      };
+      let predicates: Vec<SyntaxNode> = clause
+        .children_iter()
+        .filter(|c| c.kind() == K::WherePred)
+        .collect();
+      let [predicate] = predicates.as_slice() else {
+        continue;
+      };
+      let function = item.kind() == K::Fn;
+      let params_one_line = !function
+        || item
+          .children_iter()
+          .find(|c| c.kind() == K::ParamList)
+          .is_some_and(|p| !p.text().contains('\n'));
+      let range = clause.text_range();
+      let (start, end) = (range.start as usize, range.end as usize);
+      let after = text[end..].trim_start();
+      let terminator = if !function {
+        ""
+      } else if after.starts_with('{') {
+        " {"
+      } else if after.starts_with(';') {
+        ";"
+      } else {
+        continue;
+      };
+      let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+      let one = format!("where {}", predicate.text());
+      if !params_one_line
+        || predicate.text().contains('\n')
+        || clause.subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
+        || !text[line_start..start].trim().is_empty()
+        || skipped_within(&item)
+        || off.iter().any(|&(s, e)| s < end && start < e)
+        || (start - line_start) + one.len() + terminator.len() > config.max_width
+      {
+        continue;
+      }
+      // A function's through the `{` or `;` after the clause.
+      let close = if function {
+        end + (text[end..].len() - after.len()) + 1
+      } else {
+        end
+      };
+      changes.push((start, close, format!("{}{}", one, terminator)));
+    }
+  }
   for item in root.descendant_nodes_where(|kind| matches!(kind, K::Fn | K::Impl | K::Trait)) {
     let body = item
       .children_iter()

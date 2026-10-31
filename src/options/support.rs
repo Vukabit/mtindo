@@ -92,7 +92,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("use_try_shorthand", "supported"),
   ("verbose", "missing"),
   ("version", "partial"),
-  ("where_single_line", "missing"),
+  ("where_single_line", "supported"),
   ("width_heuristics", "missing"),
   ("wrap_comments", "missing"),
 ];

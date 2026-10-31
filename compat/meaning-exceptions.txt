@@ -1,7 +1,9 @@
 # Files where the standard formatter's own output fails the meaning check (`cargo xtask diff`).
 # Each is a bug of the formatter's (it changes meaning or writes invalid code), or an equivalent
 # rewrite the check does not model yet. `PATH [SET]`, then the reason. A file flagged that is not
-# listed fails the run; a listed file no longer flagged is reported, to be removed.
+# listed is added here when mto's own output for it passes (an "auto-recorded" reason, to
+# triage, its case kept in .dev/upstream/rustfmt/), and fails the run when mto's does not; a
+# listed file no longer flagged is reported, to be removed.
 #
 # Lines starting `excused ` are default-settings test pairs mto need not match, each with its
 # reason: the expected file is the standard formatter's bug. The v0.1.0 gate wants every other

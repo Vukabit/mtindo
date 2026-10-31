@@ -8,10 +8,20 @@ tooling. Every development command, with its arguments, is in the
 
 ## What a change keeps true
 
-- **The output matches the standard formatter.** With the same settings, `mto`
-  writes exactly what rustfmt writes, byte for byte. A change to formatting is
-  measured against a pinned corpus of real crates (`cargo xtask diff`) and may
-  not lower its record.
+- **The output meets or exceeds the standard formatter.** rustfmt sets the
+  floor, not the ceiling. With the same settings, `mto` writes what rustfmt
+  writes, byte for byte, wherever rustfmt is right. Where rustfmt is wrong
+  (it changes what the code means, writes code that no longer builds, or
+  needs a second run to settle), `mto` keeps the code right instead of
+  copying the bug. A change to formatting is measured against a pinned corpus
+  of real crates and rustfmt's own tests (`cargo xtask diff`) and may not
+  lower its record.
+- **A bug of rustfmt's is recorded, not matched.** When rustfmt's output fails
+  the meaning check and `mto`'s passes, the run lists the file in
+  `compat/meaning-exceptions.txt` as auto-recorded, to triage, instead of
+  failing. Triage it: if it is a real bug of rustfmt's, give it its reason
+  and report it upstream; if the check lacks an equivalent rewrite, add the
+  rewrite (`src/verify/rewrites.rs`) and drop the entry.
 - **A second run changes nothing.** Formatting `mto`'s own output again gives
   the same text.
 - **The meaning never changes.** Every write is checked token for token first;

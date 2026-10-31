@@ -214,7 +214,9 @@ compatibility harness check it.
   `verify_format` on the standard formatter's own output over the corpus
   and its test suite. A flag there is either a bug of that formatter's or a
   safe rewrite the table lacks. Known cases are listed, each with its
-  reason, in `compat/meaning-exceptions.txt`; an unlisted flag fails the
-  run, and a listed file no longer flagged is reported for removal.
+  reason, in `compat/meaning-exceptions.txt`. An unlisted flag on a file
+  whose `mto` output passes is listed there for triage, marked
+  auto-recorded, and fails nothing; one where `mto`'s output fails too
+  fails the run. A listed file no longer flagged is reported for removal.
   The same harness requires mto's own output to pass the check and to
   settle on a second run.

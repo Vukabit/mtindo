@@ -111,6 +111,15 @@ struct Case {
   format: FormatConfig,
 }
 
+/// A flag on the standard formatter's output, not listed, where mto's own output is right.
+struct Found<'a> {
+  case: &'a Case,
+  key: String,
+  message: String,
+  /// A default-settings pair mto does not match: excused too.
+  excused: bool,
+}
+
 struct Options {
   tests: Option<PathBuf>,
   reference: String,
@@ -405,12 +414,30 @@ pub fn run(args: &[String]) -> ExitCode {
     .iter()
     .map(|f| f.split("]:").next().unwrap_or(f).to_string() + "]")
     .collect();
-  let unexpected: Vec<&String> = flagged
-    .iter()
-    .zip(&keys)
-    .filter(|(_, key)| !known.contains(key))
-    .map(|(line, _)| line)
-    .collect();
+  // One not listed fails the run, but where mto's own output for the file is right: the
+  // standard formatter is what is wrong there (or the check lacks a rewrite), so it is
+  // listed for triage and the case kept in `.dev/upstream/rustfmt/`, not failed.
+  let mut unexpected: Vec<String> = Vec::new();
+  let mut found: Vec<Found<'_>> = Vec::new();
+  for (case, score) in cases.iter().zip(&scores) {
+    let Some(message) = &score.meaning else {
+      continue;
+    };
+    let key = format!("{} [{}]", case.name, case.set.key());
+    if known.contains(&key) {
+      continue;
+    }
+    if options.exceptions.is_some() && score.own.is_none() && score.panicked.is_none() {
+      found.push(Found {
+        case,
+        key,
+        message: message.clone(),
+        excused: case.set == Set::Tests && !score.matches,
+      });
+    } else {
+      unexpected.push(format!("{}: {}", key, message));
+    }
+  }
   let stale: Vec<&String> = known.iter().filter(|k| !keys.contains(k)).collect();
   println!(
     "\nmeaning check on the standard formatter's output: {} of {} files flagged, {} \
@@ -421,6 +448,18 @@ pub fn run(args: &[String]) -> ExitCode {
   );
   for entry in &stale {
     println!("  listed but no longer flagged (remove it): {}", entry);
+  }
+  if let Some(path) = &options.exceptions
+    && !found.is_empty()
+  {
+    println!(
+      "  {} more the standard formatter gets wrong where mto is right, now listed for \
+       triage:",
+      found.len()
+    );
+    for (entry, case) in record_found(path, &found) {
+      println!("    {} ({})", entry, case);
+    }
   }
   // The default-settings test pairs mto does not match, but those excused with a reason
   // (the standard formatter's own bugs): the v0.1.0 gate wants none left.
@@ -1288,6 +1327,58 @@ fn ratchet(options: &Options, tallies: &BTreeMap<Set, Tally>) -> ExitCode {
   }
 }
 
+/// Lists each of `found` in the exceptions file at `path` for triage (and excuses the test
+/// pairs among them), and keeps its case in the repository's `.dev/upstream/rustfmt/` when
+/// that folder is there. Returns each entry with where its case went.
+fn record_found(path: &Path, found: &[Found<'_>]) -> Vec<(String, String)> {
+  let reason = |message: &str| {
+    let message: String = message.chars().filter(|c| *c != '\n').take(140).collect();
+    format!(
+      "auto-recorded, to triage (a bug of the formatter's, or a rewrite the check lacks): {}",
+      message
+    )
+  };
+  let text = fs::read_to_string(path).unwrap_or_default();
+  let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+  // Listed among the others, before the excused pairs; excused pairs at the end.
+  let first_excused = lines
+    .iter()
+    .position(|l| l.starts_with("excused "))
+    .unwrap_or(lines.len());
+  let listed: Vec<String> = found
+    .iter()
+    .map(|f| format!("{}  {}", f.key, reason(&f.message)))
+    .collect();
+  let at = lines[..first_excused]
+    .iter()
+    .rposition(|l| !l.trim().is_empty())
+    .map_or(first_excused, |i| i + 1);
+  lines.splice(at..at, listed);
+  for f in found.iter().filter(|f| f.excused) {
+    lines.push(format!(
+      "excused {}  auto-recorded, to triage: the expected file fails the meaning check where \
+       mto's output passes",
+      f.key
+    ));
+  }
+  let _ = fs::write(path, lines.join("\n") + "\n");
+  let upstream = path
+    .parent()
+    .and_then(Path::parent)
+    .map(|root| root.join(".dev/upstream/rustfmt"));
+  found
+    .iter()
+    .map(|f| {
+      let place = upstream
+        .as_deref()
+        .filter(|dir| dir.is_dir())
+        .and_then(|dir| upstream_case(dir, f))
+        .unwrap_or_else(|| "no case kept".to_string());
+      (f.key.clone(), place)
+    })
+    .collect()
+}
+
 /// The record file's text.
 fn record_text(reference: &str, tallies: &BTreeMap<Set, Tally>) -> String {
   let mut out = String::from(
@@ -1569,6 +1660,109 @@ fn strings_span_lines(text: &str, edition: Edition) -> bool {
     })
 }
 
+/// Keeps `f`'s case in `dir` as the cases there are kept (`input.rs`, `edition`,
+/// `rustfmt.toml`, `notes.md`) and adds its row to the README's table; `None` when one for
+/// its file is there already.
+fn upstream_case(dir: &Path, f: &Found<'_>) -> Option<String> {
+  let entries: Vec<String> = fs::read_dir(dir)
+    .ok()?
+    .filter_map(|e| e.ok())
+    .filter(|e| e.path().is_dir())
+    .map(|e| e.file_name().to_string_lossy().into_owned())
+    .collect();
+  let known = entries.iter().any(|name| {
+    fs::read_to_string(dir.join(name).join("notes.md")).is_ok_and(|n| n.contains(&f.key))
+  });
+  if known {
+    return None;
+  }
+  let number = entries
+    .iter()
+    .filter_map(|name| name.split('-').next()?.parse::<usize>().ok())
+    .max()
+    .unwrap_or(0)
+    + 1;
+  let slug: String = f
+    .case
+    .name
+    .trim_end_matches(".rs")
+    .chars()
+    .map(|c| {
+      if c.is_ascii_alphanumeric() {
+        c.to_ascii_lowercase()
+      } else {
+        '-'
+      }
+    })
+    .collect();
+  let name = format!("{:02}-auto-{}", number, slug.trim_matches('-'));
+  let case_dir = dir.join(&name);
+  fs::create_dir_all(&case_dir).ok()?;
+  let _ = fs::write(case_dir.join("input.rs"), &f.case.input);
+  let _ = fs::write(
+    case_dir.join("edition"),
+    format!("{}\n", edition_year(f.case.edition)),
+  );
+  // The settings: a test pair's from its `// rustfmt-` lines, another's from its folder.
+  let settings = if f.case.set == Set::Tests || f.case.set == Set::TestsWithSettings {
+    f.case
+      .input
+      .lines()
+      .filter_map(|l| {
+        l.strip_prefix("// rustfmt-")
+          .or_else(|| l.strip_prefix("//@ rustfmt-"))
+      })
+      .filter_map(|l| l.split_once(':'))
+      .map(|(key, value)| {
+        let value = value.trim();
+        let bare = value == "true"
+          || value == "false"
+          || value.parse::<i64>().is_ok()
+          || value.starts_with('[');
+        if bare {
+          format!("{} = {}\n", key.trim(), value)
+        } else {
+          format!("{} = \"{}\"\n", key.trim(), value)
+        }
+      })
+      .collect()
+  } else {
+    nearest_config(&f.case.dir)
+  };
+  let _ = fs::write(case_dir.join("rustfmt.toml"), settings);
+  let _ = fs::write(
+    case_dir.join("notes.md"),
+    format!(
+      "# {} (auto-recorded)\n\n\
+       - Found by: `cargo xtask diff`. The meaning check flags the standard formatter's\n  \
+       output where mto's own output passes it.\n\
+       - The check said: {}\n\
+       - To triage: confirm a bug of the formatter's (then name it, search upstream and\n  \
+       make `input.rs` the smallest that shows it), or a rewrite the meaning check lacks\n  \
+       (then add it to src/verify/rewrites.rs and drop this case and its exception).\n\
+       - Upstream: not searched yet.\n",
+      f.key,
+      f.message.replace('\n', " ")
+    ),
+  );
+  let readme = dir.join("README.md");
+  if let Ok(text) = fs::read_to_string(&readme) {
+    let row = format!(
+      "| {} | auto-recorded from `{}`, to triage | not searched |",
+      name.replacen('-', " ", 1),
+      f.key
+    );
+    let mut lines: Vec<&str> = text.lines().collect();
+    let at = lines
+      .iter()
+      .rposition(|l| l.starts_with("| ") && !l.starts_with("|---"))
+      .map_or(lines.len(), |i| i + 1);
+    lines.insert(at, &row);
+    let _ = fs::write(&readme, lines.join("\n") + "\n");
+  }
+  Some(format!(".dev/upstream/rustfmt/{}", name))
+}
+
 /// What `cargo xtask diff` files as incidents, beside the logs: `diff-findings.tsv`, one
 /// line per finding (kind, set, file, message), and each finding's input under
 /// `diff-inputs/` (cleared on every run). The first line says whether every input was
@@ -1635,6 +1829,62 @@ mod tests {
     assert_eq!(common_lines(&["a", "x", "c"], &["a", "b", "c"]), 2);
     assert_eq!(common_lines(&[], &["a"]), 0);
     assert_eq!(common_lines(&["b", "a"], &["a", "b"]), 1);
+  }
+
+  /// A flag on the standard formatter's output where mto is right is listed for triage,
+  /// before the excused pairs, a test pair excused too, and its case kept once.
+  #[test]
+  fn test_found_flags_are_listed_and_kept() {
+    let root = std::env::temp_dir().join(format!("mtindo-found-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let upstream = root.join(".dev/upstream/rustfmt");
+    fs::create_dir_all(upstream.join("01-old")).unwrap();
+    fs::write(
+      upstream.join("README.md"),
+      "| Case | What | Upstream |\n|---|---|---|\n| 01 old | x | y |\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("compat")).unwrap();
+    let path = root.join("compat/meaning-exceptions.txt");
+    fs::write(
+      &path,
+      "# header\n\na.rs [tests]  old\n\nexcused a.rs [tests]  old\n",
+    )
+    .unwrap();
+    let case = Case {
+      set: Set::Tests,
+      name: "b.rs".to_string(),
+      input: "// rustfmt-max_width: 50\nfn f() {}\n".to_string(),
+      edition: Edition::E2021,
+      dir: root.clone(),
+      expected: None,
+      format: FormatConfig::default(),
+    };
+    let found = [Found {
+      case: &case,
+      key: "b.rs [tests]".to_string(),
+      message: "the tokens differ".to_string(),
+      excused: true,
+    }];
+    let places = record_found(&path, &found);
+    assert_eq!(places[0].1, ".dev/upstream/rustfmt/02-auto-b");
+    let listed = fs::read_to_string(&path).unwrap();
+    let at = |needle: &str| listed.find(needle).unwrap();
+    assert!(at("b.rs [tests]  auto-recorded") < at("excused a.rs"));
+    assert!(listed.contains("excused b.rs [tests]  auto-recorded"));
+    let case_dir = upstream.join("02-auto-b");
+    assert_eq!(
+      fs::read_to_string(case_dir.join("rustfmt.toml")).unwrap(),
+      "max_width = 50\n"
+    );
+    assert!(
+      fs::read_to_string(upstream.join("README.md"))
+        .unwrap()
+        .contains("02 auto-b")
+    );
+    // Kept once.
+    assert_eq!(record_found(&path, &found)[0].1, "no case kept");
+    let _ = fs::remove_dir_all(&root);
   }
 
   #[test]

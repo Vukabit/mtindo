@@ -14,11 +14,11 @@ use crate::{LayoutConfig, Settings, shape};
 
 /// Checks one input; panics on any violation.
 pub fn check(data: &[u8]) {
-  // On the stack mto's binaries give this work ([`crate::STACK`]).
-  crate::with_stack(|| checked(data))
+  super::on_stack(data, checked);
 }
 
-fn checked(data: &[u8]) {
+/// [`check`] on the caller's thread.
+pub(super) fn checked(data: &[u8]) {
   let Some((settings, rest)) = data.split_first_chunk::<3>() else {
     return;
   };
@@ -30,10 +30,10 @@ fn checked(data: &[u8]) {
     text,
     parsed.errors()
   );
-  super::layout::check(text.as_bytes());
+  super::layout::checked(text.as_bytes());
   let mut with_settings = settings.to_vec();
   with_settings.extend_from_slice(text.as_bytes());
-  super::format::check(&with_settings);
+  super::format::checked(&with_settings);
   let both = Settings {
     layout: Some(LayoutConfig::default()),
     format: Some(FormatConfig::default()),

@@ -20,11 +20,11 @@ const HEADER: usize = 4;
 
 /// Checks one input; panics on any violation.
 pub fn check(data: &[u8]) {
-  // On the stack mto's binaries give this work ([`crate::STACK`]).
-  crate::with_stack(|| checked(data))
+  super::on_stack(data, checked);
 }
 
-fn checked(data: &[u8]) {
+/// [`check`] on the caller's thread.
+pub(super) fn checked(data: &[u8]) {
   if data.len() < HEADER {
     return;
   }

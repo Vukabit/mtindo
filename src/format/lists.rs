@@ -495,7 +495,8 @@ fn write_list(
       // formatter's `total_item_width` counts them.
       let counted = |c: &Option<String>| c.as_ref().map_or(0, |c| c.trim().len().max(4) + 6);
       let total = counted(&c.pre) + counted(&c.post) + text.len() + usize::from(separate) + 1;
-      if c.pre_same_line && total <= width {
+      // A comment normalized to a line comment cannot stay on the item's line.
+      if c.pre_same_line && total <= width && !super::file::normalized_comments() {
         out.push(' ');
       } else {
         out.push('\n');

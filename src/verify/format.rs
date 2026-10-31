@@ -131,9 +131,22 @@ fn canonical<'a>(
     merged.push(token);
   }
   // comment-text: comments as the multiset of their words.
+  // A custom comment's marker (`//@`) is a word of its own, as a space after it may be
+  // added (`normalize_comments`).
   let mut words: Vec<String> = comments
     .iter()
-    .flat_map(|c| c.split_whitespace())
+    .flat_map(|c| {
+      let mut words = c.split_whitespace();
+      let first = words.next().map(|w| {
+        let at = w.find(|c: char| c.is_alphanumeric()).unwrap_or(w.len());
+        if at > 0 && at < w.len() {
+          vec![&w[..at], &w[at..]]
+        } else {
+          vec![w]
+        }
+      });
+      first.into_iter().flatten().chain(words)
+    })
     .filter(|w| !w.chars().all(|c| c == '*' || c == '/' || c == '!'))
     .map(str::to_string)
     .collect();

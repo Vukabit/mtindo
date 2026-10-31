@@ -149,6 +149,8 @@ pub struct FormatConfig {
   pub condense_wildcards: bool,
   /// `normalize_doc_attributes`: `#[doc = "a"]` written `///a`.
   pub normalize_doc_attributes: bool,
+  /// `normalize_comments`: `/* a */` ending a line written `// a`, `/** a */` written `/// a`.
+  pub normalize_comments: bool,
   /// `control_brace_style`.
   pub control_brace_style: ControlBraceStyle,
   /// `binop_separator = "Back"`: a binary operator ends the line it breaks after.
@@ -249,6 +251,7 @@ impl Default for FormatConfig {
       float_trailing_zero: FloatTrailingZero::Preserve,
       try_shorthand: false,
       condense_wildcards: false,
+      normalize_comments: false,
       normalize_doc_attributes: false,
       control_brace_style: ControlBraceStyle::AlwaysSameLine,
       binop_back: false,

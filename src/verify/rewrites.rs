@@ -105,7 +105,8 @@ pub const REWRITES: &[Rewrite] = &[
     name: "comment-text",
     reason: "Rewrapping, re-indenting or re-marking a comment (`wrap_comments`, \
                  `normalize_comments`) keeps its words, so comments are compared as the \
-                 multiset of their words.",
+                 multiset of their words, a custom comment's marker (`//@`) a word apart \
+                 from what follows it.",
   },
   Rewrite {
     name: "number-literals",

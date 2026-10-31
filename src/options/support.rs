@@ -59,7 +59,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("merge_derives", "supported"),
   ("merge_imports", "not-planned"),
   ("newline_style", "supported"),
-  ("normalize_comments", "missing"),
+  ("normalize_comments", "supported"),
   ("normalize_doc_attributes", "supported"),
   ("overflow_delimited_expr", "supported"),
   ("print_misformatted_file_names", "missing"),

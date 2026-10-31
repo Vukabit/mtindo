@@ -62,7 +62,7 @@ option  max_width                                        partial      # with for
 option  merge_derives                                    supported    # with format = true, runs of `#[derive(..)]` with no blank line or comment between them merged into one (src/format/reorder/tests.rs)
 option  merge_imports                                    not-planned  # deprecated in rustfmt in favour of imports_granularity
 option  newline_style                                    supported    # with format = true (src/format/file/tests.rs)
-option  normalize_comments                               missing
+option  normalize_comments                               supported    # with format = true (src/format/comment/tests.rs)
 option  normalize_doc_attributes                         supported    # with format = true (src/format/reorder/tests.rs)
 option  overflow_delimited_expr                          supported    # with format = true (src/format/file/tests.rs)
 option  print_misformatted_file_names                    missing

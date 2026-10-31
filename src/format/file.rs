@@ -272,6 +272,7 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   let edition_before = EDITION.with(|e| e.replace(edition));
   let style_before = STYLE.with(|e| e.replace(config.style_edition));
   let control_before = CONTROL.with(|c| c.replace(config.control_brace_style));
+  let normalize_before = NORMALIZE.with(|n| n.replace(config.normalize_comments));
   // Whether the text names any macros or attributes to skip, its spaces aside: most do not,
   // and then nothing needs looking up per call or attribute.
   let marks_before = SKIP_MARKS.with(|m| {
@@ -286,6 +287,7 @@ pub fn format_text(source: &str, edition: Edition, config: &FormatConfig, strip:
   SKIP_MARKS.with(|m| m.set(marks_before));
   STYLE.with(|e| e.set(style_before));
   CONTROL.with(|c| c.set(control_before));
+  NORMALIZE.with(|n| n.set(normalize_before));
   SKIPPED_INVOCATIONS.with(|names| names.replace(before));
   CRATE_SKIPS.with(|names| names.replace(crate_before));
   EDITION.with(|e| e.set(edition_before));
@@ -443,6 +445,11 @@ pub(super) fn meta_like(attr: &SyntaxNode) -> bool {
     previous = Some(kind);
   }
   true
+}
+
+/// Whether the text being formatted has its comments normalized (`normalize_comments`).
+pub(super) fn normalized_comments() -> bool {
+  NORMALIZE.with(|n| n.get())
 }
 
 /// Notes that a statement or item was kept as written, for [`format_file`].
@@ -654,6 +661,8 @@ thread_local! {
   /// The `control_brace_style` of the text being formatted.
   static CONTROL: std::cell::Cell<crate::options::format::ControlBraceStyle> =
     const { std::cell::Cell::new(crate::options::format::ControlBraceStyle::AlwaysSameLine) };
+  /// Whether the text being formatted has its comments normalized.
+  static NORMALIZE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   /// Whether the text being formatted names macros, and attributes, to skip.
   static SKIP_MARKS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
   /// Whether a statement or item was kept as written since [`format_file`] last looked.
@@ -1655,6 +1664,21 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
       let laid = parse(&body, edition).syntax_node();
       crate::format::reorder::control_braces(&laid, &body, style, edition).unwrap_or(body)
     }
+  };
+  // An item's body holding one block comment on the line of its braces.
+  let body = if body.contains("/*") {
+    let laid = parse(&body, edition).syntax_node();
+    crate::format::comment::lone_comments(&laid, &body, config, config.normalize_comments)
+      .unwrap_or(body)
+  } else {
+    body
+  };
+  // Comments ending their lines written as line comments (`normalize_comments`).
+  let body = if config.normalize_comments {
+    let laid = parse(&body, edition).syntax_node();
+    crate::format::comment::normalize(&laid, &body, config).unwrap_or(body)
+  } else {
+    body
   };
   // Line endings inside a multi-line string are part of the string: a file whose strings
   // hold line breaks keeps its own endings.

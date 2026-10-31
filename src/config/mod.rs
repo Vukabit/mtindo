@@ -356,6 +356,7 @@ impl Config {
     config.fn_single_line = flag("fn_single_line", false);
     config.where_single_line = flag("where_single_line", false);
     config.condense_wildcards = flag("condense_wildcard_suffixes", false);
+    config.normalize_comments = flag("normalize_comments", false);
     config.normalize_doc_attributes = flag("normalize_doc_attributes", false);
     config.leading_pipes = match self.get("match_arm_leading_pipes").and_then(Value::as_text) {
       Some("Always") => crate::options::format::LeadingPipes::Always,

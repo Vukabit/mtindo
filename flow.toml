@@ -175,8 +175,6 @@ branch = "main"
 # and tag it made, and `hold` lets those through.
 hold = ["refs/heads/main", "refs/tags/v*"]
 repository = "Vukabit/mtindo"
-# The Homebrew tap CI opens a pull request in with each release's formula.
-tap = "Vukabit/homebrew-tap"
 # The first release is left a draft on GitHub, to look over before it is
 # published; later ones are published as built.
 first_as_draft = true
@@ -194,8 +192,8 @@ targets = [
 # Credentials CI uses that expire. GitHub never shows a secret again, so its
 # expiry is written here when it is made or rotated (MAINTAINING.md):
 # `cargo xtask flow release` warns 14 days before and stops once it passes.
+# None yet: crates.io's trusted publishing stores none.
 [release.tokens]
-HOMEBREW_TAP_TOKEN = ""
 
 [secrets]
 # Text that looks like a credential, refused wherever it is added.

@@ -14,8 +14,7 @@
 //! - `messages RANGE` checks every commit in a range.
 //! - `release VERSION` cuts a release (a plan unless `--go`); `yank VERSION` prints how
 //!   to take one back.
-//! - `package TARGET`, `prepare TAG`, `formula TAG` and `tap TAG` are the release
-//!   workflow's steps.
+//! - `package TARGET` and `prepare TAG` are the release workflow's steps.
 
 mod checks;
 mod config;
@@ -107,10 +106,6 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
         cli::on(sub, "dry-run"),
       )
     }),
-    "tap" => config::load(root)
-      .and_then(|flow| publish::tap(root, &flow, &cli::text(sub, "tag").unwrap_or_default())),
-    "formula" => config::load(root)
-      .and_then(|flow| publish::formula(root, &flow, &cli::text(sub, "tag").unwrap_or_default())),
     "check" => check(
       root,
       &cli::text(sub, "stage").unwrap_or_default(),

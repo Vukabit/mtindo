@@ -18,13 +18,7 @@ run is recorded, so `mto restore last` undoes it. `mto` has no dependencies.
 
 ## Installation
 
-With Homebrew, on macOS or Linux:
-
-```bash
-brew install vukabit/tap/mto
-```
-
-Or download a prebuilt archive from the
+Download a prebuilt archive from the
 [releases page](https://github.com/Vukabit/mtindo/releases): Linux (x86_64
 and aarch64, glibc 2.35 or newer), macOS (Apple silicon and Intel) and
 Windows (x86_64). Each holds `mto` and `cargo-mto`; put both on your `PATH`.

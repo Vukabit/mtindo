@@ -494,16 +494,6 @@ fn flow() -> Command {
         .arg(flag("dry-run", "No tag: only that the crate packages, for Cargo.toml's version (a dry-run/ branch)")),
     )
     .subcommand(
-      Command::new("tap")
-        .about("Open a pull request in the Homebrew tap with a release's formula, with the token in GH_TOKEN (the release workflow's step)")
-        .arg(Arg::new("tag").value_name("TAG").required(true).help("The release tag, vX.Y.Z")),
-    )
-    .subcommand(
-      Command::new("formula")
-        .about("Print the Homebrew formula for a release, from dist/SHA256SUMS")
-        .arg(Arg::new("tag").value_name("TAG").required(true).help("The release tag, vX.Y.Z")),
-    )
-    .subcommand(
       Command::new("messages")
         .about("Check every commit message in a range, as pushing and CI do")
         .arg(Arg::new("range").value_name("RANGE").required(true).help("Commits A..B")),

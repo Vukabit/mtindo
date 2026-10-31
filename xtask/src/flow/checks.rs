@@ -303,7 +303,7 @@ fn gates(root: &Path) -> Result<(), String> {
 }
 
 /// The repository's settings on GitHub are those MAINTAINING.md lists: public, `main`
-/// and release tags guarded by rulesets, the publishing environments behind approval,
+/// and release tags guarded by rulesets, the crates-io environment behind approval,
 /// workflows read-only by default, private vulnerability reporting on.
 fn github_settings(root: &Path, flow: &Flow) -> Result<(), String> {
   let repo = &flow.release.repository;
@@ -376,15 +376,15 @@ fn github_settings(root: &Path, flow: &Flow) -> Result<(), String> {
     ".environments[] | [.name, ([.protection_rules[].type] | join(\",\"))] | @tsv",
   )
   .unwrap_or_default();
-  for name in ["crates-io", "homebrew"] {
-    let guarded = environments.lines().any(|l| {
-      l.split_once('\t')
-        .is_some_and(|(n, rules)| n == name && rules.contains("required_reviewers"))
-    });
-    if !guarded {
-      found.push(format!("environment `{}` does not require approval", name));
-    }
+  // Publishing waits for approval.
+  let guarded = environments.lines().any(|l| {
+    l.split_once('\t')
+      .is_some_and(|(n, rules)| n == "crates-io" && rules.contains("required_reviewers"))
+  });
+  if !guarded {
+    found.push("environment `crates-io` does not require approval".to_string());
   }
+
   if ask(
     &format!("repos/{}/actions/permissions/workflow", repo),
     ".default_workflow_permissions",

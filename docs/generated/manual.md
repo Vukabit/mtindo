@@ -58,11 +58,10 @@ in an `mto.toml`; `mto init` writes one.
 
 ## Installation
 
-With Homebrew, prebuilt binaries from the GitHub release (Linux, macOS and
-Windows, with `SHA256SUMS`), or from crates.io:
+Prebuilt binaries are on the GitHub release (Linux, macOS and Windows, with
+`SHA256SUMS`); or from crates.io:
 
 ```bash
-brew install vukabit/tap/mto
 cargo install mtindo
 ```
 

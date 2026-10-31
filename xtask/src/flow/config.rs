@@ -100,8 +100,6 @@ pub struct Release {
   pub hold: Vec<String>,
   /// `owner/name` on GitHub.
   pub repository: String,
-  /// The Homebrew tap, `owner/name`.
-  pub tap: String,
   pub first_as_draft: bool,
   /// The targets each release carries binaries for.
   pub targets: Vec<String>,
@@ -209,11 +207,6 @@ pub fn parse(text: &str) -> Result<Flow, String> {
         .get("repository")
         .and_then(Value::as_str)
         .ok_or("flow.toml: release.repository is `owner/name`")?
-        .to_string(),
-      tap: release
-        .get("tap")
-        .and_then(Value::as_str)
-        .ok_or("flow.toml: release.tap is `owner/name`")?
         .to_string(),
       first_as_draft: boolean(release, "first_as_draft", "release")?,
       targets: list(release, "targets", "release")?,

@@ -190,8 +190,7 @@ How changes reach the history and releases, from flow.toml: the git hooks, and
 the checks CI runs
 
 ```text
-cargo xtask flow
-    setup|hook|check|release|yank|package|prepare|tap|formula|messages
+cargo xtask flow setup|hook|check|release|yank|package|prepare|messages
 ```
 
 ## `cargo xtask flow setup`
@@ -269,27 +268,6 @@ cargo xtask flow prepare [TAG] [--dry-run]
 - `TAG`: The release tag, vX.Y.Z
 - `--dry-run`: No tag: only that the crate packages, for Cargo.toml's version (a
   dry-run/ branch)
-
-## `cargo xtask flow tap`
-
-Open a pull request in the Homebrew tap with a release's formula, with the token
-in GH_TOKEN (the release workflow's step)
-
-```text
-cargo xtask flow tap TAG
-```
-
-- `TAG`: The release tag, vX.Y.Z
-
-## `cargo xtask flow formula`
-
-Print the Homebrew formula for a release, from dist/SHA256SUMS
-
-```text
-cargo xtask flow formula TAG
-```
-
-- `TAG`: The release tag, vX.Y.Z
 
 ## `cargo xtask flow messages`
 

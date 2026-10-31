@@ -1,6 +1,6 @@
 //! What a release tag's workflow (`.github/workflows/release.yml`) runs, so that its
 //! steps are written once here: each target's archive, the checksums and notes the
-//! GitHub release takes, and the Homebrew formula the tap gets.
+//! GitHub release takes.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,80 +23,6 @@ const BESIDE: &[&str] = &[
 /// The release's archives, checksums and notes, under `dist/`.
 pub fn dist(root: &Path) -> PathBuf {
   root.join("dist")
-}
-
-/// `formula TAG`: the tap's `Formula/mto.rb` for the release, from `dist/SHA256SUMS`.
-pub fn formula(root: &Path, flow: &Flow, tag: &str) -> Result<(), String> {
-  let version = tag.trim_start_matches('v');
-  let sums = fs::read_to_string(dist(root).join("SHA256SUMS"))
-    .map_err(|e| format!("dist/SHA256SUMS: {} (run `flow prepare` first)", e))?;
-  let sum = |target: &str| -> Result<String, String> {
-    let archive = format!("mto-{}-{}.tar.gz", version, target);
-    sums
-      .lines()
-      .find_map(|l| {
-        l.split_once("  ")
-          .filter(|(_, n)| *n == archive)
-          .map(|(s, _)| s.to_string())
-      })
-      .ok_or(format!("SHA256SUMS has no {}", archive))
-  };
-  let url = |target: &str| {
-    format!(
-      "https://github.com/{}/releases/download/{}/mto-{}-{}.tar.gz",
-      flow.release.repository, tag, version, target
-    )
-  };
-  let block = |target: &str| -> Result<String, String> {
-    Ok(format!(
-      "      url \"{}\"\n      sha256 \"{}\"",
-      url(target),
-      sum(target)?
-    ))
-  };
-  print!(
-    "# Written by `cargo xtask flow formula` for each mtindo release.
-class Mto < Formula
-  desc \"Formats Rust as the standard formatter does, and lays out its items\"
-  homepage \"https://github.com/{repository}\"
-  version \"{version}\"
-  license any_of: [\"MIT\", \"Apache-2.0\"]
-
-  on_macos do
-    on_arm do
-{mac_arm}
-    end
-    on_intel do
-{mac_intel}
-    end
-  end
-
-  on_linux do
-    on_arm do
-{linux_arm}
-    end
-    on_intel do
-{linux_intel}
-    end
-  end
-
-  def install
-    bin.install \"mto\", \"cargo-mto\"
-  end
-
-  test do
-    assert_match version.to_s, shell_output(\"#{{bin}}/mto --version\")
-  end
-end
-",
-    repository = flow.release.repository,
-    version = version,
-    mac_arm = block("aarch64-apple-darwin")?,
-    mac_intel = block("x86_64-apple-darwin")?,
-    linux_arm = block("aarch64-unknown-linux-gnu")?,
-    linux_intel = block("x86_64-unknown-linux-gnu")?,
-  );
-  Ok(())
 }
 
 /// `package TARGET`: `dist/mto-VERSION-TARGET.tar.gz` (`.zip` for Windows) with `mto`,
@@ -227,89 +153,6 @@ pub fn prepare(root: &Path, flow: &Flow, tag: &str, dry_run: bool) -> Result<(),
     fs::write(&output, text).map_err(|e| format!("GITHUB_OUTPUT: {}", e))?;
   }
   Ok(())
-}
-
-/// `tap TAG`: a pull request in the Homebrew tap with the release's formula, made with
-/// the token in `GH_TOKEN` (the release workflow's `homebrew` job, once approved).
-pub fn tap(root: &Path, flow: &Flow, tag: &str) -> Result<(), String> {
-  if std::env::var_os("GH_TOKEN").is_none() {
-    return Err("tap: GH_TOKEN holds the tap's token (HOMEBREW_TAP_TOKEN)".to_string());
-  }
-  let version = tag.trim_start_matches('v');
-  let mut text = String::new();
-  // The formula as `formula` prints it.
-  let out = process::output(
-    Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
-      .args(["flow", "formula", tag])
-      .current_dir(root)
-      .stdout(std::process::Stdio::piped()),
-    process::QUICK,
-  )
-  .map_err(|e| format!("formula: {}", e))?;
-  if out.code != 0 {
-    return Err("formula failed".to_string());
-  }
-  text.push_str(&String::from_utf8_lossy(&out.stdout));
-  let clone = dist(root).join("tap");
-  let _ = fs::remove_dir_all(&clone);
-  let branch = format!("mto-{}", version);
-  let url = format!("https://github.com/{}.git", flow.release.tap);
-  let clone_text = clone.display().to_string();
-  let step = |program: &str, args: &[&str], dir: &Path| -> Result<(), String> {
-    let done = process::output(
-      Command::new(program).args(args).current_dir(dir),
-      process::NETWORK,
-    )
-    .map_err(|e| format!("{} could not be run: {}", program, e))?;
-    if done.code == 0 {
-      Ok(())
-    } else {
-      Err(format!("`{} {}` failed", program, args.join(" ")))
-    }
-  };
-  step("gh", &["auth", "setup-git"], root)?;
-  step("git", &["clone", "--depth", "1", &url, &clone_text], root)?;
-  fs::create_dir_all(clone.join("Formula")).map_err(|e| e.to_string())?;
-  fs::write(clone.join("Formula/mto.rb"), text).map_err(|e| format!("mto.rb: {}", e))?;
-  step("git", &["switch", "-c", &branch], &clone)?;
-  step("git", &["add", "Formula/mto.rb"], &clone)?;
-  step(
-    "git",
-    &[
-      "-c",
-      "user.name=mtindo release",
-      "-c",
-      "user.email=mtindo-release@users.noreply.github.com",
-      "commit",
-      "-m",
-      &format!("mto {}", version),
-    ],
-    &clone,
-  )?;
-  step(
-    "git",
-    &["push", "--set-upstream", "origin", &branch],
-    &clone,
-  )?;
-  step(
-    "gh",
-    &[
-      "pr",
-      "create",
-      "--repo",
-      &flow.release.tap,
-      "--head",
-      &branch,
-      "--title",
-      &format!("mto {}", version),
-      "--body",
-      &format!(
-        "The formula for https://github.com/{}/releases/tag/{}, written by `cargo xtask flow formula`.",
-        flow.release.repository, tag
-      ),
-    ],
-    &clone,
-  )
 }
 
 /// The body of `changelog`'s `## [version]` section, up to the next release's heading.

@@ -34,9 +34,7 @@ pushed and checked by CI like anyone's.
 6. **The release workflow** (`.github/workflows/release.yml`) then builds the
    binaries for every target in `release.targets`, makes the GitHub release
    with them, `SHA256SUMS` and the changelog section as its notes, and waits
-   for approval before publishing to crates.io and opening the Homebrew tap's
-   pull request. Approve each in the run's page, then merge the tap's pull
-   request.
+   for approval before publishing to crates.io. Approve it in the run's page.
 
 Before a release that changes how the binaries are built, push a branch named
 `dry-run/<anything>`: `release.yml` builds and packs every target and writes
@@ -57,19 +55,17 @@ v0.1.0 goes out quietly. In order:
    `cargo xtask flow check public`. Nothing that looks like a credential, and
    nothing from `docs/internal/`.
 3. Make the repository public, then the GitHub settings below (rulesets and
-   approval on environments need a public repository on a free plan), and
-   create the tap repository `Vukabit/homebrew-tap` (public). `cargo xtask
-   flow check github` lists any setting still missing; a release checks the
-   same and stops until they are made.
+   approval on environments need a public repository on a free plan).
+   `cargo xtask flow check github` lists any setting still missing; a release
+   checks the same and stops until they are made.
 4. Run a dry run (above) and look at its summary.
 5. Cut the release as above. `release.first_as_draft` leaves the GitHub
    release a draft: look over the binaries and notes, then publish it.
 6. crates.io's trusted publishing needs the crate to exist, so publish 0.1.0
-   by hand once (`cargo publish`, with a token made for it and deleted
-   after), then add the repository as a trusted publisher on the crate's
-   settings page (workflow `release.yml`, environment `crates-io`). Reject
-   the run's `crates-io` job for 0.1.0; later releases publish from CI.
-7. Approve the `homebrew` job, and merge the tap's pull request.
+   by hand once (`cargo publish`, with an API token, revoked after), then add
+   the repository as a trusted publisher on the crate's settings page
+   (workflow `release.yml`, environment `crates-io`). Reject the run's
+   `crates-io` job for 0.1.0; later releases publish from CI.
 
 ## Fixing an earlier release
 
@@ -140,20 +136,11 @@ looks like one, and `flow check public` looks through all of history.
 
 - **crates.io** uses trusted publishing: each release run is given a
   short-lived token by crates.io itself, so there is none to store or rotate.
-- **`HOMEBREW_TAP_TOKEN`** lets the `homebrew` job open the tap's pull
-  request. Make it as a fine-grained token: repository access
-  `Vukabit/homebrew-tap` only, permissions Contents and Pull requests (read
-  and write), 90 days. Store it as a secret of the `homebrew` environment
-  (not of the repository), and write its expiry in `flow.toml`:
-
-  ```toml
-  [release.tokens]
-  HOMEBREW_TAP_TOKEN = "2027-01-28"
-  ```
-
-  GitHub never shows a secret again, so this line is how the expiry is known:
-  `flow release` warns from 14 days before it and refuses once it has passed.
-  Rotating is the same steps with a new token and date.
+- **Any secret CI comes to need** is stored on the environment of the job
+  that uses it, not on the repository, and its expiry written in
+  `flow.toml`'s `[release.tokens]` (`NAME = "2027-01-28"`). GitHub never
+  shows a secret again, so that line is how the expiry is known: `flow
+  release` warns from 14 days before it and refuses once it has passed.
 
 ## GitHub settings
 
@@ -163,8 +150,8 @@ github` says which are missing:
 - **Branch `main`**: a ruleset requiring the `flow`, `msrv` and every `test`
   check, refusing force pushes and deletion.
 - **Tags `v*`**: a ruleset refusing updates and deletion.
-- **Environments**: `crates-io` and `homebrew`, each requiring your approval,
-  limited to tags `v*`.
+- **Environments**: `crates-io`, requiring your approval, limited to tags
+  `v*`.
 - **Actions**: workflow permissions read-only by default (each job asks for
   more itself, as `release.yml` does).
 - **Security**: private vulnerability reporting on, for

@@ -10,8 +10,8 @@ from commit subjects by `cargo xtask changelog`.
 ### Added
 
 - Format Rust source as the standard formatter writes it with the same
-  settings, byte for byte: 9354 of 9361 files and 99.99% of the lines of a
-  pinned corpus of real crates match, and 99.90% of lines once their
+  settings, byte for byte: 9357 of 9361 files and 99.99% of the lines of a
+  pinned corpus of real crates match, and 99.91% of lines once their
   formatting is scrambled
 - Read the same `rustfmt.toml` and `.rustfmt.toml` files, with `--config`,
   `--config-path`, `--edition` and `--style-edition`; `mto config options`

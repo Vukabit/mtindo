@@ -310,19 +310,8 @@ fn check() -> RunOptions {
 }
 
 /// The fastest of as many runs of `f` as take [`MIN_TOTAL`], and at least three.
-fn fastest(mut f: impl FnMut()) -> f64 {
-  let mut best = f64::MAX;
-  let mut total = Duration::ZERO;
-  let mut runs = 0;
-  while runs < 3 || total < MIN_TOTAL {
-    let started = Instant::now();
-    f();
-    let took = started.elapsed();
-    best = best.min(took.as_secs_f64());
-    total += took;
-    runs += 1;
-  }
-  best
+fn fastest(f: impl FnMut()) -> f64 {
+  xtask_core::timing::fastest_of(3, MIN_TOTAL, f)
 }
 
 // The generators: each writes items in reverse order where it can, so layout moves them,

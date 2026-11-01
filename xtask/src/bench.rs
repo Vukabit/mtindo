@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 
 use crate::common::log::Logger;
 use crate::common::process;
+use crate::common::timing;
 use crate::metrics;
 use crate::sha256;
 
@@ -309,14 +310,15 @@ fn mto_row(mto: &Path, dir: &Path, config: &Path, name: &str) -> Result<Row, Str
     }
     runs.push((run.wall, run.cpu));
   }
-  runs.sort_by(|a, b| a.0.total_cmp(&b.0));
+  // The middle run by wall time, with its CPU time.
+  let (wall, cpu) = timing::middle_by(runs, |r| r.0).unwrap_or_default();
   let (files, bytes) = rust_files(dir);
   Ok(Row {
     tool: name.to_string(),
     files,
     bytes,
-    wall: runs[1].0,
-    cpu: runs[1].1,
+    wall,
+    cpu,
   })
 }
 

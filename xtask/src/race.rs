@@ -59,6 +59,7 @@ use crate::common::awake::KeepAwake;
 use crate::common::color::color_enabled;
 use crate::common::log::Logger;
 use crate::common::process;
+use crate::common::timing;
 use crate::common::{harness, store};
 
 /// Columns besides the feature name in the compact layout: " " + 10 + " " + 10 + " " + 14.
@@ -382,7 +383,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
 /// net time takes off one process start per input.
 fn cell(race: &Race, label: &str, members: &[usize], tool: Tool, current: Option<usize>) -> Cell {
   if label == STARTUP_ROW {
-    return match stats(&race.startup[&tool]) {
+    return match timing::median_spread(&race.startup[&tool]) {
       Some((median, spread)) => Cell::Time {
         median,
         net: median,
@@ -424,11 +425,13 @@ fn cell(race: &Race, label: &str, members: &[usize], tool: Tool, current: Option
   let per_round: Vec<f64> = (0..rounds)
     .map(|r| members.iter().map(|i| samples[*i][r]).sum())
     .collect();
-  let (median, spread) = stats(&per_round).unwrap_or((0.0, 0.0));
+  let (median, spread) = timing::median_spread(&per_round).unwrap_or((0.0, 0.0));
   let net = if race.gross {
     median
   } else {
-    let startup = stats(&race.startup[&tool]).map(|(m, _)| m).unwrap_or(0.0);
+    let startup = timing::median_spread(&race.startup[&tool])
+      .map(|(m, _)| m)
+      .unwrap_or(0.0);
     (median - startup * members.len() as f64).max(0.0)
   };
   let matches = (tool == Tool::Mto).then(|| {
@@ -1868,27 +1871,6 @@ fn startup_bound(median: f64, net: f64) -> bool {
   median > 0.0 && net < median * NET_FLOOR
 }
 
-/// Median and spread (half the range, as a percentage of the median) of some samples.
-fn stats(samples: &[f64]) -> Option<(f64, f64)> {
-  if samples.is_empty() {
-    return None;
-  }
-  let mut sorted = samples.to_vec();
-  sorted.sort_by(|a, b| a.total_cmp(b));
-  let mid = sorted.len() / 2;
-  let median = if sorted.len().is_multiple_of(2) {
-    (sorted[mid - 1] + sorted[mid]) / 2.0
-  } else {
-    sorted[mid]
-  };
-  let spread = if median > 0.0 {
-    (sorted[sorted.len() - 1] - sorted[0]) / 2.0 / median * 100.0
-  } else {
-    0.0
-  };
-  Some((median, spread))
-}
-
 /// Text without colour and cursor codes.
 fn strip_ansi(text: &str) -> String {
   let mut out = String::with_capacity(text.len());
@@ -2041,7 +2023,7 @@ fn summary(race: &Race, elapsed: u64, options: &Options) -> String {
     for tool in TOOLS {
       if let (Cell::Time { median: row, .. }, Some((startup, _))) = (
         cell(race, DEFAULTS_ROW, members, tool, None),
-        stats(&race.startup[&tool]),
+        timing::median_spread(&race.startup[&tool]),
       ) && row > 0.0
       {
         let share = (startup * members.len() as f64 / row * 100.0).min(100.0);
@@ -2640,10 +2622,10 @@ mod tests {
 
   #[test]
   fn test_stats_median_and_spread() {
-    let (median, spread) = stats(&[0.10, 0.12, 0.11]).unwrap();
+    let (median, spread) = timing::median_spread(&[0.10, 0.12, 0.11]).unwrap();
     assert!((median - 0.11).abs() < 1e-9);
     assert!((spread - 9.090909).abs() < 1e-3);
-    assert!(stats(&[]).is_none());
+    assert!(timing::median_spread(&[]).is_none());
   }
 
   #[test]

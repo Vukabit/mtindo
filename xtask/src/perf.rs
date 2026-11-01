@@ -17,6 +17,7 @@ use std::process::{Command, ExitCode};
 use std::time::Instant;
 
 use crate::common::process;
+use crate::common::timing;
 use crate::corpus;
 use crate::metrics;
 
@@ -249,9 +250,8 @@ fn latency(root: &Path, breaches: &mut Vec<String>) -> Result<(), ()> {
         }
       }
     }
-    times.sort_by(|a, b| a.total_cmp(b));
-    let median = times[times.len() / 2];
-    let p99 = times[times.len() * 99 / 100];
+    let p99 = timing::percentile(&times, 99);
+    let median = timing::middle(times);
     println!(
       "  {:<8} {:>7.2} ms middle  {:>7.2} ms p99",
       name, median, p99

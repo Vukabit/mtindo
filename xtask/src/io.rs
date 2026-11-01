@@ -14,6 +14,7 @@ use std::process::{Command, ExitCode};
 use std::time::Instant;
 
 use crate::common::process;
+use crate::common::timing;
 use crate::metrics;
 
 /// Files in the generated project unless `--files` says otherwise; the series are kept
@@ -203,6 +204,5 @@ fn time(mto: &Path, scratch: &Path, files: usize, way: Option<&Way>) -> Result<f
     }
     runs.push(seconds);
   }
-  runs.sort_by(|a, b| a.total_cmp(b));
-  Ok(runs[1])
+  Ok(timing::middle(runs))
 }

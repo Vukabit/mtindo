@@ -15,6 +15,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use crate::common::process;
+use crate::common::timing;
 use crate::metrics;
 
 /// The crates guarded runs are timed on, small, medium and large.
@@ -267,16 +268,11 @@ fn guarded(mto: &Path, crate_dir: &Path, name: &str) -> Result<Figures, String> 
     times.2.push(lay_out(true)?);
   }
   Ok(Figures {
-    check: middle(times.0),
-    rebuild: middle(times.3),
-    unguarded: middle(times.1),
-    guarded: middle(times.2),
+    check: timing::middle(times.0),
+    rebuild: timing::middle(times.3),
+    unguarded: timing::middle(times.1),
+    guarded: timing::middle(times.2),
   })
-}
-
-fn middle(mut values: Vec<f64>) -> f64 {
-  values.sort_by(f64::total_cmp);
-  values[values.len() / 2]
 }
 
 fn round(value: f64) -> f64 {

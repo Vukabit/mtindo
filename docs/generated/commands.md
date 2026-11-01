@@ -830,6 +830,19 @@ cargo xtask settings [--check]
 
 - `--check`: Only compare
 
+## `cargo xtask speed`
+
+Every speed measurement behind one command: throughput, latency, scaling,
+growth, io, features (live), doctor; ARGS go to the command that makes it
+
+```text
+cargo xtask speed MEASURE [ARGS...]
+```
+
+- `MEASURE`: (one of: throughput, latency, scaling, growth, io, features,
+  doctor)
+- `ARGS...`: Passed to the measure's command (e.g. features --live)
+
 ## `cargo xtask status`
 
 Where the project stands: tree, last green, v0.1.0 gates, running jobs, latest

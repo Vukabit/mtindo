@@ -243,6 +243,7 @@ pub fn tree() -> Command {
     race(),
     runs(),
     settings(),
+    speed(),
     status(),
     store(),
     Command::new("sync")
@@ -1084,6 +1085,32 @@ fn settings() -> Command {
   Command::new("settings")
     .about("Regenerate src/options/rustfmt.rs from the pinned rustfmt releases")
     .arg(flag("check", "Only compare"))
+}
+
+fn speed() -> Command {
+  let measures: Vec<PossibleValue> = crate::speed::MEASURES
+    .iter()
+    .map(|(name, _, help)| PossibleValue::new(*name).help(*help))
+    .collect();
+  Command::new("speed")
+    .about(
+      "Every speed measurement behind one command: throughput, latency, scaling, growth, \
+       io, features (live), doctor; ARGS go to the command that makes it",
+    )
+    .arg(
+      Arg::new("measure")
+        .value_name("MEASURE")
+        .required(true)
+        .value_parser(measures),
+    )
+    .arg(
+      Arg::new("args")
+        .value_name("ARGS")
+        .num_args(0..)
+        .trailing_var_arg(true)
+        .allow_hyphen_values(true)
+        .help("Passed to the measure's command (e.g. features --live)"),
+    )
 }
 
 fn status() -> Command {

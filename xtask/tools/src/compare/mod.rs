@@ -92,6 +92,15 @@ impl Options {
   }
 }
 
+/// What `pairs` is asked for: the seed, where the texts go, files per crate (0 for all),
+/// and the crates by name.
+struct PairsArgs {
+  seed: u64,
+  out: PathBuf,
+  files: usize,
+  crates: Vec<(String, PathBuf)>,
+}
+
 /// `lexdiff [--edition YEAR] [PATH...]`: every file held against rustc's lexer, token for
 /// token, at one edition (default 2021); fails when one differs unexplained, or when there
 /// are no files.
@@ -193,7 +202,12 @@ pub fn lexer(root: &Path, args: &[String]) -> ExitCode {
 /// with each file's scrambled, standard and mto texts under `DIR/scrambled|standard|mto/
 /// NAME/FILE`, for `cargo xtask pairs` to build the copies it compiles.
 pub fn pairs(args: &[String]) -> ExitCode {
-  let (seed, out, files, crates) = match parse_pairs_args(args) {
+  let PairsArgs {
+    seed,
+    out,
+    files,
+    crates,
+  } = match parse_pairs_args(args) {
     Ok(parsed) => parsed,
     Err(e) => {
       eprintln!("xtask-tools pairs: {}", e);
@@ -862,9 +876,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<Options, String> {
   Ok(options)
 }
 
-fn parse_pairs_args(
-  args: &[String],
-) -> Result<(u64, PathBuf, usize, Vec<(String, PathBuf)>), String> {
+fn parse_pairs_args(args: &[String]) -> Result<PairsArgs, String> {
   let (mut seed, mut out, mut files, mut crates) = (None, None, 0, Vec::new());
   let mut at = 0;
   while at < args.len() {
@@ -895,7 +907,12 @@ fn parse_pairs_args(
     at += 2;
   }
   match (seed, out) {
-    (Some(seed), Some(out)) if !crates.is_empty() => Ok((seed, out, files, crates)),
+    (Some(seed), Some(out)) if !crates.is_empty() => Ok(PairsArgs {
+      seed,
+      out,
+      files,
+      crates,
+    }),
     _ => Err("usage: pairs --seed N --out DIR [--files N] NAME=DIR...".to_string()),
   }
 }
@@ -1040,12 +1057,12 @@ mod tests {
   #[test]
   fn test_pairs_arguments() {
     let args = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
-    let (seed, _, files, crates) = parse_pairs_args(&args(&[
+    let parsed = parse_pairs_args(&args(&[
       "--seed", "42", "--out", "/o", "--files", "3", "a=/x", "b=/y",
     ]))
     .unwrap();
-    assert_eq!((seed, files), (42, 3));
-    assert_eq!(crates[1], ("b".to_string(), PathBuf::from("/y")));
+    assert_eq!((parsed.seed, parsed.files), (42, 3));
+    assert_eq!(parsed.crates[1], ("b".to_string(), PathBuf::from("/y")));
     assert!(parse_pairs_args(&args(&["--out", "/o", "a=/x"])).is_err());
     assert!(parse_pairs_args(&args(&["--seed", "x", "--out", "/o", "a=/x"])).is_err());
     assert!(parse_pairs_args(&args(&["--seed", "1", "--out", "/o", "stray"])).is_err());

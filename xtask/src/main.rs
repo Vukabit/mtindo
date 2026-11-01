@@ -12,6 +12,7 @@ mod changelog;
 mod checks;
 mod cli;
 mod common;
+mod compare;
 mod corpus;
 mod coverage;
 mod diff;
@@ -96,6 +97,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "changelog" => changelog::run(root, m),
     "check" => stage(root, "check"),
     "checks" => checks::run(root, m),
+    "compare" => compare::run(root, m),
     "corpus" => corpus::run(root, m),
     "diff" => diff::run(root, m),
     // The settings reference and the manual are written by xtask-tools, which links mtindo;

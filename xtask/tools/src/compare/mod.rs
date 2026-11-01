@@ -452,7 +452,16 @@ pub fn run(args: &[String]) -> ExitCode {
       unexpected.push(format!("{}: {}", key, message));
     }
   }
-  let stale: Vec<&String> = known.iter().filter(|k| !keys.contains(k)).collect();
+  // Stale only where its set was scored: a run of some sets says nothing of the others.
+  let scored: Vec<String> = cases
+    .iter()
+    .map(|c| format!("[{}]", c.source.key()))
+    .collect();
+  let stale: Vec<&String> = known
+    .iter()
+    .filter(|k| !keys.contains(k))
+    .filter(|k| scored.iter().any(|set| k.ends_with(set.as_str())))
+    .collect();
   println!(
     "\nmeaning check on the standard formatter's output: {} of {} files flagged, {} \
          of them listed in records/policy/exceptions.txt",
@@ -466,13 +475,25 @@ pub fn run(args: &[String]) -> ExitCode {
   if let Some(path) = &options.exceptions
     && !found.is_empty()
   {
-    println!(
-      "  {} more the standard formatter gets wrong where mto is right, now listed for \
-       triage:",
-      found.len()
-    );
-    for (entry, case) in record_found(path, &found) {
-      println!("    {} ({})", entry, case);
+    // A run of some sets reads the record of the formatter's bugs but writes nothing.
+    if options.sources.is_empty() {
+      println!(
+        "  {} more the standard formatter gets wrong where mto is right, now listed for \
+         triage:",
+        found.len()
+      );
+      for (entry, case) in record_found(path, &found) {
+        println!("    {} ({})", entry, case);
+      }
+    } else {
+      println!(
+        "  {} more the standard formatter gets wrong where mto is right (a run of every \
+         set lists them for triage):",
+        found.len()
+      );
+      for f in &found {
+        println!("    {}", f.key);
+      }
     }
   }
   // The default-settings test pairs mto does not match, but those excused with a reason

@@ -11,14 +11,33 @@ use crate::common::store;
 use crate::common::{process, proof};
 use crate::corpus;
 
+/// The recorded sets, as `--sources` names them.
+pub const SETS: &[&str] = &[
+  "tests",
+  "tests-with-settings",
+  "corpus",
+  "corpus-unformatted",
+];
+
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "diff");
   log.info(&format!("cargo xtask {}", crate::cli::line()));
-  let args: Vec<String> = ["update", "markdown"]
+  let mut args: Vec<String> = ["update", "markdown"]
     .iter()
     .filter(|f| crate::cli::on(m, f))
     .map(|f| format!("--{}", f))
     .collect();
+  // Some of the recorded sets only: scored and reported, but neither recorded, logged nor
+  // filed, since the record, the logs and the incidents all speak for a complete run.
+  let sources = crate::cli::texts(m, "sources");
+  let partial = !sources.is_empty() && sources.len() < SETS.len();
+  if partial {
+    if args.iter().any(|a| a == "--update") {
+      println!("--update records every set at once; leave out --sources");
+      return ExitCode::from(2);
+    }
+    args.extend(["--sources".to_string(), sources.join(",")]);
+  }
   if corpus::fetch(root, false, &log) != 0 {
     return ExitCode::from(1);
   }
@@ -66,22 +85,26 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       .join("records/results/compatibility.txt")
       .display()
       .to_string(),
-    "--meaning-log".into(),
-    store::dir(root, store::LOGS)
-      .join("diff-meaning.txt")
-      .display()
-      .to_string(),
-    "--broke-log".into(),
-    store::dir(root, store::LOGS)
-      .join("diff-broke.txt")
-      .display()
-      .to_string(),
     "--exceptions".into(),
     root
       .join("records/policy/exceptions.txt")
       .display()
       .to_string(),
   ];
+  if !partial {
+    forwarded.extend([
+      "--meaning-log".into(),
+      store::dir(root, store::LOGS)
+        .join("diff-meaning.txt")
+        .display()
+        .to_string(),
+      "--broke-log".into(),
+      store::dir(root, store::LOGS)
+        .join("diff-broke.txt")
+        .display()
+        .to_string(),
+    ]);
+  }
   forwarded.extend(args.iter().cloned());
   for pin in pins.iter().filter(|p| !p.opt_in) {
     forwarded.push(format!(
@@ -92,7 +115,9 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   }
   log.info("running xtask-tools diff (release build)");
   let findings = store::dir(root, store::LOGS).join("diff-findings.tsv");
-  let _ = std::fs::remove_file(&findings);
+  if !partial {
+    let _ = std::fs::remove_file(&findings);
+  }
   let done = process::output(
     Command::new("cargo")
       .args([
@@ -114,6 +139,9 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
           "the diff was stopped at its time limit of {}",
           process::duration(process::HEAVY)
         );
+      }
+      if partial {
+        return ExitCode::from(done.code.clamp(0, 255) as u8);
       }
       // The run's numbers become series.
       let tallies = store::dir(root, store::LOGS).join("diff-tallies.tsv");

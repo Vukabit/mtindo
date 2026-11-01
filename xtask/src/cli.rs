@@ -218,6 +218,7 @@ pub fn tree() -> Command {
       "Every check by its one id, what it checks, and the test group and flow stages it \
        runs in",
     ),
+    compare(),
     corpus(),
     diff(),
     docs(),
@@ -416,6 +417,32 @@ fn command_path(args: &[String]) -> Vec<String> {
   path
 }
 
+fn compare() -> Command {
+  let sources: Vec<PossibleValue> = crate::compare::SOURCES
+    .iter()
+    .map(|(name, _, help)| PossibleValue::new(*name).help(*help))
+    .collect();
+  Command::new("compare")
+    .about(
+      "mto held against an answer key, by source: the recorded sets (the default, as \
+       `diff`), scrambled pairs (`pairs`), rustc's lexer (`lexdiff`), the parser alone \
+       (`parsecheck`); ARGS after `--` go to that command",
+    )
+    .arg(
+      Arg::new("sources")
+        .value_name("SOURCE")
+        .num_args(0..)
+        .value_parser(sources),
+    )
+    .arg(
+      Arg::new("args")
+        .value_name("ARGS")
+        .num_args(0..)
+        .last(true)
+        .help("Passed on: --update, --markdown; --seed, --files, --crates; --edition, PATHS"),
+    )
+}
+
 fn corpus() -> Command {
   let with_rust = || flag("with-rust", "Also the opt-in repositories (rust-lang/rust)");
   Command::new("corpus")
@@ -451,6 +478,16 @@ fn diff() -> Command {
       "Record the numbers in records/results/compatibility.txt",
     ))
     .arg(flag("markdown", "As Markdown tables"))
+    .arg(
+      option(
+        "sources",
+        "SET,...",
+        "Score only these recorded sets (tests, tests-with-settings, corpus, \
+         corpus-unformatted): reported, not recorded, logged or filed",
+      )
+      .value_delimiter(',')
+      .value_parser(crate::diff::SETS.to_vec()),
+    )
 }
 
 fn docs() -> Command {

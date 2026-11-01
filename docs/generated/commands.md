@@ -112,6 +112,21 @@ runs in
 cargo xtask checks
 ```
 
+## `cargo xtask compare`
+
+mto held against an answer key, by source: the recorded sets (the default, as
+`diff`), scrambled pairs (`pairs`), rustc's lexer (`lexdiff`), the parser alone
+(`parsecheck`); ARGS after `--` go to that command
+
+```text
+cargo xtask compare [SOURCE...] [ARGS...]
+```
+
+- `SOURCE...`: (one of: tests, tests-with-settings, corpus, corpus-unformatted,
+  pairs, lexer, parse)
+- `ARGS...`: Passed on: --update, --markdown; --seed, --files, --crates;
+  --edition, PATHS
+
 ## `cargo xtask corpus`
 
 The pinned real-world corpus (records/pins/corpus.txt)
@@ -165,11 +180,15 @@ How much of the Rust style mto reproduces, against
 records/results/compatibility.txt
 
 ```text
-cargo xtask diff [--update] [--markdown]
+cargo xtask diff [--update] [--markdown] [--sources
+    tests|tests-with-settings|corpus|corpus-unformatted]
 ```
 
 - `--update`: Record the numbers in records/results/compatibility.txt
 - `--markdown`: As Markdown tables
+- `--sources tests|tests-with-settings|corpus|corpus-unformatted`: Score only
+  these recorded sets (tests, tests-with-settings, corpus, corpus-unformatted):
+  reported, not recorded, logged or filed
 
 ## `cargo xtask docs`
 

@@ -1,6 +1,115 @@
 //! The command line's tables: every flag, command and exit code. The parser, the help pages
 //! and the manual all read them, so nothing is accepted without being documented.
 
+/// `cargo mto`'s flags, each with what it becomes on mto's command line. Its parser, its
+/// help and the manual read this table. Help lists the groups in the order they first
+/// appear here, and each group's flags by name.
+pub const CARGO_FLAGS: &[CargoFlagSpec] = &[
+  CargoFlagSpec {
+    flag: CargoFlag::All,
+    group: "packages",
+    short: None,
+    long: "--all",
+    value: "",
+    help: "Every workspace member, and local path dependencies outside the workspace",
+    forwards: Forward::Own,
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::ManifestPath,
+    group: "packages",
+    short: None,
+    long: "--manifest-path",
+    value: "<PATH>",
+    help: "The Cargo.toml to start from (default: the nearest one)",
+    forwards: Forward::Own,
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::Package,
+    group: "packages",
+    short: Some("-p"),
+    long: "--package",
+    value: "<NAME>...",
+    help: "Only these members (repeatable)",
+    forwards: Forward::Own,
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::Check,
+    group: "changes",
+    short: None,
+    long: "--check",
+    value: "",
+    help: "Print a diff for every file that would change; exit 1 if any",
+    forwards: Forward::Flag(Flag::Check),
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::MessageFormat,
+    group: "changes",
+    short: None,
+    long: "--message-format",
+    value: "",
+    help: "short: name the files (-l); json: the JSON report (--emit json)",
+    forwards: Forward::ByValue(&[
+      ("short", &["-l"]),
+      ("json", &["--emit", "json"]),
+      ("human", &[]),
+    ]),
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::AllowDirty,
+    group: "history and safety",
+    short: None,
+    long: "--allow-dirty",
+    value: "",
+    help: "With history off, rewrite files that have uncommitted changes",
+    forwards: Forward::Flag(Flag::AllowDirty),
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::NoHistory,
+    group: "history and safety",
+    short: None,
+    long: "--no-history",
+    value: "",
+    help: "Do not record this run in history (it cannot be restored)",
+    forwards: Forward::Flag(Flag::NoHistory),
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::Quiet,
+    group: "output",
+    short: Some("-q"),
+    long: "--quiet",
+    value: "",
+    help: "Print only errors and what was asked for",
+    forwards: Forward::Flag(Flag::Quiet),
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::Verbose,
+    group: "output",
+    short: Some("-v"),
+    long: "--verbose",
+    value: "",
+    help: "List the targets, and name each file as it is formatted",
+    forwards: Forward::Flag(Flag::Verbose),
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::Help,
+    group: "general",
+    short: Some("-h"),
+    long: "--help",
+    value: "",
+    help: "Show this help and exit",
+    forwards: Forward::Own,
+  },
+  CargoFlagSpec {
+    flag: CargoFlag::Version,
+    group: "general",
+    short: None,
+    long: "--version",
+    value: "",
+    help: "Print mto's version and exit",
+    forwards: Forward::Own,
+  },
+];
+
 /// mto's commands, in the order help lists them. Each has its own help page (`mto history
 /// -h`), built from this table and [`FLAGS`].
 pub const COMMANDS: &[CommandSpec] = &[
@@ -13,6 +122,7 @@ pub const COMMANDS: &[CommandSpec] = &[
                 file is never overwritten.",
     usage: &["mto init [DIR]"],
     options: &[],
+    subcommands: &[],
     examples: &["mto init", "mto init crates/core"],
   },
   CommandSpec {
@@ -47,6 +157,20 @@ pub const COMMANDS: &[CommandSpec] = &[
         ],
       ),
     ],
+    subcommands: &[
+      Subcommand {
+        word: "path",
+        summary: "List the configuration files that apply, and the history folder",
+      },
+      Subcommand {
+        word: "print",
+        summary: "Show every setting in effect, with where it came from",
+      },
+      Subcommand {
+        word: "options",
+        summary: "List every setting a configuration file may hold",
+      },
+    ],
     examples: &[
       "mto config path",
       "mto config print --minimal",
@@ -80,6 +204,16 @@ pub const COMMANDS: &[CommandSpec] = &[
         &[Flag::Keep, Flag::OlderThan],
       ),
     ],
+    subcommands: &[
+      Subcommand {
+        word: "show",
+        summary: "List one run's files and where each stands now",
+      },
+      Subcommand {
+        word: "prune",
+        summary: "Remove old runs",
+      },
+    ],
     examples: &[
       "mto history",
       "mto history --all",
@@ -98,6 +232,7 @@ pub const COMMANDS: &[CommandSpec] = &[
                 `mto history`, which names its run anywhere.",
     usage: &["mto restore <RUN> [FILE...] [--force]"],
     options: &[("options", "mto restore <RUN> [FILE...]", &[Flag::Force])],
+    subcommands: &[],
     examples: &["mto restore last", "mto restore 3f9a src/lib.rs"],
   },
   CommandSpec {
@@ -121,6 +256,24 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto doctor <RUN> [-- <COMMAND>...]",
     ],
     options: &[],
+    subcommands: &[
+      Subcommand {
+        word: "on",
+        summary: "Turn the build guard on",
+      },
+      Subcommand {
+        word: "off",
+        summary: "Turn the build guard off",
+      },
+      Subcommand {
+        word: "holds",
+        summary: "List the edits the guard holds back",
+      },
+      Subcommand {
+        word: "release",
+        summary: "Drop one held edit, or all",
+      },
+    ],
     examples: &[
       "mto doctor on",
       "mto doctor on -- cargo test -q",
@@ -152,6 +305,24 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto report prune",
     ],
     options: &[("options", "mto report save <ID> <FILE>", &[Flag::WithFile])],
+    subcommands: &[
+      Subcommand {
+        word: "show",
+        summary: "Print one report",
+      },
+      Subcommand {
+        word: "save",
+        summary: "Write one report to a file",
+      },
+      Subcommand {
+        word: "send",
+        summary: "Open a new issue filled in with one report",
+      },
+      Subcommand {
+        word: "prune",
+        summary: "Remove every report",
+      },
+    ],
     examples: &[
       "mto report",
       "mto report show 7f3a2c",
@@ -173,6 +344,20 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto debug tokens|tree|layout <FILE>",
       &[Flag::Edition],
     )],
+    subcommands: &[
+      Subcommand {
+        word: "tokens",
+        summary: "Print the tokens of a file",
+      },
+      Subcommand {
+        word: "tree",
+        summary: "Print the syntax tree of a file",
+      },
+      Subcommand {
+        word: "layout",
+        summary: "Say where the formatter leaves code as written, and why",
+      },
+    ],
     examples: &["mto debug tree src/lib.rs", "mto debug layout src/lib.rs"],
   },
 ];
@@ -219,6 +404,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--check",
     value: "",
+    values: &[],
     help: "Print a diff for every file that would change; exit 1 if any",
   },
   FlagSpec {
@@ -227,6 +413,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: Some("-d"),
     long: "--dry-run",
     value: "",
+    values: &[],
     help: "List the files that would change, without writing",
   },
   FlagSpec {
@@ -234,7 +421,8 @@ pub const FLAGS: &[FlagSpec] = &[
     group: Group::Changes,
     short: None,
     long: "--emit",
-    value: "<files|stdout|json>",
+    value: "",
+    values: &["files", "stdout", "json"],
     help: "Write the files (default), print them, or report changes as JSON",
   },
   FlagSpec {
@@ -243,6 +431,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: Some("-l"),
     long: "--files-with-diff",
     value: "",
+    values: &[],
     help: "Name the files that change (or would, with --check) instead of showing how",
   },
   FlagSpec {
@@ -251,6 +440,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--follow-links",
     value: "",
+    values: &[],
     help: "Also follow symlinked files and directories",
   },
   FlagSpec {
@@ -259,6 +449,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: Some("-R"),
     long: "--recursive",
     value: "",
+    values: &[],
     help: "Format every .rs file under the current directory",
   },
   FlagSpec {
@@ -267,6 +458,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--skip-children",
     value: "",
+    values: &[],
     help: "A file argument is that file alone, not the modules it declares",
   },
   FlagSpec {
@@ -275,6 +467,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--stdin-filepath",
     value: "<PATH>",
+    values: &[],
     help: "With -: where the source belongs, for its settings and in messages",
   },
   FlagSpec {
@@ -283,6 +476,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--config",
     value: "<KEY=VALUE,...>",
+    values: &[],
     help: "Set settings for this run, over every file",
   },
   FlagSpec {
@@ -291,6 +485,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--config-path",
     value: "<FILE>",
+    values: &[],
     help: "Use only this configuration file; search for no other",
   },
   FlagSpec {
@@ -299,6 +494,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--edition",
     value: "<YEAR>",
+    values: &[],
     help: "The Rust edition, over Cargo.toml and configuration files",
   },
   FlagSpec {
@@ -306,7 +502,8 @@ pub const FLAGS: &[FlagSpec] = &[
     group: Group::Compatibility,
     short: None,
     long: "--print-config",
-    value: "<default|minimal|current> [PATH]",
+    value: "[PATH]",
+    values: &["default", "minimal", "current"],
     help: "Print the formatting settings as the standard formatter prints them, and exit",
   },
   FlagSpec {
@@ -315,6 +512,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--style-edition",
     value: "<YEAR>",
+    values: &[],
     help: "The style edition, which decides the defaults",
   },
   FlagSpec {
@@ -323,6 +521,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--unstable-features",
     value: "",
+    values: &[],
     help: "Accepted for compatibility; mto applies every setting on every channel",
   },
   FlagSpec {
@@ -331,6 +530,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--allow-dirty",
     value: "",
+    values: &[],
     help: "With history off, rewrite files that have uncommitted changes",
   },
   FlagSpec {
@@ -339,6 +539,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--unguarded",
     value: "",
+    values: &[],
     help: "Do not check this run with the build guard, nor hold back the edits it holds",
   },
   FlagSpec {
@@ -347,6 +548,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--no-history",
     value: "",
+    values: &[],
     help: "Do not record this run in history (it cannot be restored)",
   },
   FlagSpec {
@@ -354,7 +556,8 @@ pub const FLAGS: &[FlagSpec] = &[
     group: Group::Output,
     short: None,
     long: "--color",
-    value: "<always|never|auto>",
+    value: "",
+    values: &["always", "never", "auto"],
     help: "Color the output (default: auto, only on a terminal)",
   },
   FlagSpec {
@@ -363,6 +566,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--dbg",
     value: "",
+    values: &[],
     help: "Print how each file was split into items",
   },
   FlagSpec {
@@ -371,6 +575,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: Some("-q"),
     long: "--quiet",
     value: "",
+    values: &[],
     help: "Print only errors and what was asked for",
   },
   FlagSpec {
@@ -379,6 +584,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: Some("-v"),
     long: "--verbose",
     value: "",
+    values: &[],
     help: "Name each file as it is formatted",
   },
   FlagSpec {
@@ -387,6 +593,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: Some("-h"),
     long: "--help",
     value: "",
+    values: &[],
     help: "Show this help and exit",
   },
   FlagSpec {
@@ -395,6 +602,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--man",
     value: "",
+    values: &[],
     help: "Print the full manual",
   },
   FlagSpec {
@@ -403,6 +611,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: Some("-V"),
     long: "--version",
     value: "",
+    values: &[],
     help: "Print the version and exit",
   },
   FlagSpec {
@@ -411,6 +620,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--current",
     value: "",
+    values: &[],
     help: "Every setting in effect, with its source (the default)",
   },
   FlagSpec {
@@ -419,6 +629,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--default",
     value: "",
+    values: &[],
     help: "Every setting at its default",
   },
   FlagSpec {
@@ -427,6 +638,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--minimal",
     value: "",
+    values: &[],
     help: "Only the settings that differ from their defaults",
   },
   FlagSpec {
@@ -435,6 +647,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--user",
     value: "",
+    values: &[],
     help: "The user config's settings",
   },
   FlagSpec {
@@ -443,6 +656,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--force",
     value: "",
+    values: &[],
     help: "Also restore files changed since the run, and missing ones",
   },
   FlagSpec {
@@ -451,6 +665,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--toml",
     value: "",
+    values: &[],
     help: "As a commented file, every setting at its default",
   },
   FlagSpec {
@@ -459,6 +674,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--all",
     value: "",
+    values: &[],
     help: "List every project's runs",
   },
   FlagSpec {
@@ -467,6 +683,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--keep",
     value: "<N>",
+    values: &[],
     help: "Keep only the newest N runs",
   },
   FlagSpec {
@@ -475,6 +692,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--with-file",
     value: "",
+    values: &[],
     help: "Add the whole file the bug was found in",
   },
   FlagSpec {
@@ -483,6 +701,7 @@ pub const FLAGS: &[FlagSpec] = &[
     short: None,
     long: "--older-than",
     value: "<DAYS>",
+    values: &[],
     help: "Remove runs this old: 30 (days), 2w, 12h",
   },
 ];
@@ -493,6 +712,22 @@ pub const USAGE_LINES: &[&str] = &[
   "mto <COMMAND> [ARGS]",
   "cargo mto [OPTIONS] [-- <MTO OPTIONS>...]",
 ];
+
+/// `cargo mto`'s flags.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CargoFlag {
+  All,
+  AllowDirty,
+  Check,
+  Help,
+  ManifestPath,
+  MessageFormat,
+  NoHistory,
+  Package,
+  Quiet,
+  Verbose,
+  Version,
+}
 
 /// Every flag mto accepts. The parser and the help text both read this table, so a flag
 /// cannot be accepted without being documented.
@@ -532,6 +767,17 @@ pub enum Flag {
   StyleEdition,
   User,
   Version,
+}
+
+/// What a `cargo mto` flag becomes on mto's command line.
+#[derive(Clone, Copy, Debug)]
+pub enum Forward {
+  /// Nothing: `cargo mto` acts on it itself.
+  Own,
+  /// This mto flag.
+  Flag(Flag),
+  /// For each value, the words mto is given instead.
+  ByValue(&'static [(&'static str, &'static [&'static str])]),
 }
 
 /// The groups `mto -h` lists flags in, in this order. Within a group, flags are listed by
@@ -586,6 +832,43 @@ impl Group {
   }
 }
 
+/// One of `cargo mto`'s flags. Its parser, its help and the manual read [`CARGO_FLAGS`].
+pub struct CargoFlagSpec {
+  pub flag: CargoFlag,
+  /// The heading help lists it under; groups are listed in the order they first appear.
+  pub group: &'static str,
+  pub short: Option<&'static str>,
+  pub long: &'static str,
+  /// The placeholder for an open value, as in [`FlagSpec::value`].
+  pub value: &'static str,
+  pub help: &'static str,
+  /// What it becomes on mto's command line.
+  pub forwards: Forward,
+}
+
+impl CargoFlagSpec {
+  /// `-p, --package`, or `--check`.
+  pub fn names(&self) -> String {
+    match self.short {
+      Some(short) => format!("{}, {}", short, self.long),
+      None => self.long.to_string(),
+    }
+  }
+
+  /// The values the flag takes, when they are a fixed set.
+  pub fn values(&self) -> Vec<&'static str> {
+    match self.forwards {
+      Forward::ByValue(pairs) => pairs.iter().map(|(value, _)| *value).collect(),
+      _ => Vec::new(),
+    }
+  }
+
+  /// What follows the flag in help and the manual.
+  pub fn value_text(&self) -> String {
+    value_text(&self.values(), self.value)
+  }
+}
+
 /// One of mto's commands: its help page, and its line in `mto -h`.
 pub struct CommandSpec {
   pub name: &'static str,
@@ -599,7 +882,22 @@ pub struct CommandSpec {
   /// The flags it takes, in sections: (heading, the command they follow, flags in the
   /// order its help lists them).
   pub options: &'static [(&'static str, &'static str, &'static [Flag])],
+  /// The words that may follow the name, each choosing what the command does. A command
+  /// whose parser takes a word reads it from here, so an unlisted one is refused.
+  pub subcommands: &'static [Subcommand],
   pub examples: &'static [&'static str],
+}
+
+impl CommandSpec {
+  /// The subcommand `word` names, when `word` is one of this command's.
+  pub fn subcommand(&self, word: Option<&str>) -> Option<&'static str> {
+    let word = word?;
+    self
+      .subcommands
+      .iter()
+      .find(|sub| sub.word == word)
+      .map(|sub| sub.word)
+  }
 }
 
 pub struct FlagSpec {
@@ -607,8 +905,52 @@ pub struct FlagSpec {
   pub group: Group,
   pub short: Option<&'static str>,
   pub long: &'static str,
+  /// The placeholder for an open value (`<PATH>`), or what follows the list of `values`
+  /// (`--print-config`'s `[PATH]`).
   pub value: &'static str,
+  /// Every value the flag takes, when they are a fixed set. The parser refuses any other,
+  /// and help shows them as `<a|b|c>`.
+  pub values: &'static [&'static str],
   pub help: &'static str,
+}
+
+impl FlagSpec {
+  /// Whether the flag is followed by a value.
+  pub fn takes_value(&self) -> bool {
+    !self.value.is_empty() || !self.values.is_empty()
+  }
+
+  /// What follows the flag in help and the manual: `<files|stdout|json>`, `<PATH>`, or
+  /// nothing.
+  pub fn value_text(&self) -> String {
+    value_text(self.values, self.value)
+  }
+}
+
+/// One of a command's subcommands: `show` in `mto history show <RUN>`.
+pub struct Subcommand {
+  pub word: &'static str,
+  /// One line, for shells that describe what they complete.
+  pub summary: &'static str,
+}
+
+/// The `cargo mto` flag spelled `arg`, long or short.
+pub fn cargo_flag(arg: &str) -> Option<&'static CargoFlagSpec> {
+  CARGO_FLAGS
+    .iter()
+    .find(|spec| spec.long == arg || spec.short == Some(arg))
+}
+
+pub fn cargo_spec_of(flag: CargoFlag) -> &'static CargoFlagSpec {
+  CARGO_FLAGS
+    .iter()
+    .find(|spec| spec.flag == flag)
+    .expect("every cargo mto flag has a spec")
+}
+
+/// The command named `name`.
+pub fn command_named(name: &str) -> Option<&'static CommandSpec> {
+  COMMANDS.iter().find(|command| command.name == name)
 }
 
 /// A flag as the manual names it: `-q, --quiet`, `--emit <files|stdout|json>`.
@@ -617,9 +959,9 @@ pub fn flag_name(spec: &FlagSpec) -> String {
     Some(short) => format!("{}, {}", short, spec.long),
     None => spec.long.to_string(),
   };
-  if !spec.value.is_empty() {
+  if spec.takes_value() {
     name.push(' ');
-    name.push_str(spec.value);
+    name.push_str(&spec.value_text());
   }
   name
 }
@@ -631,9 +973,31 @@ pub fn flags_of(group: Group) -> Vec<&'static FlagSpec> {
   flags
 }
 
+/// `a, b or c`: a flag's values, for messages.
+pub fn listed(values: &[&str]) -> String {
+  match values.split_last() {
+    Some((last, rest)) if !rest.is_empty() => format!("{} or {}", rest.join(", "), last),
+    Some((last, _)) => last.to_string(),
+    None => String::new(),
+  }
+}
+
 pub fn spec_of(flag: Flag) -> &'static FlagSpec {
   FLAGS
     .iter()
     .find(|spec| spec.flag == flag)
     .expect("every flag has a spec")
+}
+
+/// `<a|b|c>`, then `placeholder` after a space when there is one.
+fn value_text(values: &[&str], placeholder: &str) -> String {
+  if values.is_empty() {
+    return placeholder.to_string();
+  }
+  let list = format!("<{}>", values.join("|"));
+  if placeholder.is_empty() {
+    list
+  } else {
+    format!("{} {}", list, placeholder)
+  }
 }

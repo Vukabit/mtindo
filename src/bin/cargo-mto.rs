@@ -9,7 +9,9 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use mtindo::cli::{CARGO_MTO_OPTIONS as OPTIONS, long_flag};
+use mtindo::cli::spec::{
+  CARGO_FLAGS, CargoFlag, CargoFlagSpec, Forward, cargo_flag, cargo_spec_of, listed, spec_of,
+};
 use mtindo::config::workspace::{self, Selection};
 use mtindo::{HelpPalette, color_enabled};
 
@@ -44,6 +46,19 @@ struct Args {
   mto: Vec<String>,
 }
 
+/// What `spec`, given `value`, becomes on mto's command line.
+fn forwarded(spec: &CargoFlagSpec, value: Option<&str>) -> Vec<String> {
+  match spec.forwards {
+    Forward::Own => Vec::new(),
+    Forward::Flag(flag) => vec![spec_of(flag).long.to_string()],
+    Forward::ByValue(pairs) => pairs
+      .iter()
+      .find(|(given, _)| Some(*given) == value)
+      .map(|(_, words)| words.iter().map(|w| w.to_string()).collect())
+      .unwrap_or_default(),
+  }
+}
+
 fn help(color: bool) -> String {
   let p = HelpPalette::new(color, "cargo mto");
   let mut out = format!(
@@ -58,9 +73,9 @@ fn help(color: bool) -> String {
     out.push('\n');
   }
   let mut groups: Vec<&str> = Vec::new();
-  for (group, _, _, _) in OPTIONS {
-    if !groups.contains(group) {
-      groups.push(group);
+  for spec in CARGO_FLAGS {
+    if !groups.contains(&spec.group) {
+      groups.push(spec.group);
     }
   }
   for group in groups {
@@ -70,10 +85,10 @@ fn help(color: bool) -> String {
       p.heading(&format!("{}:", group)),
       p.usage_line("cargo mto")
     ));
-    let mut rows: Vec<_> = OPTIONS.iter().filter(|o| o.0 == group).collect();
-    rows.sort_by_key(|(_, flags, _, _)| long_flag(flags));
-    for (_, flags, value, text) in rows {
-      out.push_str(&row(&p, flags, value, text));
+    let mut rows: Vec<_> = CARGO_FLAGS.iter().filter(|s| s.group == group).collect();
+    rows.sort_by_key(|spec| spec.long);
+    for spec in rows {
+      out.push_str(&row(&p, &spec.names(), &spec.value_text(), spec.help));
     }
   }
   out
@@ -126,14 +141,15 @@ fn main() -> ExitCode {
       .join(" "),
   );
   command.args(&args.mto);
-  if args.check && !args.mto.iter().any(|a| a == "--check") {
-    command.arg("--check");
+  let check = forwarded(cargo_spec_of(CargoFlag::Check), None);
+  if args.check && !args.mto.iter().any(|a| check.contains(a)) {
+    command.args(&check);
   }
   if args.quiet {
-    command.arg("--quiet");
+    command.args(forwarded(cargo_spec_of(CargoFlag::Quiet), None));
   }
   if args.verbose {
-    command.arg("--verbose");
+    command.args(forwarded(cargo_spec_of(CargoFlag::Verbose), None));
   }
   // A Windows command line holds at most 32,767 characters: a longer list of targets goes
   // to mto in a file instead.
@@ -201,11 +217,18 @@ fn parse(raw: &[String]) -> Result<Parsed, String> {
   let mut i = 0;
   while i < raw.len() {
     let arg = raw[i].as_str();
+    if arg == "--" {
+      args.mto.extend(raw[i + 1..].iter().cloned());
+      break;
+    }
     let (arg, inline) = match arg.split_once('=') {
       Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
       _ => (arg, None),
     };
-    let value = |i: &mut usize, name: &str| -> Result<String, String> {
+    let Some(spec) = cargo_flag(arg) else {
+      return Err(format!("unexpected argument '{}'", arg));
+    };
+    let value = |i: &mut usize| -> Result<String, String> {
       if let Some(v) = &inline {
         return Ok(v.clone());
       }
@@ -213,53 +236,49 @@ fn parse(raw: &[String]) -> Result<Parsed, String> {
       raw
         .get(*i)
         .cloned()
-        .ok_or_else(|| format!("{} needs a value", name))
+        .ok_or_else(|| format!("{} needs a value", spec.long))
     };
-    match arg {
-      "-h" | "--help" => {
+    match spec.flag {
+      CargoFlag::Help => {
         print!("{}", help(color_enabled(false)));
         return Ok(Parsed::Exit(0));
       }
-      "--version" => {
+      CargoFlag::Version => {
         println!("mto {}", mtindo::version::short());
         return Ok(Parsed::Exit(0));
       }
-      "--check" => args.check = true,
-      "--no-history" | "--allow-dirty" => args.mto.push(arg.to_string()),
-      "--all" => args.selection_all = true,
-      "-q" | "--quiet" => args.quiet = true,
-      "-v" | "--verbose" => args.verbose = true,
-      "-p" | "--package" => {
-        args.packages.push(value(&mut i, "--package")?);
+      CargoFlag::Check => args.check = true,
+      CargoFlag::NoHistory | CargoFlag::AllowDirty => args.mto.extend(forwarded(spec, None)),
+      CargoFlag::All => args.selection_all = true,
+      CargoFlag::Quiet => args.quiet = true,
+      CargoFlag::Verbose => args.verbose = true,
+      CargoFlag::Package => {
+        args.packages.push(value(&mut i)?);
         // `-p a b` names several, as cargo fmt allows.
         while inline.is_none() && raw.get(i + 1).is_some_and(|next| !next.starts_with('-')) {
           i += 1;
           args.packages.push(raw[i].clone());
         }
       }
-      "--manifest-path" => {
-        let path = value(&mut i, "--manifest-path")?;
+      CargoFlag::ManifestPath => {
+        let path = value(&mut i)?;
         if !path.ends_with("Cargo.toml") {
           return Err("the manifest-path must be a path to a Cargo.toml file".into());
         }
         args.manifest = Some(PathBuf::from(path));
       }
-      "--message-format" => match value(&mut i, "--message-format")?.as_str() {
-        "short" => args.mto.push("-l".into()),
-        "json" => args.mto.extend(["--emit".into(), "json".into()]),
-        "human" => {}
-        other => {
+      CargoFlag::MessageFormat => {
+        let given = value(&mut i)?;
+        if !spec.values().contains(&given.as_str()) {
           return Err(format!(
-            "--message-format takes short, json or human, not `{}`",
-            other
+            "{} takes {}, not `{}`",
+            spec.long,
+            listed(&spec.values()),
+            given
           ));
         }
-      },
-      "--" => {
-        args.mto.extend(raw[i + 1..].iter().cloned());
-        break;
+        args.mto.extend(forwarded(spec, Some(&given)));
       }
-      other => return Err(format!("unexpected argument '{}'", other)),
     }
     i += 1;
   }
@@ -333,8 +352,70 @@ mod tests {
   #[test]
   fn test_help_lists_every_option() {
     let text = help(false);
-    for (_, flags, _, _) in OPTIONS {
-      assert!(text.contains(flags), "{} missing", flags);
+    for spec in CARGO_FLAGS {
+      assert!(text.contains(&spec.names()), "{} missing", spec.long);
+    }
+  }
+
+  #[test]
+  fn test_the_table_covers_the_parser() {
+    for spec in CARGO_FLAGS {
+      // Help and the version print and exit; every other flag runs.
+      let given: Vec<Vec<&str>> = match spec.flag {
+        CargoFlag::Help | CargoFlag::Version => {
+          for name in [Some(spec.long), spec.short].into_iter().flatten() {
+            assert!(matches!(parse(&[name.into()]), Ok(Parsed::Exit(0))));
+          }
+          continue;
+        }
+        CargoFlag::Package => vec![vec![spec.long, "a"]],
+        CargoFlag::ManifestPath => vec![vec![spec.long, "Cargo.toml"]],
+        _ if spec.values().is_empty() => vec![vec![spec.long]],
+        _ => spec.values().iter().map(|v| vec![spec.long, *v]).collect(),
+      };
+      for words in given {
+        let args = run(&words);
+        let value = words.get(1).copied();
+        // What is forwarded at once, or at the end of the parse for check, quiet and
+        // verbose, is what the table says.
+        let mut sent = args.mto.clone();
+        for (on, flag) in [
+          (args.check, CargoFlag::Check),
+          (args.quiet, CargoFlag::Quiet),
+          (args.verbose, CargoFlag::Verbose),
+        ] {
+          if on {
+            sent.extend(forwarded(cargo_spec_of(flag), None));
+          }
+        }
+        assert_eq!(sent, forwarded(spec, value), "{:?}", words);
+        if let Some(short) = spec.short {
+          let mut words = words.clone();
+          words[0] = short;
+          assert_eq!(run(&words), args, "{:?}", words);
+        }
+      }
+      if !spec.values().is_empty() {
+        assert!(parse(&[spec.long.into(), "bogus".into()]).is_err());
+      }
+    }
+    // Every word forwarded is an mto flag or one of its values.
+    for spec in CARGO_FLAGS {
+      if let Forward::ByValue(pairs) = spec.forwards {
+        for word in pairs.iter().flat_map(|(_, words)| words.iter()) {
+          assert!(
+            mtindo::cli::spec::FLAGS
+              .iter()
+              .any(|f| f.long == *word || f.short == Some(*word) || f.values.contains(word)),
+            "{} forwards {}, which mto does not take",
+            spec.long,
+            word
+          );
+        }
+      }
+    }
+    for unknown in ["--bogus", "-x", "--emit", "package"] {
+      assert!(parse(&[unknown.into()]).is_err(), "{}", unknown);
     }
   }
 }

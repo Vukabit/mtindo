@@ -1098,6 +1098,34 @@ fn test_cli_files_bring_their_modules() {
   assert_eq!(printed(&output.stdout), "src/lib.rs\n");
 }
 
+/// Every value the spec lists for a flag is taken, as `--flag value` and `--flag=value`, and
+/// any other is refused with exit code 2.
+#[test]
+fn test_cli_flag_values_are_the_specs() {
+  let env = TestEnvironment::new();
+  let mut checked = 0;
+  for spec in mtindo::cli::spec::FLAGS {
+    for value in spec.values {
+      // `--version` after the value ends the run once the value has been read.
+      let (code, _, err) = mto(&env, &[spec.long, value, "--version"]);
+      assert_eq!(code, 0, "{} {}: {}", spec.long, value, err);
+      let joined = format!("{}={}", spec.long, value);
+      assert_eq!(mto(&env, &[&joined, "--version"]).0, 0, "{}", joined);
+      checked += 1;
+    }
+    if !spec.values.is_empty() {
+      let (code, _, err) = mto(&env, &[spec.long, "bogus", "--version"]);
+      assert_eq!(code, 2, "{} bogus", spec.long);
+      assert!(err.contains("not `bogus`"), "{}", err);
+      assert_eq!(mto(&env, &[spec.long]).0, 2, "{} alone", spec.long);
+    }
+  }
+  assert!(
+    checked >= 9,
+    "the spec lists the values of --emit, --color and more"
+  );
+}
+
 #[test]
 fn test_cli_format_works_with_and_without_layout() {
   let env = TestEnvironment::new();

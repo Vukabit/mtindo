@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use mtindo::cli::doctor as doctor_cli;
 use mtindo::cli::history::{self, PruneArgs};
 use mtindo::cli::spec::{
-  COMMANDS, CommandSpec, EXAMPLES, EXIT_CODES, FLAGS, Flag, FlagSpec, Group, USAGE_LINES, flags_of,
-  spec_of,
+  COMMANDS, CommandSpec, EXAMPLES, EXIT_CODES, FLAGS, Flag, FlagSpec, Group, USAGE_LINES,
+  command_named, flags_of, listed, spec_of,
 };
 use mtindo::config::{self, Config, Environment, FileKind, Overrides, Resolver, Source};
 use mtindo::doctor::guard::{self, Ended, Planned};
@@ -140,6 +140,22 @@ enum ReportView {
   Prune,
 }
 
+/// The value given to a flag with a fixed set of values, if it is one of them.
+fn choice(spec: &'static FlagSpec, given: Option<String>) -> Result<&'static str, ()> {
+  let Some(given) = given else {
+    return usage_error(&format!("{} needs {}", spec.long, listed(spec.values)));
+  };
+  match spec.values.iter().find(|value| **value == given) {
+    Some(value) => Ok(value),
+    None => usage_error(&format!(
+      "{} takes {}, not `{}`",
+      spec.long,
+      listed(spec.values),
+      given
+    )),
+  }
+}
+
 /// Reads the value of a configuration flag into `overrides`.
 fn config_flag(
   spec: &FlagSpec,
@@ -261,20 +277,14 @@ fn flag_row(p: &HelpPalette, spec: &FlagSpec) -> String {
     .short
     .map(|s| format!("{}, ", p.short(s)))
     .unwrap_or_else(|| "    ".to_string());
-  let value = if spec.value.is_empty() {
+  let text = spec.value_text();
+  let value = if text.is_empty() {
     String::new()
   } else {
-    format!(" {}", p.value(spec.value))
+    format!(" {}", p.value(&text))
   };
   let label = format!("  {}{}{}", short, p.long(spec.long), value);
-  let width = 2
-    + 4
-    + spec.long.len()
-    + if spec.value.is_empty() {
-      0
-    } else {
-      1 + spec.value.len()
-    };
+  let width = 2 + 4 + spec.long.len() + if text.is_empty() { 0 } else { 1 + text.len() };
   p.row(&label, width, HELP_COLUMN, spec.help)
 }
 
@@ -415,27 +425,15 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     print_help();
     return Ok(None);
   }
-  if let Some(command) = COMMANDS.iter().find(|c| c.name == args[0])
-    && args[1..].iter().any(|a| a == "-h" || a == "--help")
-  {
-    print!(
-      "{}",
-      render_command_help(command, mtindo::color_enabled(false))
-    );
-    return Ok(None);
-  }
-  match args[0].as_str() {
-    "init" => {
-      let target_path = args.get(1).map(PathBuf::from);
-      return Ok(Some(CliAction::Init { target_path }));
+  if let Some(command) = command_named(&args[0]) {
+    if args[1..].iter().any(|a| a == "-h" || a == "--help") {
+      print!(
+        "{}",
+        render_command_help(command, mtindo::color_enabled(false))
+      );
+      return Ok(None);
     }
-    "debug" => return parse_debug_args(&args[1..]).map(Some),
-    "config" => return parse_config_args(&args[1..]).map(Some),
-    "history" => return parse_history_args(&args[1..]).map(Some),
-    "report" => return parse_report_args(&args[1..]).map(Some),
-    "restore" => return parse_restore_args(&args[1..]).map(Some),
-    "doctor" => return parse_doctor_args(&args[1..]).map(Some),
-    _ => {}
+    return parse_command(command, &args[1..]).map(Some);
   }
   let mut paths: Vec<PathBuf> = Vec::new();
   let mut read_stdin = false;
@@ -484,30 +482,19 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::Verbose => opts.verbose = true,
         Flag::UnstableFeatures => {}
         Flag::Emit => {
-          opts.emit = match value(&mut i).as_deref() {
-            Some("files") => Emit::Files,
-            Some("stdout") => Emit::Stdout,
-            Some("json") => Emit::Json,
-            Some(other) => {
-              return usage_error(&format!(
-                "--emit takes files, stdout or json, not `{}`",
-                other
-              ));
-            }
-            None => return usage_error("--emit needs files, stdout or json"),
+          opts.emit = match choice(spec, value(&mut i))? {
+            "files" => Emit::Files,
+            "stdout" => Emit::Stdout,
+            "json" => Emit::Json,
+            other => unreachable!("--emit {} has no meaning", other),
           }
         }
         Flag::Color => {
-          let choice = match value(&mut i).as_deref() {
-            Some("always") => Some(true),
-            Some("never") => Some(false),
-            Some("auto") => None,
-            other => {
-              return usage_error(&format!(
-                "--color takes always, never or auto, not `{}`",
-                other.unwrap_or("")
-              ));
-            }
+          let choice = match choice(spec, value(&mut i))? {
+            "always" => Some(true),
+            "never" => Some(false),
+            "auto" => None,
+            other => unreachable!("--color {} has no meaning", other),
           };
           mtindo::text::color::set_color(choice);
         }
@@ -516,16 +503,11 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
           None => return usage_error("--stdin-filepath needs a <PATH>"),
         },
         Flag::PrintConfig => {
-          let kind = match value(&mut i).as_deref() {
-            Some("default") => PrintKind::Default,
-            Some("minimal") => PrintKind::Minimal,
-            Some("current") => PrintKind::Current,
-            other => {
-              return usage_error(&format!(
-                "--print-config takes default, minimal or current, not `{}`",
-                other.unwrap_or("")
-              ));
-            }
+          let kind = match choice(spec, value(&mut i))? {
+            "default" => PrintKind::Default,
+            "minimal" => PrintKind::Minimal,
+            "current" => PrintKind::Current,
+            other => unreachable!("--print-config {} has no meaning", other),
           };
           print_config = Some(kind);
         }
@@ -615,9 +597,26 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   }))
 }
 
-fn parse_config_args(args: &[String]) -> Result<CliAction, ()> {
+/// A command's arguments, read by its own parser. Only a command in [`COMMANDS`] gets here,
+/// so an unlisted one cannot be reached.
+fn parse_command(command: &'static CommandSpec, args: &[String]) -> Result<CliAction, ()> {
+  match command.name {
+    "init" => Ok(CliAction::Init {
+      target_path: args.first().map(PathBuf::from),
+    }),
+    "config" => parse_config_args(command, args),
+    "debug" => parse_debug_args(command, args),
+    "doctor" => parse_doctor_args(command, args),
+    "history" => parse_history_args(command, args),
+    "report" => parse_report_args(command, args),
+    "restore" => parse_restore_args(args),
+    other => unreachable!("`mto {}` has no parser", other),
+  }
+}
+
+fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
   let usage = || usage_error("usage: mto config path|print|options [OPTIONS] [DIR]");
-  let mut view = match args.first().map(String::as_str) {
+  let mut view = match command.subcommand(args.first().map(String::as_str)) {
     Some("options") => {
       return match &args[1..] {
         [] => Ok(CliAction::Config {
@@ -625,7 +624,7 @@ fn parse_config_args(args: &[String]) -> Result<CliAction, ()> {
           dir: PathBuf::from("."),
           overrides: Overrides::default(),
         }),
-        [flag] if flag == "--toml" => Ok(CliAction::Config {
+        [flag] if flag == spec_of(Flag::Toml).long => Ok(CliAction::Config {
           view: ConfigView::Options(true),
           dir: PathBuf::from("."),
           overrides: Overrides::default(),
@@ -670,7 +669,7 @@ fn parse_config_args(args: &[String]) -> Result<CliAction, ()> {
   })
 }
 
-fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
+fn parse_debug_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
   let usage = || {
     eprintln!(
       "{}Error: usage: mto debug tokens|tree|layout <FILE> [--edition YEAR]{}",
@@ -678,7 +677,7 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
       c_reset(true)
     );
   };
-  let view = match args.first().map(String::as_str) {
+  let view = match command.subcommand(args.first().map(String::as_str)) {
     Some("tokens") => DebugView::Tokens,
     Some("tree") => DebugView::Tree,
     Some("layout") => DebugView::Layout,
@@ -693,7 +692,7 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
   let mut i = 1;
   while i < args.len() {
     match args[i].as_str() {
-      "--edition" if i + 1 < args.len() => {
+      flag if flag == spec_of(Flag::Edition).long && i + 1 < args.len() => {
         edition = match Edition::from_year(&args[i + 1]) {
           Some(edition) => edition,
           None => {
@@ -731,7 +730,7 @@ fn parse_debug_args(args: &[String]) -> Result<CliAction, ()> {
   }
 }
 
-fn parse_doctor_args(args: &[String]) -> Result<CliAction, ()> {
+fn parse_doctor_args(spec: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
   let (words, command) = match args.iter().position(|a| a == "--") {
     Some(at) => (&args[..at], Some(args[at + 1..].to_vec())),
     None => (args, None),
@@ -740,32 +739,35 @@ fn parse_doctor_args(args: &[String]) -> Result<CliAction, ()> {
     return usage_error("`--` must be followed by the command, as its words");
   }
   let words: Vec<&str> = words.iter().map(String::as_str).collect();
-  let view = match (words.as_slice(), command) {
-    ([], None) => DoctorView::Status,
-    (["on"], command) => DoctorView::On(command),
-    (["off"], None) => DoctorView::Off,
-    (["holds"], None) => DoctorView::Holds,
-    (["release", which], None) => DoctorView::Release(which.to_string()),
-    ([run], command) if !run.starts_with('-') && !matches!(*run, "release") => DoctorView::Run {
+  let usage = || {
+    usage_error(
+      "usage: mto doctor [on [-- COMMAND...] | off | holds | release N|all | RUN [-- COMMAND...]]",
+    )
+  };
+  // A word that is not a subcommand is a run.
+  let view = match (spec.subcommand(words.first().copied()), &words[..], command) {
+    (None, [], None) => DoctorView::Status,
+    (None, [run], command) if !run.starts_with('-') => DoctorView::Run {
       run: run.to_string(),
       command,
     },
-    _ => {
-      return usage_error(
-        "usage: mto doctor [on [-- COMMAND...] | off | holds | release N|all | RUN [-- COMMAND...]]",
-      );
-    }
+    (Some("on"), [_], command) => DoctorView::On(command),
+    (Some("off"), [_], None) => DoctorView::Off,
+    (Some("holds"), [_], None) => DoctorView::Holds,
+    (Some("release"), [_, which], None) => DoctorView::Release(which.to_string()),
+    _ => return usage(),
   };
   Ok(CliAction::Doctor { view })
 }
 
-fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
+fn parse_history_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
   let usage = || {
     usage_error("usage: mto history [--all | show <RUN> | prune [--older-than DAYS] [--keep N]]")
   };
-  let view = match args.first().map(String::as_str) {
-    None => HistoryView::List(false),
-    Some("--all") if args.len() == 1 => HistoryView::List(true),
+  let first = args.first().map(String::as_str);
+  let view = match command.subcommand(first) {
+    None if args.is_empty() => HistoryView::List(false),
+    None if args.len() == 1 && first == Some(spec_of(Flag::All).long) => HistoryView::List(true),
     Some("show") => match &args[1..] {
       [run] => HistoryView::Show(run.clone()),
       _ => return usage(),
@@ -782,8 +784,12 @@ fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
           i += 1;
           args.get(i).cloned()
         });
-        match (arg, value) {
-          ("--older-than", Some(text)) => match history::days(&text) {
+        let flag = FLAGS
+          .iter()
+          .find(|spec| spec.long == arg)
+          .map(|spec| spec.flag);
+        match (flag, value) {
+          (Some(Flag::OlderThan), Some(text)) => match history::days(&text) {
             Some(days) => prune.older_than_days = Some(days),
             None => {
               return usage_error(&format!(
@@ -793,7 +799,7 @@ fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
               ));
             }
           },
-          ("--keep", Some(text)) => match text.parse() {
+          (Some(Flag::Keep), Some(text)) => match text.parse() {
             Ok(keep) => prune.keep = Some(keep),
             Err(_) => {
               return usage_error(&format!("--keep takes a number of runs, not `{}`", text));
@@ -805,35 +811,36 @@ fn parse_history_args(args: &[String]) -> Result<CliAction, ()> {
       }
       HistoryView::Prune(prune)
     }
-    Some("list") if args.len() == 1 => HistoryView::List(false),
-    Some("list") if args.len() == 2 && args[1] == "--all" => HistoryView::List(true),
     _ => return usage(),
   };
   Ok(CliAction::History { view })
 }
 
-fn parse_report_args(args: &[String]) -> Result<CliAction, ()> {
+fn parse_report_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
   let usage = || {
     usage_error(
       "usage: mto report [show <ID> | save <ID> <FILE> [--with-file] | send <ID> | prune]",
     )
   };
   let words: Vec<&str> = args.iter().map(String::as_str).collect();
-  let view = match words.as_slice() {
-    [] => ReportView::List,
-    ["show", id] => ReportView::Show(id.to_string()),
-    ["save", id, file] => ReportView::Save {
+  let with_file = spec_of(Flag::WithFile).long;
+  let view = match (command.subcommand(words.first().copied()), &words[..]) {
+    (None, []) => ReportView::List,
+    (Some("show"), [_, id]) => ReportView::Show(id.to_string()),
+    (Some("save"), [_, id, file]) if *id != with_file && *file != with_file => ReportView::Save {
       id: id.to_string(),
       file: file.to_string(),
       with_file: false,
     },
-    ["save", id, file, "--with-file"] | ["save", "--with-file", id, file] => ReportView::Save {
-      id: id.to_string(),
-      file: file.to_string(),
-      with_file: true,
-    },
-    ["send", id] => ReportView::Send(id.to_string()),
-    ["prune"] => ReportView::Prune,
+    (Some("save"), [_, id, file, flag] | [_, flag, id, file]) if *flag == with_file => {
+      ReportView::Save {
+        id: id.to_string(),
+        file: file.to_string(),
+        with_file: true,
+      }
+    }
+    (Some("send"), [_, id]) => ReportView::Send(id.to_string()),
+    (Some("prune"), [_]) => ReportView::Prune,
     _ => return usage(),
   };
   Ok(CliAction::Report { view })
@@ -1812,6 +1819,77 @@ mod tests {
   use std::collections::HashSet;
 
   use super::*;
+
+  #[test]
+  fn test_every_command_and_subcommand_dispatches() {
+    // A command line for each command, and each subcommand, of the spec.
+    let lines: &[&[&str]] = &[
+      &["init"],
+      &["config", "path"],
+      &["config", "print", "--minimal"],
+      &["config", "options", "--toml"],
+      &["history"],
+      &["history", "--all"],
+      &["history", "show", "last"],
+      &["history", "prune", "--keep", "3"],
+      &["restore", "last"],
+      &["doctor"],
+      &["doctor", "on", "--", "cargo", "build"],
+      &["doctor", "off"],
+      &["doctor", "holds"],
+      &["doctor", "release", "all"],
+      &["doctor", "last"],
+      &["report"],
+      &["report", "show", "7f3a"],
+      &["report", "save", "7f3a", "bug.md", "--with-file"],
+      &["report", "send", "7f3a"],
+      &["report", "prune"],
+      &["debug", "tokens", "a.rs"],
+      &["debug", "tree", "a.rs"],
+      &["debug", "layout", "a.rs", "--edition", "2021"],
+    ];
+    for command in COMMANDS {
+      let words = std::iter::once(None).chain(command.subcommands.iter().map(|s| Some(s.word)));
+      for word in words {
+        let found = lines
+          .iter()
+          .find(|line| line[0] == command.name && (word.is_none() || line.get(1).copied() == word));
+        assert!(
+          found.is_some(),
+          "no line for mto {} {:?}",
+          command.name,
+          word
+        );
+      }
+    }
+    for line in lines {
+      let command = command_named(line[0]).expect("a command of the spec");
+      let args: Vec<String> = line[1..].iter().map(|w| w.to_string()).collect();
+      assert!(parse_command(command, &args).is_ok(), "{:?}", line);
+      if let Some(word) = line.get(1)
+        && command.subcommand(Some(word)).is_some()
+      {
+        // The same line with a word the spec does not list is refused.
+        let mut args = args.clone();
+        args[0] = format!("{}x", word);
+        // Except where a lone word names a run.
+        let run_word =
+          command.name == "doctor" && args.iter().take_while(|a| *a != "--").count() == 1;
+        assert_eq!(
+          parse_command(command, &args).is_ok(),
+          run_word,
+          "{:?}",
+          args
+        );
+      }
+    }
+    // Words that only name a command in another tool, or once named one here, are not
+    // commands: they are read as paths.
+    for word in ["list", "completion", "fmt", "help"] {
+      assert!(command_named(word).is_none(), "{}", word);
+    }
+    assert!(parse_command(command_named("history").unwrap(), &["list".into()]).is_err());
+  }
 
   #[test]
   fn test_every_command_has_a_help_page() {

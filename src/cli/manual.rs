@@ -3,7 +3,9 @@
 //! the settings checks read, so it cannot fall behind: every flag, command and exit code, and
 //! every key with its file, type, legal values, defaults and description.
 
-use super::spec::{COMMANDS, EXIT_CODES, Group, USAGE_LINES, flag_name, flags_of, spec_of};
+use super::spec::{
+  CARGO_FLAGS, COMMANDS, EXIT_CODES, Group, USAGE_LINES, flag_name, flags_of, spec_of,
+};
 use crate::options::{self, Channels, File, Kind, Setting, Stability};
 
 /// How configuration is found and merged; kept beside the code in `config` that does it.
@@ -387,13 +389,17 @@ pub fn render() -> String {
      directly; Cargo is not run. Options after `--` go to `mto`.",
     "",
   ));
-  for (_, flags, value, help) in super::CARGO_MTO_OPTIONS {
+  for spec in CARGO_FLAGS {
+    let value = spec.value_text();
     let name = if value.is_empty() {
-      flags.to_string()
+      spec.names()
     } else {
-      format!("{} {}", flags, value)
+      format!("{} {}", spec.names(), value)
     };
-    out.push_str(&wrap(&format!("`cargo mto {}`: {}.", name, help), "*   "));
+    out.push_str(&wrap(
+      &format!("`cargo mto {}`: {}.", name, spec.help),
+      "*   ",
+    ));
   }
   out.push_str("## Exit codes\n");
   for (code, meaning) in EXIT_CODES {

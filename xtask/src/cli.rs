@@ -235,6 +235,10 @@ pub fn tree() -> Command {
     perf(),
     lexdiff(),
     memst(),
+    Command::new("mcp").about(
+      "The tooling as an MCP server over stdio: next, gaps, checks, store, probe and why, \
+       for an agent to call",
+    ),
     metrics(),
     next(),
     pairs(),

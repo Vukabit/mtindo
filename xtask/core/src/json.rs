@@ -76,6 +76,24 @@ impl Json {
   }
 }
 
+impl Json {
+  /// The value of `key`, when this is an object holding it.
+  pub fn get(&self, key: &str) -> Option<&Json> {
+    match self {
+      Json::Object(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+      _ => None,
+    }
+  }
+
+  /// The text, when this is a string.
+  pub fn as_str(&self) -> Option<&str> {
+    match self {
+      Json::Text(text) => Some(text),
+      _ => None,
+    }
+  }
+}
+
 impl From<&str> for Json {
   fn from(text: &str) -> Json {
     Json::Text(text.to_string())
@@ -130,6 +148,156 @@ impl<T: Into<Json>> From<Vec<T>> for Json {
   }
 }
 
+struct Reader {
+  chars: Vec<char>,
+  at: usize,
+}
+
+impl Reader {
+  fn space(&mut self) {
+    while self.chars.get(self.at).is_some_and(|c| c.is_whitespace()) {
+      self.at += 1;
+    }
+  }
+
+  fn expect(&mut self, word: &str) -> Result<(), String> {
+    for c in word.chars() {
+      if self.chars.get(self.at) != Some(&c) {
+        return Err(format!("expected `{}` at {}", word, self.at));
+      }
+      self.at += 1;
+    }
+    Ok(())
+  }
+
+  fn value(&mut self) -> Result<Json, String> {
+    self.space();
+    match self.chars.get(self.at) {
+      Some('{') => self.object(),
+      Some('[') => self.list(),
+      Some('"') => self.string().map(Json::Text),
+      Some('t') => self.expect("true").map(|_| Json::Bool(true)),
+      Some('f') => self.expect("false").map(|_| Json::Bool(false)),
+      Some('n') => self.expect("null").map(|_| Json::Null),
+      Some(c) if *c == '-' || c.is_ascii_digit() => self.number(),
+      _ => Err(format!("expected a value at {}", self.at)),
+    }
+  }
+
+  fn object(&mut self) -> Result<Json, String> {
+    self.at += 1;
+    let mut fields = Vec::new();
+    self.space();
+    if self.chars.get(self.at) == Some(&'}') {
+      self.at += 1;
+      return Ok(Json::Object(fields));
+    }
+    loop {
+      self.space();
+      let key = self.string()?;
+      self.space();
+      self.expect(":")?;
+      fields.push((key, self.value()?));
+      self.space();
+      match self.chars.get(self.at) {
+        Some(',') => self.at += 1,
+        Some('}') => {
+          self.at += 1;
+          return Ok(Json::Object(fields));
+        }
+        _ => return Err(format!("expected `,` or `}}` at {}", self.at)),
+      }
+    }
+  }
+
+  fn list(&mut self) -> Result<Json, String> {
+    self.at += 1;
+    let mut items = Vec::new();
+    self.space();
+    if self.chars.get(self.at) == Some(&']') {
+      self.at += 1;
+      return Ok(Json::List(items));
+    }
+    loop {
+      items.push(self.value()?);
+      self.space();
+      match self.chars.get(self.at) {
+        Some(',') => self.at += 1,
+        Some(']') => {
+          self.at += 1;
+          return Ok(Json::List(items));
+        }
+        _ => return Err(format!("expected `,` or `]` at {}", self.at)),
+      }
+    }
+  }
+
+  fn string(&mut self) -> Result<String, String> {
+    self.expect("\"")?;
+    let mut out = String::new();
+    loop {
+      let Some(&c) = self.chars.get(self.at) else {
+        return Err("a string does not end".to_string());
+      };
+      self.at += 1;
+      match c {
+        '"' => return Ok(out),
+        '\\' => {
+          let Some(&e) = self.chars.get(self.at) else {
+            return Err("a string does not end".to_string());
+          };
+          self.at += 1;
+          match e {
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            'b' => out.push('\u{8}'),
+            'f' => out.push('\u{c}'),
+            'u' => {
+              let hex: String = self.chars.iter().skip(self.at).take(4).collect();
+              let code = u32::from_str_radix(&hex, 16).map_err(|_| "a bad \\u escape")?;
+              self.at += 4;
+              out.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+            }
+            other => out.push(other),
+          }
+        }
+        c => out.push(c),
+      }
+    }
+  }
+
+  fn number(&mut self) -> Result<Json, String> {
+    let start = self.at;
+    while self
+      .chars
+      .get(self.at)
+      .is_some_and(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))
+    {
+      self.at += 1;
+    }
+    let text: String = self.chars[start..self.at].iter().collect();
+    text
+      .parse::<f64>()
+      .map(Json::Number)
+      .map_err(|_| format!("a bad number `{}`", text))
+  }
+}
+
+/// Reads one JSON value, the whole of `text` but whitespace around it.
+pub fn parse(text: &str) -> Result<Json, String> {
+  let mut reader = Reader {
+    chars: text.chars().collect(),
+    at: 0,
+  };
+  let value = reader.value()?;
+  reader.space();
+  if reader.at < reader.chars.len() {
+    return Err(format!("unexpected text at {}", reader.at));
+  }
+  Ok(value)
+}
+
 /// `text` as a JSON string, quoted and escaped.
 pub fn string(text: &str) -> String {
   let mut out = String::from("\"");
@@ -168,5 +336,17 @@ mod tests {
       r#"{"schema":"mtindo.xtask.test/1","name":"a \"b\"\n","count":3,"share":0.5,"none":null,"list":["x","y"],"ok":true}"#
     );
     assert_eq!(Json::Number(f64::NAN).render(), "null");
+  }
+
+  #[test]
+  fn test_what_is_written_is_read_back() {
+    let text = r#"{"jsonrpc":"2.0","id":1,"params":{"name":"gaps","arguments":{"setting":"a \"b\"\n\u00e9"},"list":[true,null,-150,0.25]}}"#;
+    let value = parse(text).unwrap();
+    assert_eq!(value.render(), text.replace("\\u00e9", "é"));
+    let params = value.get("params").unwrap();
+    assert_eq!(params.get("name").and_then(Json::as_str), Some("gaps"));
+    assert!(parse("{").is_err());
+    assert!(parse("[1,]").is_err());
+    assert!(parse("1 2").is_err());
   }
 }

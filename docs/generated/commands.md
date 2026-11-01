@@ -643,6 +643,15 @@ cargo xtask memst report RUN [--view VIEW,...] [--by time|bytes|allocs] [--top
 - `--file FILE,...`: Source files whose every function is probed, and the views
   keep to
 
+## `cargo xtask mcp`
+
+The tooling as an MCP server over stdio: next, gaps, checks, store, probe and
+why, for an agent to call
+
+```text
+cargo xtask mcp
+```
+
 ## `cargo xtask metrics`
 
 Every number runs measure, kept as series (.dev/metrics/), and the ratchet some

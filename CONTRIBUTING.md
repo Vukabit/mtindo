@@ -88,7 +88,10 @@ project stands, `cargo xtask runs` the latest runs, and `cargo xtask store`
 what `.dev/` holds and keeps. `cargo xtask next` says what to work on, most
 urgent first, each with the command that acts on it; `cargo xtask gaps` lists
 the test pairs mto does not match yet, by setting, and `cargo xtask probe CASE`
-shows one against every answer key.
+shows one against every answer key. `next`, `gaps`, `checks` and `store` take
+`--json` for scripts; `cargo xtask mcp` serves them, with `probe` and `runs
+why`, to an agent over MCP (stdio): register it as the command `cargo xtask
+mcp` in the repository.
 
 ## Commits
 

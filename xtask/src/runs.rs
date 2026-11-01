@@ -61,6 +61,7 @@ const SUPERVISE: &str = "XTASK_SUPERVISE";
 /// run as git hooks, which read what git gives them on stdin and run at every commit.
 const UNRECORDED: &[&str] = &[
   "help", "-h", "--help", "status", "store", "runs", "metrics", "flow", "gaps", "next", "checks",
+  "mcp",
 ];
 
 /// Set by the SIGINT handler: the terminal's Ctrl-C, which the child gets too.

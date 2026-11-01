@@ -26,6 +26,7 @@ mod gaps;
 mod gates;
 mod incidents;
 mod io;
+mod mcp;
 mod memst;
 mod metrics;
 mod next;
@@ -147,6 +148,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
       forward(root, "lexdiff", args)
     }
     "gaps" => gaps::run(root, m),
+    "mcp" => mcp::run(root, m),
     "memst" => memst::run(root, m),
     "metrics" => metrics::run(root, m),
     "next" => next::run(root, m),

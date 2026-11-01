@@ -21,6 +21,29 @@ It reads what the suites recorded and runs none of them.
 The `metrics-docs` gate of `cargo xtask test` fails when a checked part is
 out of date with the tracked records it comes from.
 
+## Scoreboard
+
+Every headline measure on one page, drawn from the tracked records: the
+compatibility record (`records/results/compatibility.txt`), the capabilities,
+exceptions and disagreements under `records/policy/`, the fuzz regression
+inputs, and the speed floors the ratchet keeps (`records/results/ratchet.txt`,
+on the machine it names).
+
+<!-- generated: scoreboard -->
+| measure | now |
+|---|---|
+| test pairs, default settings | 455 of 460 files (98.9%) |
+| test pairs with settings | 431 of 559 files (77.1%) |
+| corpus as fetched, lines | 100.00% |
+| corpus scrambled, lines | 99.93% |
+| options honored | 45 of 90; 28 in part, 12 missing, 5 not planned |
+| standard outputs changing meaning | 21 listed |
+| answer-key disagreements | 33, 32 to triage |
+| fuzz targets, kept inputs | 8, 178 |
+| speed over stable, at least | 20.28x (macos aarch64, 10 cores) |
+| one thread, at least | 93.43 MB/s (macos aarch64, 10 cores) |
+<!-- end generated -->
+
 ## Papers
 
 The headline figure of each paper:

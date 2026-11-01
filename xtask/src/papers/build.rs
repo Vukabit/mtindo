@@ -46,7 +46,7 @@ pub fn all(root: &Path, local: bool) -> Result<Vec<Page>, String> {
   for (id, title) in PLANNED {
     papers.push(planned(id, title)?);
   }
-  let index = index(&papers);
+  let index = index(&papers, scoreboard(root)?);
   let mut pages: Vec<Page> = papers.into_iter().map(|p| p.page).collect();
   pages.push(index);
   pages.push(dictionary_page());
@@ -468,8 +468,7 @@ fn incidents(root: &Path, wanted: impl Fn(&str) -> bool) -> Option<String> {
   Some(out)
 }
 
-/// The index: each paper with its status and headline number.
-fn index(papers: &[Paper]) -> Page {
+fn index(papers: &[Paper], board: String) -> Page {
   let rows: Vec<Vec<String>> = papers
     .iter()
     .map(|p| {
@@ -484,10 +483,10 @@ fn index(papers: &[Paper]) -> Page {
     path: format!("{}/README.md", DIR),
     title: "Metrics".to_string(),
     front: None,
-    regions: vec![Region::tracked(
-      "index",
-      table(&["paper", "headline"], "ll", &rows),
-    )],
+    regions: vec![
+      Region::tracked("scoreboard", board),
+      Region::tracked("index", table(&["paper", "headline"], "ll", &rows)),
+    ],
   }
 }
 
@@ -886,6 +885,114 @@ fn reference(compat: &Compat) -> Vec<(String, String)> {
     "reference_formatter".to_string(),
     quote(&records::reference_version(&compat.reference)),
   )]
+}
+
+/// The index: each paper with its status and headline number.
+/// The scoreboard: one row per headline measure, each from its tracked record, so the
+/// same commit gives the same board.
+fn scoreboard(root: &Path) -> Result<String, String> {
+  let read = |path: &str| fs::read_to_string(root.join(path)).unwrap_or_default();
+  let mut rows: Vec<Vec<String>> = Vec::new();
+  let compat = records::parse_compat(&read("records/results/compatibility.txt"));
+  for (set, what) in [
+    ("tests", "test pairs, default settings"),
+    ("tests-with-settings", "test pairs with settings"),
+    ("corpus", "corpus as fetched, lines"),
+    ("corpus-unformatted", "corpus scrambled, lines"),
+  ] {
+    if let Some(t) = compat.sets.get(set) {
+      let now = if set.starts_with("tests") {
+        format!(
+          "{} of {} files ({}%)",
+          t.matched_files,
+          t.files,
+          fixed(t.files_pct(), 1)
+        )
+      } else {
+        format!("{}%", fixed(t.lines_pct(), 2))
+      };
+      rows.push(vec![what.to_string(), now]);
+    }
+  }
+  // The standard formatter's options, by how far mto honors each.
+  let capabilities = read("records/policy/capabilities.txt");
+  let options: Vec<&str> = capabilities
+    .lines()
+    .filter(|l| l.starts_with("option "))
+    .collect();
+  let count = |status: &str| {
+    options
+      .iter()
+      .filter(|l| l.split_whitespace().nth(2) == Some(status))
+      .count()
+  };
+  rows.push(vec![
+    "options honored".to_string(),
+    format!(
+      "{} of {}; {} in part, {} missing, {} not planned",
+      count("supported"),
+      options.len(),
+      count("partial"),
+      count("missing"),
+      count("not-planned")
+    ),
+  ]);
+  let exceptions = records::parse_exceptions(&read("records/policy/exceptions.txt"));
+  rows.push(vec![
+    "standard outputs changing meaning".to_string(),
+    format!("{} listed", exceptions.len()),
+  ]);
+  let disagreements: Vec<String> = read("records/policy/disagreements.txt")
+    .lines()
+    .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+    .map(str::to_string)
+    .collect();
+  rows.push(vec![
+    "answer-key disagreements".to_string(),
+    format!(
+      "{}, {} to triage",
+      disagreements.len(),
+      disagreements
+        .iter()
+        .filter(|l| l.contains("auto-recorded, to triage"))
+        .count()
+    ),
+  ]);
+  rows.push(vec![
+    "fuzz targets, kept inputs".to_string(),
+    format!(
+      "{}, {}",
+      stems(&root.join("fuzz/fuzz_targets")).len(),
+      count_files(&root.join("tests/fuzz_regressions"))
+    ),
+  ]);
+  // The speed floors the ratchet keeps, on the machine it names.
+  let ratchet = read("records/results/ratchet.txt");
+  let machine = ratchet
+    .lines()
+    .find_map(|l| l.strip_prefix("machine "))
+    .unwrap_or("the recorded machine")
+    .to_string();
+  for (name, what, unit) in [
+    ("speed.speedup.stable", "speed over stable, at least", "x"),
+    (
+      "speed.layout.one_thread.mb_per_s",
+      "one thread, at least",
+      " MB/s",
+    ),
+  ] {
+    let limit = ratchet.lines().find_map(|l| {
+      let words: Vec<&str> = l.split_whitespace().collect();
+      (words.first() == Some(&"limit") && words.get(1) == Some(&name)).then(|| words[2].to_string())
+    });
+    if let Some(value) = limit {
+      rows.push(vec![
+        what.to_string(),
+        format!("{}{} ({})", value, unit, machine),
+      ]);
+    }
+  }
+  Ok(table(&["measure", "now"], "ll", &rows))
 }
 
 /// A set's name in prose and tables: the scrambled set by what it is.

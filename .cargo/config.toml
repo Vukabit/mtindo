@@ -1,2 +1,4 @@
 [alias]
 xtask = "run --quiet --package xtask --"
+# The same, shorter: `cargo x check`.
+x = "run --quiet --package xtask --"

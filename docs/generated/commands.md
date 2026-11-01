@@ -200,10 +200,12 @@ the metrics papers from the recorded data (records/, its history, .dev/ when
 present); runs no suite
 
 ```text
-cargo xtask docs [--check]
+cargo xtask docs [--check] [--tracked]
 ```
 
 - `--check`: Only compare; fails when a page is out of date
+- `--tracked`: From the tracked records only: each page's machine-local regions
+  are left as written
 
 ## `cargo xtask doctor`
 
@@ -223,6 +225,16 @@ cargo xtask doctor bench [--trials N]
 ```
 
 - `--trials N`: Narrowings per size, each with its own culprits [default: 10]
+
+## `cargo xtask fix-up`
+
+Before a commit: mto's layout and formatting on the Rust files changed since
+HEAD, `cargo fmt`, then the generated docs from the tracked records (pages that
+only local data would move are left alone)
+
+```text
+cargo xtask fix-up
+```
 
 ## `cargo xtask flow`
 

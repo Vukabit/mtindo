@@ -57,14 +57,14 @@ Code is layered: each module under `src/` uses only the layers below it (the
   stage or decision ids.
 - `docs/internal/` holds working notes and is never committed.
 
-After editing Rust code, lay it out the way the project does: `mto` itself,
-then the standard formatter, then clippy.
+After editing Rust code, lay it out the way the project does: `mto` itself on
+the files you changed, then the standard formatter, then the generated docs
+from the tracked records. `cargo xtask fix-up` does all three (`cargo x` is
+short for `cargo xtask`); `cargo xtask check` then runs the quick checks.
 
 ```bash
-cargo build --release
-./target/release/mto --skip-children <the files you changed>
-cargo fmt --all
-cargo clippy --all-targets
+cargo x fix-up
+cargo x check
 ```
 
 `mto` also orders the items in a file, so a private function may move; that
@@ -151,7 +151,7 @@ When one fails:
 - **`no-internal`**: unstage `docs/internal/`.
 - **`secrets`**: something looks like a credential. Remove it; if it was a
   real one, rotate it, since it may already be in a reflog or a push.
-- **`fmt`**: run `cargo fmt --all` (after `mto`, as above).
+- **`fmt`**: run `cargo xtask fix-up`.
 - **`gates`**: `cargo xtask gates` lists each problem with its file and line.
 - **`commands-doc`**: a command's arguments or help changed; run
   `cargo xtask docs` and stage `docs/generated/commands.md`.

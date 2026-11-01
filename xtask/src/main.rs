@@ -17,6 +17,7 @@ mod corpus;
 mod coverage;
 mod diff;
 mod doctor;
+mod fixup;
 mod flow;
 mod fuzz;
 mod fuzz_diff;
@@ -110,7 +111,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
         Vec::new()
       };
       let tables = forward(root, "docs", args);
-      let papers = papers::run(root, check);
+      let papers = papers::run(root, check, !cli::on(m, "tracked"));
       let commands = commands_page(root, check);
       if commands != ExitCode::SUCCESS {
         return commands;
@@ -130,6 +131,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
       }
     }
     "doctor" => doctor::run(root, m),
+    "fix-up" => fixup::run(root, m),
     "flow" => flow::run(root, m),
     "fuzz" => fuzz::run(root, m),
     "gates" => gates::run(root, m),

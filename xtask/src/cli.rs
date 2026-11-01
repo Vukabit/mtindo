@@ -223,6 +223,7 @@ pub fn tree() -> Command {
     diff(),
     docs(),
     doctor(),
+    fix_up(),
     flow(),
     fuzz(),
     gaps(),
@@ -498,6 +499,10 @@ fn docs() -> Command {
   Command::new("docs")
     .about("Regenerate everything under docs/generated/: the settings reference and mto.toml's JSON Schema from the settings table, the manual from mto --man, and the metrics papers from the recorded data (records/, its history, .dev/ when present); runs no suite")
     .arg(flag("check", "Only compare; fails when a page is out of date"))
+    .arg(flag(
+      "tracked",
+      "From the tracked records only: each page's machine-local regions are left as written",
+    ))
 }
 
 fn doctor() -> Command {
@@ -513,6 +518,14 @@ fn doctor() -> Command {
             .default_value("10"),
         ),
     )
+}
+
+fn fix_up() -> Command {
+  Command::new("fix-up").about(
+    "Before a commit: mto's layout and formatting on the Rust files changed since HEAD, \
+     `cargo fmt`, then the generated docs from the tracked records (pages that only local \
+     data would move are left alone)",
+  )
 }
 
 fn flag(name: &'static str, help: &'static str) -> Arg {

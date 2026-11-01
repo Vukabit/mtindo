@@ -276,7 +276,10 @@ pub fn quote(text: &str) -> String {
 }
 
 /// The metrics papers of `cargo xtask docs [--check]`.
-pub fn run(root: &Path, only_compare: bool) -> ExitCode {
+/// Writes every page; `local` reads the machine-local records too (`.dev/`), and without it
+/// every local region is left as written, so a page changes only when a tracked record
+/// it is drawn from does.
+pub fn run(root: &Path, only_compare: bool, local: bool) -> ExitCode {
   if only_compare {
     let problems = check(root);
     for problem in &problems {
@@ -308,7 +311,7 @@ pub fn run(root: &Path, only_compare: bool) -> ExitCode {
       return ExitCode::from(1);
     }
   }
-  let pages = match build::all(root, true) {
+  let pages = match build::all(root, local) {
     Ok(pages) => pages,
     Err(e) => {
       log.error(&e);

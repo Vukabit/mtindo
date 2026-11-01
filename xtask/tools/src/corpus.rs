@@ -398,7 +398,7 @@ fn check_file(path: &Path, shown: &str, totals: &mut Totals) {
     ));
   }
 
-  let (unexplained, expected, _) = crate::lexdiff::differences(&text, edition);
+  let (unexplained, expected, _) = crate::compare::lexer::differences(&text, edition);
   totals.lexer_expected += expected.len();
   for difference in unexplained {
     totals.lexer.push(format!("{}: {}", shown, difference));

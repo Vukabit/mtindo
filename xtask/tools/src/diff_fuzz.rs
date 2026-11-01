@@ -40,7 +40,7 @@ use mtindo::syntax::{Edition, parse};
 use mtindo::verify::format::verify_format;
 
 use crate::common::edition_for;
-use crate::diff::{Answer, edition_year, kind_at_line, run_standard};
+use crate::compare::{Answer, edition_year, kind_at_line, run_standard};
 use crate::unformat::unformat_with;
 
 /// Corpus files larger than this are left out: the standard formatter's time grows with

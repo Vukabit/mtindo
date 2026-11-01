@@ -2,14 +2,11 @@
 //! so the runner itself never depends on mtindo and still builds when the library does not.
 
 mod common;
+mod compare;
 mod config_docs;
 mod corpus;
-mod diff;
 mod diff_fuzz;
 mod doctor_bench;
-mod lexdiff;
-mod pairs;
-mod parsecheck;
 mod perf;
 mod probe;
 mod scramble;
@@ -32,18 +29,18 @@ fn main() -> ExitCode {
   let args: Vec<String> = env::args().skip(1).collect();
   let root = project_root();
   match args.first().map(String::as_str) {
-    Some("lexdiff") => lexdiff::run(&root, &args[1..]),
-    Some("parsecheck") => parsecheck::run(&root, &args[1..]),
+    Some("lexdiff") => compare::lexer(&root, &args[1..]),
+    Some("parsecheck") => compare::parse(&root, &args[1..]),
     Some("corpus-check") => corpus::run(&root, &args[1..]),
     Some("docs") => config_docs::run(&root, &args[1..]),
     Some("corpus-speed") => corpus::speed(&args[1..]),
     Some("toml-test") => toml_test::run(&args[1..]),
-    Some("diff") => diff::run(&args[1..]),
+    Some("diff") => compare::run(&args[1..]),
     Some("diff-fuzz") => diff_fuzz::run(&args[1..]),
-    Some("diff-show") => diff::show(&args[1..]),
-    Some("diff-why") => diff::why(&args[1..]),
+    Some("diff-show") => compare::show(&args[1..]),
+    Some("diff-why") => compare::why(&args[1..]),
     Some("doctor-bench") => doctor_bench::run(&args[1..]),
-    Some("pairs") => pairs::run(&args[1..]),
+    Some("pairs") => compare::pairs(&args[1..]),
     Some("probe") => probe::run(&args[1..]),
     Some("upstream") => upstream::run(&args[1..]),
     Some("perf-scaling") => perf::scaling(&args[1..]),

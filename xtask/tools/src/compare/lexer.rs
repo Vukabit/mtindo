@@ -1,18 +1,11 @@
-//! Compares mto's lexer with rustc's own (`ra-ap-rustc_lexer`) on real source files.
-//!
-//! rustc's lexer does not know about editions, so mto is run for one edition (default 2021)
-//! and the two must agree on every token boundary and on a coarse token class.
-
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+//! The rustc-lexer answer key: mto's lexer held against rustc's own (`ra-ap-rustc_lexer`),
+//! token for token. rustc's lexer does not know about editions, so mto is run for one
+//! edition (default 2021) and the two must agree on every token boundary and on a coarse
+//! token class; what only editions or nightly gates explain is an expected difference.
 
 use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::{Edition, SyntaxKind};
 use ra_ap_rustc_lexer as rustc;
-
-/// How many differences to print per file.
-const SHOWN_PER_FILE: usize = 3;
 
 struct Span {
   start: usize,
@@ -20,8 +13,6 @@ struct Span {
   class: String,
 }
 
-/// The unexplained and the expected differences between the two lexers on one file, and
-/// how many tokens mto produced.
 pub fn differences(text: &str, edition: Edition) -> (Vec<String>, Vec<String>, usize) {
   let ours = mto_spans(text, edition);
   let theirs = rustc_spans(text);
@@ -29,124 +20,15 @@ pub fn differences(text: &str, edition: Edition) -> (Vec<String>, Vec<String>, u
   (unexplained, expected, ours.len())
 }
 
-pub fn run(root: &Path, args: &[String]) -> ExitCode {
-  let mut edition = Edition::E2021;
-  let mut paths = Vec::new();
-  let mut idx = 0;
-  while idx < args.len() {
-    match args[idx].as_str() {
-      "--edition" if idx + 1 < args.len() => {
-        edition = match Edition::from_year(&args[idx + 1]) {
-          Some(edition) => edition,
-          None => {
-            eprintln!("Unknown edition `{}`.", args[idx + 1]);
-            return ExitCode::from(2);
-          }
-        };
-        idx += 1;
-      }
-      path => paths.push(PathBuf::from(path)),
-    }
-    idx += 1;
-  }
-  let mut files = Vec::new();
-  if paths.is_empty() {
-    // Every file of the repository.
-    match crate::common::repo_rust_files(root) {
-      Ok(all) => files.extend(all),
-      Err(e) => {
-        eprintln!("lexdiff: {}", e);
-        return ExitCode::from(1);
-      }
-    }
-  }
-  for path in paths.iter() {
-    collect(path, &mut files);
-  }
-  files.sort();
-
-  let mut compared = 0;
-  let mut tokens = 0;
-  let mut differing = 0;
-  let mut expected_lines: Vec<String> = Vec::new();
-  for file in files.iter() {
-    let text = match fs::read_to_string(file) {
-      Ok(text) => text,
-      Err(e) => {
-        differing += 1;
-        println!("{}: cannot read: {}", file.display(), e);
-        continue;
-      }
-    };
-    compared += 1;
-    let (ours, theirs) = (mto_spans(&text, edition), rustc_spans(&text));
-    tokens += theirs.len();
-    let (differences, known) = compare(&ours, &theirs, &text, edition);
-    for line in known.iter() {
-      expected_lines.push(format!("{}: {}", file.display(), line));
-    }
-    if !differences.is_empty() {
-      differing += 1;
-      println!("{}:", file.display());
-      for line in differences.iter().take(SHOWN_PER_FILE) {
-        println!("  {}", line);
-      }
-      if differences.len() > SHOWN_PER_FILE {
-        println!("  ... {} more", differences.len() - SHOWN_PER_FILE);
-      }
-    }
-  }
-  if !expected_lines.is_empty() {
-    println!("expected differences (rustc's lexer ignores editions and nightly gates):");
-    for line in expected_lines.iter() {
-      println!("  {}", line);
-    }
-  }
-  println!(
-    "lexdiff (edition {}): {} files, {} tokens, {} file(s) differ, {} expected difference(s)",
-    edition.year(),
-    compared,
-    tokens,
-    differing,
-    expected_lines.len()
-  );
-  if compared == 0 {
-    println!("lexdiff: no files compared, so nothing was checked");
-    return ExitCode::from(1);
-  }
-  if differing == 0 {
-    ExitCode::SUCCESS
-  } else {
-    ExitCode::from(1)
-  }
-}
-
-fn collect(path: &Path, files: &mut Vec<PathBuf>) {
-  if path.is_file() {
-    if path.extension().is_some_and(|ext| ext == "rs") {
-      files.push(path.to_path_buf());
-    }
-    return;
-  }
-  let entries = match fs::read_dir(path) {
-    Ok(entries) => entries,
-    Err(_) => return,
-  };
-  for entry in entries.flatten() {
-    let child = entry.path();
-    let name = entry.file_name().to_string_lossy().to_string();
-    // Skip build output (a `target` next to a Cargo.toml), but not test directories that
-    // happen to be called `target`, such as rustfmt's expected outputs.
-    let is_build_dir = name == "target" && path.join("Cargo.toml").exists();
-    if is_build_dir || name == ".git" {
-      continue;
-    }
-    if child.is_dir() {
-      collect(&child, files);
-    } else if child.extension().is_some_and(|ext| ext == "rs") {
-      files.push(child);
-    }
-  }
+/// The unexplained and the expected differences between the two lexers on one file, and
+/// how many tokens mto produced.
+/// The unexplained and the expected differences between the two lexers on one text, and
+/// how many tokens rustc's lexer found: the measure `compare --source lexer` takes.
+pub(crate) fn against_rustc(text: &str, edition: Edition) -> (Vec<String>, Vec<String>, usize) {
+  let ours = mto_spans(text, edition);
+  let theirs = rustc_spans(text);
+  let (unexplained, expected) = compare(&ours, &theirs, text, edition);
+  (unexplained, expected, theirs.len())
 }
 
 /// Every boundary or class mismatch, with the line it is on, split into unexplained
@@ -353,44 +235,11 @@ fn rustc_spans(text: &str) -> Vec<Span> {
 mod tests {
   use super::*;
 
-  /// A scratch folder holding `files`; removed when dropped.
-  struct Scratch(PathBuf);
-
-  impl Scratch {
-    fn new(name: &str, files: &[(&str, &str)]) -> Scratch {
-      let dir = std::env::temp_dir().join(format!("{}-{}", name, std::process::id()));
-      let _ = fs::remove_dir_all(&dir);
-      fs::create_dir_all(&dir).unwrap();
-      for (path, text) in files {
-        fs::write(dir.join(path), text).unwrap();
-      }
-      Scratch(dir)
-    }
-
-    fn arg(&self) -> Vec<String> {
-      vec![self.0.display().to_string()]
-    }
-  }
-
-  impl Drop for Scratch {
-    fn drop(&mut self) {
-      let _ = fs::remove_dir_all(&self.0);
-    }
-  }
-
   #[test]
   fn test_a_known_difference_is_expected_not_unexplained() {
     let (unexplained, expected, _) = differences("k#y\n", Edition::E2021);
     assert!(unexplained.is_empty(), "{:?}", unexplained);
     assert_eq!(expected.len(), 1, "{:?}", expected);
-  }
-
-  #[test]
-  fn test_a_run_passes_on_clean_files_and_fails_on_none() {
-    let clean = Scratch::new("lexdiff-clean", &[("a.rs", "fn f() {}\n")]);
-    assert_eq!(run(&clean.0, &clean.arg()), ExitCode::SUCCESS);
-    let empty = Scratch::new("lexdiff-empty", &[]);
-    assert_eq!(run(&empty.0, &empty.arg()), ExitCode::from(1));
   }
 
   #[test]

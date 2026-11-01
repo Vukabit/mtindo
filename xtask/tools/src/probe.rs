@@ -20,7 +20,7 @@ use std::sync::Mutex;
 use mtindo::syntax::Edition;
 use xtask_core::harness;
 
-use crate::diff::{
+use crate::compare::{
   Answer, collect_rs, edition_year, mto_output, never_formatted, panic_message,
   reference_toolchain, run_rustfmt, test_pair,
 };

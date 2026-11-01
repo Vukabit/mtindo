@@ -25,7 +25,7 @@ use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::syntax::Edition;
 use mtindo::verify::format::verify_format;
 
-use crate::diff::{Answer, mto_output, reference_toolchain, run_rustfmt};
+use crate::compare::{Answer, mto_output, reference_toolchain, run_rustfmt};
 
 /// What a toolchain's rustfmt made of a case.
 #[derive(Debug, PartialEq)]
@@ -180,7 +180,7 @@ fn draft_text(
     out.push('\n');
   }
   out.push_str("```\n\n");
-  let year = crate::diff::edition_year(case.edition);
+  let year = crate::compare::edition_year(case.edition);
   if case.config.trim().is_empty() {
     out.push_str(&format!("Run with `rustfmt --edition {}`.\n\n", year));
   } else {
@@ -341,7 +341,7 @@ fn verdict(case: &Case, toolchain: &str, home: &Path) -> (Verdict, Option<String
   if !case.config.trim().is_empty() {
     let _ = fs::write(dir.join("rustfmt.toml"), &case.config);
   }
-  let year = crate::diff::edition_year(case.edition);
+  let year = crate::compare::edition_year(case.edition);
   let run = |text: &str| run_rustfmt(text, year, &dir, home, toolchain).0;
   let out = match run(&case.input) {
     Answer::Text(text) => text,

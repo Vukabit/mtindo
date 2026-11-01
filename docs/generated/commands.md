@@ -848,6 +848,21 @@ any more
 cargo xtask store
 ```
 
+## `cargo xtask sync`
+
+Every file written from upstream brought up to date in order: rustfmt's releases
+(capabilities, the settings table, their docs), Unicode, the changelog, the
+docs; --check only compares, and says whether a newer rustfmt is out
+
+```text
+cargo xtask sync [rustfmt|unicode|changelog|docs] [--check]
+```
+
+- `rustfmt|unicode|changelog|docs`: One part (default: all) (one of: rustfmt,
+  unicode, changelog, docs)
+- `--check`: Only compare; fails when something is out of date or a newer
+  rustfmt is out
+
 ## `cargo xtask toml-test`
 
 Run the TOML conformance suite (records/pins/toml-test.txt) against mto's parser

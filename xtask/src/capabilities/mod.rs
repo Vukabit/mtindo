@@ -116,6 +116,43 @@ pub(crate) fn load_surface(root: &Path) -> Result<Surface, String> {
   Surface::parse(&text).map_err(|e| format!("{}: {}", SURFACE_PATH, e))
 }
 
+/// The releases of rustfmt newer than those the surface records, by channel, one line
+/// each (`stable: recorded X, latest Y`); empty when both are current. Needs the network.
+pub(crate) fn newer_releases(
+  root: &Path,
+  log: &Logger,
+) -> Result<Vec<(&'static str, String)>, String> {
+  let surface = load_surface(root)?;
+  let mut out = Vec::new();
+  for channel in ["stable", "nightly"] {
+    let latest = fetch::latest(root, channel, log)?;
+    let recorded = surface
+      .sources
+      .iter()
+      .find(|(label, _)| label == channel)
+      .map(|(_, d)| d.clone())
+      .unwrap_or_default();
+    if !recorded.contains(&latest.commit) {
+      out.push((
+        channel,
+        format!(
+          "{}: recorded `{}`, latest rustfmt {} (rust-lang/rust {}, {})",
+          channel,
+          if recorded.is_empty() {
+            "none"
+          } else {
+            &recorded
+          },
+          latest.version,
+          &latest.commit[..12.min(latest.commit.len())],
+          latest.date
+        ),
+      ));
+    }
+  }
+  Ok(out)
+}
+
 /// Where a binary and the source it was built from disagree on names or stability. Values
 /// are left out: they come from documentation, which may lag behind the code.
 fn cross_check(binary: &Reading, own_source: &Reading) -> Vec<String> {

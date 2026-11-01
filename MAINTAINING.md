@@ -110,6 +110,17 @@ GitHub Actions are pinned by commit, with the release in a comment
 tag or branch. To move one, look up the commit its new release points to
 (`gh api repos/OWNER/ACTION/commits/vX.Y.Z --jq .sha`) and change both.
 
+## Upstream releases
+
+`cargo xtask sync --check` compares every file written from upstream with its
+source (the capabilities record, the settings table, the Unicode tables, the
+docs) and says whether a stable release of the standard formatter newer than
+the recorded one is out; a newer nightly is noted, not failed. `cargo xtask
+sync rustfmt` brings the latest releases in: it re-reads them, adds their new
+settings to `records/policy/capabilities.txt` as missing, regenerates the
+settings table and its docs. Moving the answer key to a new stable is then the
+toolchain pin above. `cargo xtask sync` alone runs every part.
+
 ## The corpus
 
 `records/pins/corpus.txt` pins real crates at fixed commits; `cargo xtask diff`

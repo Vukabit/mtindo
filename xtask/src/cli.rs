@@ -245,6 +245,22 @@ pub fn tree() -> Command {
     settings(),
     status(),
     store(),
+    Command::new("sync")
+      .about(
+        "Every file written from upstream brought up to date in order: rustfmt's releases \
+         (capabilities, the settings table, their docs), Unicode, the changelog, the docs; \
+         --check only compares, and says whether a newer rustfmt is out",
+      )
+      .arg(
+        Arg::new("part")
+          .value_name("PART")
+          .value_parser(["rustfmt", "unicode", "changelog", "docs"])
+          .help("One part (default: all)"),
+      )
+      .arg(flag(
+        "check",
+        "Only compare; fails when something is out of date or a newer rustfmt is out",
+      )),
     toml_test(),
     unicode(),
     upstream(),

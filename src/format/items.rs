@@ -1528,7 +1528,7 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
     str_width(&flat_tokens(
       &code_tokens(&[SyntaxElement::Node(f.clone())]),
       spacing,
-    )) > config.struct_variant_width + 4
+    )) > config.struct_variant_width.saturating_add(4)
   };
   // So is one whose line with its comma would pass the line width.
   let past =
@@ -2693,7 +2693,7 @@ fn mixed_variants(list: &SyntaxNode, indent: usize, config: &FormatConfig) -> bo
         str_width(&flat_tokens(
           &code_tokens(&[SyntaxElement::Node(f.clone())]),
           spacing,
-        )) <= config.struct_variant_width + 4
+        )) <= config.struct_variant_width.saturating_add(4)
       });
     // Without the commas written before a closing delimiter, which go on one line.
     let tokens = code_tokens(&[SyntaxElement::Node(variant.clone())]);

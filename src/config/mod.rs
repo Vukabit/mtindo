@@ -36,7 +36,7 @@ use std::rc::Rc;
 pub use files::Environment;
 pub use value::Value;
 
-use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle};
+use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
 use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
 use crate::options::{self, Channels, File, Setting, Stability};
 use crate::syntax::Edition;
@@ -297,11 +297,14 @@ impl Config {
     config.disable_all_formatting = flag("disable_all_formatting", false);
     // The widths: `use_small_heuristics` first (Default scales the standard formatter's
     // percentages up past a `max_width` of 100, in steps of a tenth; Max makes every
-    // width the line width; Off lifts them), then any width set explicitly.
+    // width the line width; Off lifts the call, attribute, array and chain widths and
+    // closes the others, so that struct literals, struct variants and single-line
+    // `if`/`let ... else` bodies always break, as its `WidthHeuristics::null` does), then
+    // any width set explicitly.
     let max_width = config.max_width;
     let scaled = |percent: usize| match self.get("use_small_heuristics").and_then(Value::as_text) {
       Some("Max") => max_width,
-      Some("Off") => usize::MAX,
+      Some("Off") => off_width(percent),
       _ => {
         let tenths = if max_width > 100 {
           (max_width * 10 + 50) / 100

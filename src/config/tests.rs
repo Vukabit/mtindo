@@ -224,6 +224,31 @@ fn test_defaults_without_any_file() {
   assert_eq!(layout.ignore_dirs, default.ignore_dirs);
 }
 
+/// `use_small_heuristics = "Off"` lifts the call, attribute, array and chain widths and
+/// closes the struct literal, struct variant and single-line `if`/`let ... else` ones, as
+/// the standard formatter's `WidthHeuristics::null` does.
+#[test]
+fn test_heuristics_off_lifts_some_widths_and_closes_others() {
+  let tree = Tree::new(&[("rustfmt.toml", "use_small_heuristics = \"Off\"\n")]);
+  let (config, warnings) = config(&tree, "");
+  assert!(warnings.is_empty(), "{:?}", warnings);
+  let format = config.format();
+  let lifted = [
+    format.fn_call_width,
+    format.attr_fn_like_width,
+    format.array_width,
+    format.chain_width,
+  ];
+  let closed = [
+    format.struct_lit_width,
+    format.struct_variant_width,
+    format.single_line_if_else_max_width,
+    format.single_line_let_else_max_width,
+  ];
+  assert_eq!(lifted, [usize::MAX; 4]);
+  assert_eq!(closed, [0; 4]);
+}
+
 #[test]
 fn test_invalid_values_are_errors_at_their_place() {
   let tree = Tree::new(&[("a/rustfmt.toml", "\nnewline_style = \"dos\"\n")]);

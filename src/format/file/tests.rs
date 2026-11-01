@@ -912,6 +912,90 @@ fn test_format_strings_breaks_long_strings() {
   );
 }
 
+/// With `use_small_heuristics = "Off"`, struct variants and literals and single-line
+/// `if`/`let ... else` bodies break while a call stays on its line (the standard
+/// formatter's `configs/use_small_heuristics/off.rs`).
+#[test]
+fn test_heuristics_off_breaks_structs_and_single_line_bodies() {
+  let mut config = FormatConfig::default();
+  config.set_heuristics(crate::options::format::SmallHeuristics::Off);
+  let source = r#"enum Lorem {
+    Ipsum,
+    Dolor(bool),
+    Sit {
+        amet: Consectetur,
+        adipiscing: Elit,
+    },
+}
+
+fn main() {
+    lorem("lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing");
+
+    let lorem = Lorem {
+        ipsum: dolor,
+        sit: amet,
+    };
+
+    let lorem = if ipsum {
+        dolor
+    } else {
+        sit
+    };
+}
+
+fn format_let_else() {
+    let Some(a) = opt else {};
+
+    let Some(b) = opt else { return };
+
+    let Some(c) = opt else { return };
+
+    let Some(d) = some_very_very_very_very_long_name else { return };
+}
+"#;
+  let expected = r#"enum Lorem {
+    Ipsum,
+    Dolor(bool),
+    Sit {
+        amet: Consectetur,
+        adipiscing: Elit,
+    },
+}
+
+fn main() {
+    lorem("lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing");
+
+    let lorem = Lorem {
+        ipsum: dolor,
+        sit: amet,
+    };
+
+    let lorem = if ipsum {
+        dolor
+    } else {
+        sit
+    };
+}
+
+fn format_let_else() {
+    let Some(a) = opt else {};
+
+    let Some(b) = opt else {
+        return;
+    };
+
+    let Some(c) = opt else {
+        return;
+    };
+
+    let Some(d) = some_very_very_very_very_long_name else {
+        return;
+    };
+}
+"#;
+  assert_eq!(formatted_with(source, &config), expected);
+}
+
 #[test]
 fn test_imports_of_nothing_dropped() {
   // A `use` of an empty list goes, with its line.

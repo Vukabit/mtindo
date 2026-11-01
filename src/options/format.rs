@@ -272,7 +272,7 @@ impl FormatConfig {
     let max_width = self.max_width;
     let width = |percent: usize| match heuristics {
       SmallHeuristics::Max => max_width,
-      SmallHeuristics::Off => usize::MAX,
+      SmallHeuristics::Off => off_width(percent),
       SmallHeuristics::Default => {
         let tenths = if max_width > 100 {
           (max_width * 10 + 50) / 100
@@ -367,5 +367,16 @@ impl Default for FormatConfig {
       trailing_semicolon: true,
       combine_control_expr: true,
     }
+  }
+}
+
+/// A width under `use_small_heuristics = "Off"`, by its default percentage of the line: the
+/// standard formatter's `WidthHeuristics::null` lifts the call (60), attribute (70), array
+/// (60) and chain (60) widths and closes the struct literal (18), struct variant (35) and
+/// single-line `if`/`let ... else` (50) ones, which the percentages tell apart.
+pub fn off_width(percent: usize) -> usize {
+  match percent {
+    18 | 35 | 50 => 0,
+    _ => usize::MAX,
   }
 }

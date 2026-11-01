@@ -831,8 +831,9 @@ pub fn inline_attributes(root: &SyntaxNode, text: &str, config: &FormatConfig) -
       continue;
     }
     let rest = &text[gap_end..item_end];
-    let line_start = text[..attribute_end].rfind('\n').map_or(0, |i| i + 1);
-    let indent = attribute.text_range().start as usize - line_start;
+    let attribute_start = attribute.text_range().start as usize;
+    let line_start = text[..attribute_start].rfind('\n').map_or(0, |i| i + 1);
+    let indent = attribute_start - line_start;
     let first = rest.lines().next().unwrap_or("");
     if attribute.text().contains('\n')
       || attribute.text().len() + 1 + rest.len() > config.inline_attribute_width

@@ -65,6 +65,14 @@ pub const ENTRIES: &[Entry] = &[
     shown_in: "compatibility page, README",
   },
   Entry {
+    path: "records/results/instructions.txt",
+    kind: Kind::Result,
+    holds: "instructions the release mto runs on a fixed workload, on Linux",
+    written_by: "`cargo xtask perf instructions --update`, from CI's counts",
+    read_by: "perf instructions (CI)",
+    shown_in: "—",
+  },
+  Entry {
     path: "records/results/ratchet.txt",
     kind: Kind::Result,
     holds: "speed and memory limits, for one named machine",

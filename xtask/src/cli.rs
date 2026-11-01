@@ -582,8 +582,13 @@ fn flow() -> Command {
         .arg(Arg::new("target").value_name("TARGET").required(true).help("A target flow.toml release.targets lists")),
     )
     .subcommand(
+      Command::new("try-archive")
+        .about("A release target's archive in dist/ unpacked: both binaries and the files beside them there, and where this machine runs the target, its mto naming the version (a release build, from a tag) (the release workflow's step)")
+        .arg(Arg::new("target").value_name("TARGET").required(true).help("A target flow.toml release.targets lists")),
+    )
+    .subcommand(
       Command::new("prepare")
-        .about("The publish stage's checks, then dist/SHA256SUMS and dist/notes.md, and whether the GitHub release is left a draft (the release workflow's step)")
+        .about("The publish stage's checks, then dist/mto-VERSION.spdx.json, dist/SHA256SUMS and dist/notes.md, and whether the GitHub release is left a draft (the release workflow's step)")
         .arg(Arg::new("tag").value_name("TAG").required_unless_present("dry-run").help("The release tag, vX.Y.Z"))
         .arg(flag("dry-run", "No tag: only that the crate packages, for Cargo.toml's version (a dry-run/ branch)")),
     )

@@ -41,6 +41,10 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
   lines matching the standard formatter, per set. Written by `cargo xtask diff
   --update`; read by diff (the ratchet), release, capabilities report; shown in
   compatibility page, README.
+- **[results/instructions.txt](results/instructions.txt)** (result):
+  instructions the release mto runs on a fixed workload, on Linux. Written by
+  `cargo xtask perf instructions --update`, from CI's counts; read by perf
+  instructions (CI).
 - **[results/ratchet.txt](results/ratchet.txt)** (result): speed and memory
   limits, for one named machine. Written by `cargo xtask metrics ratchet
   --update`; read by metrics ratchet; shown in performance page.

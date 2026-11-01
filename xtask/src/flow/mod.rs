@@ -98,6 +98,9 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     "package" => config::load(root).and_then(|flow| {
       publish::package(root, &flow, &cli::text(sub, "target").unwrap_or_default())
     }),
+    "try-archive" => config::load(root).and_then(|flow| {
+      publish::try_archive(root, &flow, &cli::text(sub, "target").unwrap_or_default())
+    }),
     "prepare" => config::load(root).and_then(|flow| {
       publish::prepare(
         root,

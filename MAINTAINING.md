@@ -33,9 +33,13 @@ pushed and checked by CI like anyone's.
 5. **Push** what it prints: `git push origin HEAD:refs/heads/main
    refs/tags/v0.2.0`.
 6. **The release workflow** (`.github/workflows/release.yml`) then builds the
-   binaries for every target in `release.targets`, makes the GitHub release
-   with them, `SHA256SUMS` and the changelog section as its notes, and waits
-   for approval before publishing to crates.io. Approve it in the run's page.
+   binaries for every target in `release.targets`, tries each archive
+   (`cargo xtask flow try-archive`: both binaries there, and the packed `mto`
+   a release build of the tag's version), writes the bill of materials
+   (`mto-VERSION.spdx.json`), attests the archives and it as built from the
+   tag, makes the GitHub release with them, `SHA256SUMS` and the changelog
+   section as its notes, and waits for approval before publishing to
+   crates.io. Approve it in the run's page.
 
 Before a release that changes how the binaries are built, push a branch named
 `dry-run/<anything>`: `release.yml` builds and packs every target and writes

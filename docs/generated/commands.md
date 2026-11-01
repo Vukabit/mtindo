@@ -244,7 +244,8 @@ How changes reach the history and releases, from flow.toml: the git hooks, and
 the checks CI runs
 
 ```text
-cargo xtask flow setup|hook|check|release|yank|package|prepare|messages
+cargo xtask flow
+    setup|hook|check|release|yank|package|try-archive|prepare|messages
 ```
 
 ## `cargo xtask flow setup`
@@ -310,10 +311,23 @@ cargo xtask flow package TARGET
 
 - `TARGET`: A target flow.toml release.targets lists
 
+## `cargo xtask flow try-archive`
+
+A release target's archive in dist/ unpacked: both binaries and the files beside
+them there, and where this machine runs the target, its mto naming the version
+(a release build, from a tag) (the release workflow's step)
+
+```text
+cargo xtask flow try-archive TARGET
+```
+
+- `TARGET`: A target flow.toml release.targets lists
+
 ## `cargo xtask flow prepare`
 
-The publish stage's checks, then dist/SHA256SUMS and dist/notes.md, and whether
-the GitHub release is left a draft (the release workflow's step)
+The publish stage's checks, then dist/mto-VERSION.spdx.json, dist/SHA256SUMS and
+dist/notes.md, and whether the GitHub release is left a draft (the release
+workflow's step)
 
 ```text
 cargo xtask flow prepare [TAG] [--dry-run]

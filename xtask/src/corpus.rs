@@ -1,8 +1,8 @@
 //! `cargo xtask corpus`: the pinned corpus of real Rust repositories.
 //!
-//! - `update` moves every pin in `compat/corpus.txt` to the repository's current HEAD.
+//! - `update` moves every pin in `records/pins/corpus.txt` to the repository's current HEAD.
 //! - `fetch [--with-rust]` checks each pinned commit out, shallow, into
-//!   `compat/cache/corpus/NAME/` (ignored by git), several at a time. A checkout already at
+//!   `.dev/cache/corpus/NAME/` (ignored by git), several at a time. A checkout already at
 //!   its pin is kept, after undoing any edits made to it.
 //! - `check [--with-rust] [--baseline]` fetches what is missing, then runs the checks in
 //!   `xtask-tools` (which links mtindo) in a release build.
@@ -32,7 +32,7 @@ const MIN_LAYOUT_MB_PER_S: f64 = 30.0;
 /// How many repositories are fetched at once.
 const PARALLEL_FETCHES: usize = 8;
 
-const PINS_PATH: &str = "compat/corpus.txt";
+const PINS_PATH: &str = "records/pins/corpus.txt";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pin {
@@ -43,7 +43,7 @@ pub struct Pin {
 }
 
 pub fn cache_dir(root: &Path) -> PathBuf {
-  root.join("compat").join("cache").join("corpus")
+  root.join(".dev").join("cache").join("corpus")
 }
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
@@ -196,7 +196,7 @@ pub(crate) fn load_pins(root: &Path) -> Result<Vec<Pin>, String> {
   parse_pins(&text)
 }
 
-/// Parses `compat/corpus.txt`; comments and blank lines are skipped.
+/// Parses `records/pins/corpus.txt`; comments and blank lines are skipped.
 pub(crate) fn parse_pins(text: &str) -> Result<Vec<Pin>, String> {
   let mut pins = Vec::new();
   for (idx, line) in text.lines().enumerate() {

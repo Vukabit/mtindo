@@ -2,12 +2,12 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-10-31T23:39:02.063Z"
-commit: "a536de7-dirty.e560aa14"
+generated: "2026-11-01T02:35:40.822Z"
+commit: "096a91d-dirty.7f47fb1f"
 command: "cargo xtask diff --update"
 sources:
-  - compat/compatibility.txt
-  - compat/corpus.txt
+  - records/results/compatibility.txt
+  - records/pins/corpus.txt
 toolchain:
   reference_formatter: "1.10.0-stable (58cf8f9c35 2026-10-13)"
 corpus_fingerprint: "sha256:0d26c0baa5577082"
@@ -70,20 +70,20 @@ scrambled.
 (`format = true`) and compares the result with an answer:
 
 - **tests:** the test pairs of the standard formatter's pinned stable release
-  (the release compat/rustfmt-surface.txt names; `cargo xtask capabilities
-  refresh` caches its source). The input is the pair's source file and the
-  answer its expected file. A pair whose input sets no options in its header
-  comments belongs to this set.
+  (the release records/upstream/rustfmt-surface.txt names; `cargo xtask
+  capabilities refresh` caches its source). The input is the pair's source file
+  and the answer its expected file. A pair whose input sets no options in its
+  header comments belongs to this set.
 - **tests-with-settings:** the pairs whose input sets options in header
   comments. mto reads each header as it would read the same setting on its
   command line; a setting it does not know is left out.
-- **corpus:** every `.rs` file of the repositories pinned in compat/corpus.txt
-  (the opt-in ones excepted), outside `.git` and `target` folders. The answer
-  is the standard formatter's output for the file, run from the file's folder
-  with the crate's edition and its configuration file, with an empty home
-  folder so that no settings of the machine leak in, on the stable channel.
-  mto uses the settings it resolves for the same folder, without the options
-  only nightly honors.
+- **corpus:** every `.rs` file of the repositories pinned in
+  records/pins/corpus.txt (the opt-in ones excepted), outside `.git` and
+  `target` folders. The answer is the standard formatter's output for the file,
+  run from the file's folder with the crate's edition and its configuration
+  file, with an empty home folder so that no settings of the machine leak in, on
+  the stable channel. mto uses the settings it resolves for the same folder,
+  without the options only nightly honors.
 - **corpus-scrambled** (`corpus-unformatted` in the record): the same files
   with every run of whitespace between two tokens replaced by another run
   (spaces, tabs, line breaks), chosen by a generator seeded with an FNV-1a
@@ -108,11 +108,11 @@ a number. Answers are cached by input, edition, configuration file and
 formatter version, so a rerun with an unchanged corpus only runs mto.
 
 `cargo xtask diff --update` writes the four sets' numbers and the reference
-version to compat/compatibility.txt. Without `--update` the run compares
-with that record and fails when a share falls below it, when more inputs are
-skipped, or when the reference version differs. The record can only ratchet
-upward, and every change to it is a commit, which is where the history below
-comes from.
+version to records/results/compatibility.txt. Without `--update` the run
+compares with that record and fails when a share falls below it, when more
+inputs are skipped, or when the reference version differs. The record can only
+ratchet upward, and records/results/history.txt keeps it as it stood at each
+change, which is where the history below comes from.
 
 ## 3 Results
 

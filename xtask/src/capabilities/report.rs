@@ -16,7 +16,7 @@ const BAR_WIDTH: usize = 16;
 const LINE_WIDTH: usize = 80;
 
 /// How rustfmt's own test pairs fare, as `cargo xtask diff` last recorded them
-/// (compat/compatibility.txt): those with default settings, and those setting options.
+/// (records/results/compatibility.txt): those with default settings, and those setting options.
 pub enum Cases {
   Recorded {
     passed: usize,
@@ -318,7 +318,7 @@ pub fn render(surface: &Surface, manifest: &Manifest, cases: &Cases, style: Styl
       ));
     }
   }
-  let footer = "Every item and its status: compat/capabilities.txt";
+  let footer = "Every item and its status: records/policy/capabilities.txt";
   if p.markdown() {
     out.push_str(&format!("\n{}\n", footer));
   } else {

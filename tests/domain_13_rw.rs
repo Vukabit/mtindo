@@ -25,7 +25,7 @@ const LAYOUT_CONFIGS: &[(&str, &str)] = &[
   ),
 ];
 
-/// The crates, smallest first. Each is checked out at the commit `compat/corpus.txt` pins
+/// The crates, smallest first. Each is checked out at the commit `records/pins/corpus.txt` pins
 /// it to, so the result changes only when mto or a pin does.
 const REAL_WORLD_TARGETS: &[&str] = &[
   // Small
@@ -83,16 +83,16 @@ fn git(dir: &std::path::Path, args: &[&str]) -> bool {
     .is_ok_and(|s| s.success())
 }
 
-/// The URL and commit `compat/corpus.txt` pins `name` to.
+/// The URL and commit `records/pins/corpus.txt` pins `name` to.
 fn pin(name: &str) -> (String, String) {
-  let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("compat/corpus.txt");
-  let pins = std::fs::read_to_string(&path).expect("compat/corpus.txt is readable");
+  let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("records/pins/corpus.txt");
+  let pins = std::fs::read_to_string(&path).expect("records/pins/corpus.txt is readable");
   pins
     .lines()
     .map(|line| line.split_whitespace().collect::<Vec<_>>())
     .find(|words| words.len() >= 3 && words[0] == name)
     .map(|words| (words[1].to_string(), words[2].to_string()))
-    .unwrap_or_else(|| panic!("compat/corpus.txt pins no commit for {}", name))
+    .unwrap_or_else(|| panic!("records/pins/corpus.txt pins no commit for {}", name))
 }
 
 #[test]

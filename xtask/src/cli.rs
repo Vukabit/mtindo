@@ -336,7 +336,7 @@ fn bootstrap() -> Command {
 
 fn capabilities() -> Command {
   Command::new("capabilities")
-    .about("Track rustfmt's options and flags against mto (compat/)")
+    .about("Track rustfmt's options and flags against mto (records/)")
     .subcommand_required(true)
     .subcommand(Command::new("refresh").about(
       "Re-read rustfmt's options and flags (local binaries; latest stable and nightly when online)",
@@ -344,7 +344,7 @@ fn capabilities() -> Command {
     .subcommand(Command::new("check").about("Every rustfmt option, value and flag has a status"))
     .subcommand(
       Command::new("sync")
-        .about("Add new items to compat/capabilities.txt as missing; drop stale ones"),
+        .about("Add new items to records/policy/capabilities.txt as missing; drop stale ones"),
     )
     .subcommand(
       Command::new("report")
@@ -385,7 +385,7 @@ fn command_path(args: &[String]) -> Vec<String> {
 fn corpus() -> Command {
   let with_rust = || flag("with-rust", "Also the opt-in repositories (rust-lang/rust)");
   Command::new("corpus")
-    .about("The pinned real-world corpus (compat/corpus.txt)")
+    .about("The pinned real-world corpus (records/pins/corpus.txt)")
     .subcommand_required(true)
     .subcommand(Command::new("update").about("Move every pin to its repository's current HEAD"))
     .subcommand(
@@ -399,7 +399,7 @@ fn corpus() -> Command {
         .arg(with_rust())
         .arg(flag(
           "baseline",
-          "Record parsing speed in compat/baseline.txt",
+          "Record parsing speed in records/results/baseline.txt",
         )),
     )
     .subcommand(
@@ -411,17 +411,17 @@ fn corpus() -> Command {
 
 fn diff() -> Command {
   Command::new("diff")
-    .about("How much of the Rust style mto reproduces, against compat/compatibility.txt")
+    .about("How much of the Rust style mto reproduces, against records/results/compatibility.txt")
     .arg(flag(
       "update",
-      "Record the numbers in compat/compatibility.txt",
+      "Record the numbers in records/results/compatibility.txt",
     ))
     .arg(flag("markdown", "As Markdown tables"))
 }
 
 fn docs() -> Command {
   Command::new("docs")
-    .about("Regenerate everything under docs/generated/: the settings reference and mto.toml's JSON Schema from the settings table, the manual from mto --man, and the metrics papers from the recorded data (compat/, its history, .dev/ when present); runs no suite")
+    .about("Regenerate everything under docs/generated/: the settings reference and mto.toml's JSON Schema from the settings table, the manual from mto --man, and the metrics papers from the recorded data (records/, its history, .dev/ when present); runs no suite")
     .arg(flag("check", "Only compare; fails when a page is out of date"))
 }
 
@@ -830,7 +830,7 @@ fn memst() -> Command {
 
 fn metrics() -> Command {
   Command::new("metrics")
-    .about("Every number runs measure, kept as series (.dev/metrics/), and the ratchet some may not fall behind (compat/performance.txt)")
+    .about("Every number runs measure, kept as series (.dev/metrics/), and the ratchet some may not fall behind (records/results/ratchet.txt)")
     .subcommand(
       Command::new("list")
         .about("Every series with its latest value, change and trend (default)")
@@ -852,12 +852,12 @@ fn metrics() -> Command {
         ),
     )
     .subcommand(Command::new("compare").about(
-      "Every figure before the optimization rounds (compat/optimization-baseline.txt) beside its latest value",
+      "Every figure before the optimization rounds (records/archive/2026-10-optimization.txt) beside its latest value",
     ))
     .subcommand(
       Command::new("ratchet")
         .about("The ratchet against the latest values; --update records them as the new limits")
-        .arg(flag("update", "Record the latest values (this machine) in compat/performance.txt")),
+        .arg(flag("update", "Record the latest values (this machine) in records/results/ratchet.txt")),
     )
 }
 
@@ -1032,7 +1032,7 @@ fn test() -> Command {
 
 fn toml_test() -> Command {
   Command::new("toml-test")
-    .about("Run the TOML conformance suite (compat/toml-test.txt) against mto's parser")
+    .about("Run the TOML conformance suite (records/pins/toml-test.txt) against mto's parser")
 }
 
 fn unicode() -> Command {

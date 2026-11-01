@@ -1,0 +1,1107 @@
+# Each tracked record as it stood every time it changed, oldest first: a line
+# `== DATE COMMIT PATH`, then the record's lines without its comments (a folder's
+# entry is `files N`). `cargo xtask docs` adds an entry when a record differs from
+# its last one, and the metrics-docs gate fails until it has; the history tables
+# in docs/generated/ are read from here, not from git. COMMIT is the one the change
+# was recorded on top of (before 2026-11-01, the commit that made it).
+
+== 2026-10-10 40cb291 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 238 462 lines 8360 11227
+set tests-with-settings files 160 559 lines 13817 22055
+set corpus files 9381 10436 lines 2634533 2653974
+set corpus-unformatted files 21 10416 lines 788431 2772411
+== 2026-10-10 dd5acb2 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 244 462 lines 8621 11227
+set tests-with-settings files 161 559 lines 14125 22055
+set corpus files 9420 10436 lines 2635316 2653974
+set corpus-unformatted files 121 10416 lines 956611 2772411
+== 2026-10-10 9de46a6 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 258 462 lines 8697 11227
+set tests-with-settings files 166 559 lines 14296 22055
+set corpus files 9468 10436 lines 2635565 2653974
+set corpus-unformatted files 138 10416 lines 974385 2772411
+== 2026-10-10 4ce637e records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 259 462 lines 8699 11227
+set tests-with-settings files 170 559 lines 14393 22055
+set corpus files 9490 10436 lines 2635617 2653974
+set corpus-unformatted files 139 10416 lines 976335 2772411
+== 2026-10-10 407413b records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-3253/paths/excluded.rs [tests]  the expected file differs from its input beyond formatting
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macro_rules.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/pub-restricted.rs [tests]  the formatter drops the leading `::` of `pub(in ::path)`
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/hir-def/src/nameres/tests/imports.rs [corpus]  converting CRLF line endings changes a multi-line raw string's contents
+rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus]  the formatter writes invalid code (parentheses dropped around `?Sized`)
+rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus]  the formatter drops an inner attribute inside an impl
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
+rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
+rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus]  the formatter writes invalid code (`use std::::*`)
+rust-analyzer/crates/parser/test_data/parser/ok/0035_weird_exprs.rs [corpus]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus]  the formatter drops attributes on parameters
+rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus]  the formatter drops `default`
+url/url/fuzz/fuzz_targets/fuzz-url.rs [corpus]  a comma after a block arm inside a macro dropped: equivalent, not modelled
+rustfmt/tests/source/attrib.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/const-block-items.rs [corpus]  the formatter drops `pub` from a const block
+rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus]  the formatter writes invalid code (a where clause it fails to format)
+rustfmt/tests/source/imports/imports.rs [corpus]  the formatter drops `use self` (invalid input)
+rustfmt/tests/source/issue-4689/one.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4689/two.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4808.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rustfmt/tests/source/issue-6561/trait-fn.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6561/variadic.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6607/fn-type.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6825.rs [corpus]  the formatter writes invalid code (a comment swallows a parameter)
+rustfmt/tests/source/issue-6985.rs [corpus]  the formatter loses comments
+rustfmt/tests/source/issue-7056.rs [corpus]  the formatter mangles `$r#struct`
+rustfmt/tests/source/issue_5027.rs [corpus]  the formatter drops `pub` from an impl item
+rustfmt/tests/source/issue_5730.rs [corpus]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+rustfmt/tests/source/macro_rules.rs [corpus]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/macros.rs [corpus]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/pub-restricted.rs [corpus]  the formatter drops the leading `::` of `pub(in ::path)`
+serde/serde/src/lib.rs [corpus-unformatted]  the formatter reorders imports inside a macro body: equivalent, not modelled
+serde/serde_core/src/crate_root.rs [corpus-unformatted]  the formatter reorders imports inside a macro body: equivalent, not modelled
+libc/src/macros.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus-unformatted]  the formatter writes invalid code (parentheses dropped around `?Sized`)
+rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus-unformatted]  the formatter drops an inner attribute inside an impl
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus-unformatted]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
+rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus-unformatted]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
+rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus-unformatted]  the formatter writes invalid code (`use std::::*`)
+rust-analyzer/crates/parser/test_data/parser/ok/0035_weird_exprs.rs [corpus-unformatted]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus-unformatted]  the formatter drops `default`
+url/url/fuzz/fuzz_targets/fuzz-url.rs [corpus-unformatted]  a comma after a block arm inside a macro dropped: equivalent, not modelled
+rustfmt/tests/source/attrib.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/closure.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus-unformatted]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus-unformatted]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/struct_field_align_threshold/20.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/const-block-items.rs [corpus-unformatted]  the formatter drops `pub` from a const block
+rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus-unformatted]  the formatter writes invalid code (a where clause it fails to format)
+rustfmt/tests/source/extern.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/fn-simple.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/hard-tabs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/imports/imports.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/issue-4689/one.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4689/two.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4808.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rustfmt/tests/source/issue-6561/trait-fn.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6561/variadic.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6607/fn-type.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6825.rs [corpus-unformatted]  the formatter writes invalid code (a comment swallows a parameter)
+rustfmt/tests/source/issue-6985.rs [corpus-unformatted]  the formatter loses comments
+rustfmt/tests/source/issue-7056.rs [corpus-unformatted]  the formatter mangles `$r#struct`
+rustfmt/tests/source/issue_5027.rs [corpus-unformatted]  the formatter drops `pub` from an impl item
+rustfmt/tests/source/issue_5730.rs [corpus-unformatted]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+rustfmt/tests/source/macro_rules.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/macros.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/pub-restricted.rs [corpus-unformatted]  the formatter drops the leading `::` of `pub(in ::path)`
+rustfmt/tests/source/struct_lits_visual.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/struct_lits_visual_multiline.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/structs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+== 2026-10-11 1de1315 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 259 462 lines 8777 11227
+set tests-with-settings files 173 559 lines 14604 22055
+set corpus files 9502 10436 lines 2636167 2653974
+set corpus-unformatted files 139 10416 lines 1009038 2772411
+== 2026-10-11 7846861 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 259 462 lines 8777 11227
+set tests-with-settings files 173 559 lines 14603 22055
+set corpus files 9504 10436 lines 2636176 2653974
+set corpus-unformatted files 139 10416 lines 1012557 2772411
+== 2026-10-11 df8f46a records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 259 462 lines 8778 11227
+set tests-with-settings files 175 559 lines 14620 22055
+set corpus files 9605 10436 lines 2636457 2653974
+set corpus-unformatted files 176 10416 lines 1032245 2772411
+== 2026-10-11 262fd9e records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 268 462 lines 8906 11227
+set tests-with-settings files 179 559 lines 14937 22055
+set corpus files 9667 10436 lines 2642885 2653974
+set corpus-unformatted files 226 10416 lines 1560598 2772411
+== 2026-10-11 cf3cdcb records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 268 462 lines 8912 11227
+set tests-with-settings files 187 559 lines 15055 22055
+set corpus files 9705 10436 lines 2643177 2653974
+set corpus-unformatted files 240 10416 lines 1569424 2772411
+== 2026-10-11 ecded5d records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 275 462 lines 8983 11227
+set tests-with-settings files 190 559 lines 15246 22055
+set corpus files 9731 10436 lines 2643634 2653974
+set corpus-unformatted files 786 10416 lines 1918253 2772411
+== 2026-10-11 6a8de89 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 278 462 lines 9024 11227
+set tests-with-settings files 192 559 lines 15387 22055
+set corpus files 9750 10436 lines 2643886 2653974
+set corpus-unformatted files 1239 10416 lines 1962909 2772411
+== 2026-10-11 ca69289 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 278 462 lines 9042 11227
+set tests-with-settings files 191 559 lines 15427 22055
+set corpus files 9750 10436 lines 2643972 2653974
+set corpus-unformatted files 1684 10416 lines 2067352 2772411
+== 2026-10-11 eb74fef records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 278 462 lines 9042 11227
+set tests-with-settings files 191 559 lines 15427 22055
+set corpus files 9752 10436 lines 2643988 2653974
+set corpus-unformatted files 2651 10416 lines 2083019 2772411
+== 2026-10-11 676c866 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 279 462 lines 9089 11227
+set tests-with-settings files 205 559 lines 16161 22055
+set corpus files 9771 10436 lines 2645107 2653974
+set corpus-unformatted files 3047 10416 lines 2153232 2772411
+== 2026-10-11 36c3419 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 279 462 lines 9089 11227 skipped 0
+set tests-with-settings files 205 559 lines 16161 22055 skipped 0
+set corpus files 9771 10436 lines 2645107 2653974 skipped 260
+set corpus-unformatted files 3047 10416 lines 2153232 2772411 skipped 273
+== 2026-10-13 90cc2e8 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 280 462 lines 9101 11227 skipped 0
+set tests-with-settings files 205 559 lines 16169 22055 skipped 0
+set corpus files 9773 10436 lines 2645178 2653974 skipped 260
+set corpus-unformatted files 3056 10416 lines 2171874 2772411 skipped 273
+== 2026-10-13 b69b461 records/results/ratchet.txt
+machine macos aarch64, 10 cores
+limit speed.speedup.stable 31.39 0.15 higher
+limit speed.speedup.nightly 32.08 0.15 higher
+limit speed.mto.laid_out.mb_per_s 292.5 0.15 higher
+limit speed.mto.as_fetched.mb_per_s 150.8 0.15 higher
+limit speed.layout.one_thread.mb_per_s 75.48 0.15 higher
+limit memst.serde.allocs 1857406 0.01 lower
+limit memst.serde.bytes 420472888 0.01 lower
+limit memst.serde.peak_live 36052563 0.25 lower
+limit doctor.held.cost.x 1.248 0.25 lower
+limit doctor.narrow.n10.k1.checks 9.700 0.1 lower
+limit doctor.narrow.n100.k1.checks 15.50 0.1 lower
+limit doctor.narrow.n100.k3.checks 49.60 0.1 lower
+limit doctor.narrow.found_rate 1 0 higher
+limit io.write.batch.history.ms_per_file 0.7370 0.5 lower
+limit io.write.batch.plain.ms_per_file 0.2770 0.5 lower
+limit perf.scaling.one_thread.mb_per_s 9.702 0.15 higher
+limit perf.latency.check.median_ms 2.105 0.5 lower
+limit perf.growth.items.exponent 1.049 0.2 lower
+limit perf.growth.nesting.exponent 1.180 0.2 lower
+limit perf.growth.line.exponent 0.9880 0.2 lower
+limit perf.growth.chain.exponent 0.9760 0.2 lower
+limit perf.growth.match.exponent 1.016 0.2 lower
+== 2026-10-13 b69b461 tests/fuzz_regressions
+files 7
+== 2026-10-14 fd1b526 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 280 462 lines 9108 11227 skipped 0
+set tests-with-settings files 206 559 lines 16229 22055 skipped 0
+set corpus files 9773 10436 lines 2645244 2653974 skipped 260
+set corpus-unformatted files 3087 10416 lines 2181511 2772411 skipped 273
+== 2026-10-14 5b68749 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 280 462 lines 9137 11227 skipped 0
+set tests-with-settings files 213 559 lines 16293 22055 skipped 0
+set corpus files 9786 10436 lines 2645456 2653974 skipped 260
+set corpus-unformatted files 3296 10416 lines 2224193 2772411 skipped 273
+== 2026-10-14 c98dc85 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 281 462 lines 9138 11227 skipped 0
+set tests-with-settings files 214 559 lines 16299 22055 skipped 0
+set corpus files 9789 10436 lines 2645468 2653974 skipped 260
+set corpus-unformatted files 3316 10416 lines 2226996 2772411 skipped 273
+== 2026-10-14 da2bc6c records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 282 462 lines 9146 11227 skipped 0
+set tests-with-settings files 214 559 lines 16324 22055 skipped 0
+set corpus files 9794 10436 lines 2645818 2653974 skipped 260
+set corpus-unformatted files 3326 10416 lines 2230508 2772411 skipped 273
+== 2026-10-14 ae6ac20 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 283 462 lines 9205 11227 skipped 0
+set tests-with-settings files 217 559 lines 16438 22055 skipped 0
+set corpus files 9801 10436 lines 2646088 2653974 skipped 260
+set corpus-unformatted files 3554 10416 lines 2308097 2772411 skipped 273
+== 2026-10-14 2aa79d0 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 284 462 lines 9228 11227 skipped 0
+set tests-with-settings files 221 559 lines 16544 22055 skipped 0
+set corpus files 9817 10436 lines 2646266 2653974 skipped 260
+set corpus-unformatted files 3674 10416 lines 2365955 2772411 skipped 273
+== 2026-10-14 f446be9 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 292 462 lines 9414 11227 skipped 0
+set tests-with-settings files 225 559 lines 16888 22055 skipped 0
+set corpus files 9872 10436 lines 2647163 2653974 skipped 260
+set corpus-unformatted files 4219 10416 lines 2417619 2772411 skipped 273
+== 2026-10-14 8029c08 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 292 462 lines 9414 11227 skipped 0
+set tests-with-settings files 225 559 lines 16889 22055 skipped 0
+set corpus files 9872 10436 lines 2647164 2653974 skipped 260
+set corpus-unformatted files 4576 10416 lines 2421285 2772411 skipped 273
+== 2026-10-15 6d60bfa records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 293 462 lines 9462 11227 skipped 0
+set tests-with-settings files 225 559 lines 16967 22055 skipped 0
+set corpus files 9875 10436 lines 2647392 2653974 skipped 260
+set corpus-unformatted files 5044 10416 lines 2469839 2772411 skipped 273
+== 2026-10-15 7db95f6 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 315 462 lines 9672 11227 skipped 0
+set tests-with-settings files 247 559 lines 17673 22055 skipped 0
+set corpus files 9952 10436 lines 2648412 2653974 skipped 260
+set corpus-unformatted files 6351 10416 lines 2609493 2772411 skipped 273
+== 2026-10-15 ee77875 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 326 462 lines 9813 11227 skipped 0
+set tests-with-settings files 248 559 lines 17755 22055 skipped 0
+set corpus files 9970 10436 lines 2648698 2653974 skipped 260
+set corpus-unformatted files 6515 10416 lines 2622454 2772411 skipped 273
+== 2026-10-15 65e3945 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 327 462 lines 9848 11227 skipped 0
+set tests-with-settings files 249 559 lines 17784 22055 skipped 0
+set corpus files 9971 10436 lines 2648739 2653974 skipped 260
+set corpus-unformatted files 6616 10416 lines 2627755 2772411 skipped 273
+== 2026-10-15 93fb8ac records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 328 462 lines 9857 11227 skipped 0
+set tests-with-settings files 249 559 lines 17782 22055 skipped 0
+set corpus files 9975 10436 lines 2648760 2653974 skipped 260
+set corpus-unformatted files 6792 10416 lines 2629398 2772411 skipped 273
+== 2026-10-15 ce01943 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 329 462 lines 9873 11227 skipped 0
+set tests-with-settings files 249 559 lines 17782 22055 skipped 0
+set corpus files 9978 10436 lines 2648781 2653974 skipped 260
+set corpus-unformatted files 7004 10416 lines 2633620 2772411 skipped 273
+== 2026-10-15 ddf690b records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 329 462 lines 9873 11227 skipped 0
+set tests-with-settings files 249 559 lines 17782 22055 skipped 0
+set corpus files 9978 10436 lines 2648781 2653974 skipped 260
+set corpus-unformatted files 7080 10416 lines 2634279 2772411 skipped 273
+== 2026-10-15 f31de09 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 329 462 lines 9941 11227 skipped 0
+set tests-with-settings files 250 559 lines 17824 22055 skipped 0
+set corpus files 9983 10436 lines 2648921 2653974 skipped 260
+set corpus-unformatted files 7205 10416 lines 2639854 2772411 skipped 273
+== 2026-10-15 8556e4d records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 329 462 lines 9941 11227 skipped 0
+set tests-with-settings files 253 559 lines 17832 22055 skipped 0
+set corpus files 9992 10436 lines 2648960 2653974 skipped 260
+set corpus-unformatted files 7281 10416 lines 2641492 2772411 skipped 273
+== 2026-10-15 ee77875 records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-3253/paths/excluded.rs [tests]  the expected file differs from its input beyond formatting
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/pub-restricted.rs [tests]  the formatter drops the leading `::` of `pub(in ::path)`
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/hir-def/src/nameres/tests/imports.rs [corpus]  converting CRLF line endings changes a multi-line raw string's contents
+rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus]  the formatter writes invalid code (parentheses dropped around `?Sized`)
+rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus]  the formatter drops an inner attribute inside an impl
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
+rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
+rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus]  the formatter writes invalid code (`use std::::*`)
+rust-analyzer/crates/parser/test_data/parser/ok/0035_weird_exprs.rs [corpus]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus]  the formatter drops attributes on parameters
+rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus]  the formatter drops `default`
+url/url/fuzz/fuzz_targets/fuzz-url.rs [corpus]  a comma after a block arm inside a macro dropped: equivalent, not modelled
+rustfmt/tests/source/attrib.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/const-block-items.rs [corpus]  the formatter drops `pub` from a const block
+rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus]  the formatter writes invalid code (a where clause it fails to format)
+rustfmt/tests/source/imports/imports.rs [corpus]  the formatter drops `use self` (invalid input)
+rustfmt/tests/source/issue-4689/one.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4689/two.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4808.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rustfmt/tests/source/issue-6561/trait-fn.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6561/variadic.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6607/fn-type.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6825.rs [corpus]  the formatter writes invalid code (a comment swallows a parameter)
+rustfmt/tests/source/issue-6985.rs [corpus]  the formatter loses comments
+rustfmt/tests/source/issue-7056.rs [corpus]  the formatter mangles `$r#struct`
+rustfmt/tests/source/issue_5027.rs [corpus]  the formatter drops `pub` from an impl item
+rustfmt/tests/source/issue_5730.rs [corpus]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+rustfmt/tests/source/macros.rs [corpus]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/pub-restricted.rs [corpus]  the formatter drops the leading `::` of `pub(in ::path)`
+rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus-unformatted]  the formatter writes invalid code (parentheses dropped around `?Sized`)
+rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus-unformatted]  the formatter drops an inner attribute inside an impl
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus-unformatted]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
+rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus-unformatted]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
+rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus-unformatted]  the formatter writes invalid code (`use std::::*`)
+rust-analyzer/crates/parser/test_data/parser/ok/0035_weird_exprs.rs [corpus-unformatted]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus-unformatted]  the formatter drops `default`
+url/url/fuzz/fuzz_targets/fuzz-url.rs [corpus-unformatted]  a comma after a block arm inside a macro dropped: equivalent, not modelled
+rustfmt/tests/source/attrib.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/closure.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus-unformatted]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus-unformatted]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/struct_field_align_threshold/20.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/const-block-items.rs [corpus-unformatted]  the formatter drops `pub` from a const block
+rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus-unformatted]  the formatter writes invalid code (a where clause it fails to format)
+rustfmt/tests/source/extern.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/fn-simple.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/hard-tabs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/imports/imports.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/issue-4689/one.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4689/two.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4808.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rustfmt/tests/source/issue-6561/trait-fn.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6561/variadic.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6607/fn-type.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6825.rs [corpus-unformatted]  the formatter writes invalid code (a comment swallows a parameter)
+rustfmt/tests/source/issue-6985.rs [corpus-unformatted]  the formatter loses comments
+rustfmt/tests/source/issue-7056.rs [corpus-unformatted]  the formatter mangles `$r#struct`
+rustfmt/tests/source/issue_5027.rs [corpus-unformatted]  the formatter drops `pub` from an impl item
+rustfmt/tests/source/issue_5730.rs [corpus-unformatted]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+rustfmt/tests/source/macros.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/pub-restricted.rs [corpus-unformatted]  the formatter drops the leading `::` of `pub(in ::path)`
+rustfmt/tests/source/struct_lits_visual.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/struct_lits_visual_multiline.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/structs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+== 2026-10-15 65e3945 records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-3253/paths/excluded.rs [tests]  the expected file differs from its input beyond formatting
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/pub-restricted.rs [tests]  the formatter drops the leading `::` of `pub(in ::path)`
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/hir-def/src/nameres/tests/imports.rs [corpus]  converting CRLF line endings changes a multi-line raw string's contents
+rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus]  the formatter writes invalid code (parentheses dropped around `?Sized`)
+rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus]  the formatter drops an inner attribute inside an impl
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
+rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
+rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus]  the formatter writes invalid code (`use std::::*`)
+rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus]  the formatter drops attributes on parameters
+rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus]  the formatter drops `default`
+rustfmt/tests/source/attrib.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/const-block-items.rs [corpus]  the formatter drops `pub` from a const block
+rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus]  the formatter writes invalid code (a where clause it fails to format)
+rustfmt/tests/source/imports/imports.rs [corpus]  the formatter drops `use self` (invalid input)
+rustfmt/tests/source/issue-4689/one.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4689/two.rs [corpus]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4808.rs [corpus]  the formatter adds parentheses that change what a closure covers
+rustfmt/tests/source/issue-6561/trait-fn.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6561/variadic.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6607/fn-type.rs [corpus]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6825.rs [corpus]  the formatter writes invalid code (a comment swallows a parameter)
+rustfmt/tests/source/issue-6985.rs [corpus]  the formatter loses comments
+rustfmt/tests/source/issue-7056.rs [corpus]  the formatter mangles `$r#struct`
+rustfmt/tests/source/issue_5027.rs [corpus]  the formatter drops `pub` from an impl item
+rustfmt/tests/source/issue_5730.rs [corpus]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+rustfmt/tests/source/macros.rs [corpus]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/pub-restricted.rs [corpus]  the formatter drops the leading `::` of `pub(in ::path)`
+rust-analyzer/crates/parser/test_data/parser/err/0024_many_type_parens.rs [corpus-unformatted]  the formatter writes invalid code (parentheses dropped around `?Sized`)
+rust-analyzer/crates/parser/test_data/parser/inline/ok/assoc_item_list_inner_attrs.rs [corpus-unformatted]  the formatter drops an inner attribute inside an impl
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_postfix_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/closure_range_method_call.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rust-analyzer/crates/parser/test_data/parser/inline/ok/generic_arg_bounds.rs [corpus-unformatted]  a turbofish in an associated type bound, dropped: equivalent, in a shape the check does not model
+rust-analyzer/crates/parser/test_data/parser/inline/ok/macro_def_curly.rs [corpus-unformatted]  `macro m { (..) => {..} }` written as `macro m(..) {..}`: equivalent, not modelled
+rust-analyzer/crates/parser/test_data/parser/inline/ok/use_tree_abs_star.rs [corpus-unformatted]  the formatter writes invalid code (`use std::::*`)
+rust-analyzer/crates/parser/test_data/parser/ok/0051_parameter_attrs.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rust-analyzer/crates/parser/test_data/parser/ok/0066_default_modifier.rs [corpus-unformatted]  the formatter drops `default`
+rustfmt/tests/source/attrib.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/closure.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/configs/float_literal_trailing_zero/always.rs [corpus-unformatted]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/float_literal_trailing_zero/if-no-postfix.rs [corpus-unformatted]  the formatter rewrites a float range pattern
+rustfmt/tests/source/configs/match_arm_indent/nested.rs [corpus-unformatted]  an attributed match arm body wrapped in a block: equivalent, not modelled
+rustfmt/tests/source/configs/spaces_around_ranges/false.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/spaces_around_ranges/true.rs [corpus-unformatted]  the formatter writes invalid code (range spacing)
+rustfmt/tests/source/configs/struct_field_align_threshold/20.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/const-block-items.rs [corpus-unformatted]  the formatter drops `pub` from a const block
+rustfmt/tests/source/crash-on-enum-generics/issue_6318.rs [corpus-unformatted]  the formatter writes invalid code (a where clause it fails to format)
+rustfmt/tests/source/extern.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/fn-simple.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/hard-tabs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/imports/imports.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/issue-4689/one.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4689/two.rs [corpus-unformatted]  the formatter drops a `for` without a binder list (invalid input)
+rustfmt/tests/source/issue-4808.rs [corpus-unformatted]  the formatter adds parentheses that change what a closure covers
+rustfmt/tests/source/issue-6561/trait-fn.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6561/variadic.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6607/fn-type.rs [corpus-unformatted]  the formatter drops attributes on parameters
+rustfmt/tests/source/issue-6825.rs [corpus-unformatted]  the formatter writes invalid code (a comment swallows a parameter)
+rustfmt/tests/source/issue-6985.rs [corpus-unformatted]  the formatter loses comments
+rustfmt/tests/source/issue-7056.rs [corpus-unformatted]  the formatter mangles `$r#struct`
+rustfmt/tests/source/issue_5027.rs [corpus-unformatted]  the formatter drops `pub` from an impl item
+rustfmt/tests/source/issue_5730.rs [corpus-unformatted]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+rustfmt/tests/source/macros.rs [corpus-unformatted]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+rustfmt/tests/source/pub-restricted.rs [corpus-unformatted]  the formatter drops the leading `::` of `pub(in ::path)`
+rustfmt/tests/source/struct_lits_visual.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/struct_lits_visual_multiline.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+rustfmt/tests/source/structs.rs [corpus-unformatted]  the formatter writes invalid code when a comment sits before a comma (scrambled input)
+== 2026-10-15 7db95f6 tests/fuzz_regressions
+files 9
+== 2026-10-16 60002f1 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 338 462 lines 10157 11227 skipped 0
+set tests-with-settings files 257 559 lines 17937 22055 skipped 0
+set corpus files 10036 10436 lines 2650001 2653974 skipped 260
+set corpus-unformatted files 8369 10416 lines 2699486 2772411 skipped 273
+== 2026-10-16 d958460 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 355 462 lines 10574 11227 skipped 0
+set tests-with-settings files 266 559 lines 18341 22055 skipped 0
+set corpus files 10090 10436 lines 2650951 2653974 skipped 260
+set corpus-unformatted files 8590 10416 lines 2707413 2772411 skipped 273
+== 2026-10-16 d56f24b records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 400 462 lines 10807 11227 skipped 0
+set tests-with-settings files 287 559 lines 18676 22055 skipped 0
+set corpus files 9227 9263 lines 2620412 2620990 skipped 6
+set corpus-unformatted files 8645 9250 lines 2709979 2739378 skipped 17
+== 2026-10-16 60002f1 tests/fuzz_regressions
+files 11
+== 2026-10-16 d958460 tests/fuzz_regressions
+files 12
+== 2026-10-16 d56f24b tests/fuzz_regressions
+files 16
+== 2026-10-17 5e09478 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 415 462 lines 10867 11227 skipped 0
+set tests-with-settings files 289 559 lines 18817 22055 skipped 0
+set corpus files 9228 9263 lines 2620434 2620990 skipped 6
+set corpus-unformatted files 8649 9250 lines 2710061 2739378 skipped 17
+== 2026-10-17 fd5de34 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 439 460 lines 10949 11205 skipped 0
+set tests-with-settings files 289 559 lines 18916 22055 skipped 0
+set corpus files 9230 9263 lines 2620623 2620990 skipped 6
+set corpus-unformatted files 8680 9250 lines 2711505 2739378 skipped 17
+== 2026-10-17 8449381 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 439 460 lines 10949 11205 skipped 0
+set tests-with-settings files 290 559 lines 18989 22055 skipped 0
+set corpus files 9232 9263 lines 2620661 2620990 skipped 6
+set corpus-unformatted files 8717 9250 lines 2713336 2739378 skipped 17
+== 2026-10-17 855e3f0 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 450 460 lines 11108 11205 skipped 0
+set tests-with-settings files 290 559 lines 19003 22055 skipped 0
+set corpus files 9232 9263 lines 2620661 2620990 skipped 6
+set corpus-unformatted files 8773 9250 lines 2715874 2739378 skipped 17
+== 2026-10-17 5e09478 records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-3253/paths/excluded.rs [tests]  the expected file differs from its input beyond formatting
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/hir-def/src/nameres/tests/imports.rs [corpus]  converting CRLF line endings changes a multi-line raw string's contents
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+== 2026-10-17 fd5de34 records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-3253/paths/excluded.rs [tests]  the expected file differs from its input beyond formatting
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+rust-analyzer/crates/hir-def/src/nameres/tests/imports.rs [corpus]  converting CRLF line endings changes a multi-line raw string's contents
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+excused tests/issue-2917/minimal.rs [tests]  the expected file puts a block comment's `*/` under its `/*`, which the standard formatter moves a space in on a second run; mto writes what a second run keeps
+== 2026-10-17 5e09478 tests/fuzz_regressions
+files 18
+== 2026-10-17 fd5de34 tests/fuzz_regressions
+files 20
+== 2026-10-17 855e3f0 tests/fuzz_regressions
+files 21
+== 2026-10-18 fab347d records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 452 460 lines 11155 11205 skipped 0
+set tests-with-settings files 291 559 lines 19004 22055 skipped 0
+set corpus files 9232 9263 lines 2620661 2620990 skipped 6
+set corpus-unformatted files 8794 9250 lines 2716637 2739378 skipped 17
+== 2026-10-18 063f2de records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 452 460 lines 11155 11205 skipped 0
+set tests-with-settings files 291 559 lines 19023 22055 skipped 0
+set corpus files 9235 9263 lines 2620708 2620990 skipped 6
+set corpus-unformatted files 8891 9250 lines 2718605 2739378 skipped 17
+== 2026-10-18 0973b7d records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 452 460 lines 11156 11205 skipped 0
+set tests-with-settings files 291 559 lines 19025 22055 skipped 0
+set corpus files 9235 9263 lines 2620708 2620990 skipped 6
+set corpus-unformatted files 8941 9250 lines 2719259 2739378 skipped 17
+== 2026-10-18 0973b7d tests/fuzz_regressions
+files 22
+== 2026-10-19 33c3f06 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 452 460 lines 11156 11205 skipped 0
+set tests-with-settings files 293 559 lines 19107 22055 skipped 0
+set corpus files 9246 9263 lines 2620790 2620990 skipped 6
+set corpus-unformatted files 9158 9250 lines 2722199 2739377 skipped 17
+== 2026-10-21 89c3628 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 294 559 lines 19108 22055 skipped 0
+set corpus files 9249 9263 lines 2620801 2620990 skipped 6
+set corpus-unformatted files 9166 9250 lines 2736719 2739377 skipped 17
+== 2026-10-21 89c3628 tests/fuzz_regressions
+files 27
+== 2026-10-22 44d2edc tests/fuzz_regressions
+files 78
+== 2026-10-24 c7fa04f records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+== 2026-10-24 0ac148e tests/fuzz_regressions
+files 158
+== 2026-10-29 6c7b908 records/results/ratchet.txt
+machine macos aarch64, 10 cores
+limit speed.speedup.stable 17.03 0.15 higher
+limit speed.speedup.nightly 17.29 0.15 higher
+limit speed.mto.laid_out.mb_per_s 159.6 0.15 higher
+limit speed.mto.as_fetched.mb_per_s 143.7 0.15 higher
+limit speed.layout.one_thread.mb_per_s 80.80 0.15 higher
+limit memst.serde.allocs 1319498 0.01 lower
+limit memst.serde.bytes 365171393 0.01 lower
+limit memst.serde.peak_live 31516777 0.25 lower
+limit doctor.held.cost.x 1.119 0.25 lower
+limit doctor.narrow.n10.k1.checks 9.700 0.1 lower
+limit doctor.narrow.n100.k1.checks 15.50 0.1 lower
+limit doctor.narrow.n100.k3.checks 49.60 0.1 lower
+limit doctor.narrow.found_rate 1 0 higher
+limit io.write.batch.history.ms_per_file 0.6590 0.5 lower
+limit io.write.batch.plain.ms_per_file 0.2810 0.5 lower
+limit perf.scaling.one_thread.mb_per_s 8.449 0.15 higher
+limit perf.latency.check.median_ms 2.075 0.5 lower
+limit perf.growth.items.exponent 1.030 0.2 lower
+limit perf.growth.nesting.exponent 1.259 0.2 lower
+limit perf.growth.line.exponent 0.9990 0.2 lower
+limit perf.growth.chain.exponent 0.9700 0.2 lower
+limit perf.growth.match.exponent 1.026 0.2 lower
+== 2026-10-30 a3e5879 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 294 559 lines 19108 22055 skipped 0
+set corpus files 9354 9361 lines 2653052 2653185 skipped 6
+set corpus-unformatted files 9260 9348 lines 2773838 2776485 skipped 17
+== 2026-10-30 a49d00e records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 295 559 lines 19109 22055 skipped 0
+set corpus files 9354 9361 lines 2653052 2653185 skipped 6
+set corpus-unformatted files 9260 9348 lines 2773838 2776485 skipped 17
+== 2026-10-30 a22d22c records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 296 559 lines 19115 22055 skipped 0
+set corpus files 9354 9361 lines 2653052 2653185 skipped 6
+set corpus-unformatted files 9260 9348 lines 2773838 2776485 skipped 17
+== 2026-10-30 a3e5879 records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus]  a static in an extern block loses its initializer (`= "string"`)
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus-unformatted]  a static in an extern block loses its initializer (`= "string"`)
+== 2026-10-30 394bd5e records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+tests/try-conversion.rs [tests-with-settings]  test input splits `::` into `: :`; the formatter joins it
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus-unformatted]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+== 2026-10-30 a35ea46 records/results/ratchet.txt
+machine macos aarch64, 10 cores
+limit speed.speedup.stable 20.28 0.15 higher
+limit speed.speedup.nightly 20.66 0.15 higher
+limit speed.mto.laid_out.mb_per_s 186.3 0.15 higher
+limit speed.mto.as_fetched.mb_per_s 169.1 0.15 higher
+limit speed.layout.one_thread.mb_per_s 93.43 0.15 higher
+limit memst.serde.allocs 1319498 0.01 lower
+limit memst.serde.bytes 365171393 0.01 lower
+limit memst.serde.peak_live 31516777 0.25 lower
+limit doctor.held.cost.x 1.104 0.25 lower
+limit doctor.narrow.n10.k1.checks 11.30 0.1 lower
+limit doctor.narrow.n100.k1.checks 15.80 0.1 lower
+limit doctor.narrow.n100.k3.checks 47.40 0.1 lower
+limit doctor.narrow.found_rate 1 0 higher
+limit io.write.batch.history.ms_per_file 0.7080 0.5 lower
+limit io.write.batch.plain.ms_per_file 0.3180 0.5 lower
+limit perf.scaling.one_thread.mb_per_s 9.103 0.15 higher
+limit perf.latency.check.median_ms 2.104 0.5 lower
+limit perf.growth.items.exponent 1.048 0.2 lower
+limit perf.growth.nesting.exponent 1.425 0.2 lower
+limit perf.growth.line.exponent 0.9820 0.2 lower
+limit perf.growth.chain.exponent 0.9600 0.2 lower
+limit perf.growth.match.exponent 0.9880 0.2 lower
+== 2026-10-30 1c8e2cb tests/fuzz_regressions
+files 178
+== 2026-10-31 14188ad records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 299 559 lines 19122 22055 skipped 0
+set corpus files 9354 9361 lines 2653052 2653185 skipped 6
+set corpus-unformatted files 9260 9348 lines 2773838 2776485 skipped 17
+== 2026-10-31 5ad8239 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 301 559 lines 19141 22055 skipped 0
+set corpus files 9354 9361 lines 2653052 2653185 skipped 6
+set corpus-unformatted files 9260 9348 lines 2773838 2776485 skipped 17
+== 2026-10-31 56736b3 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 302 559 lines 19145 22055 skipped 0
+set corpus files 9354 9361 lines 2653052 2653185 skipped 6
+set corpus-unformatted files 9260 9348 lines 2773838 2776485 skipped 17
+== 2026-10-31 7cdbb97 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 302 559 lines 19145 22055 skipped 0
+set corpus files 9357 9361 lines 2653086 2653185 skipped 6
+set corpus-unformatted files 9263 9348 lines 2773871 2776485 skipped 17
+== 2026-10-31 c7c1f09 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 302 559 lines 19145 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 15f3d7b records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 304 559 lines 19174 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 ed8af2a records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 309 559 lines 19240 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 f246f93 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 311 559 lines 19249 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 6cd3a08 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 314 559 lines 19254 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 00e97b0 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 317 559 lines 19283 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 9ddf976 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 322 559 lines 19335 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 76725a8 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 323 559 lines 19336 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 1891833 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 329 559 lines 19384 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 7b28d61 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 332 559 lines 19393 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 48beb5a records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 336 559 lines 19417 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 215423d records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 341 559 lines 19432 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 3950f87 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 344 559 lines 19480 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 90dcd40 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 345 559 lines 19489 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 1bc695e records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 346 559 lines 19494 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 2d7693f records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 347 559 lines 19495 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 a4e6907 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 349 559 lines 19544 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 96110a6 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 357 559 lines 19663 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 206a865 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 366 559 lines 19771 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 d38fd6d records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 380 559 lines 19833 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 a9d7145 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 405 559 lines 20187 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9266 9348 lines 2774159 2776485 skipped 17
+== 2026-10-31 90b0ae0 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 414 559 lines 20246 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9267 9348 lines 2774589 2776485 skipped 17
+== 2026-10-31 74797b0 records/results/compatibility.txt
+reference rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 429 559 lines 20313 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9267 9348 lines 2774589 2776485 skipped 17
+== 2026-10-31 a536de7 records/results/compatibility.txt
+reference rustfmt 1.10.0-stable (58cf8f9c35 2026-10-13)
+set tests files 455 460 lines 11192 11205 skipped 0
+set tests-with-settings files 429 559 lines 20313 22055 skipped 0
+set corpus files 9358 9361 lines 2653089 2653185 skipped 6
+set corpus-unformatted files 9267 9348 lines 2774589 2776485 skipped 17
+== 2026-10-31 2315258 records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/comment5.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/comment6.rs [tests-with-settings]  `wrap_comments` splits words: not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue-5157/indented_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/nested_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue-5157/support_itemized_markdown_blockquote.rs [tests-with-settings]  `wrap_comments` reflows a markdown blockquote: not modelled
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus-unformatted]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+== 2026-10-31 ae7586b records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/doc_comment_code_block_small_heuristics/default-to-max.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_small_heuristics/max-to-default.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/100_greater_max_width.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/doc_comment_code_block_width/50.rs [tests-with-settings]  `format_code_in_doc_comments` changes code in docs beyond whitespace
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus-unformatted]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+== 2026-10-31 c1b3b8d records/policy/exceptions.txt
+tests/5131_one.rs [tests-with-settings]  `imports_granularity = "One"` with renames: not modelled
+tests/attrib.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/cfg_select.rs [tests-with-settings]  `cfg_select!` arm bodies unwrapped: macro-specific, not modelled
+tests/configs/disable_all_formatting/true.rs [tests-with-settings]  the expected file differs from its input beyond formatting
+tests/configs/match_arm_indent/nested.rs [tests-with-settings]  an attributed match arm body wrapped in a block: equivalent, not modelled
+tests/const-block-items.rs [tests]  the formatter drops `pub` from a const block
+tests/imports/imports.rs [tests-with-settings]  the formatter drops `use self` (invalid input)
+tests/issue-4689/one.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4689/two.rs [tests-with-settings]  the formatter drops a `for` without a binder list (invalid input)
+tests/issue-4808.rs [tests]  the formatter adds parentheses that change what a closure covers
+tests/issue_5027.rs [tests-with-settings]  the formatter drops `pub` from an impl item
+tests/issue_5730.rs [tests]  the formatter removes a `;` from a macro transcriber, which changes its expansion
+tests/macros.rs [tests-with-settings]  a `;` added after the last arm of a `macro_rules!` inside a macro: equivalent, not modelled
+tests/trailing-semicolon/loop-bodies.rs [tests-with-settings]  `trailing_semicolon` adds `;` after a macro call ending a loop body
+excused tests/issue-4808.rs [tests]  the expected `(|| ..).method()` puts parentheses around a closure, which changes what the closure covers
+excused tests/issue_5730.rs [tests]  the expected file drops a `;` from a `macro_rules!` transcriber, which changes its expansion
+excused tests/struct_field_doc_comment.rs [tests]  the expected file writes two spaces after a tuple field's visibility (`pub  u64`) after a comment
+excused tests/issue_6558.rs [tests]  the expected file drops `use self;` (invalid input), which changes the tokens; mto keeps it
+excused tests/const-block-items.rs [tests]  the expected file drops `pub` from a const block item, which changes the tokens
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267
+wasm-bindgen/crates/macro/pass-tests/static-attrs.rs [corpus-unformatted]  a static in an extern block loses its initializer (`= "string"`): the formatter's issue 6267

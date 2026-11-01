@@ -73,7 +73,7 @@ pub const FIELDS: &[Entry] = &[
     name: "toolchain.reference_formatter",
     unit: "version",
     definition: "The version of the standard formatter the compatibility record was made \
-      against: the `reference` line of compat/compatibility.txt without the program's \
+      against: the `reference` line of records/results/compatibility.txt without the program's \
       name.",
     measured: "`cargo xtask diff --update`, which asks the formatter for its version.",
     values: &[],
@@ -83,7 +83,7 @@ pub const FIELDS: &[Entry] = &[
     unit: "text",
     definition: "The machine the timed figures were recorded on: operating system, \
       architecture and logical cores. Timed limits apply only on that machine.",
-    measured: "The `machine` line of compat/performance.txt, written by `cargo xtask \
+    measured: "The `machine` line of records/results/ratchet.txt, written by `cargo xtask \
       metrics ratchet --update`.",
     values: &[],
   },
@@ -91,9 +91,9 @@ pub const FIELDS: &[Entry] = &[
     name: "corpus_fingerprint",
     unit: "`sha256:` and 16 hex digits",
     definition: "The start of the SHA-256 of the corpus pin list: one `NAME COMMIT` line, \
-      ending in a line feed, for each repository of compat/corpus.txt that is not opt-in, \
+      ending in a line feed, for each repository of records/pins/corpus.txt that is not opt-in, \
       in file order. Equal fingerprints mean the same corpus files.",
-    measured: "Computed from compat/corpus.txt by `cargo xtask docs`.",
+    measured: "Computed from records/pins/corpus.txt by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
@@ -115,7 +115,7 @@ pub const FIELDS: &[Entry] = &[
     name: "limits",
     unit: "map of figures",
     definition: "The performance ratchet: for each series named, the value \
-      compat/performance.txt holds it to. A new measurement may be worse than this by \
+      records/results/ratchet.txt holds it to. A new measurement may be worse than this by \
       the series' tolerance at most (see the performance paper).",
     measured: "`cargo xtask metrics ratchet --update`, from the latest measurements.",
     values: &[],
@@ -133,7 +133,7 @@ pub const METRICS: &[Entry] = &[
     definition: "Files whose output from mto equals the answer byte for byte, as a share \
       of the files scored in the set: `files_matched` over `files_scored`, times 100, \
       rounded to two decimals.",
-    measured: "`cargo xtask diff`; recorded in compat/compatibility.txt by `--update`. The \
+    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`. The \
       same figure is kept as the series of this name.",
     values: SETS,
   },
@@ -141,7 +141,7 @@ pub const METRICS: &[Entry] = &[
     name: "compat.<set>.files_matched",
     unit: "files",
     definition: "Files of the set whose output from mto equals the answer exactly.",
-    measured: "`cargo xtask diff`; recorded in compat/compatibility.txt by `--update`.",
+    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -149,7 +149,7 @@ pub const METRICS: &[Entry] = &[
     unit: "files",
     definition: "Files of the set that were scored: every input the standard formatter \
       answered. The inputs it refused are counted in `skipped` instead.",
-    measured: "`cargo xtask diff`; recorded in compat/compatibility.txt by `--update`.",
+    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -158,7 +158,7 @@ pub const METRICS: &[Entry] = &[
     definition: "The answers' lines that mto's outputs keep, as a share of all the \
       answers' lines: `lines_matched` over `lines_total`, times 100, rounded to two \
       decimals.",
-    measured: "`cargo xtask diff`; recorded in compat/compatibility.txt by `--update`. The \
+    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`. The \
       same figure is kept as the series of this name.",
     values: SETS,
   },
@@ -169,7 +169,7 @@ pub const METRICS: &[Entry] = &[
       subsequence of the lines of mto's output and the lines of the answer (every line of \
       a file that matches). A line counts wherever it sits, as long as the lines counted \
       keep their order.",
-    measured: "`cargo xtask diff`; recorded in compat/compatibility.txt by `--update`.",
+    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -178,7 +178,7 @@ pub const METRICS: &[Entry] = &[
     definition: "Summed over the scored files: the answer's lines, counted as the pieces \
       of its text between line feeds, so that a file ending in a line feed counts one \
       empty last line.",
-    measured: "`cargo xtask diff`; recorded in compat/compatibility.txt by `--update`.",
+    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -187,22 +187,22 @@ pub const METRICS: &[Entry] = &[
     definition: "Inputs of the set the standard formatter refused (it exited non-zero). \
       They are left out of every other figure, and the record holds this count down: a \
       run that refuses more fails.",
-    measured: "`cargo xtask diff`; recorded in compat/compatibility.txt by `--update`. The \
+    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`. The \
       same figure is kept as the series of this name.",
     values: SETS,
   },
   Entry {
     name: "compat.corpus.repositories",
     unit: "repositories",
-    definition: "Repositories of compat/corpus.txt that the corpus sets read: every pin \
+    definition: "Repositories of records/pins/corpus.txt that the corpus sets read: every pin \
       that is not opt-in.",
-    measured: "Counted from compat/corpus.txt by `cargo xtask docs`.",
+    measured: "Counted from records/pins/corpus.txt by `cargo xtask docs`.",
     values: &[],
   },
   Entry {
     name: "meaning.exceptions.<set>",
     unit: "files",
-    definition: "Entries of compat/meaning-exceptions.txt for the set: files where the \
+    definition: "Entries of records/policy/exceptions.txt for the set: files where the \
       meaning check flags the standard formatter's own output, each listed with its \
       reason. A flagged file not listed fails `cargo xtask diff`.",
     measured: "Written by hand after `cargo xtask diff` reports a flagged file.",
@@ -211,7 +211,7 @@ pub const METRICS: &[Entry] = &[
   Entry {
     name: "meaning.exceptions.total",
     unit: "files",
-    definition: "Entries of compat/meaning-exceptions.txt over every set.",
+    definition: "Entries of records/policy/exceptions.txt over every set.",
     measured: "Written by hand after `cargo xtask diff` reports a flagged file.",
     values: &[],
   },
@@ -252,7 +252,7 @@ pub const METRICS: &[Entry] = &[
     unit: "MB/s (10^6 bytes per second)",
     definition: "Corpus bytes over seconds for mto's lexer alone, release build, one \
       thread.",
-    measured: "`cargo xtask corpus check --baseline`; recorded in compat/baseline.txt.",
+    measured: "`cargo xtask corpus check --baseline`; recorded in records/results/baseline.txt.",
     values: &[],
   },
   Entry {
@@ -260,7 +260,7 @@ pub const METRICS: &[Entry] = &[
     unit: "MB/s (10^6 bytes per second)",
     definition: "Corpus bytes over seconds for mto's lexer and parser together, release \
       build, one thread.",
-    measured: "`cargo xtask corpus check --baseline`; recorded in compat/baseline.txt.",
+    measured: "`cargo xtask corpus check --baseline`; recorded in records/results/baseline.txt.",
     values: &[],
   },
   Entry {

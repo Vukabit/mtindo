@@ -75,7 +75,7 @@ fn compat_row(date: &str, commit: &str, compat: &Compat) -> Vec<String> {
 }
 
 fn compatibility(root: &Path, local: bool) -> Result<Paper, String> {
-  let text = read(root, "compat/compatibility.txt")?;
+  let text = read(root, "records/results/compatibility.txt")?;
   let compat = records::parse_compat(&text);
   let (fingerprint, repositories) = records::corpus_fingerprint(root)?;
   let mut figures = Vec::new();
@@ -102,7 +102,10 @@ fn compatibility(root: &Path, local: bool) -> Result<Paper, String> {
     .text("command", "cargo xtask diff --update")
     .list(
       "sources",
-      &["compat/compatibility.txt", "compat/corpus.txt"],
+      &[
+        "records/results/compatibility.txt",
+        "records/pins/corpus.txt",
+      ],
     )
     .map("toolchain", reference(&compat))
     .text("corpus_fingerprint", &fingerprint)
@@ -153,7 +156,7 @@ fn compatibility(root: &Path, local: bool) -> Result<Paper, String> {
     &rows,
   );
   let versions = recent(
-    records::file_history(root, "compat/compatibility.txt")?,
+    records::file_history(root, "records/results/compatibility.txt")?,
     |v| records::parse_compat(&v.text) == compat,
   );
   let mut rows = vec![compat_row("current", "", &compat)];
@@ -373,8 +376,15 @@ fn fuzzing(root: &Path, local: bool) -> Result<Paper, String> {
     .collect();
   let results = table(&["target", "kept inputs"], "lr", &rows);
   let path = "tests/fuzz_regressions";
+  let counted = |v: records::Version| {
+    let n: usize = v.text.strip_prefix("files ")?.parse().ok()?;
+    Some((v.commit, v.date, n))
+  };
   let versions = recent(
-    records::history(root, path, |hash| records::files_at(root, hash, path))?,
+    records::file_history(root, path)?
+      .into_iter()
+      .filter_map(counted)
+      .collect(),
     |(_, _, n)| *n == total,
   );
   let mut rows = vec![vec![
@@ -585,9 +595,9 @@ fn limit_row(date: &str, commit: &str, text: &str) -> Vec<String> {
 }
 
 fn meaning(root: &Path, local: bool) -> Result<Paper, String> {
-  let text = read(root, "compat/meaning-exceptions.txt")?;
+  let text = read(root, "records/policy/exceptions.txt")?;
   let exceptions = records::parse_exceptions(&text);
-  let compat = records::parse_compat(&read(root, "compat/compatibility.txt")?);
+  let compat = records::parse_compat(&read(root, "records/results/compatibility.txt")?);
   let (fingerprint, _) = records::corpus_fingerprint(root)?;
   let counts = |list: &[records::Exception]| {
     let unmodelled = list.iter().filter(|e| unmodelled(&e.reason)).count();
@@ -620,7 +630,10 @@ fn meaning(root: &Path, local: bool) -> Result<Paper, String> {
     .text("command", "cargo xtask diff")
     .list(
       "sources",
-      &["compat/meaning-exceptions.txt", "compat/compatibility.txt"],
+      &[
+        "records/policy/exceptions.txt",
+        "records/results/compatibility.txt",
+      ],
     )
     .map("toolchain", reference(&compat))
     .text("corpus_fingerprint", &fingerprint)
@@ -650,8 +663,8 @@ fn meaning(root: &Path, local: bool) -> Result<Paper, String> {
     results.push_str(&wrap(&format!("{} ({})", reason, n), WIDTH, "- ", "  "));
   }
   let versions = recent(
-    records::file_history(root, "compat/meaning-exceptions.txt")?,
-    |v| v.text == text,
+    records::file_history(root, "records/policy/exceptions.txt")?,
+    |v| Some(&v.text) == super::history::current(root, "records/policy/exceptions.txt").as_ref(),
   );
   let mut rows = vec![exception_row("current", "", &exceptions)];
   for v in &versions {
@@ -697,7 +710,7 @@ fn meaning(root: &Path, local: bool) -> Result<Paper, String> {
 fn performance(root: &Path, local: bool) -> Result<Paper, String> {
   let text = read(root, metrics::RECORD)?;
   let (machine, limits) = metrics::parse_record(&text);
-  let baseline = records::parse_baseline(&read(root, "compat/baseline.txt")?);
+  let baseline = records::parse_baseline(&read(root, "records/results/baseline.txt")?);
   let before = records::parse_before(&read(root, metrics::BASELINE)?);
   let mut figures = Vec::new();
   if let Some(lex) = baseline.lex {
@@ -710,7 +723,11 @@ fn performance(root: &Path, local: bool) -> Result<Paper, String> {
     .text("command", "cargo xtask metrics ratchet --update")
     .list(
       "sources",
-      &[metrics::RECORD, "compat/baseline.txt", metrics::BASELINE],
+      &[
+        metrics::RECORD,
+        "records/results/baseline.txt",
+        metrics::BASELINE,
+      ],
     )
     .text("machine", &machine)
     .text(
@@ -782,8 +799,9 @@ fn performance(root: &Path, local: bool) -> Result<Paper, String> {
       vec!["lexer and parser".to_string(), speed(baseline.lex_parse)],
     ],
   ));
+  let now = super::history::current(root, metrics::RECORD);
   let versions = recent(records::file_history(root, metrics::RECORD)?, |v| {
-    v.text == text
+    Some(&v.text) == now.as_ref()
   });
   let mut rows = vec![limit_row("current", "", &text)];
   for v in &versions {
@@ -983,8 +1001,9 @@ mod tests {
     );
     let compat = &pages[0];
     let results = compat.regions[1].text.as_deref().unwrap();
-    let record =
-      records::parse_compat(&fs::read_to_string(root().join("compat/compatibility.txt")).unwrap());
+    let record = records::parse_compat(
+      &fs::read_to_string(root().join("records/results/compatibility.txt")).unwrap(),
+    );
     let corpus = record.sets["corpus"];
     assert!(results.contains(&format!("{} of {}", corpus.matched_files, corpus.files)));
     assert!(results.contains("corpus-scrambled"));

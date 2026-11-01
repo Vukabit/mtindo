@@ -1,4 +1,4 @@
-# What mto supports of rustfmt's surface (compat/rustfmt-surface.txt), plus mto's
+# What mto supports of rustfmt's surface (records/upstream/rustfmt-surface.txt), plus mto's
 # own features. One line per item: KIND NAME STATUS [# NOTE]. Checked by
 # `cargo xtask gates capabilities`; `cargo xtask capabilities sync` adds new items
 # as missing, drops stale ones and restores the canonical layout.

@@ -1,6 +1,6 @@
 //! `mto config options`: every setting a configuration file may hold, by file, with its legal
 //! values and default, and for the standard formatter's settings how far mto honors each
-//! (from `compat/capabilities.txt`, generated into [`crate::options::support`]).
+//! (from `records/policy/capabilities.txt`, generated into [`crate::options::support`]).
 
 use crate::options::{self, File, Kind, Setting, support};
 

@@ -1,5 +1,5 @@
 //! Generates `src/text/unicode/ident_tables.rs`, `punctuation_tables.rs` and `width_tables.rs`
-//! from the Unicode Character Database. Downloads are cached in `compat/cache/unicode/<version>/`.
+//! from the Unicode Character Database. Downloads are cached in `.dev/cache/unicode/<version>/`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -116,7 +116,7 @@ pub(crate) fn rustfmt(source: &str) -> Result<String, String> {
 
 fn cache_dir(root: &Path, version: &str) -> PathBuf {
   root
-    .join("compat")
+    .join(".dev")
     .join("cache")
     .join("unicode")
     .join(version)

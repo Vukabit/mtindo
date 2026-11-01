@@ -2,7 +2,7 @@
 //! dashboard shows, from the same records:
 //!
 //! - the tree (commit, and a digest of any uncommitted changes) and the last green run;
-//! - the v0.1.0 gates against their targets, from `compat/compatibility.txt`;
+//! - the v0.1.0 gates against their targets, from `records/results/compatibility.txt`;
 //! - jobs running now, and the latest runs;
 //! - incidents by status, and the open ones that fail the suite.
 
@@ -73,7 +73,8 @@ fn render(root: &Path) -> String {
   out.push_str(&format!("tree       {}\n", tree::identity(root)));
   out.push_str(&format!("last green {}\n", last_green(root)));
   out.push_str("\nV0.1.0 GATES                   files           lines\n");
-  let record = fs::read_to_string(root.join("compat/compatibility.txt")).unwrap_or_default();
+  let record =
+    fs::read_to_string(root.join("records/results/compatibility.txt")).unwrap_or_default();
   for (set, files, lines) in gates(&record) {
     out.push_str(&format!(
       "  {:<22} {:>7.1}% {} {:>7.2}% {}\n",

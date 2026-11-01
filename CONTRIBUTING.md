@@ -18,7 +18,7 @@ tooling. Every development command, with its arguments, is in the
   lower its record.
 - **A bug of rustfmt's is recorded, not matched.** When rustfmt's output fails
   the meaning check and `mto`'s passes, the run lists the file in
-  `compat/meaning-exceptions.txt` as auto-recorded, to triage, instead of
+  `records/policy/exceptions.txt` as auto-recorded, to triage, instead of
   failing. Triage it: if it is a real bug of rustfmt's, give it its reason
   and report it upstream; if the check lacks an equivalent rewrite, add the
   rewrite (`src/verify/rewrites.rs`) and drop the entry.

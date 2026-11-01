@@ -481,7 +481,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
   tasks.push(
     Task::new(
       "diff",
-      "Compatibility with the Rust style stays at or above compat/compatibility.txt",
+      "Compatibility with the Rust style stays at or above records/results/compatibility.txt",
       "heavy",
       Action::Command(this_binary.clone(), vec!["diff".into()]),
     )

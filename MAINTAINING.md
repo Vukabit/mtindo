@@ -19,7 +19,8 @@ pushed and checked by CI like anyone's.
    wait for CI to pass on its last commit.
 2. **Run the corpus** on that exact tree: `cargo xtask diff`. A release needs
    a passing run for the commit it is cut from. To record new numbers, run
-   `cargo xtask diff --update` and commit `compat/compatibility.txt` first.
+   `cargo xtask diff --update` and commit `records/results/compatibility.txt`
+   first.
 3. **See the plan**: `cargo xtask flow release 0.2.0`. It checks the tree is
    clean and pushed, CI passed, the corpus run, the credentials' expiry and
    that the crate builds as crates.io would get it, then says what it would
@@ -111,23 +112,22 @@ tag or branch. To move one, look up the commit its new release points to
 
 ## The corpus
 
-`compat/corpus.txt` pins real crates at fixed commits; `cargo xtask diff`
+`records/pins/corpus.txt` pins real crates at fixed commits; `cargo xtask diff`
 formats them with `mto` and the standard formatter and compares, failing
-below `compat/compatibility.txt`. `cargo xtask corpus update` moves every pin
-to its repository's current head; record the new numbers after. Findings are
-filed as incidents (`cargo xtask incidents`), as fuzzing's are
+below `records/results/compatibility.txt`. `cargo xtask corpus update` moves
+every pin to its repository's current head; record the new numbers after.
+Findings are filed as incidents (`cargo xtask incidents`), as fuzzing's are
 (`cargo xtask fuzz run TARGET`).
 
 ## Measurements only a maintainer takes
 
 The memory series (`memst.serde.*`), their limits in
-`compat/performance.txt` and the papers' memory rows are measured with memst
-(`cargo xtask memst`), a profiler of its own that is not yet published. Until
-it is, keeping them current is the maintainer's job: `flow.toml` marks memst
-optional, `cargo xtask test` skips its task without it, and nothing a
+`records/results/ratchet.txt` and the papers' memory rows are measured with
+memst (`cargo xtask memst`), a profiler of its own that is not yet published.
+Until it is, keeping them current is the maintainer's job: `flow.toml` marks
+memst optional, `cargo xtask test` skips its task without it, and nothing a
 contributor or a release runs needs it. Once memst is on crates.io, its
-`[tools.memst]` pin becomes a `cargo` tool like the others and these notes
-go.
+`[tools.memst]` pin becomes a `cargo` tool like the others and these notes go.
 
 ## Credentials
 

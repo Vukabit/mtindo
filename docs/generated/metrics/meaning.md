@@ -2,12 +2,12 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-10-31T23:39:02.063Z"
-commit: "a536de7-dirty.e560aa14"
+generated: "2026-11-01T02:35:40.822Z"
+commit: "096a91d-dirty.7f47fb1f"
 command: "cargo xtask diff"
 sources:
-  - compat/meaning-exceptions.txt
-  - compat/compatibility.txt
+  - records/policy/exceptions.txt
+  - records/results/compatibility.txt
 toolchain:
   reference_formatter: "1.10.0-stable (58cf8f9c35 2026-10-13)"
 corpus_fingerprint: "sha256:0d26c0baa5577082"
@@ -73,7 +73,7 @@ input sets) on every scored input:
 - The same meaning check runs on the standard formatter's own output. This
   tests the check itself: a flag there is either a rewrite the check does
   not model yet, or a real fault of the standard formatter. Each flagged
-  file must be listed in compat/meaning-exceptions.txt with its reason, or
+  file must be listed in records/policy/exceptions.txt with its reason, or
   the run fails; a listed file no longer flagged is reported for removal.
 
 This paper counts the listed exceptions, which are tracked, and classifies
@@ -135,13 +135,11 @@ repeated.
 | date | commit | listed | not modelled | other |
 |---|---|---:|---:|---:|
 | current |  | 21 | 5 | 16 |
-| 2026-10-31 | c1b3b8d | 21 | 5 | 16 |
 | 2026-10-31 | ae7586b | 25 | 5 | 20 |
 | 2026-10-31 | 2315258 | 30 | 10 | 20 |
 | 2026-10-30 | 394bd5e | 31 | 10 | 21 |
 | 2026-10-30 | a3e5879 | 31 | 10 | 21 |
 | 2026-10-24 | c7fa04f | 29 | 10 | 19 |
-| 2026-10-21 | 89c3628 | 32 | 10 | 22 |
 | 2026-10-17 | fd5de34 | 32 | 10 | 22 |
 | 2026-10-17 | 5e09478 | 31 | 10 | 21 |
 | 2026-10-15 | 65e3945 | 97 | 20 | 77 |
@@ -200,7 +198,7 @@ status:
 ```bash
 # Score every set; fails on any of mto's outputs that changes meaning or is
 # not stable, and on any flag of the standard formatter's output that
-# compat/meaning-exceptions.txt does not list
+# records/policy/exceptions.txt does not list
 cargo xtask diff
 # mto's failures, filed once each, with their inputs
 cargo xtask incidents list --kind meaning --kind unstable --kind panic

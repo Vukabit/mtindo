@@ -40,8 +40,8 @@ authors and maintainers.
 ## The corpus
 
 `mto` is measured on these repositories, pinned to a commit in
-`compat/corpus.txt`, fetched for the checks and never included. Each is the
-work of its own authors, under its own licence, and is named here with the
+`records/pins/corpus.txt`, fetched for the checks and never included. Each is
+the work of its own authors, under its own licence, and is named here with the
 account or organization that hosts it.
 
 Formatted and laid out, then built, to prove they still compile:

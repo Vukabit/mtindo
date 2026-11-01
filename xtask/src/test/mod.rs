@@ -225,11 +225,11 @@ pub fn render_help(root: &Path, color: bool) -> String {
       "every green default or full run, by exact tree",
     ),
     (
-      "compat/rustfmt-surface.txt",
+      "records/upstream/rustfmt-surface.txt",
       "rustfmt's options and flags; update with cargo xtask capabilities refresh",
     ),
     (
-      "compat/capabilities.txt",
+      "records/policy/capabilities.txt",
       "mto's status for each; add new items with cargo xtask capabilities sync",
     ),
   ] {

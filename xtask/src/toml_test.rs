@@ -1,6 +1,6 @@
 //! `cargo xtask toml-test`: runs the shared TOML conformance suite (`toml-test`, pinned in
-//! `compat/toml-test.txt`) against mto's TOML parser. The suite is checked out into
-//! `compat/cache/toml-test/` and run by `xtask-tools`, which links mtindo.
+//! `records/pins/toml-test.txt`) against mto's TOML parser. The suite is checked out into
+//! `.dev/cache/toml-test/` and run by `xtask-tools`, which links mtindo.
 
 use std::fs;
 use std::path::Path;
@@ -10,7 +10,7 @@ use crate::common::log::Logger;
 use crate::common::process;
 use crate::corpus::{checkout_into, parse_pins};
 
-const PINS_PATH: &str = "compat/toml-test.txt";
+const PINS_PATH: &str = "records/pins/toml-test.txt";
 
 pub fn run(root: &Path, _: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "toml-test");
@@ -28,7 +28,7 @@ pub fn run(root: &Path, _: &clap::ArgMatches) -> ExitCode {
     println!("{} pins nothing", PINS_PATH);
     return ExitCode::from(1);
   };
-  let base = root.join("compat").join("cache").join("toml-test");
+  let base = root.join(".dev").join("cache").join("toml-test");
   match checkout_into(&base, pin, &log) {
     Ok(what) => log.info(&format!("toml-test {} at {}", what, pin.commit)),
     Err(e) => {

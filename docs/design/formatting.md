@@ -231,5 +231,5 @@ last statement.
 `cargo xtask diff` compares mto's output with the standard formatter's own
 test pairs and with its output on a pinned corpus, as written and with the
 whitespace scrambled. Exact file and line matches are recorded in
-`compat/compatibility.txt` and may only rise. `mto debug layout FILE` explains
-each place code was left as written (`src/format/explain.rs`).
+`records/results/compatibility.txt` and may only rise. `mto debug layout FILE`
+explains each place code was left as written (`src/format/explain.rs`).

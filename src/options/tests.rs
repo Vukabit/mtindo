@@ -45,7 +45,7 @@ fn test_every_formatting_option_is_in_the_table() {
   // The capabilities reader and the settings generator read the standard formatter's
   // source separately; they must find the same options.
   let surface = std::fs::read_to_string(
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("compat/rustfmt-surface.txt"),
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("records/upstream/rustfmt-surface.txt"),
   )
   .unwrap();
   let mut checked = 0;

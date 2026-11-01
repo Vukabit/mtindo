@@ -1,4 +1,4 @@
-//! `compat/capabilities.txt`: mto's status for every item, kept by hand.
+//! `records/policy/capabilities.txt`: mto's status for every item, kept by hand.
 //!
 //! A line is `KIND NAME STATUS [# NOTE]`, sorted by kind then name, in fixed columns; the
 //! comment block at the top is kept as written. `cargo xtask capabilities sync` rewrites the
@@ -7,7 +7,7 @@
 use super::surface::{KIND_WIDTH, Kind, NAME_WIDTH};
 
 pub const DEFAULT_HEADER: &str = "\
-# What mto supports of rustfmt's surface (compat/rustfmt-surface.txt), plus mto's
+# What mto supports of rustfmt's surface (records/upstream/rustfmt-surface.txt), plus mto's
 # own features. One line per item: KIND NAME STATUS [# NOTE]. Checked by
 # `cargo xtask gates capabilities`; `cargo xtask capabilities sync` adds new items
 # as missing, drops stale ones and restores the canonical layout.
@@ -89,21 +89,21 @@ impl Manifest {
       let words: Vec<&str> = fields.split_whitespace().collect();
       if words.len() != 3 {
         errors.push(format!(
-          "compat/capabilities.txt:{}: expected KIND NAME STATUS",
+          "records/policy/capabilities.txt:{}: expected KIND NAME STATUS",
           line_no
         ));
         continue;
       }
       let Some(kind) = Kind::parse(words[0]) else {
         errors.push(format!(
-          "compat/capabilities.txt:{}: unknown kind `{}`",
+          "records/policy/capabilities.txt:{}: unknown kind `{}`",
           line_no, words[0]
         ));
         continue;
       };
       let Some(status) = Status::parse(words[2]) else {
         errors.push(format!(
-          "compat/capabilities.txt:{}: unknown status `{}` (use {})",
+          "records/policy/capabilities.txt:{}: unknown status `{}` (use {})",
           line_no,
           words[2],
           STATUSES

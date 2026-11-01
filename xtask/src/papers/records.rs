@@ -1,18 +1,16 @@
-//! Reading what the suites recorded: the tracked records under compat/ and their git
+//! Reading what the suites recorded: the tracked records under records/ and their
 //! history, and the machine-local records under `.dev/`. Nothing here measures anything.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use crate::common::log::timestamp;
-use crate::common::process;
 
 /// What [`score_bands`] counts, in order.
 pub const SCORE_BANDS: [&str; 4] = ["every line", "99% or more", "90% to 99%", "under 90%"];
 
-/// compat/baseline.txt.
+/// records/results/baseline.txt.
 #[derive(Debug, Default, PartialEq)]
 pub struct Baseline {
   pub machine: String,
@@ -21,7 +19,7 @@ pub struct Baseline {
   pub lex_parse: Option<f64>,
 }
 
-/// One figure of compat/optimization-baseline.txt, as written.
+/// One figure of records/archive/2026-10-optimization.txt, as written.
 #[derive(Debug, PartialEq)]
 pub struct Before {
   pub name: String,
@@ -30,14 +28,14 @@ pub struct Before {
   pub when: String,
 }
 
-/// compat/compatibility.txt: the reference it was made against and each set's numbers.
+/// records/results/compatibility.txt: the reference it was made against and each set's numbers.
 #[derive(Debug, Default, PartialEq)]
 pub struct Compat {
   pub reference: String,
   pub sets: BTreeMap<String, Tally>,
 }
 
-/// One entry of compat/meaning-exceptions.txt.
+/// One entry of records/policy/exceptions.txt.
 #[derive(Debug, PartialEq)]
 pub struct Exception {
   pub path: String,
@@ -75,7 +73,7 @@ pub struct Version {
   pub text: String,
 }
 
-/// compat/corpus.txt's fingerprint, as the dictionary defines `corpus_fingerprint`, and
+/// records/pins/corpus.txt's fingerprint, as the dictionary defines `corpus_fingerprint`, and
 /// the number of repositories it covers.
 pub fn corpus_fingerprint(root: &Path) -> Result<(String, usize), String> {
   let pins = crate::corpus::load_pins(root)?;
@@ -95,23 +93,19 @@ pub fn day_written(path: &Path) -> Option<String> {
   Some(timestamp(modified)[..10].to_string())
 }
 
-/// The text of `path` at each commit that changed it, newest first.
+/// The text of a tracked record each time it changed, newest first, from
+/// records/results/history.txt (without its comments).
 pub fn file_history(root: &Path, path: &str) -> Result<Vec<Version>, String> {
-  let versions = history(root, path, |hash| {
-    git(root, &["show", &format!("{}:{}", hash, path)]).ok()
-  })?;
   Ok(
-    versions
+    super::history::of(root, path)
       .into_iter()
-      .map(|(commit, date, text)| Version { commit, date, text })
+      .map(|e| Version {
+        commit: e.commit,
+        date: e.date,
+        text: e.text,
+      })
       .collect(),
   )
-}
-
-/// Files under `path` at `commit`.
-pub fn files_at(root: &Path, commit: &str, path: &str) -> Option<usize> {
-  let listing = git(root, &["ls-tree", "-r", "--name-only", commit, "--", path]).ok()?;
-  Some(listing.lines().filter(|l| !l.is_empty()).count())
 }
 
 /// The kinds of syntax at the first differing line of every mismatching file of the last
@@ -128,26 +122,6 @@ pub fn first_kinds(root: &Path) -> Option<Vec<(String, u64)>> {
   let mut ranked: Vec<(String, u64)> = counts.into_iter().collect();
   ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
   Some(ranked)
-}
-
-/// Each commit that changed `path` (a file or a folder), newest first, with `read` applied
-/// to the path at that commit. An error when git cannot say.
-pub fn history<T>(
-  root: &Path,
-  path: &str,
-  read: impl Fn(&str) -> Option<T>,
-) -> Result<Vec<(String, String, T)>, String> {
-  let log = git(root, &["log", "--format=%H %as", "--", path])?;
-  let mut out = Vec::new();
-  for line in log.lines() {
-    let Some((hash, date)) = line.split_once(' ') else {
-      continue;
-    };
-    if let Some(value) = read(hash) {
-      out.push((hash[..7].to_string(), date.to_string(), value));
-    }
-  }
-  Ok(out)
 }
 
 pub fn parse_baseline(text: &str) -> Baseline {
@@ -169,7 +143,7 @@ pub fn parse_baseline(text: &str) -> Baseline {
   baseline
 }
 
-/// The figures of compat/optimization-baseline.txt: `NAME VALUE UNIT BETTER WHEN SOURCE`.
+/// The figures of records/archive/2026-10-optimization.txt: `NAME VALUE UNIT BETTER WHEN SOURCE`.
 pub fn parse_before(text: &str) -> Vec<Before> {
   text
     .lines()
@@ -219,7 +193,7 @@ pub fn parse_compat(text: &str) -> Compat {
   compat
 }
 
-/// The entries of compat/meaning-exceptions.txt: `PATH [SET]` and the reason.
+/// The entries of records/policy/exceptions.txt: `PATH [SET]` and the reason.
 pub fn parse_exceptions(text: &str) -> Vec<Exception> {
   text
     .lines()
@@ -286,27 +260,6 @@ pub fn score_bands(root: &Path) -> Option<(String, BTreeMap<String, [u64; 4]>)> 
     bands.entry(set.0.to_string()).or_default()[band] += 1;
   }
   Some((day_written(&path).unwrap_or_default(), bands))
-}
-
-/// `git ARGS` in `root`: its output, or why it failed.
-fn git(root: &Path, args: &[&str]) -> Result<String, String> {
-  let done = process::output(
-    Command::new("git")
-      .args(args)
-      .current_dir(root)
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped()),
-    process::QUICK,
-  )
-  .map_err(|e| format!("cannot run git: {}", e))?;
-  if done.code != 0 {
-    return Err(format!(
-      "git {} failed: {}",
-      args.join(" "),
-      String::from_utf8_lossy(&done.stderr).trim()
-    ));
-  }
-  Ok(String::from_utf8_lossy(&done.stdout).into_owned())
 }
 
 #[cfg(test)]
@@ -387,7 +340,7 @@ mod tests {
   #[test]
   fn test_the_tracked_records_have_history() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let versions = file_history(root, "compat/compatibility.txt").unwrap();
+    let versions = file_history(root, "records/results/compatibility.txt").unwrap();
     assert!(!versions.is_empty());
     assert!(
       versions

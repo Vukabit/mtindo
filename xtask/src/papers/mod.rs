@@ -8,7 +8,7 @@
 //! ([`dictionary`], rendered as `docs/generated/metrics/dictionary.md`); writing one it does not
 //! define is an error.
 //!
-//! Nothing is measured here. Most regions are read from tracked records (compat/, the fuzz
+//! Nothing is measured here. Most regions are read from tracked records (records/, the fuzz
 //! targets and the kept regression inputs) and their git history: the `metrics-docs` gate
 //! regenerates those and fails when a page differs. Local regions are read from the
 //! machine-local records under `.dev/` (the last diff run's per-file scores, incidents,
@@ -19,6 +19,7 @@
 
 mod build;
 pub mod dictionary;
+pub mod history;
 mod records;
 
 use std::fs;
@@ -236,7 +237,17 @@ pub fn check(root: &Path) -> Vec<String> {
     Ok(pages) => pages,
     Err(e) => return vec![format!("metrics papers: {}", e)],
   };
-  let mut problems = Vec::new();
+  let mut problems: Vec<String> = history::stale(root)
+    .into_iter()
+    .map(|path| {
+      format!(
+        "{}: {} changed since its last entry; run `{}`",
+        history::FILE,
+        path,
+        REGENERATE
+      )
+    })
+    .collect();
   for page in &pages {
     let Ok(written) = fs::read_to_string(root.join(&page.path)) else {
       problems.push(format!(
@@ -279,6 +290,24 @@ pub fn run(root: &Path, only_compare: bool) -> ExitCode {
   }
   let log = Logger::new(root, "docs");
   log.info(&format!("cargo xtask {}", crate::cli::line()));
+  // A record changed since its last entry gains one, recorded on top of HEAD.
+  let today = timestamp(SystemTime::now())[..10].to_string();
+  let head = tree::identity(root);
+  let head = head.split('-').next().unwrap_or(&head).to_string();
+  match history::append(root, &today, &head) {
+    Ok(0) => {}
+    Ok(n) => println!(
+      "{}: {} new entr{}",
+      history::FILE,
+      n,
+      if n == 1 { "y" } else { "ies" }
+    ),
+    Err(e) => {
+      log.error(&e);
+      println!("{}", e);
+      return ExitCode::from(1);
+    }
+  }
   let pages = match build::all(root, true) {
     Ok(pages) => pages,
     Err(e) => {

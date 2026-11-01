@@ -77,8 +77,8 @@ files with the whitespace between their tokens scrambled.
 
 - Unit: version.
 - Definition: The version of the standard formatter the compatibility record was
-  made against: the `reference` line of compat/compatibility.txt without the
-  program's name.
+  made against: the `reference` line of records/results/compatibility.txt
+  without the program's name.
 - Measured: `cargo xtask diff --update`, which asks the formatter for its
   version.
 
@@ -87,16 +87,17 @@ files with the whitespace between their tokens scrambled.
 - Unit: text.
 - Definition: The machine the timed figures were recorded on: operating system,
   architecture and logical cores. Timed limits apply only on that machine.
-- Measured: The `machine` line of compat/performance.txt, written by `cargo
+- Measured: The `machine` line of records/results/ratchet.txt, written by `cargo
   xtask metrics ratchet --update`.
 
 ### `corpus_fingerprint`
 
 - Unit: `sha256:` and 16 hex digits.
 - Definition: The start of the SHA-256 of the corpus pin list: one `NAME COMMIT`
-  line, ending in a line feed, for each repository of compat/corpus.txt that is
-  not opt-in, in file order. Equal fingerprints mean the same corpus files.
-- Measured: Computed from compat/corpus.txt by `cargo xtask docs`.
+  line, ending in a line feed, for each repository of records/pins/corpus.txt
+  that is not opt-in, in file order. Equal fingerprints mean the same corpus
+  files.
+- Measured: Computed from records/pins/corpus.txt by `cargo xtask docs`.
 
 ### `seed`
 
@@ -115,8 +116,8 @@ files with the whitespace between their tokens scrambled.
 
 - Unit: map of figures.
 - Definition: The performance ratchet: for each series named, the value
-  compat/performance.txt holds it to. A new measurement may be worse than this
-  by the series' tolerance at most (see the performance paper).
+  records/results/ratchet.txt holds it to. A new measurement may be worse than
+  this by the series' tolerance at most (see the performance paper).
 - Measured: `cargo xtask metrics ratchet --update`, from the latest
   measurements.
 <!-- end generated -->
@@ -130,7 +131,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: Files whose output from mto equals the answer byte for byte, as a
   share of the files scored in the set: `files_matched` over `files_scored`,
   times 100, rounded to two decimals.
-- Measured: `cargo xtask diff`; recorded in compat/compatibility.txt by
+- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
   `--update`. The same figure is kept as the series of this name.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
@@ -139,7 +140,7 @@ files with the whitespace between their tokens scrambled.
 
 - Unit: files.
 - Definition: Files of the set whose output from mto equals the answer exactly.
-- Measured: `cargo xtask diff`; recorded in compat/compatibility.txt by
+- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
   `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
@@ -149,7 +150,7 @@ files with the whitespace between their tokens scrambled.
 - Unit: files.
 - Definition: Files of the set that were scored: every input the standard
   formatter answered. The inputs it refused are counted in `skipped` instead.
-- Measured: `cargo xtask diff`; recorded in compat/compatibility.txt by
+- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
   `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
@@ -160,7 +161,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: The answers' lines that mto's outputs keep, as a share of all the
   answers' lines: `lines_matched` over `lines_total`, times 100, rounded to two
   decimals.
-- Measured: `cargo xtask diff`; recorded in compat/compatibility.txt by
+- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
   `--update`. The same figure is kept as the series of this name.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
@@ -172,7 +173,7 @@ files with the whitespace between their tokens scrambled.
   subsequence of the lines of mto's output and the lines of the answer (every
   line of a file that matches). A line counts wherever it sits, as long as the
   lines counted keep their order.
-- Measured: `cargo xtask diff`; recorded in compat/compatibility.txt by
+- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
   `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
@@ -183,7 +184,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: Summed over the scored files: the answer's lines, counted as the
   pieces of its text between line feeds, so that a file ending in a line feed
   counts one empty last line.
-- Measured: `cargo xtask diff`; recorded in compat/compatibility.txt by
+- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
   `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
@@ -194,7 +195,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: Inputs of the set the standard formatter refused (it exited
   non-zero). They are left out of every other figure, and the record holds this
   count down: a run that refuses more fails.
-- Measured: `cargo xtask diff`; recorded in compat/compatibility.txt by
+- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
   `--update`. The same figure is kept as the series of this name.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
@@ -202,14 +203,14 @@ files with the whitespace between their tokens scrambled.
 ### `compat.corpus.repositories`
 
 - Unit: repositories.
-- Definition: Repositories of compat/corpus.txt that the corpus sets read: every
-  pin that is not opt-in.
-- Measured: Counted from compat/corpus.txt by `cargo xtask docs`.
+- Definition: Repositories of records/pins/corpus.txt that the corpus sets read:
+  every pin that is not opt-in.
+- Measured: Counted from records/pins/corpus.txt by `cargo xtask docs`.
 
 ### `meaning.exceptions.<set>`
 
 - Unit: files.
-- Definition: Entries of compat/meaning-exceptions.txt for the set: files where
+- Definition: Entries of records/policy/exceptions.txt for the set: files where
   the meaning check flags the standard formatter's own output, each listed with
   its reason. A flagged file not listed fails `cargo xtask diff`.
 - Measured: Written by hand after `cargo xtask diff` reports a flagged file.
@@ -219,7 +220,7 @@ files with the whitespace between their tokens scrambled.
 ### `meaning.exceptions.total`
 
 - Unit: files.
-- Definition: Entries of compat/meaning-exceptions.txt over every set.
+- Definition: Entries of records/policy/exceptions.txt over every set.
 - Measured: Written by hand after `cargo xtask diff` reports a flagged file.
 
 ### `meaning.exceptions.unmodelled`
@@ -258,7 +259,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: Corpus bytes over seconds for mto's lexer alone, release build,
   one thread.
 - Measured: `cargo xtask corpus check --baseline`; recorded in
-  compat/baseline.txt.
+  records/results/baseline.txt.
 
 ### `corpus.lex_parse.mb_per_s`
 
@@ -266,7 +267,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: Corpus bytes over seconds for mto's lexer and parser together,
   release build, one thread.
 - Measured: `cargo xtask corpus check --baseline`; recorded in
-  compat/baseline.txt.
+  records/results/baseline.txt.
 
 ### `speed.speedup.stable`
 

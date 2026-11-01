@@ -1,8 +1,8 @@
 //! `docs [--check]`: what docs/generated/ holds that is written from mtindo's own tables. The
 //! settings reference in docs/generated/config/, a dictionary of every key mto reads from a
 //! configuration file, is written from the settings table (`mtindo::options`, which
-//! `mto --man` and `mto config print` read too), each key's status in compat/capabilities.txt,
-//! and the rustfmt releases pinned in compat/rustfmt-surface.txt; the manual,
+//! `mto --man` and `mto config print` read too), each key's status in records/policy/capabilities.txt,
+//! and the rustfmt releases pinned in records/upstream/rustfmt-surface.txt; the manual,
 //! docs/generated/manual.md, is `mto --man`. Neither can disagree with what it is written
 //! from; `--check` only compares, for the `generated-docs` gate.
 //!
@@ -58,7 +58,7 @@ impl Sources {
   }
 }
 
-/// What mto does with a key or value: its status and note in compat/capabilities.txt.
+/// What mto does with a key or value: its status and note in records/policy/capabilities.txt.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Support {
   status: String,
@@ -262,18 +262,18 @@ fn front_matter(
   out
 }
 
-/// Every file of the reference, by name, from the table and the files in compat/.
+/// Every file of the reference, by name, from the table and the files in records/.
 fn generate(root: &Path) -> Result<Vec<(&'static str, String)>, String> {
   let read = |path: &str| {
     fs::read_to_string(root.join(path)).map_err(|e| format!("cannot read {}: {}", path, e))
   };
   let sources = sources(
-    &read("compat/capabilities.txt")?,
-    &read("compat/rustfmt-surface.txt")?,
+    &read("records/policy/capabilities.txt")?,
+    &read("records/upstream/rustfmt-surface.txt")?,
   )?;
   if sources.stable.version != options::RUSTFMT_VERSION {
     return Err(format!(
-      "compat/rustfmt-surface.txt pins rustfmt {}, but src/options/rustfmt.rs follows {}; \
+      "records/upstream/rustfmt-surface.txt pins rustfmt {}, but src/options/rustfmt.rs follows {}; \
        run `cargo xtask settings`",
       sources.stable.version,
       options::RUSTFMT_VERSION
@@ -753,14 +753,19 @@ fn sources(capabilities: &str, surface: &str) -> Result<Sources, String> {
       .lines()
       .map(|line| line.split_whitespace().collect::<Vec<_>>())
       .find(|words| words.len() > 3 && words[0] == "source" && words[1] == channel)
-      .ok_or_else(|| format!("compat/rustfmt-surface.txt pins no {} release", channel))?;
+      .ok_or_else(|| {
+        format!(
+          "records/upstream/rustfmt-surface.txt pins no {} release",
+          channel
+        )
+      })?;
     let released = words
       .iter()
       .position(|w| *w == "released")
       .and_then(|at| words.get(at + 1))
       .ok_or_else(|| {
         format!(
-          "compat/rustfmt-surface.txt: the {} release has no date",
+          "records/upstream/rustfmt-surface.txt: the {} release has no date",
           channel
         )
       })?;

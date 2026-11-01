@@ -1,6 +1,6 @@
 # Speed baseline, written by `cargo xtask corpus check --baseline` (release build,
 # one thread). Numbers depend on the machine; compare runs on the same one.
 machine    macos aarch64, 10 cores
-corpus     10731 files, 90345059 bytes (compat/corpus.txt)
+corpus     10731 files, 90345059 bytes (records/pins/corpus.txt)
 lex        363.5 MB/s
 lex+parse  57.6 MB/s

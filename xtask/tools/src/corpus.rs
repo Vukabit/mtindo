@@ -13,7 +13,7 @@
 //!   the crate's edition, so its style edition) and layout runs again: it must not reorder
 //!   anything rustfmt wrote. Differences only in blank lines are counted separately.
 //! - **Speed:** bytes per second for lexing alone and for lexing plus parsing, single
-//!   threaded; `--baseline` records them in `compat/baseline.txt`.
+//!   threaded; `--baseline` records them in `records/results/baseline.txt`.
 //!
 //! Details of every finding go to `.dev/logs/corpus.log`.
 
@@ -32,7 +32,7 @@ use crate::common;
 use crate::log::Logger;
 use crate::process;
 
-const BASELINE_PATH: &str = "compat/baseline.txt";
+const BASELINE_PATH: &str = "records/results/baseline.txt";
 
 const RUSTFMT_IMPLS: [&str; 4] = [
   "+nightly",
@@ -130,7 +130,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
   let mut valid_with_errors = Vec::new();
   let mut rejected_by_both = 0;
   for (path, edition, message) in totals.with_errors.iter() {
-    let shown = display(path, &root.join("compat").join("cache").join("corpus"));
+    let shown = display(path, &root.join(".dev").join("cache").join("corpus"));
     match rustfmt_accepts(path, *edition) {
       Some(true) => valid_with_errors.push(format!("{}: {}", shown, message)),
       Some(false) => rejected_by_both += 1,
@@ -264,7 +264,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
 
   if baseline {
     let text = format!(
-      "# Speed baseline, written by `cargo xtask corpus check --baseline` (release build,\n# one thread). Numbers depend on the machine; compare runs on the same one.\nmachine    {} {}, {} cores\ncorpus     {} files, {} bytes (compat/corpus.txt)\nlex        {:.1} MB/s\nlex+parse  {:.1} MB/s\n",
+      "# Speed baseline, written by `cargo xtask corpus check --baseline` (release build,\n# one thread). Numbers depend on the machine; compare runs on the same one.\nmachine    {} {}, {} cores\ncorpus     {} files, {} bytes (records/pins/corpus.txt)\nlex        {:.1} MB/s\nlex+parse  {:.1} MB/s\n",
       std::env::consts::OS,
       std::env::consts::ARCH,
       std::thread::available_parallelism()

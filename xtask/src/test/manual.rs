@@ -8,7 +8,7 @@
 //! - every key `config print --default` and `config print --user` print has an entry
 //!   (`#### \`key\``; a user key as `section.key`);
 //! - every entry is a key mto knows (printed by `config print`, or one of rustfmt's hidden
-//!   options in `compat/rustfmt-surface.txt`);
+//!   options in `records/upstream/rustfmt-surface.txt`);
 //! - every `--flag` the manual mentions is an mto flag, or a rustfmt or cargo-fmt flag that
 //!   rustfmt's own descriptions refer to;
 //! - every backticked `snake_case` name in the manual is a documented key or one of its
@@ -74,7 +74,8 @@ pub fn check_manual(root: &Path) -> Vec<String> {
       Err(e) => return vec![e],
     }
   }
-  let surface = fs::read_to_string(root.join("compat/rustfmt-surface.txt")).unwrap_or_default();
+  let surface =
+    fs::read_to_string(root.join("records/upstream/rustfmt-surface.txt")).unwrap_or_default();
   problems(&manual, &help, &defaults, &surface)
 }
 

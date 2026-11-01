@@ -1,5 +1,5 @@
 //! rustfmt's surface: every option, option value and command-line flag, merged from several
-//! sources and stored in `compat/rustfmt-surface.txt`.
+//! sources and stored in `records/upstream/rustfmt-surface.txt`.
 //!
 //! An item line is `KIND NAME in=SOURCES stable=SOURCES [hidden]`. `in` lists the sources that
 //! have the item and `stable` those that call it stable; `all` and `none` abbreviate. Flag

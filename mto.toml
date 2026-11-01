@@ -13,7 +13,7 @@ blank_lines_between_blocks = 1
 group_impls = true
 
 # Folders mto never enters, by name or by path
-ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv", "tests/fixtures", "compat/cache", ".dev"]
+ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv", "tests/fixtures", ".dev/cache", ".dev"]
 
 # The order of functions in trait impls
 impl_method_order = "written"

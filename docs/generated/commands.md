@@ -40,7 +40,7 @@ cargo xtask bootstrap [--go] [--for NAME]
 
 ## `cargo xtask capabilities`
 
-Track rustfmt's options and flags against mto (compat/)
+Track rustfmt's options and flags against mto (records/)
 
 ```text
 cargo xtask capabilities refresh|check|sync|report
@@ -65,7 +65,7 @@ cargo xtask capabilities check
 
 ## `cargo xtask capabilities sync`
 
-Add new items to compat/capabilities.txt as missing; drop stale ones
+Add new items to records/policy/capabilities.txt as missing; drop stale ones
 
 ```text
 cargo xtask capabilities sync
@@ -96,7 +96,7 @@ cargo xtask changelog [--tag TAG] [--check]
 
 ## `cargo xtask corpus`
 
-The pinned real-world corpus (compat/corpus.txt)
+The pinned real-world corpus (records/pins/corpus.txt)
 
 ```text
 cargo xtask corpus update|fetch|check|bench
@@ -129,7 +129,7 @@ cargo xtask corpus check [--with-rust] [--baseline]
 ```
 
 - `--with-rust`: Also the opt-in repositories (rust-lang/rust)
-- `--baseline`: Record parsing speed in compat/baseline.txt
+- `--baseline`: Record parsing speed in records/results/baseline.txt
 
 ## `cargo xtask corpus bench`
 
@@ -143,20 +143,21 @@ cargo xtask corpus bench [--markdown]
 
 ## `cargo xtask diff`
 
-How much of the Rust style mto reproduces, against compat/compatibility.txt
+How much of the Rust style mto reproduces, against
+records/results/compatibility.txt
 
 ```text
 cargo xtask diff [--update] [--markdown]
 ```
 
-- `--update`: Record the numbers in compat/compatibility.txt
+- `--update`: Record the numbers in records/results/compatibility.txt
 - `--markdown`: As Markdown tables
 
 ## `cargo xtask docs`
 
 Regenerate everything under docs/generated/: the settings reference and
 mto.toml's JSON Schema from the settings table, the manual from mto --man, and
-the metrics papers from the recorded data (compat/, its history, .dev/ when
+the metrics papers from the recorded data (records/, its history, .dev/ when
 present); runs no suite
 
 ```text
@@ -579,7 +580,7 @@ cargo xtask memst report RUN [--view VIEW,...] [--by time|bytes|allocs] [--top
 ## `cargo xtask metrics`
 
 Every number runs measure, kept as series (.dev/metrics/), and the ratchet some
-may not fall behind (compat/performance.txt)
+may not fall behind (records/results/ratchet.txt)
 
 ```text
 cargo xtask metrics [list|show|compare|ratchet]
@@ -608,8 +609,8 @@ cargo xtask metrics show NAME [--last N]
 
 ## `cargo xtask metrics compare`
 
-Every figure before the optimization rounds (compat/optimization-baseline.txt)
-beside its latest value
+Every figure before the optimization rounds
+(records/archive/2026-10-optimization.txt) beside its latest value
 
 ```text
 cargo xtask metrics compare
@@ -623,7 +624,8 @@ The ratchet against the latest values; --update records them as the new limits
 cargo xtask metrics ratchet [--update]
 ```
 
-- `--update`: Record the latest values (this machine) in compat/performance.txt
+- `--update`: Record the latest values (this machine) in
+  records/results/ratchet.txt
 
 ## `cargo xtask pairs`
 
@@ -747,7 +749,7 @@ cargo xtask status
 
 ## `cargo xtask toml-test`
 
-Run the TOML conformance suite (compat/toml-test.txt) against mto's parser
+Run the TOML conformance suite (records/pins/toml-test.txt) against mto's parser
 
 ```text
 cargo xtask toml-test

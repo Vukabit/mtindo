@@ -71,7 +71,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       // mto, on the inputs given or the corpus's serde.
       inputs = texts(m, "input").iter().map(PathBuf::from).collect();
       if inputs.is_empty() {
-        let serde = root.join("compat/cache/corpus/serde");
+        let serde = root.join(".dev/cache/corpus/serde");
         inputs.push(if serde.is_dir() {
           serde
         } else {

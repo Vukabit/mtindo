@@ -12,7 +12,7 @@
 //! `fuzz.<target>.peak_rss`, `task.<id>.seconds`. The run is the recorded run that
 //! measured it, when there is one.
 //!
-//! The ratchet, `compat/performance.txt` (committed), holds for some series the value they
+//! The ratchet, `records/results/ratchet.txt` (committed), holds for some series the value they
 //! may not get worse than, with a tolerance for noise and which way is better. A figure
 //! past its limit files a `speed-regression` or `memory-regression` incident (keyed by the
 //! series), and a figure back within it marks that incident fixed. Speed depends on the
@@ -32,7 +32,7 @@ use crate::incidents;
 
 /// Where every figure stood before the optimization rounds, committed: what `compare` sets
 /// the latest values beside.
-pub const BASELINE: &str = "compat/optimization-baseline.txt";
+pub const BASELINE: &str = "records/archive/2026-10-optimization.txt";
 
 /// The series the ratchet holds, with their tolerance and direction. A figure measured for
 /// one of these is checked as it is recorded (see [`check`]).
@@ -68,7 +68,7 @@ pub const RATCHETED: &[(&str, f64, Better)] = &[
 ];
 
 /// The ratchet, committed.
-pub const RECORD: &str = "compat/performance.txt";
+pub const RECORD: &str = "records/results/ratchet.txt";
 
 /// `busy` (the share of the processor other work used, percent) and `state` were added
 /// later: rows written before have neither, and count as taken in unknown conditions
@@ -680,7 +680,7 @@ mod tests {
   fn test_a_breach_files_an_incident_and_recovery_fixes_it() {
     let scratch = Scratch::new("breach");
     let root = &scratch.0;
-    fs::create_dir_all(root.join("compat")).unwrap();
+    fs::create_dir_all(root.join(RECORD).parent().unwrap()).unwrap();
     fs::write(
       root.join(RECORD),
       format!(

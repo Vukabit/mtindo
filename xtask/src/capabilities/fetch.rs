@@ -2,7 +2,7 @@
 //! read) and checks out the rustfmt part of rust-lang/rust at a commit.
 //!
 //! Checkouts are sparse, shallow and blob-filtered (a few MB), and are cached in
-//! `compat/cache/rustfmt/<commit>/`; a `.complete` marker distinguishes a finished checkout
+//! `.dev/cache/rustfmt/<commit>/`; a `.complete` marker distinguishes a finished checkout
 //! from an interrupted one.
 
 use std::fs;
@@ -43,7 +43,7 @@ pub struct Release {
 }
 
 pub fn cache_root(root: &Path) -> PathBuf {
-  root.join("compat").join("cache").join("rustfmt")
+  root.join(".dev").join("cache").join("rustfmt")
 }
 
 /// The rustfmt directory of a complete cached checkout, after undoing any edits made to it

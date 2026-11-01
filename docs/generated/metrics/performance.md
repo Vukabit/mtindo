@@ -2,13 +2,13 @@
 paper: "performance"
 title: "Performance"
 status: "measured"
-generated: "2026-10-31T23:39:02.063Z"
-commit: "a536de7-dirty.e560aa14"
+generated: "2026-11-01T02:39:25.364Z"
+commit: "096a91d-dirty.2919c44c"
 command: "cargo xtask metrics ratchet --update"
 sources:
-  - compat/performance.txt
-  - compat/baseline.txt
-  - compat/optimization-baseline.txt
+  - records/results/ratchet.txt
+  - records/results/baseline.txt
+  - records/archive/2026-10-optimization.txt
 machine: "macos aarch64, 10 cores"
 seed: "fixed in code for the doctor bench's draws; none elsewhere"
 metrics:
@@ -132,7 +132,7 @@ measurement is allowed in the worse direction.
 | `perf.growth.match.exponent` | 1.256 | 0.988 | 20% | lower |
 
 Parsing speed on one thread, release build, on macos aarch64, 10 cores, over
-10731 files, 90345059 bytes (compat/corpus.txt):
+10731 files, 90345059 bytes (records/pins/corpus.txt):
 
 | stage | MB/s |
 |---|---:|

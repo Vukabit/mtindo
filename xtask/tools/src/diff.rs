@@ -22,7 +22,7 @@
 //! killed, or passed its time limit) is never cached, and fails the run, as does mto
 //! panicking on an input: neither may pass for a number. Mismatching files are grouped by the syntax kind of the
 //! innermost node at their first differing line. The numbers are compared with the record in
-//! `compat/compatibility.txt`, which they may only climb above: a drop fails the run, and
+//! `records/results/compatibility.txt`, which they may only climb above: a drop fails the run, and
 //! `--update` records new numbers.
 
 use std::collections::{BTreeMap, HashMap};
@@ -241,7 +241,7 @@ pub fn edition_year(edition: Edition) -> &'static str {
   }
 }
 
-/// Fences `downloads` (compat/cache) off from this repository, whose own settings must not
+/// Fences `downloads` (.dev/cache) off from this repository, whose own settings must not
 /// reach the corpus and the test pairs: a `root = true` mto.toml ends mto's search upwards,
 /// and an empty rustfmt.toml ends both tools' search for one (empty, so cached answers keep
 /// their key).
@@ -441,7 +441,7 @@ pub fn run(args: &[String]) -> ExitCode {
   let stale: Vec<&String> = known.iter().filter(|k| !keys.contains(k)).collect();
   println!(
     "\nmeaning check on the standard formatter's output: {} of {} files flagged, {} \
-         of them listed in compat/meaning-exceptions.txt",
+         of them listed in records/policy/exceptions.txt",
     flagged.len(),
     checked,
     flagged.len() - unexpected.len()
@@ -480,7 +480,7 @@ pub fn run(args: &[String]) -> ExitCode {
     .count();
   println!(
     "default-settings test pairs not matching: {}, {} of them excused in \
-     compat/meaning-exceptions.txt",
+     records/policy/exceptions.txt",
     pairs.iter().filter(|(_, matches)| !matches).count(),
     pairs.iter().filter(|(_, matches)| !matches).count() - open,
   );
@@ -595,7 +595,7 @@ pub fn run(args: &[String]) -> ExitCode {
   if !unexpected.is_empty() {
     println!(
       "the meaning check flags the standard formatter's output in {} file(s) that \
-             compat/meaning-exceptions.txt does not list: a rewrite the allowed list lacks \
+             records/policy/exceptions.txt does not list: a rewrite the allowed list lacks \
              (src/verify/rewrites.rs), or a bug of the formatter's to list with its reason:",
       unexpected.len()
     );
@@ -1362,8 +1362,10 @@ fn record_found(path: &Path, found: &[Found<'_>]) -> Vec<(String, String)> {
     ));
   }
   let _ = fs::write(path, lines.join("\n") + "\n");
+  // The repository: the folder holding the records/ the file is in.
   let upstream = path
-    .parent()
+    .ancestors()
+    .find(|dir| dir.file_name().is_some_and(|name| name == "records"))
     .and_then(Path::parent)
     .map(|root| root.join(".dev/upstream/rustfmt"));
   found
@@ -1844,8 +1846,8 @@ mod tests {
       "| Case | What | Upstream |\n|---|---|---|\n| 01 old | x | y |\n",
     )
     .unwrap();
-    fs::create_dir_all(root.join("compat")).unwrap();
-    let path = root.join("compat/meaning-exceptions.txt");
+    fs::create_dir_all(root.join("records/policy")).unwrap();
+    let path = root.join("records/policy/exceptions.txt");
     fs::write(
       &path,
       "# header\n\na.rs [tests]  old\n\nexcused a.rs [tests]  old\n",

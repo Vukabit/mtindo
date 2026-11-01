@@ -14,9 +14,9 @@
 //!   on the machine hits all of them alike; one warm-up round is discarded; each cell is
 //!   the median of the rounds with its spread, and a spread over 5% is marked `~`.
 //! - **Cells:** a time; `unstable` when the option (or value) is nightly-only according to
-//!   `compat/rustfmt-surface.txt` (rustfmt's own warning only decides for keys the surface
+//!   `records/upstream/rustfmt-surface.txt` (rustfmt's own warning only decides for keys the surface
 //!   does not list, and is logged when the two disagree); `missing` when
-//!   `compat/capabilities.txt` says mto does not support it yet. An mto time carries ✓ or
+//!   `records/policy/capabilities.txt` says mto does not support it yet. An mto time carries ✓ or
 //!   ✗ for whether its output matches rustfmt's byte for byte; the speed-up is only shown
 //!   with ✓.
 //! - **Times are net of start-up:** every input is a separate run fed through stdin, so a
@@ -349,7 +349,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   for label in race.refused.iter() {
     if race.stable_rows.get(label) == Some(&true) {
       log.warning(&format!(
-        "stable rustfmt refused `{}`, which compat/rustfmt-surface.txt calls stable",
+        "stable rustfmt refused `{}`, which records/upstream/rustfmt-surface.txt calls stable",
         label
       ));
     }
@@ -1072,7 +1072,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
         .iter()
         .find(|(label, _)| label == "stable")
         .map(|(_, d)| d.clone())
-        .ok_or("no stable release in compat/rustfmt-surface.txt; run `cargo xtask capabilities refresh` online")?;
+        .ok_or("no stable release in records/upstream/rustfmt-surface.txt; run `cargo xtask capabilities refresh` online")?;
   let commit = description
     .split([' ', ','])
     .find(|w| w.len() == 40 && w.chars().all(|c| c.is_ascii_hexdigit()))
@@ -1202,7 +1202,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     );
   }
   // The real-code row: the corpus's largest source files, each with its crate's edition.
-  let corpus = root.join("compat").join("cache").join("corpus");
+  let corpus = root.join(".dev").join("cache").join("corpus");
   if options.real > 0 {
     let real = largest_sources(&corpus, options.real);
     if real.is_empty() {

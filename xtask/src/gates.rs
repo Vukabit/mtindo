@@ -95,7 +95,7 @@ const NAMING_ALLOWED_PATHS: &[&str] = &[
   "docs/generated/commands.md",
   "CREDITS.md",
   "xtask/",
-  "compat/",
+  "records/",
   "fuzz/",
   "src/options/rustfmt.rs",
   "tests/fixtures/",

@@ -11,7 +11,7 @@
 //!   diffed; median of three runs each.
 //!
 //! The copies live outside this repository (Cargo would otherwise take the corpus for part
-//! of mtindo's workspace) and are reused while `compat/corpus.txt` is unchanged.
+//! of mtindo's workspace) and are reused while `records/pins/corpus.txt` is unchanged.
 //!
 //! S2-1: mto's throughput on the laid-out corpus is at least [`MIN_SPEEDUP`] times rustfmt
 //! stable's and nightly's, by the wall clock; mto may use every core. The walk-and-read
@@ -322,7 +322,8 @@ fn mto_row(mto: &Path, dir: &Path, config: &Path, name: &str) -> Result<Row, Str
 
 /// The raw and laid-out copies, made or refreshed as needed.
 fn prepare(root: &Path, repos: &[(String, PathBuf)], log: &Logger) -> Result<Copies, String> {
-  let pins = fs::read(root.join("compat").join("corpus.txt")).map_err(|e| e.to_string())?;
+  let pins =
+    fs::read(root.join("records").join("pins").join("corpus.txt")).map_err(|e| e.to_string())?;
   let key = sha256::hex_digest(&pins)[..12].to_string();
   let base = std::env::temp_dir().join("mtindo-bench");
   let copies = Copies {

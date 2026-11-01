@@ -1,6 +1,6 @@
 //! `cargo xtask diff`: how much of the Rust style mto reproduces (stage 3, F1). Fetches the
 //! corpus and the standard formatter's pinned test suite, then runs the harness in
-//! `xtask-tools` (which links mtindo), comparing against `compat/compatibility.txt`.
+//! `xtask-tools` (which links mtindo), comparing against `records/results/compatibility.txt`.
 //! `--update` records new numbers; `--markdown` prints a shareable report.
 
 use std::path::Path;
@@ -57,9 +57,12 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     "--reference".into(),
     reference,
     "--cache".into(),
-    root.join("compat/cache/diff").display().to_string(),
+    root.join(".dev/cache/diff").display().to_string(),
     "--record".into(),
-    root.join("compat/compatibility.txt").display().to_string(),
+    root
+      .join("records/results/compatibility.txt")
+      .display()
+      .to_string(),
     "--meaning-log".into(),
     root
       .join(".dev/logs/diff-meaning.txt")
@@ -69,7 +72,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     root.join(".dev/logs/diff-broke.txt").display().to_string(),
     "--exceptions".into(),
     root
-      .join("compat/meaning-exceptions.txt")
+      .join("records/policy/exceptions.txt")
       .display()
       .to_string(),
   ];
@@ -159,7 +162,7 @@ fn tests_dir(root: &Path, log: &Logger) -> Result<std::path::PathBuf, String> {
         .iter()
         .find(|(label, _)| label == "stable")
         .map(|(_, d)| d.clone())
-        .ok_or("no stable release in compat/rustfmt-surface.txt; run `cargo xtask capabilities refresh` online")?;
+        .ok_or("no stable release in records/upstream/rustfmt-surface.txt; run `cargo xtask capabilities refresh` online")?;
   let commit = description
     .split([' ', ','])
     .find(|w| w.len() == 40 && w.chars().all(|c| c.is_ascii_hexdigit()))

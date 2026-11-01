@@ -8,6 +8,7 @@ pub mod awake;
 pub mod color;
 pub mod conditions;
 pub mod log;
+pub mod manifest;
 pub mod process;
 pub mod proof;
 pub mod sample;

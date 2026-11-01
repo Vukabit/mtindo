@@ -13,6 +13,7 @@
 //!     samples.tsv   memory and CPU of the command's process tree, once a second
 //!     output.log    what a detached run printed
 //!     cancel        written by `cargo xtask runs cancel`; the supervisor stops the run
+//!     manifest.txt  what produced the run (`common::manifest`)
 //! ```
 //!
 //! `run.toml` holds `id`, `command`, `tree`, `started`, `ended`, `pid` (the supervisor),
@@ -216,7 +217,7 @@ pub fn read(dir: &Path) -> Option<Record> {
   Record::from_toml(&fs::read_to_string(record_path(dir)).ok()?)
 }
 
-/// `cargo xtask runs list|show ID|tail ID|cancel ID`.
+/// `cargo xtask runs list|show ID|tail ID|cancel ID|prune|why ID [OTHER]`.
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let id = |sub: &clap::ArgMatches| crate::cli::text(sub, "id").unwrap_or_default();
   match m.subcommand() {
@@ -247,6 +248,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       print!("{}", list_text(&list(root), limit));
       ExitCode::SUCCESS
     }
+    Some(("why", sub)) => why(root, &id(sub), crate::cli::text(sub, "other")),
     Some((action, sub)) => {
       let id = id(sub);
       let Some((dir, record)) = find(root, &id) else {
@@ -402,7 +404,6 @@ fn ending(watched: &process::Watched, interrupted: bool) -> &'static str {
   }
 }
 
-/// The run whose id is `id` or ends with it (`a1b2` is enough), the newest if several.
 fn find(root: &Path, id: &str) -> Option<(PathBuf, Record)> {
   list(root)
     .into_iter()
@@ -559,6 +560,11 @@ fn supervise(root: &Path, dir: &Path, args: &[String]) -> ExitCode {
   };
   record.pid = std::process::id();
   write(dir, &record);
+  // What produced the run, written beside it while the command runs.
+  let manifest = {
+    let (root, dir) = (root.to_path_buf(), dir.to_path_buf());
+    thread::spawn(move || crate::common::manifest::write(&root, &dir))
+  };
   // Ctrl-C reaches the child, which ends; the supervisor stays to record that. A handler,
   // not an ignored signal: an ignored SIGINT would be inherited by the child.
   // SAFETY: installs a handler that only stores to an atomic.
@@ -631,6 +637,7 @@ fn supervise(root: &Path, dir: &Path, args: &[String]) -> ExitCode {
     }
   };
   write(dir, &record);
+  let _ = manifest.join();
   // Retention, once the run is recorded.
   let (count, bytes) = prune(root, false);
   if count > 0 {
@@ -689,6 +696,65 @@ fn unquote(value: &str) -> Option<String> {
     }
   }
   Some(out)
+}
+
+/// The run whose id is `id` or ends with it (`a1b2` is enough), the newest if several.
+/// `runs why`: the manifest of `id` against `other`'s, or against the latest earlier run of
+/// the same command that has one.
+fn why(root: &Path, id: &str, other: Option<String>) -> ExitCode {
+  use crate::common::manifest;
+  let Some((dir, record)) = find(root, id) else {
+    return unknown(id);
+  };
+  let runs = list(root);
+  let base = match &other {
+    Some(other) => match find(root, other) {
+      Some(found) => found,
+      None => return unknown(other),
+    },
+    None => {
+      let earlier = runs
+        .iter()
+        .take_while(|(_, r)| r.id != record.id)
+        .filter(|(d, r)| r.command == record.command && d.join(manifest::FILE).is_file())
+        .last();
+      match earlier {
+        Some(found) => found.clone(),
+        None => {
+          println!(
+            "no earlier `{}` run has a manifest",
+            record.command.join(" ")
+          );
+          return ExitCode::SUCCESS;
+        }
+      }
+    }
+  };
+  let (before, after) = (manifest::read(&base.0), manifest::read(&dir));
+  if after.is_empty() {
+    println!("{} has no manifest", record.id);
+    return ExitCode::SUCCESS;
+  }
+  print!(
+    "{}",
+    why_text(
+      &base.1.id,
+      &record.id,
+      &manifest::differences(&before, &after)
+    )
+  );
+  ExitCode::SUCCESS
+}
+
+fn why_text(before: &str, after: &str, differences: &[(String, String, String)]) -> String {
+  let mut out = format!("{} -> {}\n", before, after);
+  if differences.is_empty() {
+    out.push_str("  the same tree, tools, machine and records\n");
+  }
+  for (key, a, b) in differences {
+    out.push_str(&format!("  {}\n    was {}\n    now {}\n", key, a, b));
+  }
+  out
 }
 
 fn write(dir: &Path, record: &Record) {
@@ -813,5 +879,18 @@ mod tests {
       assert!(!supervised(&args(&["help"])));
       assert!(!supervised(&[]));
     }
+  }
+
+  #[test]
+  fn test_why_names_each_difference_or_none() {
+    assert_eq!(
+      why_text("a", "b", &[]),
+      "a -> b\n  the same tree, tools, machine and records\n"
+    );
+    let diff = [("rustfmt".to_string(), "1.9".to_string(), "1.10".to_string())];
+    assert_eq!(
+      why_text("a", "b", &diff),
+      "a -> b\n  rustfmt\n    was 1.9\n    now 1.10\n"
+    );
   }
 }

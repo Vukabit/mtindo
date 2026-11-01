@@ -979,6 +979,19 @@ fn runs() -> Command {
         )
         .arg(flag("dry-run", "Only say what would go")),
     )
+    .subcommand(
+      Command::new("why")
+        .about(
+          "What differs between what produced two runs (tree, tools, machine, records); \
+           without OTHER, the run before ID of the same command",
+        )
+        .arg(id())
+        .arg(
+          Arg::new("other")
+            .value_name("OTHER")
+            .help("The run to compare with"),
+        ),
+    )
 }
 
 fn settings() -> Command {

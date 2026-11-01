@@ -122,6 +122,7 @@ pub const COMMANDS: &[CommandSpec] = &[
                 file is never overwritten.",
     usage: &["mto init [DIR]"],
     options: &[],
+    operand: Complete::Dirs,
     subcommands: &[],
     examples: &["mto init", "mto init crates/core"],
   },
@@ -157,18 +158,22 @@ pub const COMMANDS: &[CommandSpec] = &[
         ],
       ),
     ],
+    operand: Complete::Nothing,
     subcommands: &[
       Subcommand {
         word: "path",
         summary: "List the configuration files that apply, and the history folder",
+        operand: Complete::Dirs,
       },
       Subcommand {
         word: "print",
         summary: "Show every setting in effect, with where it came from",
+        operand: Complete::Dirs,
       },
       Subcommand {
         word: "options",
         summary: "List every setting a configuration file may hold",
+        operand: Complete::Nothing,
       },
     ],
     examples: &[
@@ -204,14 +209,17 @@ pub const COMMANDS: &[CommandSpec] = &[
         &[Flag::Keep, Flag::OlderThan],
       ),
     ],
+    operand: Complete::Nothing,
     subcommands: &[
       Subcommand {
         word: "show",
         summary: "List one run's files and where each stands now",
+        operand: Complete::Nothing,
       },
       Subcommand {
         word: "prune",
         summary: "Remove old runs",
+        operand: Complete::Nothing,
       },
     ],
     examples: &[
@@ -232,6 +240,7 @@ pub const COMMANDS: &[CommandSpec] = &[
                 `mto history`, which names its run anywhere.",
     usage: &["mto restore <RUN> [FILE...] [--force]"],
     options: &[("options", "mto restore <RUN> [FILE...]", &[Flag::Force])],
+    operand: Complete::Files,
     subcommands: &[],
     examples: &["mto restore last", "mto restore 3f9a src/lib.rs"],
   },
@@ -256,22 +265,27 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto doctor <RUN> [-- <COMMAND>...]",
     ],
     options: &[],
+    operand: Complete::Nothing,
     subcommands: &[
       Subcommand {
         word: "on",
         summary: "Turn the build guard on",
+        operand: Complete::Nothing,
       },
       Subcommand {
         word: "off",
         summary: "Turn the build guard off",
+        operand: Complete::Nothing,
       },
       Subcommand {
         word: "holds",
         summary: "List the edits the guard holds back",
+        operand: Complete::Nothing,
       },
       Subcommand {
         word: "release",
         summary: "Drop one held edit, or all",
+        operand: Complete::Nothing,
       },
     ],
     examples: &[
@@ -305,22 +319,27 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto report prune",
     ],
     options: &[("options", "mto report save <ID> <FILE>", &[Flag::WithFile])],
+    operand: Complete::Nothing,
     subcommands: &[
       Subcommand {
         word: "show",
         summary: "Print one report",
+        operand: Complete::Nothing,
       },
       Subcommand {
         word: "save",
         summary: "Write one report to a file",
+        operand: Complete::Files,
       },
       Subcommand {
         word: "send",
         summary: "Open a new issue filled in with one report",
+        operand: Complete::Nothing,
       },
       Subcommand {
         word: "prune",
         summary: "Remove every report",
+        operand: Complete::Nothing,
       },
     ],
     examples: &[
@@ -344,21 +363,73 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto debug tokens|tree|layout <FILE>",
       &[Flag::Edition],
     )],
+    operand: Complete::Nothing,
     subcommands: &[
       Subcommand {
         word: "tokens",
         summary: "Print the tokens of a file",
+        operand: Complete::Files,
       },
       Subcommand {
         word: "tree",
         summary: "Print the syntax tree of a file",
+        operand: Complete::Files,
       },
       Subcommand {
         word: "layout",
         summary: "Say where the formatter leaves code as written, and why",
+        operand: Complete::Files,
       },
     ],
     examples: &["mto debug tree src/lib.rs", "mto debug layout src/lib.rs"],
+  },
+  CommandSpec {
+    name: "completions",
+    args: "[install|uninstall|status] [SHELL]",
+    summary: "Print or install the completions for a shell",
+    about: "Prints the completion script for SHELL: bash, zsh, fish or powershell. With no \
+                SHELL, it is the shell mto runs in: the parent process when that is a shell, \
+                else $SHELL. `install` writes the script where the shell loads completions \
+                from (or into DIR), and names the line to add to the shell's startup file when \
+                one is needed; mto never edits that file. Installing again changes nothing \
+                while the script is current. `uninstall` removes a script mto wrote, and \
+                nothing else. `status` says, for each shell, where its script is and whether \
+                it is this mto's.",
+    usage: &[
+      "mto completions [SHELL]",
+      "mto completions install [SHELL] [--dir DIR] [--dry-run]",
+      "mto completions uninstall [SHELL] [--dir DIR] [--dry-run]",
+      "mto completions status [SHELL]",
+    ],
+    options: &[(
+      "options",
+      "mto completions install|uninstall",
+      &[Flag::Dir, Flag::DryRun],
+    )],
+    operand: Complete::Words(SHELLS),
+    subcommands: &[
+      Subcommand {
+        word: "install",
+        summary: "Write the script where the shell loads completions from",
+        operand: Complete::Words(SHELLS),
+      },
+      Subcommand {
+        word: "uninstall",
+        summary: "Remove the script mto wrote",
+        operand: Complete::Words(SHELLS),
+      },
+      Subcommand {
+        word: "status",
+        summary: "Say where each shell's script is, and whether it is current",
+        operand: Complete::Words(SHELLS),
+      },
+    ],
+    examples: &[
+      "mto completions zsh",
+      "mto completions install",
+      "mto completions install fish --dry-run",
+      "mto completions status",
+    ],
   },
 ];
 
@@ -696,6 +767,15 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Add the whole file the bug was found in",
   },
   FlagSpec {
+    flag: Flag::Dir,
+    group: Group::Command,
+    short: None,
+    long: "--dir",
+    value: "<DIR>",
+    values: &[],
+    help: "Use this folder instead of the shell's own",
+  },
+  FlagSpec {
     flag: Flag::OlderThan,
     group: Group::Command,
     short: None,
@@ -705,6 +785,9 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Remove runs this old: 30 (days), 2w, 12h",
   },
 ];
+
+/// The shells `mto completions` writes scripts for.
+pub const SHELLS: &[&str] = &["bash", "zsh", "fish", "powershell"];
 
 pub const USAGE_LINES: &[&str] = &[
   "mto [OPTIONS] <PATH>...",
@@ -729,6 +812,23 @@ pub enum CargoFlag {
   Version,
 }
 
+/// What a shell completes an argument to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Complete {
+  /// Nothing it could know: a number, a run, an id.
+  Nothing,
+  /// Paths, Rust files first.
+  Files,
+  /// Folders.
+  Dirs,
+  /// One of these words.
+  Words(&'static [&'static str]),
+  /// One of a setting's legal values.
+  Setting(&'static str),
+  /// `KEY=VALUE` pairs: the settings `--config` takes, then after `=` the setting's values.
+  Settings,
+}
+
 /// Every flag mto accepts. The parser and the help text both read this table, so a flag
 /// cannot be accepted without being documented.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -748,6 +848,7 @@ pub enum Flag {
   Current,
   Dbg,
   Default,
+  Dir,
   DryRun,
   Edition,
   FollowLinks,
@@ -882,6 +983,8 @@ pub struct CommandSpec {
   /// The flags it takes, in sections: (heading, the command they follow, flags in the
   /// order its help lists them).
   pub options: &'static [(&'static str, &'static str, &'static [Flag])],
+  /// What its arguments complete to, after any subcommand word.
+  pub operand: Complete,
   /// The words that may follow the name, each choosing what the command does. A command
   /// whose parser takes a word reads it from here, so an unlisted one is refused.
   pub subcommands: &'static [Subcommand],
@@ -889,6 +992,36 @@ pub struct CommandSpec {
 }
 
 impl CommandSpec {
+  /// The flags that may follow `mto NAME`, or `mto NAME WORD` for a subcommand: those of
+  /// each options section whose command names it (`mto config path|print` names both).
+  pub fn flags_after(&self, word: Option<&str>) -> Vec<Flag> {
+    let mut flags = Vec::new();
+    for (_, after, section) in self.options {
+      let rest = after
+        .strip_prefix("mto ")
+        .and_then(|rest| rest.strip_prefix(self.name))
+        .unwrap_or("");
+      let next = rest.split_whitespace().next().unwrap_or("");
+      let words: Vec<&str> = next
+        .split('|')
+        .filter(|w| self.subcommand(Some(w)).is_some())
+        .collect();
+      // A section that names no subcommand belongs to the command itself.
+      let applies = match word {
+        Some(word) => words.contains(&word),
+        None => words.is_empty(),
+      };
+      if applies {
+        for flag in *section {
+          if !flags.contains(flag) {
+            flags.push(*flag);
+          }
+        }
+      }
+    }
+    flags
+  }
+
   /// The subcommand `word` names, when `word` is one of this command's.
   pub fn subcommand(&self, word: Option<&str>) -> Option<&'static str> {
     let word = word?;
@@ -915,6 +1048,19 @@ pub struct FlagSpec {
 }
 
 impl FlagSpec {
+  /// What a shell completes the flag's value to.
+  pub fn completes(&self) -> Complete {
+    match self.flag {
+      _ if !self.values.is_empty() => Complete::Words(self.values),
+      Flag::Config => Complete::Settings,
+      Flag::ConfigPath | Flag::StdinFilepath => Complete::Files,
+      Flag::Dir => Complete::Dirs,
+      Flag::Edition => Complete::Setting("edition"),
+      Flag::StyleEdition => Complete::Setting("style_edition"),
+      _ => Complete::Nothing,
+    }
+  }
+
   /// Whether the flag is followed by a value.
   pub fn takes_value(&self) -> bool {
     !self.value.is_empty() || !self.values.is_empty()
@@ -932,6 +1078,8 @@ pub struct Subcommand {
   pub word: &'static str,
   /// One line, for shells that describe what they complete.
   pub summary: &'static str,
+  /// What its arguments complete to.
+  pub operand: Complete,
 }
 
 /// The `cargo mto` flag spelled `arg`, long or short.

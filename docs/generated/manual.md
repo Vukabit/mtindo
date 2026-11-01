@@ -207,6 +207,19 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     reports and for finding why code was not formatted.
     *   `--edition <YEAR>` (after `mto debug tokens|tree|layout <FILE>`): The
         Rust edition, over Cargo.toml and configuration files.
+*   `mto completions [install|uninstall|status] [SHELL]`: Prints the completion
+    script for SHELL: bash, zsh, fish or powershell. With no SHELL, it is the
+    shell mto runs in: the parent process when that is a shell, else $SHELL.
+    `install` writes the script where the shell loads completions from (or into
+    DIR), and names the line to add to the shell's startup file when one is
+    needed; mto never edits that file. Installing again changes nothing while
+    the script is current. `uninstall` removes a script mto wrote, and nothing
+    else. `status` says, for each shell, where its script is and whether it is
+    this mto's.
+    *   `--dir <DIR>` (after `mto completions install|uninstall`): Use this
+        folder instead of the shell's own.
+    *   `-d, --dry-run` (after `mto completions install|uninstall`): List the
+        files that would change, without writing.
 
 ## Cargo
 `cargo mto` formats the targets of the current package or workspace, as

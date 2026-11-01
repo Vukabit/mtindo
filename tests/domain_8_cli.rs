@@ -1,6 +1,16 @@
 mod common;
 
+use std::fs;
+
 use common::TestEnvironment;
+
+/// The shells there are completion scripts for, with each script's snapshot.
+const COMPLETION_SHELLS: [(&str, &str); 4] = [
+  ("bash", "mto.bash"),
+  ("zsh", "_mto"),
+  ("fish", "mto.fish"),
+  ("powershell", "mto.ps1"),
+];
 
 const SORTED: &str = "fn a() {}\n\nfn b() {}\n";
 
@@ -9,6 +19,45 @@ const SORTED: &str = "fn a() {}\n\nfn b() {}\n";
 const SOURCE: &str = "fn b() {}\n\nfn a() {}\n";
 
 const UNSORTED: &str = "fn b() {}\n\nfn a() {}\n";
+
+/// What the generated bash function offers for `words`, the line as bash splits it, the
+/// last being the word completed; with `split` false, as bash splits it when `=` is not
+/// among the characters that break words.
+fn bash_offers(
+  bash: &str,
+  script: &std::path::Path,
+  dir: &std::path::Path,
+  words: &[&str],
+  split: bool,
+) -> Vec<String> {
+  let breaks = if split { "\"'><=;|&(:" } else { "\"'><;|&(:" };
+  let program = format!(
+    "source \"$1\"; shift; COMP_WORDBREAKS='{}'; COMP_WORDS=(\"$@\"); \
+     COMP_CWORD=$((${{#COMP_WORDS[@]}} - 1)); _mto; \
+     for c in \"${{COMPREPLY[@]}}\"; do printf '[%s]\\n' \"$c\"; done",
+    breaks.replace('\'', "'\\''")
+  );
+  let mut args = vec!["--norc", "--noprofile", "-c", &program, "bash"];
+  let script = script.display().to_string();
+  args.push(&script);
+  args.extend(words);
+  let output = run_shell(bash, &args, dir).expect("bash runs");
+  assert!(
+    output.status.success(),
+    "{:?}: {}",
+    words,
+    String::from_utf8_lossy(&output.stderr)
+  );
+  String::from_utf8_lossy(&output.stdout)
+    .lines()
+    .map(|line| {
+      line
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string()
+    })
+    .collect()
+}
 
 /// Not a test of its own: the build check of [`check_words`], idle without `doctor-check`
 /// in the folder it runs in.
@@ -56,6 +105,39 @@ fn check_words() -> Vec<String> {
   .into()
 }
 
+/// The script `mto completions SHELL` prints.
+fn completion_script(env: &TestEnvironment, shell: &str) -> String {
+  let (code, out, err) = completions_cmd(env, &[shell], None);
+  assert_eq!(code, 0, "{}", err);
+  out
+}
+
+/// `mto completions` and its subcommands in `env`, with the shell's folders under the
+/// test's home and no shell to be found but `shell`.
+fn completions_cmd(
+  env: &TestEnvironment,
+  args: &[&str],
+  shell: Option<&str>,
+) -> (i32, String, String) {
+  let mut cmd = env.mto_cmd();
+  cmd
+    .arg("completions")
+    .args(args)
+    .env("XDG_DATA_HOME", env.dir.path().join(".home/.local/share"))
+    .env_remove("BASH_COMPLETION_USER_DIR")
+    .env_remove("PSModulePath")
+    .env_remove("SHELL");
+  if let Some(shell) = shell {
+    cmd.env("SHELL", shell);
+  }
+  let output = cmd.output().unwrap();
+  (
+    output.status.code().unwrap_or(-1),
+    printed(&output.stdout),
+    printed(&output.stderr),
+  )
+}
+
 fn help_output(
   env: &TestEnvironment,
   args: &[&str],
@@ -92,6 +174,15 @@ fn printed(bytes: &[u8]) -> String {
   } else {
     text
   }
+}
+
+/// Runs `program` with `args`, or `None` when it is not on this machine.
+fn run_shell(program: &str, args: &[&str], dir: &std::path::Path) -> Option<std::process::Output> {
+  std::process::Command::new(program)
+    .args(args)
+    .current_dir(dir)
+    .output()
+    .ok()
 }
 
 /// A check lays files out while the walk is still finding them; a folder's broken
@@ -1785,5 +1876,496 @@ fn test_cli_version() {
     // The version, and the build it is (the commit, or a hash of the source).
     let version = format!("mto {} (", env!("CARGO_PKG_VERSION"));
     assert!(out.starts_with(&version) && out.ends_with(")\n"), "{}", out);
+  }
+}
+
+/// The bash scripts complete what the tables hold, on every bash there is: macOS's 3.2 as
+/// well as a current one.
+#[test]
+fn test_completions_bash_completes_from_the_tables() {
+  let env = TestEnvironment::new();
+  let script = env.write_file("mto.bash", &completion_script(&env, "bash"));
+  env.write_file("src/main.rs", "fn main() {}\n");
+  env.write_file("notes.txt", "");
+  let mut ran = 0;
+  for bash in ["bash", "/bin/bash"] {
+    let Some(version) = run_shell(bash, &["--version"], env.dir.path()) else {
+      eprintln!("note: no {} here; its completions are not tried", bash);
+      continue;
+    };
+    let version = String::from_utf8_lossy(&version.stdout);
+    let syntax = run_shell(bash, &["-n", &script.display().to_string()], env.dir.path()).unwrap();
+    assert!(
+      syntax.status.success(),
+      "{}: {}",
+      bash,
+      String::from_utf8_lossy(&syntax.stderr)
+    );
+    let offers = |words: &[&str]| bash_offers(bash, &script, env.dir.path(), words, true);
+    let unsplit = |words: &[&str]| bash_offers(bash, &script, env.dir.path(), words, false);
+    let context = version.lines().next().unwrap_or(bash).to_string();
+    assert_eq!(offers(&["mto", "--em"]), ["--emit "], "{}", context);
+    assert_eq!(
+      offers(&["mto", "--emit", ""]),
+      ["files ", "stdout ", "json "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "--emit", "=", "j"]),
+      ["json "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "--emit", "="]),
+      ["files ", "stdout ", "json "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      unsplit(&["mto", "--emit=j"]),
+      ["--emit=json "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "--color", "a"]),
+      ["always ", "auto "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "--edition", "201"]),
+      ["2015 ", "2018 "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "--config", "max_w"]),
+      ["max_width="],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "--config", "hard_tabs", "=", "t"]),
+      ["true "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      unsplit(&["mto", "--config", "max_width=80,hard_t"]),
+      ["max_width=80,hard_tabs="],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&[
+        "mto",
+        "--config",
+        "max_width",
+        "=",
+        "80,hard_tabs",
+        "=",
+        "f"
+      ]),
+      ["false "],
+      "{}",
+      context
+    );
+    let commands = offers(&["mto", "co"]);
+    assert_eq!(commands, ["config ", "completions "], "{}", context);
+    assert_eq!(
+      offers(&["mto", "config", "p"]),
+      ["path ", "print "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "config", "print", "--m"]),
+      ["--minimal "],
+      "{}",
+      context
+    );
+    let prune = offers(&["mto", "history", "prune", "--"]);
+    assert_eq!(
+      prune,
+      ["--help ", "--keep ", "--older-than "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "history", "--"]),
+      ["--help ", "--all "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "completions", ""]),
+      [
+        "install ",
+        "uninstall ",
+        "status ",
+        "bash ",
+        "zsh ",
+        "fish ",
+        "powershell "
+      ],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "completions", "install", "z"]),
+      ["zsh "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "completions", "install", "--d"]),
+      ["--dir ", "--dry-run "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "debug", "tree", "--e"]),
+      ["--edition "],
+      "{}",
+      context
+    );
+    // Paths: folders go on, Rust files first, any file when no Rust file matches.
+    assert_eq!(offers(&["mto", "s"]), ["src/"], "{}", context);
+    assert_eq!(offers(&["mto", "src/m"]), ["src/main.rs "], "{}", context);
+    assert_eq!(
+      offers(&["mto", "src/main.rs", "src/"]),
+      ["src/main.rs "],
+      "{}",
+      context
+    );
+    assert_eq!(offers(&["mto", "n"]), ["notes.txt "], "{}", context);
+    assert_eq!(offers(&["mto", "init", ""]), ["src/"], "{}", context);
+    assert_eq!(
+      offers(&["mto", "--config-path", "=", "n"]),
+      ["notes.txt "],
+      "{}",
+      context
+    );
+    // A path is no command, and nothing follows `--` but the command it names.
+    assert_eq!(
+      offers(&["mto", "src/main.rs", "conf"]),
+      Vec::<String>::new(),
+      "{}",
+      context
+    );
+    assert_eq!(
+      offers(&["mto", "doctor", "on", "--", "ca"]),
+      Vec::<String>::new(),
+      "{}",
+      context
+    );
+    ran += 1;
+  }
+  if ran == 0 {
+    eprintln!("note: no bash here; the bash completions are not tried");
+  }
+}
+
+/// Every flag, value, command, subcommand and shell of the spec is in every script.
+#[test]
+fn test_completions_cover_the_spec() {
+  use mtindo::cli::spec::{COMMANDS, FLAGS, SHELLS};
+  let env = TestEnvironment::new();
+  for (shell, _) in COMPLETION_SHELLS {
+    let script = completion_script(&env, shell);
+    let has = |what: &str, spelled: String| {
+      assert!(
+        script.contains(&spelled),
+        "{}: {} {} missing",
+        shell,
+        what,
+        spelled
+      );
+    };
+    // A word of a list: after a space, a parenthesis or a quote.
+    let has_word = |what: &str, word: &str| {
+      let found = [" ", "(", "'"]
+        .iter()
+        .any(|before| script.contains(&format!("{}{}", before, word)));
+      assert!(found, "{}: {} {} missing", shell, what, word);
+    };
+    for spec in FLAGS {
+      if shell == "fish" {
+        has("flag", format!(" -l {}", &spec.long[2..]));
+        if let Some(short) = spec.short {
+          has("flag", format!(" -s {}", &short[1..]));
+        }
+      } else {
+        has("flag", spec.long.to_string());
+        if let Some(short) = spec.short {
+          has("flag", short.to_string());
+        }
+      }
+      for value in spec.values {
+        has_word("value", value);
+      }
+    }
+    for command in COMMANDS {
+      has("command", command.name.to_string());
+      for sub in command.subcommands {
+        if shell == "zsh" {
+          has("subcommand", format!("_mto_{}_subcommands", command.name));
+          has("subcommand", format!("'{}:", sub.word));
+        } else {
+          has("subcommand", format!("{} {}", command.name, sub.word));
+        }
+      }
+    }
+    for name in SHELLS {
+      has_word("shell", name);
+    }
+    for year in ["2015", "2018", "2021", "2024"] {
+      has("edition", year.to_string());
+    }
+    for key in [
+      "max_width",
+      "hard_tabs",
+      "imports_granularity",
+      "type_order",
+    ] {
+      has("setting", key.to_string());
+    }
+  }
+}
+
+/// Bare `mto completions` prints the script for the shell it finds, and stops with exit
+/// code 2 when it finds none; flags and words outside the spec are refused.
+#[test]
+fn test_completions_find_the_shell_or_say_so() {
+  let env = TestEnvironment::new();
+  let (code, out, _) = completions_cmd(&env, &[], Some("/usr/local/bin/fish"));
+  assert_eq!(code, 0);
+  assert!(
+    out.starts_with("# mto ") && out.contains("completions for fish"),
+    "{}",
+    out
+  );
+  let (code, _, err) = completions_cmd(&env, &[], Some("/bin/sh"));
+  assert_eq!(code, 2);
+  assert!(err.contains("bash, zsh, fish or powershell"), "{}", err);
+  for args in [
+    &["tcsh"][..],
+    &["install", "--keep", "3"],
+    &["status", "--dir", "x"],
+    &["--dry-run"],
+    &["zsh", "bash"],
+  ] {
+    assert_eq!(completions_cmd(&env, args, None).0, 2, "{:?}", args);
+  }
+}
+
+/// fish completes from its script, where fish is installed.
+#[test]
+fn test_completions_fish_completes_from_the_tables() {
+  let env = TestEnvironment::new();
+  let script = env.write_file("mto.fish", &completion_script(&env, "fish"));
+  let Some(version) = run_shell("fish", &["--version"], env.dir.path()) else {
+    eprintln!("note: no fish here; its completions are not tried");
+    return;
+  };
+  assert!(version.status.success());
+  let path = script.display().to_string();
+  let syntax = run_shell("fish", &["--no-config", "-n", &path], env.dir.path()).unwrap();
+  assert!(
+    syntax.status.success(),
+    "{}",
+    String::from_utf8_lossy(&syntax.stderr)
+  );
+  let offers = |line: &str| -> Vec<String> {
+    let program = format!("source {}; complete -C '{}'", path, line);
+    let output = run_shell("fish", &["--no-config", "-c", &program], env.dir.path()).unwrap();
+    assert!(
+      output.status.success(),
+      "{}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout)
+      .lines()
+      .map(|l| l.split('\t').next().unwrap_or("").to_string())
+      .collect()
+  };
+  assert_eq!(offers("mto --em"), ["--emit"]);
+  assert_eq!(offers("mto --emit "), ["files", "json", "stdout"]);
+  assert!(offers("mto co").contains(&"config".to_string()));
+  assert_eq!(offers("mto config print --mi"), ["--minimal"]);
+  assert!(offers("mto completions install ").contains(&"zsh".to_string()));
+  assert!(offers("mto --config hard_tabs=").contains(&"hard_tabs=true".to_string()));
+}
+
+/// Install writes where the shell looks, XDG's folders first; again, it changes nothing;
+/// status tells current from stale; uninstall removes only mto's script.
+#[test]
+fn test_completions_install_status_and_uninstall() {
+  let env = TestEnvironment::new();
+  let home = env.dir.path().join(".home");
+  let zsh_file = home.join(".local/share/zsh/site-functions/_mto");
+  let version = env!("CARGO_PKG_VERSION");
+
+  let (code, out, err) = completions_cmd(&env, &["install", "--dry-run"], Some("/bin/zsh"));
+  assert_eq!(code, 0, "{}", err);
+  assert!(
+    out.starts_with("zsh (from $SHELL)\n  would write "),
+    "{}",
+    out
+  );
+  assert!(!zsh_file.exists());
+
+  let (code, out, _) = completions_cmd(&env, &["install"], Some("/bin/zsh"));
+  assert_eq!(code, 0);
+  let wrote = format!(
+    "  wrote {}  (mto {})\n",
+    printed(zsh_file.to_string_lossy().as_bytes()),
+    version
+  );
+  assert!(out.contains(&wrote), "{}", out);
+  assert!(
+    out.contains("before `compinit`") && out.contains("fpath+=("),
+    "{}",
+    out
+  );
+  assert_eq!(
+    fs::read_to_string(&zsh_file).unwrap(),
+    completion_script(&env, "zsh")
+  );
+  let written = fs::metadata(&zsh_file).unwrap().modified().unwrap();
+  let (code, out, _) = completions_cmd(&env, &["install", "zsh"], None);
+  assert_eq!(code, 0);
+  assert!(out.starts_with("zsh\n  already current: "), "{}", out);
+  assert_eq!(
+    fs::metadata(&zsh_file).unwrap().modified().unwrap(),
+    written
+  );
+
+  // Each shell's own folder.
+  for (shell, file) in [
+    ("bash", ".local/share/bash-completion/completions/mto"),
+    ("fish", ".config/fish/completions/mto.fish"),
+    ("powershell", ".local/share/powershell/mto.ps1"),
+  ] {
+    let (code, out, err) = completions_cmd(&env, &["install", shell], None);
+    assert_eq!(code, 0, "{}", err);
+    assert!(home.join(file).is_file(), "{}: {}", shell, out);
+  }
+
+  // A stale script, and a file mto did not write.
+  let fish_file = home.join(".config/fish/completions/mto.fish");
+  let old = fs::read_to_string(&fish_file)
+    .unwrap()
+    .replacen(version, "0.0.1", 1);
+  fs::write(&fish_file, old).unwrap();
+  let bash_file = home.join(".local/share/bash-completion/completions/mto");
+  fs::write(&bash_file, "complete -F _other mto\n").unwrap();
+  let (code, status, _) = completions_cmd(&env, &["status"], None);
+  assert_eq!(code, 0);
+  let lines: Vec<&str> = status.lines().filter(|l| !l.starts_with("  ")).collect();
+  assert_eq!(
+    lines,
+    [
+      "bash        a file mto did not write".to_string(),
+      format!("zsh         current (mto {})", version),
+      "fish        stale (mto 0.0.1): run `mto completions install fish`".to_string(),
+      format!("powershell  current (mto {})", version),
+    ]
+  );
+  let (code, _, err) = completions_cmd(&env, &["install", "bash"], None);
+  assert_eq!(code, 3, "a file mto did not write is not overwritten");
+  assert!(err.contains("mto did not write it"), "{}", err);
+  let (code, out, _) = completions_cmd(&env, &["uninstall", "bash"], None);
+  assert_eq!(code, 0);
+  assert!(out.contains("left ") && bash_file.is_file(), "{}", out);
+  let (code, out, _) = completions_cmd(&env, &["uninstall", "fish", "--dry-run"], None);
+  assert_eq!(code, 0);
+  assert!(
+    out.contains("would remove") && fish_file.is_file(),
+    "{}",
+    out
+  );
+  let (code, _, _) = completions_cmd(&env, &["uninstall", "fish"], None);
+  assert_eq!(code, 0);
+  assert!(!fish_file.exists());
+  let (_, status, _) = completions_cmd(&env, &["status", "fish"], None);
+  assert_eq!(status, "fish        not installed\n");
+
+  // --dir writes elsewhere, and says how to load it from there.
+  let elsewhere = env.dir.path().join("elsewhere");
+  let dir = elsewhere.display().to_string();
+  let (code, out, _) = completions_cmd(&env, &["install", "fish", "--dir", &dir], None);
+  assert_eq!(code, 0);
+  assert!(elsewhere.join("mto.fish").is_file());
+  assert!(out.contains("source "), "{}", out);
+  let (code, _, _) = completions_cmd(
+    &env,
+    &["uninstall", "fish", &format!("--dir={}", dir)],
+    None,
+  );
+  assert_eq!(code, 0);
+  assert!(!elsewhere.join("mto.fish").exists());
+}
+
+/// Each script is the snapshot under tests/fixtures/completions/, with the version
+/// written `VERSION`, so a change to one is seen in review. `MTINDO_BLESS=1` rewrites
+/// them; every shell present checks the script's syntax.
+#[test]
+fn test_completions_match_their_snapshots() {
+  let env = TestEnvironment::new();
+  let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/completions");
+  let bless = std::env::var_os("MTINDO_BLESS").is_some();
+  let version = format!("# mto {} completions", env!("CARGO_PKG_VERSION"));
+  for (shell, file) in COMPLETION_SHELLS {
+    let script = completion_script(&env, shell);
+    assert_eq!(
+      script,
+      completion_script(&env, shell),
+      "{} is not deterministic",
+      shell
+    );
+    let snapshot = script.replacen(&version, "# mto VERSION completions", 1);
+    assert_ne!(snapshot, script, "{}: the header names the version", shell);
+    let path = dir.join(file);
+    if bless {
+      fs::create_dir_all(&dir).unwrap();
+      fs::write(&path, &snapshot).unwrap();
+    } else {
+      let expected = fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
+      assert!(
+        expected == snapshot,
+        "{} differs from {}; run with MTINDO_BLESS=1 to rewrite it",
+        shell,
+        path.display()
+      );
+    }
+    let written = env.write_file(file, &script);
+    let written = written.display().to_string();
+    let check: Option<(&str, Vec<&str>)> = match shell {
+      "bash" => Some(("bash", vec!["-n", &written])),
+      "zsh" => Some(("zsh", vec!["-n", &written])),
+      "fish" => Some(("fish", vec!["--no-config", "-n", &written])),
+      _ => None,
+    };
+    let Some((program, args)) = check else {
+      continue;
+    };
+    match run_shell(program, &args, env.dir.path()) {
+      Some(output) => assert!(
+        output.status.success(),
+        "{} -n: {}",
+        program,
+        String::from_utf8_lossy(&output.stderr)
+      ),
+      None => eprintln!(
+        "note: no {} here; its script's syntax is not checked",
+        program
+      ),
+    }
   }
 }

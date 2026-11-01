@@ -3,10 +3,11 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+use mtindo::cli::completions::{self, Folders, Found, Installed, Shell, State};
 use mtindo::cli::doctor as doctor_cli;
 use mtindo::cli::history::{self, PruneArgs};
 use mtindo::cli::spec::{
-  COMMANDS, CommandSpec, EXAMPLES, EXIT_CODES, FLAGS, Flag, FlagSpec, Group, USAGE_LINES,
+  COMMANDS, CommandSpec, EXAMPLES, EXIT_CODES, FLAGS, Flag, FlagSpec, Group, SHELLS, USAGE_LINES,
   command_named, flags_of, listed, spec_of,
 };
 use mtindo::config::{self, Config, Environment, FileKind, Overrides, Resolver, Source};
@@ -32,6 +33,13 @@ const HELP_COLUMN: usize = 30;
 static GLOBAL: mtindo::cache_alloc::Cached = mtindo::cache_alloc::Cached;
 
 enum CliAction {
+  Completions {
+    /// The subcommand: `install`, `uninstall` or `status`; `None` prints the script.
+    view: Option<&'static str>,
+    shell: Option<Shell>,
+    dir: Option<PathBuf>,
+    dry_run: bool,
+  },
   Format {
     paths: Vec<PathBuf>,
     overrides: Overrides,
@@ -331,6 +339,12 @@ fn main() {
       print_man_page();
       0
     }
+    CliAction::Completions {
+      view,
+      shell,
+      dir,
+      dry_run,
+    } => run_completions(view, shell, dir.as_deref(), dry_run),
     CliAction::Debug {
       view: DebugView::Layout,
       path,
@@ -530,6 +544,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::All => {
           return usage_error("--all only goes with `mto history`");
         }
+        Flag::Dir => {
+          return usage_error("--dir only goes with `mto completions install` or `uninstall`");
+        }
         Flag::WithFile => {
           return usage_error("--with-file only goes with `mto report save`");
         }
@@ -610,8 +627,69 @@ fn parse_command(command: &'static CommandSpec, args: &[String]) -> Result<CliAc
     "history" => parse_history_args(command, args),
     "report" => parse_report_args(command, args),
     "restore" => parse_restore_args(args),
+    "completions" => parse_completions_args(command, args),
     other => unreachable!("`mto {}` has no parser", other),
   }
+}
+
+fn parse_completions_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
+  let view = command.subcommand(args.first().map(String::as_str));
+  let allowed = command.flags_after(view);
+  let mut shell = None;
+  let mut dir = None;
+  let mut dry_run = false;
+  let mut i = usize::from(view.is_some());
+  while i < args.len() {
+    let (arg, inline) = match args[i].split_once('=') {
+      Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
+      _ => (args[i].as_str(), None),
+    };
+    match FLAGS
+      .iter()
+      .find(|spec| spec.long == arg || spec.short == Some(arg))
+    {
+      Some(spec) if allowed.contains(&spec.flag) && spec.flag == Flag::Dir => {
+        let value = inline.or_else(|| {
+          i += 1;
+          args.get(i).cloned()
+        });
+        match value {
+          Some(value) => dir = Some(PathBuf::from(value)),
+          None => return usage_error(&format!("--dir needs a {}", spec.value)),
+        }
+      }
+      Some(spec) if allowed.contains(&spec.flag) && spec.flag == Flag::DryRun => dry_run = true,
+      Some(spec) => {
+        return usage_error(&format!(
+          "{} only goes with `mto completions install` or `uninstall`",
+          spec.long
+        ));
+      }
+      None if arg.starts_with('-') => {
+        return usage_error(&format!("unexpected argument '{}'", arg));
+      }
+      None if shell.is_none() => match Shell::named(arg) {
+        Some(named) => shell = Some(named),
+        None => {
+          let words: Vec<&str> = command.subcommands.iter().map(|s| s.word).collect();
+          return usage_error(&format!(
+            "`{}` is neither a shell ({}) nor {}",
+            arg,
+            listed(SHELLS),
+            listed(&words)
+          ));
+        }
+      },
+      None => return usage_error(&format!("unexpected argument '{}'", arg)),
+    }
+    i += 1;
+  }
+  Ok(CliAction::Completions {
+    view,
+    shell,
+    dir,
+    dry_run,
+  })
 }
 
 fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
@@ -1151,6 +1229,139 @@ fn resolver(overrides: &Overrides) -> Result<Resolver, MtoError> {
     _ => None,
   });
   Ok(resolver)
+}
+
+/// `mto completions`: prints the script, or installs, removes or finds it.
+fn run_completions(
+  view: Option<&str>,
+  shell: Option<Shell>,
+  dir: Option<&Path>,
+  dry_run: bool,
+) -> i32 {
+  let folders = Folders::from_process();
+  let found = match shell {
+    Some(shell) => Some((shell, Found::Named)),
+    // `status` covers every shell unless one is named.
+    None if view == Some("status") => None,
+    None => {
+      let parent = completions::parent_process_name();
+      let variable = env::var("SHELL").ok();
+      let ps_module_path = env::var_os("PSModulePath").is_some();
+      match completions::detect(
+        parent.as_deref(),
+        variable.as_deref(),
+        ps_module_path,
+        cfg!(windows),
+      ) {
+        Some(found) => Some(found),
+        None => {
+          return report_error(&MtoError::Usage(format!(
+            "cannot tell which shell this is; name it: `mto completions{} <SHELL>`, \
+             SHELL being {}",
+            view.map(|v| format!(" {}", v)).unwrap_or_default(),
+            listed(SHELLS)
+          )));
+        }
+      }
+    }
+  };
+  // The shell and how it was found, as the first line of what install and uninstall say.
+  let title = |shell: Shell, how: Found| match how {
+    Found::Named => shell.name().to_string(),
+    how => format!("{} ({})", shell.name(), how.how()),
+  };
+  let failed = |(message, code): (String, i32)| {
+    eprintln!("{}Error: {}{}", c_red(), message, c_reset(true));
+    code
+  };
+  let version = mtindo::version::VERSION;
+  match (view, found) {
+    (None, Some((shell, how))) => {
+      if how != Found::Named && std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+        eprintln!(
+          "note: completions for {}, the shell found {}; `mto completions <SHELL>` names \
+           another",
+          shell.name(),
+          how.how()
+        );
+      }
+      print!("{}", completions::script(shell));
+      0
+    }
+    (Some("install"), Some((shell, how))) => {
+      match completions::install(shell, dir, dry_run, &folders) {
+        Ok((path, done)) => {
+          let did = match done {
+            Installed::Wrote => "wrote",
+            Installed::Current => "already current:",
+            Installed::WouldWrite => "would write",
+          };
+          println!("{}", title(shell, how));
+          println!("  {} {}  (mto {})", did, path.display(), version);
+          print!(
+            "{}",
+            completions::next_step(shell, &path, dir.is_some(), &folders)
+          );
+          0
+        }
+        Err(e) => failed(e),
+      }
+    }
+    (Some("uninstall"), Some((shell, how))) => {
+      match completions::uninstall(shell, dir, dry_run, &folders) {
+        Ok((path, state)) => {
+          println!("{}", title(shell, how));
+          match state {
+            State::Missing => println!("  nothing to remove: {} is not there", path.display()),
+            State::Foreign => println!("  left {} alone: mto did not write it", path.display()),
+            _ if dry_run => println!("  would remove {}", path.display()),
+            _ => println!("  removed {}", path.display()),
+          }
+          let startup = match shell {
+            Shell::Bash => Some("~/.bashrc"),
+            Shell::Zsh => Some("~/.zshrc"),
+            Shell::PowerShell => Some("$PROFILE"),
+            Shell::Fish => None,
+          };
+          if let Some(file) = startup
+            && matches!(state, State::Current | State::Stale(_))
+          {
+            println!("\n  Remove the line you added to {} for it, if any.", file);
+          }
+          0
+        }
+        Err(e) => failed(e),
+      }
+    }
+    (Some("status"), found) => {
+      let shells = match found {
+        Some((shell, _)) => vec![shell],
+        None => Shell::ALL.to_vec(),
+      };
+      for shell in shells {
+        let path = match completions::target(shell, None, &folders) {
+          Ok(path) => path,
+          Err(e) => return failed(e),
+        };
+        let state = match completions::state_of(&path) {
+          State::Missing => "not installed".to_string(),
+          State::Current => format!("current (mto {})", version),
+          State::Stale(old) => format!(
+            "stale (mto {}): run `mto completions install {}`",
+            old,
+            shell.name()
+          ),
+          State::Foreign => "a file mto did not write".to_string(),
+        };
+        println!("{:<11} {}", shell.name(), state);
+        if path.exists() {
+          println!("              {}", path.display());
+        }
+      }
+      0
+    }
+    (view, _) => unreachable!("`mto completions {:?}` has no meaning", view),
+  }
 }
 
 fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) -> i32 {
@@ -1847,6 +2058,10 @@ mod tests {
       &["debug", "tokens", "a.rs"],
       &["debug", "tree", "a.rs"],
       &["debug", "layout", "a.rs", "--edition", "2021"],
+      &["completions", "zsh"],
+      &["completions", "install", "fish", "--dir", "x", "--dry-run"],
+      &["completions", "uninstall", "--dir=x"],
+      &["completions", "status", "bash"],
     ];
     for command in COMMANDS {
       let words = std::iter::once(None).chain(command.subcommands.iter().map(|s| Some(s.word)));

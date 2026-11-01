@@ -15,6 +15,16 @@ keywords = ["formatter", "layout", "rust", "cli", "cargo-subcommand"]
 categories = ["development-tools", "command-line-utilities"]
 include = ["/src", "/build.rs", "/Cargo.toml", "/README.md", "/CREDITS.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/LICENSE-UNICODE"]
 
+# `cargo binstall mtindo` takes the release's archive for the target (`cargo xtask flow
+# package` makes them) rather than building from source.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/mto-{ version }-{ target }{ archive-suffix }"
+bin-dir = "mto-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [[bin]]
 name = "mto"
 path = "src/main.rs"

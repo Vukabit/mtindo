@@ -8,6 +8,7 @@ pub mod harness;
 pub mod json;
 pub mod log;
 pub mod process;
+pub mod progress;
 pub mod sample;
 pub mod store;
 pub mod timing;

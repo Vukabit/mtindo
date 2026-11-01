@@ -303,7 +303,9 @@ pub(crate) fn score(case: &Case, options: &Options, home: &Path) -> Score {
 
 pub(crate) fn score_all(cases: &[Case], options: &Options, home: &Path) -> Vec<Score> {
   let next = AtomicUsize::new(0);
-  let done = AtomicUsize::new(0);
+  // Only a long run says how far along it is.
+  let progress =
+    (cases.len() >= 500).then(|| xtask_core::progress::Progress::new("scoring", cases.len()));
   let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
   let mut scores: Vec<Option<Score>> = (0..cases.len()).map(|_| None).collect();
   let results: Vec<(usize, Score)> = std::thread::scope(|scope| {
@@ -324,9 +326,8 @@ pub(crate) fn score_all(cases: &[Case], options: &Options, home: &Path) -> Vec<S
                   ..Score::default()
                 });
             mine.push((at, scored));
-            let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
-            if finished.is_multiple_of(2000) {
-              eprintln!("  {} of {}", finished, cases.len());
+            if let Some(progress) = &progress {
+              progress.tick();
             }
           }
           mine
@@ -338,6 +339,9 @@ pub(crate) fn score_all(cases: &[Case], options: &Options, home: &Path) -> Vec<S
       .flat_map(|h| h.join().unwrap_or_default())
       .collect()
   });
+  if let Some(progress) = &progress {
+    progress.finish();
+  }
   for (at, score) in results {
     scores[at] = Some(score);
   }

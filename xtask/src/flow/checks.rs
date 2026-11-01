@@ -598,7 +598,7 @@ fn run_check(
     "history-clean" => history_clean(root, flow),
     "commands-doc" => {
       let written =
-        std::fs::read_to_string(root.join("docs/generated/commands.md")).unwrap_or_default();
+        std::fs::read_to_string(tree.join("docs/generated/commands.md")).unwrap_or_default();
       if written == crate::cli::reference() {
         Ok(())
       } else {

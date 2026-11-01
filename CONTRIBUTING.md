@@ -125,7 +125,8 @@ The hooks in `.githooks/` are one line each; [flow.toml](flow.toml)'s
 
 - **`commit-msg`**, every commit: the message, as above.
 - **`pre-commit`**, every commit: `no-internal`, `secrets`, `fmt`, `gates`,
-  on what is staged (a change left unstaged neither fails nor passes it).
+  the command reference, on what is staged (a change left unstaged neither
+  fails nor passes it).
 - **`pre-push`**, every push: `messages`, `hold`, `clippy`; the test suites
   run in CI.
 - **`ci`**, once per push in CI: `messages`, `no-internal`, `secrets`,
@@ -142,6 +143,8 @@ When one fails:
   real one, rotate it, since it may already be in a reflog or a push.
 - **`fmt`**: run `cargo fmt --all` (after `mto`, as above).
 - **`gates`**: `cargo xtask gates` lists each problem with its file and line.
+- **`commands-doc`**: a command's arguments or help changed; run
+  `cargo xtask docs` and stage `docs/generated/commands.md`.
 - **`hold`**: `main` and release tags are pushed only by a release; push your
   branch instead.
 - **`messages`**: one of the pushed commits breaks the rules above; reword it

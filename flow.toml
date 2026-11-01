@@ -144,7 +144,7 @@ needed_by = ["memst"]
 # runs `ci` once and `build` on every platform. Each check is described in
 # CONTRIBUTING.md.
 [stages]
-pre-commit = ["no-internal", "secrets", "fmt", "gates"]
+pre-commit = ["no-internal", "secrets", "fmt", "gates", "commands-doc"]
 # The test suites take minutes: CI runs them on every push (`build`).
 pre-push = ["messages", "hold", "clippy"]
 ci = [

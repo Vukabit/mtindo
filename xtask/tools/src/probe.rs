@@ -170,8 +170,9 @@ fn disagreements(probe: &Probe) -> Vec<Disagreement> {
     .iter()
     .filter(|k| k.unfit.is_none())
     .filter_map(|k| match &k.said {
-      // Line by line, as the test runner compares: line endings aside.
-      Said::Text(text) if !text.lines().eq(base.lines()) => Some(Disagreement {
+      // Line by line, as the test runner compares: line endings aside, and the runner's
+      // own header lines, which a suite may spell anew without changing the formatting.
+      Said::Text(text) if !formatted_lines(text).eq(formatted_lines(base)) => Some(Disagreement {
         case: probe.name.clone(),
         key: k.key.to_string(),
         reason: if k.key.starts_with("tests@") {
@@ -197,6 +198,15 @@ fn first_difference(a: &str, b: &str) -> Option<usize> {
       .find(|&i| a.get(i) != b.get(i))
       .unwrap_or(0),
   )
+}
+
+/// The lines of a pair's text the formatting decides: not the test runner's header lines
+/// (`// rustfmt-KEY: VALUE` in any spacing, or a `//@` directive).
+fn formatted_lines(text: &str) -> impl Iterator<Item = &str> {
+  text.lines().filter(|line| {
+    let line = line.trim_start();
+    !(line.starts_with("//@") || line.starts_with("//rustfmt-") || line.starts_with("// rustfmt-"))
+  })
 }
 
 /// The settings a stable rustfmt says it cannot set (an unstable option or value), from
@@ -648,6 +658,14 @@ mod tests {
     }
     assert_eq!(relative_of("tests/none.rs", &suite), None);
     let _ = fs::remove_dir_all(&suite);
+  }
+
+  #[test]
+  fn test_a_respelled_header_is_not_a_disagreement() {
+    let a = "// rustfmt-version:One\nfn f() {}\n";
+    let b = "// rustfmt-version: One\nfn f() {}\n";
+    assert!(formatted_lines(a).eq(formatted_lines(b)));
+    assert!(!formatted_lines(a).eq(formatted_lines("fn g() {}\n")));
   }
 
   #[test]

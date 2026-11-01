@@ -38,7 +38,7 @@ on the machine it names).
 | corpus scrambled, lines | 99.93% |
 | options honored | 45 of 90; 28 in part, 12 missing, 5 not planned |
 | standard outputs changing meaning | 21 listed |
-| answer-key disagreements | 33, 32 to triage |
+| answer-key disagreements | 25, 0 to triage |
 | fuzz targets, kept inputs | 8, 178 |
 | speed over stable, at least | 20.28x (macos aarch64, 10 cores) |
 | one thread, at least | 93.43 MB/s (macos aarch64, 10 cores) |

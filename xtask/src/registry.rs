@@ -41,6 +41,14 @@ pub const ENTRIES: &[Entry] = &[
     shown_in: "config reference, `mto config options`",
   },
   Entry {
+    path: "records/policy/disagreements.txt",
+    kind: Kind::Policy,
+    holds: "test pairs where another answer key disagrees with the suite at stable",
+    written_by: "hand, `cargo xtask probe --scan --record` (auto-recorded)",
+    read_by: "probe",
+    shown_in: "—",
+  },
+  Entry {
     path: "records/policy/exceptions.txt",
     kind: Kind::Policy,
     holds: "outputs of the standard formatter the meaning check flags, and excused pairs",

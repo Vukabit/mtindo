@@ -38,7 +38,7 @@ use mtindo::options::format::{FormatConfig, NewlineStyle};
 use mtindo::syntax::{Edition, SyntaxElement, SyntaxKind, parse};
 use xtask_core::store;
 
-use crate::common::edition_for;
+use crate::common::{edition_for, header_edition};
 use crate::process;
 use crate::unformat::unformat;
 
@@ -135,6 +135,16 @@ struct Options {
   broke_log: Option<PathBuf>,
   /// The files whose flags are known: the formatter's bugs, each with its reason.
   exceptions: Option<PathBuf>,
+}
+
+/// One of the standard formatter's test pairs, as the harness scores it.
+pub struct Pair {
+  pub input: String,
+  /// The expected file, with the line endings the header asks for.
+  pub expected: String,
+  pub edition: Edition,
+  /// The settings mto formats the input with: its header's.
+  pub format: FormatConfig,
 }
 
 /// One scored case.
@@ -300,6 +310,23 @@ pub fn kind_at_line(text: &str, line: usize, edition: Edition) -> String {
   }
 }
 
+/// mto's formatting of `text`, as `format = true` runs it.
+pub fn mto_output(text: &str, edition: Edition, config: &FormatConfig) -> String {
+  mtindo::format::file::format_file(text, edition, config)
+}
+
+/// Whether a test pair, named relative to the suite's `target` folder, is a module its
+/// parent's run never formats, whose expected text is its source left alone: the standard
+/// formatter's own test runner leaves these out.
+pub fn never_formatted(relative: &Path) -> bool {
+  [
+    "configs/skip_children/foo/mod.rs",
+    "issue-3253/paths/excluded.rs",
+  ]
+  .iter()
+  .any(|child| relative == Path::new(child))
+}
+
 /// The text a panic carried.
 pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
   payload
@@ -307,6 +334,19 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     .map(|s| s.to_string())
     .or_else(|| payload.downcast_ref::<String>().cloned())
     .unwrap_or_else(|| "a panic without a message".to_string())
+}
+
+/// The toolchain `rust-toolchain.toml` pins, the reference; `stable` when it names none.
+pub fn reference_toolchain() -> String {
+  let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rust-toolchain.toml");
+  fs::read_to_string(file)
+    .unwrap_or_default()
+    .lines()
+    .filter_map(|l| l.trim().strip_prefix("channel"))
+    .filter_map(|rest| rest.trim().strip_prefix('='))
+    .map(|v| v.trim().trim_matches('"').to_string())
+    .next()
+    .unwrap_or_else(|| "stable".to_string())
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -609,10 +649,15 @@ pub fn run(args: &[String]) -> ExitCode {
   ratchet(&options, &tallies)
 }
 
-/// The standard formatter on `text` from `dir`, with an empty home folder. rustup is told
-/// where it lives and which toolchain to run: the empty home hides its own settings, and a
-/// repository's `rust-toolchain` file would ask for another (the reference is stable).
-pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answer {
+/// [`run_standard`] with the rustfmt of `toolchain`; with what it wrote on stderr (its
+/// warnings, when it formatted).
+pub fn run_rustfmt(
+  text: &str,
+  edition: &str,
+  dir: &Path,
+  home: &Path,
+  toolchain: &str,
+) -> (Answer, String) {
   let rustup_home = std::env::var_os("RUSTUP_HOME")
     .map(PathBuf::from)
     .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".rustup")));
@@ -626,7 +671,7 @@ pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answe
       .current_dir(dir)
       .env("HOME", home)
       .env_remove("XDG_CONFIG_HOME")
-      .env("RUSTUP_TOOLCHAIN", "stable")
+      .env("RUSTUP_TOOLCHAIN", toolchain)
       .env("RUSTUP_AUTO_INSTALL", "0")
       .stdout(Stdio::piped())
       .stderr(Stdio::piped()),
@@ -634,9 +679,24 @@ pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answe
     STANDARD_LIMIT,
   );
   match done {
-    Ok(done) => classify(done),
-    Err(e) => Answer::NotRun(format!("cannot run rustfmt: {}", e)),
+    Ok(done) => {
+      let stderr = String::from_utf8_lossy(&done.stderr).into_owned();
+      (classify(done), stderr)
+    }
+    Err(e) => (
+      Answer::NotRun(format!("cannot run rustfmt: {}", e)),
+      String::new(),
+    ),
   }
+}
+
+/// The standard formatter on `text` from `dir`, with an empty home folder. rustup is told
+/// where it lives and which toolchain to run: the empty home hides its own settings, and a
+/// repository's `rust-toolchain` file would ask for another. The toolchain is the one this
+/// repository pins ([`reference_toolchain`]), whose rustfmt the record names: rustup's
+/// `stable` may be older or newer.
+pub fn run_standard(text: &str, edition: &str, dir: &Path, home: &Path) -> Answer {
+  run_rustfmt(text, edition, dir, home, &reference_toolchain()).0
 }
 
 /// `diff-show [--scrambled] [--twice] [--save] FILE [CONTEXT]`: where mto's formatting of FILE first differs from
@@ -790,6 +850,43 @@ pub fn standard_output(
   answer
 }
 
+/// The pair `relative` names under the suite `tests` (`tests/target/RELATIVE` and its
+/// input in `tests/source/`, or the target itself when it has none), whose expected file
+/// reads `expected`.
+pub fn test_pair(tests: &Path, relative: &Path, expected: String) -> Pair {
+  let source_dir = tests.join("source");
+  let input = fs::read_to_string(source_dir.join(relative)).unwrap_or(expected.clone());
+  let mut format = header_settings(&input, &tests.join("config"));
+  // A module beside a crate root is formatted as the root's run reaches it, with the
+  // macros and attributes the root's own attributes skip.
+  let folder = source_dir.join(relative).parent().map(Path::to_path_buf);
+  if let Some(root) = folder.map(|f| f.join("lib.rs"))
+    && root != source_dir.join(relative)
+    && let Ok(text) = fs::read_to_string(&root)
+  {
+    (format.crate_skipped_macros, format.crate_skipped_attributes) =
+      mtindo::cli::modules::crate_skips(&text);
+  }
+  // The test runner reads a pair's settings from its header alone, so a pair is 2015 (the
+  // default edition, which sets the style edition too) unless the header says otherwise;
+  // the crate the suite sits in has nothing to do with it.
+  let edition = header_edition(&input).unwrap_or(Edition::E2015);
+  // The pairs are stored with `\n` endings whatever the header asks for; the
+  // standard formatter's own test runner ignores endings.
+  let expected =
+    if format.newline_style == NewlineStyle::Windows && !strings_span_lines(&expected, edition) {
+      expected.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+      expected
+    };
+  Pair {
+    input,
+    expected,
+    edition,
+    format,
+  }
+}
+
 /// `diff-why FILE LINE`: in mto's formatting of the scrambled FILE, what the statement
 /// starting on LINE (1-based, as the harness reports it) holds that may decline it: the
 /// blocks and other kinds in it, as `kind<parent` names.
@@ -906,7 +1003,6 @@ fn collect_cases(options: &Options) -> Vec<Case> {
   };
   if let Some(tests) = &options.tests {
     let target_dir = tests.join("target");
-    let source_dir = tests.join("source");
     let mut targets = Vec::new();
     collect_rs(&target_dir, &mut targets);
     targets.sort();
@@ -918,41 +1014,20 @@ fn collect_cases(options: &Options) -> Vec<Case> {
       if never_formatted(relative) {
         continue;
       }
-      let input = fs::read_to_string(source_dir.join(relative)).unwrap_or(expected.clone());
-      let set = if input.lines().any(|l| l.starts_with("// rustfmt-")) {
+      let pair = test_pair(tests, relative, expected);
+      let set = if pair.input.lines().any(|l| l.starts_with("// rustfmt-")) {
         Set::TestsWithSettings
       } else {
         Set::Tests
       };
-      let mut format = header_settings(&input, &tests.join("config"));
-      // A module beside a crate root is formatted as the root's run reaches it, with the
-      // macros and attributes the root's own attributes skip.
-      let folder = source_dir.join(relative).parent().map(Path::to_path_buf);
-      if let Some(root) = folder.map(|f| f.join("lib.rs"))
-        && root != source_dir.join(relative)
-        && let Ok(text) = fs::read_to_string(&root)
-      {
-        (format.crate_skipped_macros, format.crate_skipped_attributes) =
-          mtindo::cli::modules::crate_skips(&text);
-      }
-      // The pairs are stored with `\n` endings whatever the header asks for; the
-      // standard formatter's own test runner ignores endings.
-      let edition = edition_for(&target, &input);
-      let expected = if format.newline_style == NewlineStyle::Windows
-        && !strings_span_lines(&expected, edition)
-      {
-        expected.replace("\r\n", "\n").replace('\n', "\r\n")
-      } else {
-        expected
-      };
       cases.push(Case {
         set,
         name: format!("tests/{}", relative.display()),
-        edition,
-        format,
-        input,
+        edition: pair.edition,
+        format: pair.format,
+        input: pair.input,
         dir: tests.to_path_buf(),
-        expected: Some(expected),
+        expected: Some(pair.expected),
       });
     }
   }
@@ -1165,11 +1240,6 @@ fn header_settings(input: &str, config_dir: &Path) -> FormatConfig {
     .unwrap_or_default()
 }
 
-/// mto's formatting of `text`, as `format = true` runs it.
-fn mto_output(text: &str, edition: Edition, config: &FormatConfig) -> String {
-  mtindo::format::file::format_file(text, edition, config)
-}
-
 /// The text of the configuration file the standard formatter finds from `dir`, for the
 /// cache key: the nearest `.rustfmt.toml` or `rustfmt.toml` in it or a parent.
 fn nearest_config(dir: &Path) -> String {
@@ -1183,18 +1253,6 @@ fn nearest_config(dir: &Path) -> String {
     current = here.parent();
   }
   String::new()
-}
-
-/// Whether a test pair, named relative to the suite's `target` folder, is a module its
-/// parent's run never formats, whose expected text is its source left alone: the standard
-/// formatter's own test runner leaves these out.
-fn never_formatted(relative: &Path) -> bool {
-  [
-    "configs/skip_children/foo/mod.rs",
-    "issue-3253/paths/excluded.rs",
-  ]
-  .iter()
-  .any(|child| relative == Path::new(child))
 }
 
 fn parse_args(args: &[String]) -> Result<Options, String> {
@@ -1960,5 +2018,15 @@ mod tests {
     assert!(found[0].contains("refuses"), "{:?}", found);
     // A record without skipped counts does not hold them against a run.
     assert_eq!(drops(&old, &worse).len(), 1);
+  }
+
+  #[test]
+  fn test_the_reference_is_the_pinned_toolchain() {
+    let pinned =
+      fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rust-toolchain.toml"))
+        .unwrap();
+    let toolchain = reference_toolchain();
+    assert_ne!(toolchain, "stable");
+    assert!(pinned.contains(&format!("channel = \"{}\"", toolchain)));
   }
 }

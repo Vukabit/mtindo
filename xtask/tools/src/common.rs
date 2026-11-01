@@ -4,16 +4,22 @@ use std::path::{Path, PathBuf};
 
 use mtindo::syntax::Edition;
 
-/// The edition to parse `file` with.
+/// The edition to parse `file` with: its header's, else its crate's.
 pub fn edition_for(file: &Path, text: &str) -> Edition {
-  for line in text.lines().take(20) {
-    if let Some(year) = line.trim().strip_prefix("// rustfmt-edition:")
-      && let Some(edition) = Edition::from_year(year)
-    {
-      return edition;
-    }
-  }
-  Edition::from_year(xtask_core::edition::of_crate(file)).unwrap_or(Edition::E2015)
+  header_edition(text).unwrap_or_else(|| {
+    Edition::from_year(xtask_core::edition::of_crate(file)).unwrap_or(Edition::E2015)
+  })
+}
+
+/// The edition a `// rustfmt-edition: YEAR` header in the first lines asks for.
+pub fn header_edition(text: &str) -> Option<Edition> {
+  text.lines().take(20).find_map(|line| {
+    let line = line.trim();
+    let year = line
+      .strip_prefix("// rustfmt-edition:")
+      .or_else(|| line.strip_prefix("//@ rustfmt-edition:"))?;
+    Edition::from_year(year.trim())
+  })
 }
 
 /// Every `.rs` file of the repository, tracked or new and not ignored by git, sorted: what

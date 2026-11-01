@@ -27,11 +27,13 @@ mod metrics;
 mod pairs;
 mod papers;
 mod perf;
+mod probe;
 mod race;
 mod registry;
 mod runs;
 mod settings;
 mod sha256;
+mod sources;
 mod status;
 mod store;
 mod test;
@@ -136,6 +138,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "metrics" => metrics::run(root, m),
     "pairs" => pairs::run(root, m),
     "parsecheck" => forward(root, "parsecheck", cli::texts(m, "paths")),
+    "probe" => probe::run(root, m),
     "race" => race::run(root, m),
     "runs" => runs::run(root, m),
     "settings" => settings::run(root, m),

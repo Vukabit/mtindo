@@ -4,6 +4,7 @@
 
 pub mod edition;
 pub mod files;
+pub mod harness;
 pub mod log;
 pub mod process;
 pub mod sample;

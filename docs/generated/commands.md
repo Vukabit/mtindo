@@ -660,6 +660,23 @@ cargo xtask parsecheck [PATH...]
 
 - `PATH...`: Files or folders
 
+## `cargo xtask probe`
+
+One of the standard formatter's test pairs against every answer key (its suite
+at stable and nightly, each toolchain's binary), outside the repository; --scan
+checks every pair for where the keys disagree (records/policy/disagreements.txt)
+
+```text
+cargo xtask probe [CASE] [--show KEY] [--toolchain NAME] [--scan] [--record]
+```
+
+- `CASE`: A test pair as the diff names it
+  (tests/configs/wrap_comments/true.rs), or its path
+- `--show KEY`: Show mto's output beside this key's, where they first differ
+- `--toolchain NAME`: The nightly toolchain for run@nightly (default: nightly)
+- `--scan`: Check every pair; fails on a disagreement not recorded
+- `--record`: Record the disagreements found, to triage
+
 ## `cargo xtask race`
 
 Time rustfmt, rustfmt nightly and mto feature by feature (net of start-up),

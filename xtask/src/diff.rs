@@ -6,7 +6,6 @@
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
-use crate::capabilities::{fetch as surface_fetch, load_surface};
 use crate::common::log::Logger;
 use crate::common::store;
 use crate::common::{process, proof};
@@ -23,7 +22,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   if corpus::fetch(root, false, &log) != 0 {
     return ExitCode::from(1);
   }
-  let tests = match tests_dir(root, &log) {
+  let tests = match crate::sources::tests_dir(root, "stable", &log) {
     Ok(dir) => dir,
     Err(e) => {
       println!("{}", e);
@@ -174,24 +173,4 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       ExitCode::from(1)
     }
   }
-}
-
-/// The pinned stable release's `tests` folder, from the capabilities cache.
-fn tests_dir(root: &Path, log: &Logger) -> Result<std::path::PathBuf, String> {
-  let surface = load_surface(root)?;
-  let description = surface
-        .sources
-        .iter()
-        .find(|(label, _)| label == "stable")
-        .map(|(_, d)| d.clone())
-        .ok_or("no stable release in records/upstream/rustfmt-surface.txt; run `cargo xtask capabilities refresh` online")?;
-  let commit = description
-    .split([' ', ','])
-    .find(|w| w.len() == 40 && w.chars().all(|c| c.is_ascii_hexdigit()))
-    .ok_or("the stable source names no commit")?
-    .to_string();
-  let checkout = surface_fetch::cached_checkout(root, &commit, log)?.ok_or(
-    "the standard formatter's tests are not cached; run `cargo xtask capabilities refresh` online",
-  )?;
-  Ok(checkout.join("tests"))
 }

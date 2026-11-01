@@ -31,6 +31,9 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
   supports each of the standard formatter's items. Written by hand
   (`capabilities sync` adds new items); read by capabilities gate,
   src/options/support.rs; shown in config reference, `mto config options`.
+- **[policy/disagreements.txt](policy/disagreements.txt)** (policy): test pairs
+  where another answer key disagrees with the suite at stable. Written by hand,
+  `cargo xtask probe --scan --record` (auto-recorded); read by probe.
 - **[policy/exceptions.txt](policy/exceptions.txt)** (policy): outputs of the
   standard formatter the meaning check flags, and excused pairs. Written by
   hand, `cargo xtask diff` (auto-recorded); read by diff; shown in meaning page.

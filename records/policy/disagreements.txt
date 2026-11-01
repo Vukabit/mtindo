@@ -1,0 +1,40 @@
+# Test pairs where an answer key disagrees with the standard formatter's suite at stable,
+# the default key (`cargo xtask probe`): the suite at nightly changed the expected file
+# (`tests@nightly`), or the installed rustfmt does not produce it (`run@stable` when it
+# ignored no setting, else `run@nightly`). `CASE  tests@stable != KEY  REASON`.
+# `cargo xtask probe --scan` lists the ones not recorded and the recorded ones no longer
+# seen; `--record` adds the new ones as auto-recorded, to triage. Chasing a pair recorded
+# here needs a look at which key is right first.
+tests/cfg_select_stable.rs  tests@stable != run@nightly  the pair holds on the stable channel only: nightly formats `cfg_select!`, which stable leaves as written
+tests/chains_with_comment.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/comment5.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/comments-in-lists/wrap-comments-not-normalized.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/comments-in-lists/wrap-comments-true.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/configs/disable_all_formatting/true.rs  tests@stable != run@nightly  auto-recorded, to triage: rustfmt does not produce the expected file
+tests/configs/disable_all_formatting/true.rs  tests@stable != run@stable  auto-recorded, to triage: rustfmt does not produce the expected file
+tests/configs/fn_params_layout/vertical.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/configs/struct_field_align_threshold/20.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/imports_raw_identifiers/version_One.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/imports_raw_identifiers/version_Two.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/issue-2401.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/issue-5023.rs  tests@stable != run@nightly  auto-recorded, to triage: rustfmt does not produce the expected file
+tests/issue-5023.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/issue-5270/merge_derives_false.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/issue-5270/merge_derives_true.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/issue_3937.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/issue_4350.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/macros.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/match.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/postfix-yield.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/string_lit_unicode_ws.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/struct_lits.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/struct_lits_multiline.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/struct_lits_visual.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/struct_lits_visual_multiline.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/struct_tuple_visual.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/trailing_comments/hard_tabs.rs  tests@stable != run@nightly  auto-recorded, to triage: rustfmt does not produce the expected file
+tests/trailing_comments/hard_tabs.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/trailing_comments/soft_tabs.rs  tests@stable != run@nightly  auto-recorded, to triage: rustfmt does not produce the expected file
+tests/trailing_comments/soft_tabs.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed
+tests/unicode.rs  tests@stable != run@nightly  auto-recorded, to triage: rustfmt does not produce the expected file
+tests/unicode.rs  tests@stable != tests@nightly  auto-recorded, to triage: the suite's expected file changed

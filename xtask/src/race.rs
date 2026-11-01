@@ -59,7 +59,7 @@ use crate::common::awake::KeepAwake;
 use crate::common::color::color_enabled;
 use crate::common::log::Logger;
 use crate::common::process;
-use crate::common::store;
+use crate::common::{harness, store};
 
 /// Columns besides the feature name in the compact layout: " " + 10 + " " + 10 + " " + 14.
 const COMPACT_COLUMNS: usize = 37;
@@ -73,9 +73,6 @@ const DEFAULTS_ROW: &str = "(defaults, no options)";
 
 /// Columns besides the feature name: " " + files 5 + "  " + 14 + " " + 14 + " " + mto 20.
 const FIXED_COLUMNS: usize = 58;
-
-/// Keys in rustfmt's test headers that steer its test runner rather than set options.
-const HARNESS_DIRECTIVES: &[&str] = &["target", "stable", "unstable"];
 
 /// The first layout row: every layout setting at its default.
 const LAYOUT_DEFAULTS_ROW: &str = "layout (defaults)";
@@ -715,31 +712,6 @@ fn fit(text: &str, cols: usize) -> String {
   out
 }
 
-/// The settings an input runs with, following rustfmt's test harness: `config` loads a
-/// file from `tests/config/` first (header lines then override it), and the runner-only
-/// keys are dropped. `None` when a named config file is missing.
-fn harness_settings(text: &str, config_dir: &Path) -> Option<Vec<(String, String)>> {
-  let headers = settings_of(text);
-  let mut settings: Vec<(String, String)> = Vec::new();
-  for (key, value) in headers.iter() {
-    if key == "config" {
-      let file = fs::read_to_string(config_dir.join(value)).ok()?;
-      for (k, v) in toml_settings(&file) {
-        settings.retain(|(existing, _)| *existing != k);
-        settings.push((k, v));
-      }
-    }
-  }
-  for (key, value) in headers {
-    if key == "config" || HARNESS_DIRECTIVES.contains(&key.as_str()) {
-      continue;
-    }
-    settings.retain(|(existing, _)| *existing != key);
-    settings.push((key, value));
-  }
-  Some(settings)
-}
-
 /// The `count` largest `.rs` files under `src/` folders of the corpus, largest first (ties
 /// by path), skipping test data, so formatting rather than start-up dominates.
 fn largest_sources(corpus: &Path, count: usize) -> Vec<PathBuf> {
@@ -1134,7 +1106,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     let file = config_dir.join(format!("{}.toml", n));
     let body: String = settings
       .iter()
-      .map(|(k, v)| toml_line(k, v, &string_keys))
+      .map(|(k, v)| harness::toml_line(k, v, &string_keys))
       .collect();
     fs::write(&file, body).map_err(|e| e.to_string())?;
     Ok(Some(file))
@@ -1150,7 +1122,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     let Ok(text) = fs::read_to_string(&path) else {
       continue;
     };
-    let Some(settings) = harness_settings(&text, &tests_dir.join("config")) else {
+    let Some(settings) = harness::settings(&text, &tests_dir.join("config")) else {
       skipped_configs += 1;
       continue;
     };
@@ -1850,17 +1822,6 @@ fn screen_for(options: &Options, frame: usize) -> Screen {
   }
 }
 
-/// The settings a test input asks for, from its `// rustfmt-KEY: VALUE` lines.
-fn settings_of(text: &str) -> Vec<(String, String)> {
-  text
-    .lines()
-    .filter_map(|line| line.strip_prefix("// rustfmt-"))
-    .filter_map(|rest| rest.split_once(':'))
-    .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
-    .filter(|(key, _)| !key.is_empty() && key.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
-    .collect()
-}
-
 fn shape_for(screen: Screen) -> Shape {
   match screen.cols {
     None => Shape::Full,
@@ -2141,62 +2102,6 @@ fn time_text(median: f64, net: f64) -> String {
   } else {
     milliseconds(net)
   }
-}
-
-/// A setting as a TOML line. Options whose values are a fixed list (`edition`,
-/// `style_edition`, `imports_granularity`...) are strings in rustfmt's config, so their
-/// values are always quoted, even `2021`; otherwise numbers, booleans, arrays and
-/// already-quoted strings are written as they are and words are quoted.
-fn toml_line(key: &str, value: &str, string_keys: &BTreeSet<String>) -> String {
-  let bare = !string_keys.contains(key)
-    && (value.parse::<f64>().is_ok()
-      || value == "true"
-      || value == "false"
-      || value.starts_with('[')
-      || value.starts_with('{'))
-    || value.starts_with('"');
-  if bare {
-    format!("{} = {}\n", key, value)
-  } else {
-    format!(
-      "{} = \"{}\"\n",
-      key,
-      value.replace('\\', "\\\\").replace('"', "\\\"")
-    )
-  }
-}
-
-/// `key = value` lines of a small TOML file, values unquoted; tables and comments skipped.
-/// An array may span several lines; it is joined onto one.
-fn toml_settings(text: &str) -> Vec<(String, String)> {
-  let mut settings = Vec::new();
-  let mut lines = text.lines().map(str::trim);
-  while let Some(line) = lines.next() {
-    if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
-      continue;
-    }
-    let Some((key, value)) = line.split_once('=') else {
-      continue;
-    };
-    let mut value = value.trim().to_string();
-    let open = |v: &str| v.matches('[').count() > v.matches(']').count();
-    while open(&value) {
-      let Some(more) = lines.next() else {
-        break;
-      };
-      if !more.is_empty() && !more.starts_with('#') {
-        value.push(' ');
-        value.push_str(more);
-      }
-    }
-    let unquoted = value
-      .strip_prefix('"')
-      .and_then(|v| v.strip_suffix('"'))
-      .map(str::to_string)
-      .unwrap_or(value);
-    settings.push((key.trim().to_string(), unquoted));
-  }
-  settings
 }
 
 fn tool_name(tool: Tool) -> &'static str {
@@ -2576,30 +2481,6 @@ mod tests {
   }
 
   #[test]
-  fn test_harness_settings_follow_rustfmts_test_runner() {
-    let dir = std::env::temp_dir().join(format!("xtask-race-config-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(
-      dir.join("small_tabs.toml"),
-      "# comment\nmax_width = 80\nhard_tabs = true\nimports_granularity = \"Crate\"\n",
-    )
-    .unwrap();
-    let text = "// rustfmt-config: small_tabs.toml\n// rustfmt-hard_tabs: false\n// rustfmt-target: hello.rs\n// rustfmt-stable: true\n// rustfmt-unstable: true\nfn f() {}\n";
-    let settings = harness_settings(text, &dir).unwrap();
-    assert_eq!(
-      settings,
-      vec![
-        ("max_width".to_string(), "80".to_string()),
-        ("imports_granularity".to_string(), "Crate".to_string()),
-        ("hard_tabs".to_string(), "false".to_string()),
-      ]
-    );
-    assert!(harness_settings("// rustfmt-config: gone.toml\n", &dir).is_none());
-    fs::remove_dir_all(&dir).unwrap();
-  }
-
-  #[test]
   fn test_live_view_shows_progress_and_the_current_rows() {
     let race = small_race();
     let options = opts(false);
@@ -2706,18 +2587,6 @@ mod tests {
   }
 
   #[test]
-  fn test_settings_of_reads_header_lines() {
-    let text = "// rustfmt-max_width: 80\n// rustfmt-imports_granularity: Crate\n// plain comment\nfn f() {}\n// rustfmt-Bad: x\n";
-    assert_eq!(
-      settings_of(text),
-      vec![
-        ("max_width".to_string(), "80".to_string()),
-        ("imports_granularity".to_string(), "Crate".to_string())
-      ]
-    );
-  }
-
-  #[test]
   fn test_size_argument() {
     let parsed = |words: &[&str]| {
       let mut all = vec!["race".to_string()];
@@ -2775,56 +2644,6 @@ mod tests {
     assert!((median - 0.11).abs() < 1e-9);
     assert!((spread - 9.090909).abs() < 1e-3);
     assert!(stats(&[]).is_none());
-  }
-
-  #[test]
-  fn test_toml_lines() {
-    let strings: BTreeSet<String> = ["edition", "style_edition", "imports_granularity"]
-      .iter()
-      .map(|s| s.to_string())
-      .collect();
-    assert_eq!(toml_line("max_width", "80", &strings), "max_width = 80\n");
-    assert_eq!(
-      toml_line("hard_tabs", "true", &strings),
-      "hard_tabs = true\n"
-    );
-    assert_eq!(
-      toml_line("imports_granularity", "Crate", &strings),
-      "imports_granularity = \"Crate\"\n"
-    );
-    // Fixed-list options are strings, even when the value looks like a number.
-    assert_eq!(
-      toml_line("edition", "2021", &strings),
-      "edition = \"2021\"\n"
-    );
-    assert_eq!(
-      toml_line("style_edition", "2024", &strings),
-      "style_edition = \"2024\"\n"
-    );
-    assert_eq!(
-      toml_line("ignore", "[\"a\"]", &strings),
-      "ignore = [\"a\"]\n"
-    );
-    assert_eq!(
-      toml_line("edition", "\"2018\"", &strings),
-      "edition = \"2018\"\n"
-    );
-  }
-
-  #[test]
-  fn test_toml_settings_join_multi_line_arrays() {
-    let text =
-      "# comment\nignore = [\n  \"tests/**/ice.rs\",\n  \"b.rs\"\n]\nmax_width = 80\n[table]\n";
-    assert_eq!(
-      toml_settings(text),
-      vec![
-        (
-          "ignore".to_string(),
-          "[ \"tests/**/ice.rs\", \"b.rs\" ]".to_string()
-        ),
-        ("max_width".to_string(), "80".to_string()),
-      ]
-    );
   }
 
   #[test]

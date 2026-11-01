@@ -225,6 +225,7 @@ pub fn tree() -> Command {
     metrics(),
     pairs(),
     parsecheck(),
+    probe(),
     race(),
     runs(),
     settings(),
@@ -914,6 +915,35 @@ fn perf() -> Command {
     .subcommand(
       Command::new("growth").about("Generated files of doubling size: how time grows with each"),
     )
+}
+
+fn probe() -> Command {
+  Command::new("probe")
+    .about(
+      "One of the standard formatter's test pairs against every answer key (its suite at \
+       stable and nightly, each toolchain's binary), outside the repository; --scan checks \
+       every pair for where the keys disagree (records/policy/disagreements.txt)",
+    )
+    .arg(
+      Arg::new("case").value_name("CASE").help(
+        "A test pair as the diff names it (tests/configs/wrap_comments/true.rs), or its path",
+      ),
+    )
+    .arg(option(
+      "show",
+      "KEY",
+      "Show mto's output beside this key's, where they first differ",
+    ))
+    .arg(option(
+      "toolchain",
+      "NAME",
+      "The nightly toolchain for run@nightly (default: nightly)",
+    ))
+    .arg(flag(
+      "scan",
+      "Check every pair; fails on a disagreement not recorded",
+    ))
+    .arg(flag("record", "Record the disagreements found, to triage"))
 }
 
 fn race() -> Command {

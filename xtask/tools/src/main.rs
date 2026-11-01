@@ -11,6 +11,7 @@ mod lexdiff;
 mod pairs;
 mod parsecheck;
 mod perf;
+mod probe;
 mod scramble;
 mod toml_test;
 mod unformat;
@@ -42,6 +43,7 @@ fn main() -> ExitCode {
     Some("diff-why") => diff::why(&args[1..]),
     Some("doctor-bench") => doctor_bench::run(&args[1..]),
     Some("pairs") => pairs::run(&args[1..]),
+    Some("probe") => probe::run(&args[1..]),
     Some("perf-scaling") => perf::scaling(&args[1..]),
     Some("perf-growth") => perf::growth(&args[1..]),
     Some("perf-depth") => perf::depth(&args[1..]),

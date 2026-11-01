@@ -15,12 +15,14 @@ const BAR_WIDTH: usize = 16;
 
 const LINE_WIDTH: usize = 80;
 
-/// What running rustfmt's own test cases through mto gave.
+/// How rustfmt's own test pairs fare, as `cargo xtask diff` last recorded them
+/// (compat/compatibility.txt): those with default settings, and those setting options.
 pub enum Cases {
-  Ran {
-    configured: usize,
+  Recorded {
     passed: usize,
-    runnable: usize,
+    total: usize,
+    with_settings_passed: usize,
+    with_settings_total: usize,
   },
   Unavailable(String),
 }
@@ -165,24 +167,26 @@ pub fn render(surface: &Surface, manifest: &Manifest, cases: &Cases, style: Styl
     ));
   }
   match cases {
-    Cases::Ran {
-      configured,
+    Cases::Recorded {
       passed,
-      runnable,
+      total,
+      with_settings_passed,
+      with_settings_total,
     } => {
       let text = format!(
-        "{} of {} pass ({}); {} need options",
+        "{} of {} ({}), options: {} of {}",
         passed,
-        runnable,
-        percent(*passed, *runnable),
-        configured
+        total,
+        percent(*passed, *total),
+        with_settings_passed,
+        with_settings_total
       );
       out.push_str(&headline_line(
         &p,
         "rustfmt's tests",
         *passed,
         0,
-        *runnable,
+        *total,
         &text,
       ));
     }
@@ -535,10 +539,11 @@ mod tests {
   use super::*;
 
   fn cases() -> Cases {
-    Cases::Ran {
-      configured: 559,
-      passed: 191,
-      runnable: 462,
+    Cases::Recorded {
+      passed: 455,
+      total: 460,
+      with_settings_passed: 429,
+      with_settings_total: 559,
     }
   }
 
@@ -674,7 +679,7 @@ mod tests {
       lines[2]
     );
     assert!(
-      lines[4].ends_with("191 of 462 pass (41.3%); 559 need options"),
+      lines[4].ends_with("455 of 460 (98.9%), options: 429 of 559"),
       "{}",
       lines[4]
     );

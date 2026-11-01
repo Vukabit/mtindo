@@ -1,7 +1,6 @@
 //! The xtask commands that need the mtindo library. `cargo xtask` forwards to this binary,
 //! so the runner itself never depends on mtindo and still builds when the library does not.
 
-mod cases;
 mod common;
 mod config_docs;
 mod corpus;
@@ -70,14 +69,6 @@ fn main() -> ExitCode {
         }
         None => ExitCode::from(1),
       }
-    }
-    Some("cases") if args.len() == 2 => {
-      let summary = cases::run(Path::new(&args[1]));
-      println!(
-        "cases {} {} {} {}",
-        summary.total, summary.configured, summary.passed, summary.unreadable
-      );
-      ExitCode::SUCCESS
     }
     _ => {
       eprintln!("xtask-tools: run through `cargo xtask`; see `cargo xtask help`.");

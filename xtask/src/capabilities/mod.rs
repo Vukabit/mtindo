@@ -36,7 +36,6 @@ use surface::{Kind, Reading, Surface};
 
 use crate::common::color::color_enabled;
 use crate::common::log::Logger;
-use crate::common::process;
 
 pub(crate) const MANIFEST_PATH: &str = "compat/capabilities.txt";
 
@@ -280,6 +279,35 @@ fn read_release(root: &Path, channel: &str, log: &Logger) -> Result<Reading, Str
   source::read(channel, &description, &dir)
 }
 
+/// How rustfmt's own test pairs fare, from the numbers `cargo xtask diff` recorded in
+/// compat/compatibility.txt (scored there with each pair's settings).
+fn recorded_cases(root: &Path) -> Cases {
+  let Ok(text) = fs::read_to_string(root.join("compat/compatibility.txt")) else {
+    return Cases::Unavailable("compat/compatibility.txt cannot be read".to_string());
+  };
+  // `set NAME files MATCHED TOTAL lines ...`
+  let set = |name: &str| {
+    text.lines().find_map(|line| {
+      let words: Vec<&str> = line.split_whitespace().collect();
+      match words.as_slice() {
+        ["set", set, "files", matched, total, ..] if *set == name => {
+          Some((matched.parse().ok()?, total.parse().ok()?))
+        }
+        _ => None,
+      }
+    })
+  };
+  match (set("tests"), set("tests-with-settings")) {
+    (Some((passed, total)), Some((with_settings_passed, with_settings_total))) => Cases::Recorded {
+      passed,
+      total,
+      with_settings_passed,
+      with_settings_total,
+    },
+    _ => Cases::Unavailable("no test pairs recorded; run `cargo xtask diff --update`".to_string()),
+  }
+}
+
 fn refresh(root: &Path, log: &Logger) -> u8 {
   let previous = load_surface(root).ok();
   let mut readings: Vec<Reading> = binary::local_readings(log);
@@ -427,58 +455,10 @@ fn report(root: &Path, markdown: bool, log: &Logger) -> u8 {
       color: color_enabled(false),
     }
   };
-  let out = report::render(&surface, &manifest, &run_cases(root, &surface, log), style);
+  let out = report::render(&surface, &manifest, &recorded_cases(root), style);
   print!("{}", out);
   log.info(&format!("report:\n{}", out));
   0
-}
-
-/// Runs rustfmt's test cases from the cached stable checkout through mto, with
-/// `xtask-tools cases` (which links mtindo).
-fn run_cases(root: &Path, surface: &Surface, log: &Logger) -> Cases {
-  let unavailable = |why: &str| Cases::Unavailable(why.to_string());
-  let Some((_, description)) = surface.sources.iter().find(|(l, _)| l == "stable") else {
-    return unavailable("no stable release read; run `capabilities refresh` online");
-  };
-  let Some(commit) = description
-    .split([' ', ','])
-    .find(|w| w.len() == 40 && w.chars().all(|c| c.is_ascii_hexdigit()))
-  else {
-    return unavailable("the stable source names no commit");
-  };
-  let dir = match fetch::cached_checkout(root, commit, log) {
-    Ok(Some(dir)) => dir,
-    Ok(None) => return unavailable("not cached; run `capabilities refresh` online"),
-    Err(e) => {
-      log.error(&format!("cached checkout of {} unusable: {}", commit, e));
-      return unavailable("cached checkout unusable; see .dev/logs/capabilities.log");
-    }
-  };
-  let args = [
-    "run",
-    "--quiet",
-    "--package",
-    "xtask-tools",
-    "--",
-    "cases",
-    &dir.display().to_string(),
-  ]
-  .map(String::from);
-  let (code, output) = process::capture(root, "cargo", &args, &[], process::LONG);
-  let counts: Vec<usize> = output
-    .lines()
-    .find_map(|line| line.strip_prefix("cases "))
-    .map(|rest| rest.split(' ').filter_map(|n| n.parse().ok()).collect())
-    .unwrap_or_default();
-  let [total, configured, passed, unreadable] = counts[..] else {
-    log.error(&format!("xtask-tools cases failed ({}):\n{}", code, output));
-    return unavailable("the case runner failed; see .dev/logs/capabilities.log");
-  };
-  Cases::Ran {
-    configured,
-    passed,
-    runnable: total - configured - unreadable,
-  }
 }
 
 fn stability(stable: bool) -> &'static str {

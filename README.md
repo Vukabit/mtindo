@@ -40,6 +40,26 @@ Cargo puts `mto` and `cargo-mto` in its binary folder (`~/.cargo/bin`, or
 `cargo-mto` is what makes `cargo mto` work. To build from a clone of the
 repository instead, run `cargo install --path .` in its root.
 
+### Shell completions
+
+`mto` completes its flags, commands, settings and their values in bash
+(3.2 and later), zsh, fish and PowerShell:
+
+```bash
+mto completions install         # for the shell you are in
+mto completions install fish    # or for the one you name
+mto completions status          # where each is, and whether it is current
+```
+
+`install` writes the script where the shell loads completions from:
+`$XDG_DATA_HOME` (default `~/.local/share`) for bash, zsh and PowerShell,
+`$XDG_CONFIG_HOME` (default `~/.config`) for fish, and `%LOCALAPPDATA%` for
+PowerShell on Windows. When the shell also needs a line in its startup file
+(zsh's `fpath`, PowerShell's `$PROFILE`), `install` prints it; `mto` never
+edits those files. `mto completions zsh` prints the script instead, and
+`--dir DIR` writes it elsewhere. Run `install` again after upgrading `mto`;
+`mto completions uninstall` removes the script.
+
 ## Quick start
 
 ```bash

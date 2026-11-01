@@ -111,6 +111,7 @@ other `mto` option goes after `--`, as `cargo mto -- --unguarded`.
 | `mto report ...` | Bug reports mto kept ([Safety](safety.md#bug-reports)) |
 | `mto doctor ...` | The build guard ([The build guard](build-guard.md)) |
 | `mto debug ...` | What mto sees in a file, and why it keeps code |
+| `mto completions ...` | Completions for bash, zsh, fish and PowerShell |
 
 ## Exit codes
 

@@ -1274,7 +1274,7 @@ fn run_completions(
     eprintln!("{}Error: {}{}", c_red(), message, c_reset(true));
     code
   };
-  let version = mtindo::version::VERSION;
+  let version = mtindo::version::short();
   match (view, found) {
     (None, Some((shell, how))) => {
       if how != Found::Named && std::io::IsTerminal::is_terminal(&std::io::stderr()) {

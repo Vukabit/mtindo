@@ -2223,7 +2223,7 @@ fn test_completions_install_status_and_uninstall() {
   let env = TestEnvironment::new();
   let home = env.dir.path().join(".home");
   let zsh_file = home.join(".local/share/zsh/site-functions/_mto");
-  let version = env!("CARGO_PKG_VERSION");
+  let version = mtindo::version::short();
 
   let (code, out, err) = completions_cmd(&env, &["install", "--dry-run"], Some("/bin/zsh"));
   assert_eq!(code, 0, "{}", err);
@@ -2275,7 +2275,7 @@ fn test_completions_install_status_and_uninstall() {
   let fish_file = home.join(".config/fish/completions/mto.fish");
   let old = fs::read_to_string(&fish_file)
     .unwrap()
-    .replacen(version, "0.0.1", 1);
+    .replacen(version.as_str(), "0.0.1", 1);
   fs::write(&fish_file, old).unwrap();
   let bash_file = home.join(".local/share/bash-completion/completions/mto");
   fs::write(&bash_file, "complete -F _other mto\n").unwrap();
@@ -2334,7 +2334,7 @@ fn test_completions_match_their_snapshots() {
   let env = TestEnvironment::new();
   let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/completions");
   let bless = std::env::var_os("MTINDO_BLESS").is_some();
-  let version = format!("# mto {} completions", env!("CARGO_PKG_VERSION"));
+  let version = format!("# mto {} completions", mtindo::version::short());
   for (shell, file) in COMPLETION_SHELLS {
     let script = completion_script(&env, shell);
     assert_eq!(

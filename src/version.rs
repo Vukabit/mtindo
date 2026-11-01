@@ -3,8 +3,15 @@
 //! a hash of the source alone when there was no git). Shown by `mto --version`, kept in
 //! bug reports, and what the doctor's holds lapse on.
 
-/// The build: `7bb39cb1a2`, `7bb39cb1a2-dirty.0ca61952`, or `src.4f1c09e2b7`.
+/// The build: the commit, with a hash of the source when it differed (`-dirty.`), or the
+/// source's hash alone with neither git nor a package's record of its commit (`src.`);
+/// then `-rel` for a release (a published package, or a clean checkout of its version's
+/// tag) or `-dev` for any other build: `7bb39cb1a2-rel`, `7bb39cb1a2-dev`,
+/// `7bb39cb1a2-dirty.0ca61952-dev`, `src.4f1c09e2b7-dev`.
 pub const BUILD: &str = env!("MTINDO_BUILD_ID");
+
+/// `rel` for a release build, `dev` for any other.
+pub const CHANNEL: &str = env!("MTINDO_BUILD_CHANNEL");
 
 /// The commit built from, when there was git.
 pub const COMMIT: &str = env!("MTINDO_BUILD_COMMIT");
@@ -33,7 +40,7 @@ pub fn details() -> String {
   )
 }
 
-/// What `mto --version` prints after `mto `: `0.1.0 (7bb39cb1a2)`.
+/// What `mto --version` prints after `mto `: `0.1.0 (7bb39cb1a2-rel)`.
 pub fn short() -> String {
   format!("{} ({})", VERSION, BUILD)
 }
@@ -48,5 +55,7 @@ mod tests {
     assert!(FULL.starts_with(VERSION) && FULL.ends_with(BUILD));
     assert!(!FULL.contains(' '));
     assert!(details().contains(TARGET));
+    assert!(BUILD.ends_with(&format!("-{}", CHANNEL)));
+    assert!(CHANNEL == "rel" || CHANNEL == "dev");
   }
 }

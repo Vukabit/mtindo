@@ -128,7 +128,8 @@ pub const REWRITES: &[Rewrite] = &[
   Rewrite {
     name: "wildcard-suffix",
     reason: "Two or more `_` ending a tuple pattern match what `..` matches there, and \
-                 `_` just before a final `..` adds nothing (`condense_wildcard_suffixes`).",
+                 `_` just before a final `..` adds nothing (`condense_wildcard_suffixes`); \
+                 not after a `..`, as a pattern holds one at most.",
   },
   Rewrite {
     name: "field-init-shorthand",

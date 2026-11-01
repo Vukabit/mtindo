@@ -1622,24 +1622,9 @@ pub fn try_shorthand(root: &SyntaxNode, text: &str, edition: Edition) -> Option<
     else {
       continue;
     };
-    let postfix = matches!(
-      expression.kind(),
-      K::PathExpr
-        | K::CallExpr
-        | K::MethodCallExpr
-        | K::FieldExpr
-        | K::IndexExpr
-        | K::MacroExpr
-        | K::ParenExpr
-        | K::TupleExpr
-        | K::ArrayExpr
-        | K::Literal
-        | K::TryExpr
-        | K::AwaitExpr
-    );
     // Any other is left as written: the standard formatter writes `a + b?`, which is not
     // what `try!(a + b)` means.
-    if postfix {
+    if crate::verify::format::question_binds_whole(expression.kind()) {
       changes.push((start, end, format!("{}?", inner)));
     }
   }

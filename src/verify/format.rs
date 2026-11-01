@@ -47,6 +47,30 @@ struct Token<'a> {
   start: u32,
 }
 
+/// A macro call's arguments' canonical tokens when, in parentheses or brackets (any
+/// delimiters for `vec!`, as an array), they read as expressions; `None` otherwise.
+/// Whether `?` after an expression of `kind` applies to all of it: a path, call, method call,
+/// field, index, macro call, parenthesized or tuple or array expression, literal, `?` or
+/// `.await`. After anything else (`a + b`, `-a`, `a as T`, a closure, a range) it applies
+/// to a part only.
+pub fn question_binds_whole(kind: SyntaxKind) -> bool {
+  matches!(
+    kind,
+    SyntaxKind::PathExpr
+      | SyntaxKind::CallExpr
+      | SyntaxKind::MethodCallExpr
+      | SyntaxKind::FieldExpr
+      | SyntaxKind::IndexExpr
+      | SyntaxKind::MacroExpr
+      | SyntaxKind::ParenExpr
+      | SyntaxKind::TupleExpr
+      | SyntaxKind::ArrayExpr
+      | SyntaxKind::Literal
+      | SyntaxKind::TryExpr
+      | SyntaxKind::AwaitExpr
+  )
+}
+
 /// Every rule formatted output breaks; empty when it keeps the input's meaning.
 pub fn verify_format(input: &str, output: &str, edition: Edition) -> Vec<Violation> {
   let mut violations = Vec::new();
@@ -97,6 +121,28 @@ pub fn verify_format(input: &str, output: &str, edition: Edition) -> Vec<Violati
     });
   }
   violations
+}
+
+/// Whether a `try!` macro's single argument is an expression `?` binds to whole; one that
+/// does not parse as one expression counts as binding whole (it is compared as tokens).
+fn argument_binds_whole(tree: &SyntaxNode, edition: Edition) -> bool {
+  let whole = tree.text().to_string();
+  let Some(inner) = whole.get(1..whole.len().saturating_sub(1)) else {
+    return true;
+  };
+  let inner = inner.trim();
+  let wrapped = format!("fn __mto() {{\n_ = {};\n}}", inner);
+  let parsed = crate::syntax::parse(&wrapped, edition);
+  if !parsed.errors().is_empty() {
+    return true;
+  }
+  parsed
+    .syntax_node()
+    .descendant_nodes_where(|kind| kind == SyntaxKind::BinExpr)
+    .next()
+    .and_then(|assign| assign.children_iter().nth(1))
+    .filter(|e| e.text().trim() == inner)
+    .is_none_or(|e| question_binds_whole(e.kind()))
 }
 
 /// Items in the order of their tokens' texts, compared without copying them.
@@ -624,7 +670,12 @@ fn emit_node<'a>(
         .rev()
         .take_while(|&&i| kind_of(&children[i]) == SyntaxKind::WildcardPat)
         .count();
-      if trailing >= 2 || (rest_last && trailing >= 1) {
+      // Only where no `..` comes before them: a pattern holds one `..` at most, so
+      // `(a, .., _, _)` is not `(a, .., ..)`, which does not compile.
+      let rest_before = patterns[..before - trailing]
+        .iter()
+        .any(|&i| kind_of(&children[i]) == SyntaxKind::RestPat);
+      if !rest_before && (trailing >= 2 || (rest_last && trailing >= 1)) {
         let first = patterns[before - trailing];
         for element in &children[..first] {
           emit_element(node, element, source, out, notes);
@@ -710,7 +761,9 @@ fn emit_node<'a>(
       return;
     }
     SyntaxKind::MacroCall if words(node, "").starts_with("try!(") => {
-      // try-shorthand: `try!(e)` is `e?`; `e` compared as an expression when it reads as one.
+      // try-shorthand: `try!(e)` is `e?`, and `(e)?` when `?` would bind to less than all of
+      // `e` (`try!(a + b)` is `(a + b)?`, never `a + b?`); `e` compared as an expression when
+      // it reads as one.
       if let Some(tree) = node
         .children_iter()
         .find(|c| c.kind() == SyntaxKind::TokenTree)
@@ -718,11 +771,25 @@ fn emit_node<'a>(
         if let Some(tokens) = macro_arguments(&tree, source, false)
           && tokens.len() >= 2
         {
+          let start = node.text_range().start;
+          let grouped = !argument_binds_whole(&tree, source.edition);
           let inside = tokens.len() - 1;
+          if grouped {
+            out.push(Token {
+              text: "(".into(),
+              start,
+            });
+          }
           out.extend(tokens.into_iter().take(inside).skip(1));
+          if grouped {
+            out.push(Token {
+              text: ")".into(),
+              start,
+            });
+          }
           out.push(Token {
             text: "?".into(),
-            start: node.text_range().start,
+            start,
           });
           return;
         }
@@ -1092,8 +1159,6 @@ fn kind_of(element: &SyntaxElement) -> SyntaxKind {
   }
 }
 
-/// A macro call's arguments' canonical tokens when, in parentheses or brackets (any
-/// delimiters for `vec!`, as an array), they read as expressions; `None` otherwise.
 fn macro_arguments<'a>(
   tree: &SyntaxNode,
   source: &Source<'_>,

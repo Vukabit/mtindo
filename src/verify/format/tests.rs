@@ -326,6 +326,11 @@ fn test_each_allowed_rewrite() {
   );
   // try-shorthand, its expression compared by these rules: a closure's braces dropped.
   same("fn f() { try!(g(|| { 1 })); }\n", "fn f() { g(|| 1)?; }\n");
+  // try-shorthand around an expression `?` binds to part of: grouped.
+  same(
+    "fn f() { let z = try!(a + b); }\n",
+    "fn f() { let z = (a + b)?; }\n",
+  );
   // match-arm-body with a block-like expression.
   same(
     "fn f() { match a { A => { loop {} } } }\n",
@@ -459,6 +464,33 @@ fn test_stray_semicolons_in_a_closure_body() {
   same("fn f() { g(|_| { ; x.y }); }\n", "fn f() { g(|_| x.y); }\n");
 }
 
+/// `try!(a + b)` is `(a + b)?`: written `a + b?`, the `?` applies to `b` alone, which the
+/// standard formatter's `use_try_shorthand` does and the check must not let pass.
+#[test]
+fn test_try_shorthand_keeps_the_grouping() {
+  for (input, output) in [
+    (
+      "fn f() { let z = try!(a + b); }\n",
+      "fn f() { let z = a + b?; }\n",
+    ),
+    (
+      "fn f() { let z = try!(-a); }\n",
+      "fn f() { let z = -a?; }\n",
+    ),
+    (
+      "fn f() { let z = try!(a as T); }\n",
+      "fn f() { let z = a as T?; }\n",
+    ),
+  ] {
+    assert!(
+      !rules(input, output).is_empty(),
+      "{} passed as {}",
+      output,
+      input
+    );
+  }
+}
+
 #[test]
 fn test_whitespace_and_comment_placement_are_free() {
   same(
@@ -468,5 +500,23 @@ fn test_whitespace_and_comment_placement_are_free() {
   same(
     "fn f() {\n        /* note\n           more */\n    g();\n}\n",
     "fn f() {\n    /* note\n    more */\n    g();\n}\n",
+  );
+}
+
+/// Wildcards ending a tuple pattern after its `..` are not a second `..`: a pattern holds
+/// one at most, and the standard formatter's `condense_wildcard_suffixes` writing
+/// `(a, .., ..)` does not compile.
+#[test]
+fn test_wildcards_after_a_rest_are_not_condensed() {
+  assert!(
+    !rules(
+      "fn f() { let (a, .., _, _) = t; }\n",
+      "fn f() { let (a, .., ..) = t; }\n"
+    )
+    .is_empty()
+  );
+  same(
+    "fn f() { let (a, _, _) = t; }\n",
+    "fn f() { let (a, ..) = t; }\n",
   );
 }

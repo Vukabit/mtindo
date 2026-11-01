@@ -49,8 +49,11 @@ fn build(root: &Path) -> Result<usize, String> {
     if file.extension().is_some_and(|e| e == "md") {
       let text = fs::read_to_string(&file).map_err(|e| format!("{}: {}", file.display(), e))?;
       let base = format!("https://github.com/{}/blob/main", flow.release.repository);
-      fs::write(&to, outward_links(&text, relative, &base))
-        .map_err(|e| format!("{}: {}", to.display(), e))?;
+      fs::write(
+        &to,
+        outward_links(without_front_matter(&text), relative, &base),
+      )
+      .map_err(|e| format!("{}: {}", to.display(), e))?;
       pages += 1;
     } else {
       fs::copy(&file, &to).map_err(|e| format!("{}: {}", file.display(), e))?;
@@ -373,6 +376,18 @@ fn summary(
   out
 }
 
+/// `text` without the YAML front matter a generated page opens with (between two `---`
+/// lines): data for scripts, which a site would show as a run of text.
+fn without_front_matter(text: &str) -> &str {
+  let Some(rest) = text.strip_prefix("---\n") else {
+    return text;
+  };
+  match rest.find("\n---\n") {
+    Some(end) => rest[end + 5..].trim_start_matches('\n'),
+    None => text,
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -390,6 +405,18 @@ mod tests {
     assert_eq!(
       project_pages("* [C](../CONTRIBUTING.md): x\n* [L](guide/layout.md)\n"),
       vec!["CONTRIBUTING.md"]
+    );
+  }
+
+  #[test]
+  fn test_front_matter_is_left_off_the_site() {
+    assert_eq!(
+      without_front_matter("---\ntitle: x\nkeys:\n  total: 18\n---\n\n# Settings\n\nText.\n"),
+      "# Settings\n\nText.\n"
+    );
+    assert_eq!(
+      without_front_matter("# Plain\n\n---\n\nrule\n"),
+      "# Plain\n\n---\n\nrule\n"
     );
   }
 

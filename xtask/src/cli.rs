@@ -216,6 +216,7 @@ pub fn tree() -> Command {
     doctor(),
     flow(),
     fuzz(),
+    gaps(),
     gates_command(),
     incidents(),
     io(),
@@ -223,6 +224,7 @@ pub fn tree() -> Command {
     lexdiff(),
     memst(),
     metrics(),
+    next(),
     pairs(),
     parsecheck(),
     probe(),
@@ -233,6 +235,7 @@ pub fn tree() -> Command {
     store(),
     toml_test(),
     unicode(),
+    upstream(),
     Command::new("help")
       .about("Show help for xtask or for one command")
       .arg(
@@ -575,6 +578,20 @@ fn fuzz() -> Command {
     )
 }
 
+fn gaps() -> Command {
+  Command::new("gaps")
+    .about(
+      "The standard formatter's test pairs mto does not match yet, by setting and by where \
+       they first differ, from the last diff",
+    )
+    .arg(option(
+      "setting",
+      "NAME",
+      "Only the pairs that set this setting",
+    ))
+    .arg(flag("all", "Every setting and kind, not the top ones"))
+}
+
 fn gates_command() -> Command {
   let mut names = vec![PossibleValue::new("all")];
   names.extend(
@@ -863,6 +880,16 @@ fn metrics() -> Command {
     )
 }
 
+fn next() -> Command {
+  Command::new("next")
+    .about(
+      "What to do next, most urgent first: failing checks, open incidents, an unproven \
+       record, test pairs not matching, the settings with the most gaps, fuzzed \
+       disagreements, and what is left to triage",
+    )
+    .arg(flag("all", "The whole queue, not the first ten"))
+}
+
 fn option(name: &'static str, value: &'static str, help: &'static str) -> Arg {
   Arg::new(name).long(name).value_name(value).help(help)
 }
@@ -1102,6 +1129,40 @@ fn unicode() -> Command {
       "The Unicode version (default: the toolchain's)",
     ))
     .arg(flag("check", "Only compare"))
+}
+
+fn upstream() -> Command {
+  Command::new("upstream")
+    .about(
+      "The standard formatter's bugs kept as cases in .dev/upstream/rustfmt/: listed, \
+       rechecked against each toolchain, drafted as issue text",
+    )
+    .subcommand(
+      Command::new("list").about("Every case, its upstream status and what goes wrong (default)"),
+    )
+    .subcommand(
+      Command::new("recheck")
+        .about(
+          "Run every case through each toolchain's rustfmt and say whether the bug still \
+           shows (a meaning check, or a second run)",
+        )
+        .arg(
+          Arg::new("toolchains")
+            .value_name("TOOLCHAIN")
+            .num_args(0..)
+            .help("The toolchains (default: the pinned one and nightly)"),
+        ),
+    )
+    .subcommand(
+      Command::new("draft")
+        .about("Write one case's issue text to .dev/upstream/drafts/, for filing by hand")
+        .arg(
+          Arg::new("case")
+            .value_name("CASE")
+            .required(true)
+            .help("A case's folder, or its number"),
+        ),
+    )
 }
 
 fn value_word(arg: &Arg) -> String {

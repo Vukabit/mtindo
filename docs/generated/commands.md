@@ -350,6 +350,18 @@ cargo xtask fuzz coverage [TARGET...]
 
 - `TARGET...`: Fuzz targets (default: all)
 
+## `cargo xtask gaps`
+
+The standard formatter's test pairs mto does not match yet, by setting and by
+where they first differ, from the last diff
+
+```text
+cargo xtask gaps [--setting NAME] [--all]
+```
+
+- `--setting NAME`: Only the pairs that set this setting
+- `--all`: Every setting and kind, not the top ones
+
 ## `cargo xtask gates`
 
 Check repository rules
@@ -627,6 +639,18 @@ cargo xtask metrics ratchet [--update]
 - `--update`: Record the latest values (this machine) in
   records/results/ratchet.txt
 
+## `cargo xtask next`
+
+What to do next, most urgent first: failing checks, open incidents, an unproven
+record, test pairs not matching, the settings with the most gaps, fuzzed
+disagreements, and what is left to triage
+
+```text
+cargo xtask next [--all]
+```
+
+- `--all`: The whole queue, not the first ten
+
 ## `cargo xtask pairs`
 
 The scrambled-pair suite: corpus files drawn by a fresh seed, items shuffled and
@@ -815,3 +839,41 @@ cargo xtask unicode [--version X.Y.Z] [--check]
 
 - `--version X.Y.Z`: The Unicode version (default: the toolchain's)
 - `--check`: Only compare
+
+## `cargo xtask upstream`
+
+The standard formatter's bugs kept as cases in .dev/upstream/rustfmt/: listed,
+rechecked against each toolchain, drafted as issue text
+
+```text
+cargo xtask upstream [list|recheck|draft]
+```
+
+## `cargo xtask upstream list`
+
+Every case, its upstream status and what goes wrong (default)
+
+```text
+cargo xtask upstream list
+```
+
+## `cargo xtask upstream recheck`
+
+Run every case through each toolchain's rustfmt and say whether the bug still
+shows (a meaning check, or a second run)
+
+```text
+cargo xtask upstream recheck [TOOLCHAIN...]
+```
+
+- `TOOLCHAIN...`: The toolchains (default: the pinned one and nightly)
+
+## `cargo xtask upstream draft`
+
+Write one case's issue text to .dev/upstream/drafts/, for filing by hand
+
+```text
+cargo xtask upstream draft CASE
+```
+
+- `CASE`: A case's folder, or its number

@@ -85,7 +85,10 @@ network, fuzzing and benchmark groups. Every task runs under a time limit,
 so a green run means every chosen task ran and passed. Runs are logged under
 `.dev/` (machine-local, not tracked): `cargo xtask status` shows where the
 project stands, `cargo xtask runs` the latest runs, and `cargo xtask store`
-what `.dev/` holds and keeps.
+what `.dev/` holds and keeps. `cargo xtask next` says what to work on, most
+urgent first, each with the command that acts on it; `cargo xtask gaps` lists
+the test pairs mto does not match yet, by setting, and `cargo xtask probe CASE`
+shows one against every answer key.
 
 ## Commits
 

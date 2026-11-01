@@ -19,11 +19,13 @@ mod flow;
 mod fuzz;
 mod fuzz_diff;
 mod fuzz_soak;
+mod gaps;
 mod gates;
 mod incidents;
 mod io;
 mod memst;
 mod metrics;
+mod next;
 mod pairs;
 mod papers;
 mod perf;
@@ -43,6 +45,7 @@ mod test;
 mod toml;
 mod toml_test;
 mod unicode;
+mod upstream;
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -134,8 +137,10 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
       args.extend(cli::texts(m, "paths"));
       forward(root, "lexdiff", args)
     }
+    "gaps" => gaps::run(root, m),
     "memst" => memst::run(root, m),
     "metrics" => metrics::run(root, m),
+    "next" => next::run(root, m),
     "pairs" => pairs::run(root, m),
     "parsecheck" => forward(root, "parsecheck", cli::texts(m, "paths")),
     "probe" => probe::run(root, m),
@@ -146,6 +151,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "store" => store::run(root, m),
     "toml-test" => toml_test::run(root, m),
     "unicode" => unicode::run(root, m),
+    "upstream" => upstream::run(root, m),
     other => unreachable!("{} is in the tree but has no entry point", other),
   }
 }

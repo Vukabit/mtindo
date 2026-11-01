@@ -15,6 +15,7 @@ mod probe;
 mod scramble;
 mod toml_test;
 mod unformat;
+mod upstream;
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -44,6 +45,7 @@ fn main() -> ExitCode {
     Some("doctor-bench") => doctor_bench::run(&args[1..]),
     Some("pairs") => pairs::run(&args[1..]),
     Some("probe") => probe::run(&args[1..]),
+    Some("upstream") => upstream::run(&args[1..]),
     Some("perf-scaling") => perf::scaling(&args[1..]),
     Some("perf-growth") => perf::growth(&args[1..]),
     Some("perf-depth") => perf::depth(&args[1..]),

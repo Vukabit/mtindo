@@ -36,7 +36,7 @@ use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::history::sha256;
 use mtindo::options::format::{FormatConfig, NewlineStyle};
 use mtindo::syntax::{Edition, SyntaxElement, SyntaxKind, parse};
-use xtask_core::store;
+use xtask_core::{harness, store};
 
 use crate::common::{edition_for, header_edition};
 use crate::process;
@@ -1766,27 +1766,15 @@ fn upstream_case(dir: &Path, f: &Found<'_>) -> Option<String> {
   );
   // The settings: a test pair's from its `// rustfmt-` lines, another's from its folder.
   let settings = if f.case.set == Set::Tests || f.case.set == Set::TestsWithSettings {
-    f.case
-      .input
-      .lines()
-      .filter_map(|l| {
-        l.strip_prefix("// rustfmt-")
-          .or_else(|| l.strip_prefix("//@ rustfmt-"))
-      })
-      .filter_map(|l| l.split_once(':'))
-      .map(|(key, value)| {
-        let value = value.trim();
-        let bare = value == "true"
-          || value == "false"
-          || value.parse::<i64>().is_ok()
-          || value.starts_with('[');
-        if bare {
-          format!("{} = {}\n", key.trim(), value)
-        } else {
-          format!("{} = \"{}\"\n", key.trim(), value)
-        }
-      })
-      .collect()
+    // As the test runner reads them; the runner's own keys and a `config` file aside.
+    let surface =
+      Path::new(env!("CARGO_MANIFEST_DIR")).join("../../records/upstream/rustfmt-surface.txt");
+    let strings = harness::string_keys(&fs::read_to_string(surface).unwrap_or_default());
+    let pairs: Vec<(String, String)> = harness::headers(&f.case.input)
+      .into_iter()
+      .filter(|(k, _)| k != "config" && !harness::DIRECTIVES.contains(&k.as_str()))
+      .collect();
+    harness::config_text(&pairs, &strings)
   } else {
     nearest_config(&f.case.dir)
   };

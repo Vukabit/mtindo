@@ -40,6 +40,7 @@ mod registry;
 mod runs;
 mod settings;
 mod sha256;
+mod site;
 mod sources;
 mod speed;
 mod status;
@@ -160,6 +161,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "race" => race::run(root, m),
     "runs" => runs::run(root, m),
     "settings" => settings::run(root, m),
+    "site" => site::run(root, m),
     "speed" => speed::run(root, m),
     "status" => status::run(root, m),
     "store" => store::run(root, m),

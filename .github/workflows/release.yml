@@ -106,6 +106,35 @@ jobs:
           gh release create "$TAG" dist/mto-* dist/SHA256SUMS \
             --verify-tag --title "mtindo ${TAG#v}" --notes-file dist/notes.md "${draft[@]}"
 
+  # The docs as a site on GitHub Pages (`cargo xtask site`), once Pages is on: set the
+  # repository variable PAGES to true after turning it on (MAINTAINING.md).
+  site:
+    if: startsWith(github.ref, 'refs/tags/') && vars.PAGES == 'true'
+    needs: github
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Tools
+        run: |
+          rustup toolchain install
+          cargo xtask bootstrap --go --for site
+      - name: Build
+        run: cargo xtask site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: target/site
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        id: deploy
+
   # crates.io's trusted publishing: a token minted for this run alone, nothing stored.
   crates-io:
     if: startsWith(github.ref, 'refs/tags/')

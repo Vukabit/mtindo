@@ -20,6 +20,7 @@ pub(crate) mod checks;
 pub(crate) mod config;
 mod git;
 mod glob;
+mod labels;
 mod message;
 mod publish;
 mod release;
@@ -98,6 +99,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     "package" => config::load(root).and_then(|flow| {
       publish::package(root, &flow, &cli::text(sub, "target").unwrap_or_default())
     }),
+    "labels" => config::load(root).and_then(|flow| labels::labels(root, &flow, cli::on(sub, "go"))),
     "try-archive" => config::load(root).and_then(|flow| {
       publish::try_archive(root, &flow, &cli::text(sub, "target").unwrap_or_default())
     }),

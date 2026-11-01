@@ -96,6 +96,10 @@ pub const CHECKS: &[(&str, &str)] = &[
     "`cargo deny` on the dependency graph: advisories, licenses, sources",
   ),
   (
+    "site",
+    "the docs build as one site, every public page in it (`cargo xtask site`)",
+  ),
+  (
     "mutants",
     "the meaning check and comment handling mutated: which mutants the tests miss",
   ),
@@ -822,6 +826,7 @@ fn run_check(
     ),
     "deny" => command(root, "cargo", &["deny", "--workspace", "check"]),
     "mutants" => mutants(root),
+    "site" => command(root, "cargo", &["xtask", "site"]),
     "github-settings" => github_settings(root, flow),
     "tests-lib" => command(
       root,
@@ -1076,9 +1081,10 @@ fn tools_pinned(root: &Path, flow: &Flow) -> Result<(), String> {
     )),
     None => found.push("flow.toml has no [tools.msrv]".to_string()),
   }
+  let commands = super::tools::commands();
   for tool in &flow.tools {
     for user in &tool.needed_by {
-      if flow.stage(user).is_none() && !super::tools::COMMANDS.contains(&user.as_str()) {
+      if flow.stage(user).is_none() && !commands.contains(user) {
         found.push(format!(
           "[tools.{}] is needed by `{}`, neither a stage nor a command",
           tool.name, user

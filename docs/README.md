@@ -34,6 +34,8 @@ Generated from the code and the recorded measurements; never edited by hand.
   command and its arguments.
 * [Metrics](generated/metrics/README.md): compatibility, speed, memory,
   fuzzing and more, as measured.
+* [Generated files](generated/README.md): every generated page, what it
+  holds and what writes it.
 
 ## Design
 

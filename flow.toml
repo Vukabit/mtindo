@@ -124,6 +124,11 @@ kind = "cargo"
 version = "0.20.2"
 needed_by = ["audit"]
 
+[tools.mdbook]
+kind = "cargo"
+version = "0.5.4"
+needed_by = ["site"]
+
 [tools.cargo-mutants]
 kind = "cargo"
 version = "27.1.0"
@@ -165,6 +170,7 @@ ci = [
   "actions-pinned",
   "tools-pinned",
   "commands-doc",
+  "site",
   "tests-xtask",
 ]
 build = ["clippy-lib", "tests-lib"]

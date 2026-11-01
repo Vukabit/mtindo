@@ -1,0 +1,16 @@
+# The repository's issue and pull request labels, `COLOR NAME: DESCRIPTION` a line.
+# `cargo xtask flow labels` shows what GitHub lacks or has otherwise; `--go` makes it so.
+# A label GitHub has and this file does not is reported, never deleted.
+d73a4a bug: Something isn't working
+a2eeef enhancement: New feature or request
+0075ca documentation: Improvements or additions to documentation
+7057ff good first issue: Good for newcomers
+008672 help wanted: Extra attention is needed
+d876e3 question: Further information is requested
+cfd3d7 duplicate: This issue or pull request already exists
+ffffff wontfix: This will not be worked on
+fbca04 compat: mto's output differs from the standard formatter's
+1d76db layout: Item order and the layout settings
+5319e7 settings: A setting of the standard formatter or of mto.toml
+b60205 upstream: A bug of the standard formatter's, mto keeping the code right
+c5def5 tooling: Development tooling: xtask, CI, the records

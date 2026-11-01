@@ -251,6 +251,10 @@ pub fn tree() -> Command {
     race(),
     runs(),
     settings(),
+    Command::new("site").about(
+      "The public docs as one site, built by mdBook into target/site/: docs/'s pages, its \
+       README's contents in order, links out of docs/ pointed at GitHub",
+    ),
     speed(),
     status(),
     store(),
@@ -580,6 +584,11 @@ fn flow() -> Command {
       Command::new("package")
         .about("A release target's archive in dist/, from its release build (the release workflow's step)")
         .arg(Arg::new("target").value_name("TARGET").required(true).help("A target flow.toml release.targets lists")),
+    )
+    .subcommand(
+      Command::new("labels")
+        .about("The repository's labels on GitHub made what .github/labels.txt says: missing ones created, others corrected, none deleted (a plan unless --go)")
+        .arg(flag("go", "Change GitHub's labels, rather than only show what would change")),
     )
     .subcommand(
       Command::new("try-archive")

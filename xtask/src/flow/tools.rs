@@ -8,9 +8,6 @@ use std::process::{Command, Stdio};
 use super::config::{Flow, Tool, ToolKind};
 use crate::common::process;
 
-/// The commands `needed_by` may name besides the stages.
-pub const COMMANDS: &[&str] = &["fuzz", "coverage", "changelog", "release", "memst"];
-
 /// Where a tool stands on this machine.
 #[derive(Debug, PartialEq)]
 pub enum State {
@@ -83,6 +80,22 @@ pub fn bootstrap(root: &Path, flow: &Flow, only: Option<&str>, go: bool) -> Resu
   } else {
     Err(format!("not ready: {}", failed.join(", ")))
   }
+}
+
+/// The commands `needed_by` may name besides the stages: every command and subcommand of
+/// `cargo xtask`, by its name, from the command tree itself.
+pub fn commands() -> Vec<String> {
+  let mut names = Vec::new();
+  let mut stack = vec![crate::cli::tree()];
+  while let Some(command) = stack.pop() {
+    for sub in command.get_subcommands() {
+      names.push(sub.get_name().to_string());
+      stack.push(sub.clone());
+    }
+  }
+  names.sort();
+  names.dedup();
+  names
 }
 
 /// The tools `user` (a stage or command) needs, each ready, or what to run.

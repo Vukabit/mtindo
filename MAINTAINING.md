@@ -175,3 +175,9 @@ github` says which are missing:
   more itself, as `release.yml` does).
 - **Security**: private vulnerability reporting on, for
   [SECURITY.md](SECURITY.md).
+- **Pages**: GitHub Pages built by GitHub Actions, and the repository
+  variable `PAGES` set to `true`: the release workflow then publishes the
+  docs site (`cargo xtask site`) with each release.
+- **Discussions**: on, for questions and ideas that are not issues.
+- **Labels**: as `.github/labels.txt` lists them; `cargo xtask flow labels`
+  says what differs, and `--go` makes them so (it never deletes one).

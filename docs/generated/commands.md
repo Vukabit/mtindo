@@ -245,7 +245,7 @@ the checks CI runs
 
 ```text
 cargo xtask flow
-    setup|hook|check|release|yank|package|try-archive|prepare|messages
+    setup|hook|check|release|yank|package|labels|try-archive|prepare|messages
 ```
 
 ## `cargo xtask flow setup`
@@ -310,6 +310,17 @@ cargo xtask flow package TARGET
 ```
 
 - `TARGET`: A target flow.toml release.targets lists
+
+## `cargo xtask flow labels`
+
+The repository's labels on GitHub made what .github/labels.txt says: missing
+ones created, others corrected, none deleted (a plan unless --go)
+
+```text
+cargo xtask flow labels [--go]
+```
+
+- `--go`: Change GitHub's labels, rather than only show what would change
 
 ## `cargo xtask flow try-archive`
 
@@ -900,6 +911,15 @@ cargo xtask settings [--check]
 ```
 
 - `--check`: Only compare
+
+## `cargo xtask site`
+
+The public docs as one site, built by mdBook into target/site/: docs/'s pages,
+its README's contents in order, links out of docs/ pointed at GitHub
+
+```text
+cargo xtask site
+```
 
 ## `cargo xtask speed`
 

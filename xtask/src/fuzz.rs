@@ -24,7 +24,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use crate::common::log::Logger;
-use crate::common::{process, sample, tree};
+use crate::common::{process, sample, store, tree};
 use crate::incidents::{self, Filed, Report};
 
 /// The sanitizer's settings for every run and replay, before any the caller sets in
@@ -80,6 +80,27 @@ pub fn collect(root: &Path, log: &Logger) -> usize {
   collect_with(root, log, &replay)
 }
 
+/// Where `target`'s corpus is kept: the store's fuzz area (`.dev/fuzz/TARGET`), every fuzz
+/// run reading and growing it. A corpus left in cargo-fuzz's own folder (`fuzz/corpus/
+/// TARGET`, where corpora were kept before) is moved there first.
+pub fn corpus_dir(root: &Path, target: &str) -> PathBuf {
+  let store = store::dir(root, store::FUZZ);
+  let old = root.join("fuzz").join("corpus");
+  // Every corpus moves at once, so none is left behind in the old folder.
+  if let Ok(entries) = fs::read_dir(&old) {
+    let _ = fs::create_dir_all(&store);
+    for entry in entries.flatten() {
+      let moved = store.join(entry.file_name());
+      if entry.path().is_dir() && !moved.exists() {
+        let _ = fs::rename(entry.path(), moved);
+      }
+    }
+    // The old folder goes once it holds no corpus.
+    let _ = fs::remove_dir(&old);
+  }
+  store.join(target)
+}
+
 /// Fuzzes `target` for `seconds` with libFuzzer's inputs staged for filing and the run's
 /// failure output saved beside the one it failed on, without filing them, so that several
 /// targets can run at once and [`collect`] once after. Returns libFuzzer's exit code and
@@ -105,12 +126,20 @@ pub fn fuzz_target_tapped(
     );
   }
   let before: Vec<PathBuf> = staged(&incoming);
+  let corpus = corpus_dir(root, target);
+  if let Err(e) = fs::create_dir_all(&corpus) {
+    return (
+      1,
+      vec![format!("cannot create {}: {}", corpus.display(), e)],
+    );
+  }
   let mut args: Vec<String> = vec![
     "+nightly".into(),
     "fuzz".into(),
     "run".into(),
     format!("--sanitizer={}", run.sanitizer),
     target.into(),
+    corpus.display().to_string(),
     "--".into(),
     format!("-max_total_time={}", seconds),
     RSS_LIMIT_MB.into(),
@@ -526,6 +555,24 @@ mod tests {
     assert!(dir.join("input").exists() && dir.join("input-2").exists());
     assert_eq!(incident.history.last().unwrap().result, "replay: fails");
     assert!(incident.replay.ends_with(incidents::short(incident)));
+  }
+
+  #[test]
+  fn test_corpora_move_into_the_store_once() {
+    let root = std::env::temp_dir().join(format!("xtask-fuzz-corpus-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("fuzz/corpus/format")).unwrap();
+    fs::create_dir_all(root.join("fuzz/corpus/lexer")).unwrap();
+    fs::write(root.join("fuzz/corpus/format/a"), "x").unwrap();
+    let dir = corpus_dir(&root, "format");
+    assert_eq!(dir, store::dir(&root, store::FUZZ).join("format"));
+    assert_eq!(fs::read_to_string(dir.join("a")).unwrap(), "x");
+    assert!(store::dir(&root, store::FUZZ).join("lexer").is_dir());
+    assert!(!root.join("fuzz/corpus").exists());
+    // Again, nothing to move and nothing lost.
+    assert_eq!(corpus_dir(&root, "format"), dir);
+    assert!(dir.join("a").is_file());
+    let _ = fs::remove_dir_all(&root);
   }
 
   #[test]

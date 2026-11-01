@@ -79,7 +79,8 @@ pub fn run(root: &Path, sub: &clap::ArgMatches) -> ExitCode {
   let mut covered: Vec<String> = Vec::new();
   let mut failed = false;
   for target in &targets {
-    if !fuzz.join("corpus").join(target).is_dir() {
+    let corpus = crate::fuzz::corpus_dir(root, target);
+    if !corpus.is_dir() {
       println!(
         "  {:<10} no corpus yet (cargo xtask fuzz run {})",
         target, target
@@ -95,6 +96,7 @@ pub fn run(root: &Path, sub: &clap::ArgMatches) -> ExitCode {
         "fuzz".into(),
         "coverage".into(),
         target.clone(),
+        corpus.display().to_string(),
       ],
       &[],
       process::LONG,

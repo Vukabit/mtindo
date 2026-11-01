@@ -10,6 +10,7 @@
 //!     metrics/    every measured number over time
 //!     logs/       each command's log, and the last test run's results
 //!     cache/      what is fetched or built again when missing (corpus, releases)
+//!     fuzz/       each fuzz target's corpus, by target
 //!     upstream/   cases where the reference formatter is wrong, kept for reports
 //! ```
 
@@ -48,6 +49,11 @@ pub const AREAS: &[Area] = &[
     kept: "the pinned versions; removing any of it costs a download",
   },
   Area {
+    name: FUZZ,
+    holds: "each fuzz target's corpus: the inputs that reach new code, grown by every run",
+    kept: "all of it: what the fuzzers have learned; removing it starts them over",
+  },
+  Area {
     name: UPSTREAM,
     holds: "cases where the reference formatter is wrong, kept for reports",
     kept: "all of it",
@@ -55,6 +61,8 @@ pub const AREAS: &[Area] = &[
 ];
 
 pub const CACHE: &str = "cache";
+
+pub const FUZZ: &str = "fuzz";
 
 pub const INCIDENTS: &str = "incidents";
 

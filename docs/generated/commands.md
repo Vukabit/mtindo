@@ -87,12 +87,14 @@ Render CHANGELOG.md's newest section from the commits after the last release tag
 with git-cliff (xtask/cliff.toml), wrapped to 80 columns
 
 ```text
-cargo xtask changelog [--tag TAG] [--check]
+cargo xtask changelog [--tag TAG] [--check] [--preview]
 ```
 
 - `--tag TAG`: Name the section for this release (v0.2.0), dated today, in place
   of Unreleased
 - `--check`: Only compare; fails when the section is out of date
+- `--preview`: Print the section a release made now would write, named for the
+  next version (or --tag); write nothing
 
 ## `cargo xtask check`
 

@@ -5,6 +5,10 @@
 //! section is named for that release, dated today. The first release's section is
 //! written by hand: with no tag yet there is nothing to render from.
 //!
+//! `--preview` prints the section a release made now would write, named for the next
+//! version (from the kinds of the commits since the last tag, or `--tag`), and writes
+//! nothing.
+//!
 //! git-cliff is a development tool, never part of the mto binary: on `PATH`, or named by
 //! `GIT_CLIFF`.
 
@@ -27,6 +31,9 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   log.info(&format!("cargo xtask {}", cli::line()));
   let check = cli::on(m, "check");
   let tag = cli::text(m, "tag");
+  if cli::on(m, "preview") {
+    return preview(root, tag);
+  }
   match render(root, tag.as_deref()) {
     Ok(section) => {
       let path = root.join("CHANGELOG.md");
@@ -158,6 +165,27 @@ commit_parsers = [
   )
 }
 
+/// Each commit's message since `last`, oldest first, subject then body.
+fn commit_messages(root: &Path, last: &str) -> Vec<String> {
+  let range = format!("{}..HEAD", last);
+  let done = process::output(
+    Command::new("git")
+      .args(["log", "--reverse", "--format=%B%x1e", &range])
+      .current_dir(root)
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::QUICK,
+  );
+  match done {
+    Ok(done) if done.code == 0 => String::from_utf8_lossy(&done.stdout)
+      .split('\u{1e}')
+      .map(|m| m.trim().to_string())
+      .filter(|m| !m.is_empty())
+      .collect(),
+    _ => Vec::new(),
+  }
+}
+
 /// A release's heading as git-cliff writes it, for one with nothing in it.
 fn heading(tag: &str) -> String {
   format!(
@@ -184,7 +212,97 @@ fn last_tag(root: &Path) -> Option<String> {
   (done.code == 0 && !tag.is_empty()).then_some(tag)
 }
 
+/// The version after `last` that `messages` call for, and why: a breaking change (`!`
+/// after the kind, or a `BREAKING CHANGE` line) or a `feat` raises the minor version
+/// below 1.0 and the major from it on (a `feat` the minor); anything else the patch.
+fn next_version(last: &str, messages: &[String]) -> (String, String) {
+  let numbers: Vec<u64> = last
+    .trim_start_matches('v')
+    .split('.')
+    .map(|n| n.parse().unwrap_or(0))
+    .collect();
+  let (major, minor, patch) = (
+    numbers.first().copied().unwrap_or(0),
+    numbers.get(1).copied().unwrap_or(0),
+    numbers.get(2).copied().unwrap_or(0),
+  );
+  let kind = |message: &String| -> String {
+    let subject = message.lines().next().unwrap_or("");
+    subject
+      .split(':')
+      .next()
+      .unwrap_or("")
+      .split('(')
+      .next()
+      .unwrap_or("")
+      .to_string()
+  };
+  let breaking = messages.iter().any(|m| {
+    let head = m
+      .lines()
+      .next()
+      .unwrap_or("")
+      .split(':')
+      .next()
+      .unwrap_or("");
+    head.ends_with('!') || m.lines().any(|l| l.starts_with("BREAKING CHANGE"))
+  });
+  let features = messages.iter().filter(|m| kind(m) == "feat").count();
+  let fixes = messages.iter().filter(|m| kind(m) == "fix").count();
+  if breaking {
+    let next = if major == 0 {
+      format!("v0.{}.0", minor + 1)
+    } else {
+      format!("v{}.0.0", major + 1)
+    };
+    (next, "a breaking change".to_string())
+  } else if features > 0 {
+    (
+      format!("v{}.{}.0", major, minor + 1),
+      format!("{} feat, {} fix", features, fixes),
+    )
+  } else {
+    (
+      format!("v{}.{}.{}", major, minor, patch + 1),
+      format!("{} fix, no feat", fixes),
+    )
+  }
+}
+
 /// The newest section as git-cliff renders it, wrapped.
+/// `--preview`: the section a release made now would write, without writing it.
+fn preview(root: &Path, tag: Option<String>) -> ExitCode {
+  let Some(last) = last_tag(root) else {
+    println!("no release tag yet: the first release's section is written by hand");
+    return ExitCode::from(1);
+  };
+  let subjects = commit_messages(root, &last);
+  let (tag, why) = match tag {
+    Some(tag) => (tag, "as --tag names it".to_string()),
+    None => {
+      let (next, why) = next_version(&last, &subjects);
+      (next, why)
+    }
+  };
+  match render(root, Some(&tag)) {
+    Ok(section) => {
+      println!(
+        "CHANGELOG.md's section if {} were released now ({}; {} commits since {}):\n",
+        tag,
+        why,
+        subjects.len(),
+        last
+      );
+      print!("{}", section);
+      ExitCode::SUCCESS
+    }
+    Err(e) => {
+      println!("{}", e);
+      ExitCode::from(1)
+    }
+  }
+}
+
 fn render(root: &Path, tag: Option<&str>) -> Result<String, String> {
   if last_tag(root).is_none() {
     return Err(
@@ -284,6 +402,25 @@ mod tests {
       out
     );
     assert_eq!(wrapped("### Fixed\n"), "### Fixed\n");
+  }
+
+  #[test]
+  fn test_the_next_version_follows_the_commits() {
+    let m = |list: &[&str]| -> Vec<String> { list.iter().map(|s| s.to_string()).collect() };
+    assert_eq!(
+      next_version("v0.1.0", &m(&["fix(cli): a", "docs: b"])).0,
+      "v0.1.1"
+    );
+    assert_eq!(
+      next_version("v0.1.3", &m(&["fix: a", "feat(cli): b"])).0,
+      "v0.2.0"
+    );
+    assert_eq!(next_version("v0.1.0", &m(&["feat(cli)!: a"])).0, "v0.2.0");
+    assert_eq!(
+      next_version("v1.2.3", &m(&["fix: a\n\nBREAKING CHANGE: b"])).0,
+      "v2.0.0"
+    );
+    assert_eq!(next_version("v1.2.3", &m(&["feat: a"])).0, "v1.3.0");
   }
 
   #[test]

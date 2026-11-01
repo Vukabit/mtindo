@@ -398,6 +398,10 @@ fn changelog() -> Command {
         .help("Name the section for this release (v0.2.0), dated today, in place of Unreleased"),
     )
     .arg(flag("check", "Only compare; fails when the section is out of date"))
+    .arg(flag(
+      "preview",
+      "Print the section a release made now would write, named for the next version (or --tag); write nothing",
+    ))
 }
 
 /// The commands named at the start of `args`: `["fuzz", "run"]` for `fuzz run -h`.

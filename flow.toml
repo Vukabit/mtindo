@@ -117,6 +117,11 @@ kind = "cargo"
 version = "0.13.2"
 needed_by = ["fuzz"]
 
+[tools.cargo-deny]
+kind = "cargo"
+version = "0.20.2"
+needed_by = ["audit"]
+
 [tools.gh]
 kind = "system"
 version = "2.40.0"
@@ -153,6 +158,9 @@ ci = [
 ]
 build = ["clippy", "tests"]
 msrv = ["msrv"]
+# The dependency graph (dev-dependencies and xtask): advisories, licenses, sources
+# (deny.toml). CI runs it weekly and when a manifest or the lock file changes.
+audit = ["deny"]
 release = [
   "clean",
   "pushed",

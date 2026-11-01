@@ -1,0 +1,33 @@
+# What `cargo deny check` (flow.toml's `audit` stage) holds the dependency graph to.
+# mtindo itself has no runtime dependencies; this covers its dev-dependencies and the
+# development tools in xtask/, which build and test it.
+
+[graph]
+all-features = true
+# Dev-dependencies too: they build and test mtindo.
+exclude-dev = false
+
+[advisories]
+# A crate with a security advisory, or one its authors yanked, fails the check.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Licenses compatible with mtindo's own MIT OR Apache-2.0.
+allow = ["Apache-2.0", "MIT", "Unicode-3.0", "Unlicense"]
+confidence-threshold = 0.9
+
+[licenses.private]
+# xtask and xtask-tools are never published.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# xtask-tools links mtindo by path; it is never published.
+allow-wildcard-paths = true
+
+[sources]
+# Only crates.io; no git dependencies or other registries.
+unknown-registry = "deny"
+unknown-git = "deny"

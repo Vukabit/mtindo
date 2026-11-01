@@ -132,6 +132,8 @@ The hooks in `.githooks/` are one line each; [flow.toml](flow.toml)'s
   `fmt`, `gates`, pinned actions and tools, the command reference.
 - **`build`**, on each CI platform: `clippy`, `tests`.
 - **`msrv`**, in CI: the tests on the oldest supported Rust.
+- **`audit`**, in CI weekly and when a manifest or `Cargo.lock` changes:
+  `cargo deny` on the dependency graph (`deny.toml`).
 
 When one fails:
 
@@ -144,12 +146,15 @@ When one fails:
   branch instead.
 - **`messages`**: one of the pushed commits breaks the rules above; reword it
   (`git rebase -i`) before pushing.
+- **`deny`**: a dependency has a security advisory, was yanked, or brings a
+  license or source `deny.toml` does not allow. Update or replace it.
 
 To run a stage by hand: `cargo xtask flow check ci`.
 
 ## Pull requests
 
-Push a branch and open a pull request against `main`. CI checks its commits
+Push a branch and open a pull request against `dev`, where work lands
+before a release moves `main`. CI checks its commits
 and the tree, builds and tests on Linux (x86_64 and aarch64), macOS and
 Windows, and tests on the oldest supported Rust. Say what the change does for
 someone using `mto`; for a formatting change, include the corpus numbers

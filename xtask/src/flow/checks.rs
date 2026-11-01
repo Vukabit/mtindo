@@ -32,6 +32,7 @@ pub const NAMES: &[&str] = &[
   "commands-doc",
   "tests-xtask",
   "github-settings",
+  "deny",
 ];
 
 /// What a stage checks: the staged files for `pre-commit`, the refs being pushed for
@@ -572,6 +573,7 @@ fn run_check(
       ],
     ),
     "tests-xtask" => command(root, "cargo", &["test", "--package", "xtask"]),
+    "deny" => command(root, "cargo", &["deny", "--workspace", "check"]),
     "github-settings" => github_settings(root, flow),
     "tests" => command(
       root,

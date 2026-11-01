@@ -43,8 +43,12 @@ the checksums as a release would, publishes nothing, and runs the packed
 Linux binary, saying the oldest glibc it needs (on its summary page).
 
 The changelog is written from commit subjects by git-cliff, under the
-headings `flow.toml`'s `[kinds]` give; `cargo xtask changelog` shows the
-next section at any time, and wraps it to 80 columns.
+headings `flow.toml`'s `[kinds]` give, wrapped to 80 columns. It holds what
+mto's users see: a commit whose scopes are all tooling (`xtask`, `records`,
+`flow`, `ci`, `tests`, `fuzz`, with or without `docs`) is left out. `cargo
+xtask changelog --preview` prints, at any time, the section a release made
+now would write, under the version the commits call for (a `feat` or a
+breaking change raises the minor version before 1.0, fixes the patch).
 
 ## The first release
 

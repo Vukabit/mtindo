@@ -21,6 +21,14 @@ use crate::common::log::Logger;
 use crate::common::process;
 use crate::papers::wrap;
 
+/// git-cliff's settings: Keep a Changelog headings, one per changelog heading
+/// `[kinds]` names in the order first named, each kind's commits under its own; kinds
+/// without one, and anything else, left out.
+/// The scopes of the development tooling, which mto's users never see: a commit naming
+/// only these (with `docs`, which tooling commits name for the generated command
+/// reference) is not in the changelog. `docs` alone is the user documentation, and stays.
+const TOOLING: &[&str] = &["xtask", "records", "flow", "ci", "tests", "fuzz"];
+
 const UNRELEASED: &str = "## [Unreleased]";
 
 /// The widest public Markdown line (the gates' `DOC_LINE_LIMIT`).
@@ -109,12 +117,13 @@ fn cliff_binary() -> Option<PathBuf> {
   process::on_path("git-cliff").then(|| PathBuf::from("git-cliff"))
 }
 
-/// git-cliff's settings: Keep a Changelog headings, one per changelog heading
-/// `[kinds]` names in the order first named, each kind's commits under its own; kinds
-/// without one, and anything else, left out.
 fn cliff_settings(kinds: &[(String, Option<String>)]) -> String {
   let mut headings: Vec<&str> = Vec::new();
-  let mut parsers = String::new();
+  // First, as git-cliff takes the first parser that matches.
+  let mut parsers = format!(
+    "  {{ message = \"{}\", skip = true }},\n",
+    tooling_pattern()
+  );
   for (kind, heading) in kinds {
     let Some(heading) = heading else {
       continue;
@@ -276,7 +285,9 @@ fn preview(root: &Path, tag: Option<String>) -> ExitCode {
     println!("no release tag yet: the first release's section is written by hand");
     return ExitCode::from(1);
   };
-  let subjects = commit_messages(root, &last);
+  // What the changelog shows: the commits mto's users see.
+  let all = commit_messages(root, &last);
+  let subjects: Vec<String> = all.iter().filter(|m| !tooling_only(m)).cloned().collect();
   let (tag, why) = match tag {
     Some(tag) => (tag, "as --tag names it".to_string()),
     None => {
@@ -287,10 +298,12 @@ fn preview(root: &Path, tag: Option<String>) -> ExitCode {
   match render(root, Some(&tag)) {
     Ok(section) => {
       println!(
-        "CHANGELOG.md's section if {} were released now ({}; {} commits since {}):\n",
+        "CHANGELOG.md's section if {} were released now ({}; {} of the {} commits since {} \
+         change what users see):\n",
         tag,
         why,
         subjects.len(),
+        all.len(),
         last
       );
       print!("{}", section);
@@ -386,6 +399,32 @@ fn replace_unreleased(written: &str, section: &str) -> Result<String, String> {
   Ok(out)
 }
 
+/// Whether a commit message's subject names only tooling scopes ([`tooling_pattern`]).
+fn tooling_only(message: &str) -> bool {
+  let subject = message.lines().next().unwrap_or("");
+  let Some(scopes) = subject
+    .split_once('(')
+    .and_then(|(_, rest)| rest.split_once(')'))
+    .map(|(scopes, _)| scopes)
+  else {
+    return false;
+  };
+  let scopes: Vec<&str> = scopes.split(',').map(str::trim).collect();
+  scopes.iter().all(|s| TOOLING.contains(s) || *s == "docs")
+    && scopes.iter().any(|s| TOOLING.contains(s))
+}
+
+/// The git-cliff pattern of a commit whose every scope is tooling, at least one of them
+/// not `docs`: `feat(xtask,docs): ...`, never `feat(cli,xtask): ...` or `fix(docs): ...`.
+fn tooling_pattern() -> String {
+  let tooling = TOOLING.join("|");
+  let any = format!("{}|docs", tooling);
+  format!(
+    "^[a-z]+\\\\((({}),)*({})(,({}))*\\\\)!?:",
+    any, tooling, any
+  )
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -444,5 +483,17 @@ mod tests {
     let again = replace_unreleased(&out, "## [0.2.0] - 2027-01-02\n\n- newer\n").unwrap();
     assert_eq!(again.matches("## [0.2.0]").count(), 1, "{}", again);
     assert!(again.contains("- newer\n\n## [0.1.0]"), "{}", again);
+  }
+
+  #[test]
+  fn test_tooling_only_commits_are_left_out() {
+    assert!(tooling_only("feat(xtask,docs): a"));
+    assert!(tooling_only("fix(tests): a"));
+    assert!(tooling_only("refactor(records,xtask): a\n\nbody"));
+    assert!(!tooling_only("feat(cli): a"));
+    assert!(!tooling_only("feat(cli,xtask): a"));
+    assert!(!tooling_only("fix(docs): a"));
+    assert!(!tooling_only("feat: a"));
+    assert!(tooling_pattern().contains("(xtask|records|flow|ci|tests|fuzz)"));
   }
 }

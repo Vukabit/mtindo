@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use mtindo::cli::spec::{
-  CARGO_FLAGS, CargoFlag, CargoFlagSpec, Forward, cargo_flag, cargo_spec_of, listed, spec_of,
+  CARGO_FLAGS, CargoFlag, CargoFlagSpec, Forward, USAGE_LINES, cargo_flag, cargo_spec_of, listed,
+  spec_of,
 };
 use mtindo::config::env::{COMMAND, PATHS_FILE};
 use mtindo::config::workspace::{self, Selection};
@@ -62,7 +63,12 @@ fn help(color: bool) -> String {
   let mut out = format!(
     "{} {}\n\n",
     p.heading("usage:"),
-    p.usage_line("cargo mto [OPTIONS] [-- <MTO OPTIONS>...]")
+    p.usage_line(
+      USAGE_LINES
+        .iter()
+        .find(|line| line.starts_with("cargo mto"))
+        .expect("mto's usage names cargo mto")
+    )
   );
   let about = "Formats the targets of the current package or workspace, as cargo fmt \
                  formats them. Options after -- go to mto (see mto --help).";

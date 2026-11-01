@@ -693,7 +693,7 @@ fn parse_completions_args(command: &CommandSpec, args: &[String]) -> Result<CliA
 }
 
 fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
-  let usage = || usage_error("usage: mto config path|print|options [OPTIONS] [DIR]");
+  let usage = || command_usage(command, None, None);
   let mut view = match command.subcommand(args.first().map(String::as_str)) {
     Some("options") => {
       return match &args[1..] {
@@ -707,7 +707,7 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
           dir: PathBuf::from("."),
           overrides: Overrides::default(),
         }),
-        _ => usage_error("usage: mto config options [--toml]"),
+        _ => command_usage(command, Some("options"), None),
       };
     }
     Some("path") => ConfigView::Path,
@@ -748,21 +748,12 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
 }
 
 fn parse_debug_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
-  let usage = || {
-    eprintln!(
-      "{}Error: usage: mto debug tokens|tree|layout <FILE> [--edition YEAR]{}",
-      c_red(),
-      c_reset(true)
-    );
-  };
+  let usage = || command_usage(command, None, None);
   let view = match command.subcommand(args.first().map(String::as_str)) {
     Some("tokens") => DebugView::Tokens,
     Some("tree") => DebugView::Tree,
     Some("layout") => DebugView::Layout,
-    _ => {
-      usage();
-      return Err(());
-    }
+    _ => return usage(),
   };
   let mut path = None;
   let mut edition = Edition::DEFAULT;
@@ -787,10 +778,7 @@ fn parse_debug_args(command: &CommandSpec, args: &[String]) -> Result<CliAction,
         i += 1;
       }
       other if path.is_none() && !other.starts_with('-') => path = Some(PathBuf::from(other)),
-      _ => {
-        usage();
-        return Err(());
-      }
+      _ => return usage(),
     }
     i += 1;
   }
@@ -801,10 +789,7 @@ fn parse_debug_args(command: &CommandSpec, args: &[String]) -> Result<CliAction,
       edition,
       edition_given,
     }),
-    None => {
-      usage();
-      Err(())
-    }
+    None => usage(),
   }
 }
 
@@ -817,11 +802,7 @@ fn parse_doctor_args(spec: &CommandSpec, args: &[String]) -> Result<CliAction, (
     return usage_error("`--` must be followed by the command, as its words");
   }
   let words: Vec<&str> = words.iter().map(String::as_str).collect();
-  let usage = || {
-    usage_error(
-      "usage: mto doctor [on [-- COMMAND...] | off | holds | release N|all | RUN [-- COMMAND...]]",
-    )
-  };
+  let usage = || command_usage(spec, None, None);
   // A word that is not a subcommand is a run.
   let view = match (spec.subcommand(words.first().copied()), &words[..], command) {
     (None, [], None) => DoctorView::Status,
@@ -839,9 +820,7 @@ fn parse_doctor_args(spec: &CommandSpec, args: &[String]) -> Result<CliAction, (
 }
 
 fn parse_history_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
-  let usage = || {
-    usage_error("usage: mto history [--all | show <RUN> | prune [--older-than DAYS] [--keep N]]")
-  };
+  let usage = || command_usage(command, None, None);
   let first = args.first().map(String::as_str);
   let view = match command.subcommand(first) {
     None if args.is_empty() => HistoryView::List(false),
@@ -895,11 +874,7 @@ fn parse_history_args(command: &CommandSpec, args: &[String]) -> Result<CliActio
 }
 
 fn parse_report_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
-  let usage = || {
-    usage_error(
-      "usage: mto report [show <ID> | save <ID> <FILE> [--with-file] | send <ID> | prune]",
-    )
-  };
+  let usage = || command_usage(command, None, None);
   let words: Vec<&str> = args.iter().map(String::as_str).collect();
   let with_file = spec_of(Flag::WithFile).long;
   let view = match (command.subcommand(words.first().copied()), &words[..]) {
@@ -940,8 +915,10 @@ fn parse_restore_args(args: &[String]) -> Result<CliAction, ()> {
   }
   match run {
     Some(run) => Ok(CliAction::Restore { run, files, force }),
-    None => usage_error(
-      "usage: mto restore <RUN> [FILE...] [--force]; RUN is last, last~N, or a handle from `mto history`",
+    None => command_usage(
+      command_named("restore").expect("restore is a command"),
+      None,
+      Some("RUN is last, last~N, or a handle from `mto history`"),
     ),
   }
 }
@@ -2007,6 +1984,36 @@ fn usage_block(p: &HelpPalette, lines: &[&str]) -> String {
   out
 }
 
+/// Prints `command`'s usage lines from its spec (those of subcommand `word` alone, when
+/// given) as an error, then `note`, and points at the command's help.
+fn command_usage<T>(
+  command: &CommandSpec,
+  word: Option<&str>,
+  note: Option<&str>,
+) -> Result<T, ()> {
+  let lead = match word {
+    Some(word) => format!("mto {} {}", command.name, word),
+    None => format!("mto {}", command.name),
+  };
+  let lines: Vec<&str> = command
+    .usage
+    .iter()
+    .copied()
+    .filter(|line| {
+      line
+        .strip_prefix(lead.as_str())
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+    })
+    .collect();
+  let mut text = format!("usage: {}", lines.join(&format!("\n{}", " ".repeat(14))));
+  if let Some(note) = note {
+    text.push_str(&format!("\n{}", note));
+  }
+  eprintln!("{}Error: {}{}", c_red(), text, c_reset(true));
+  eprintln!("Run 'mto {} --help' for usage.", command.name);
+  Err(())
+}
+
 /// Prints a usage error and points at the help; returns the error for `?`-style use.
 fn usage_error<T>(message: &str) -> Result<T, ()> {
   eprintln!("{}Error: {}{}", c_red(), message, c_reset(true));
@@ -2104,6 +2111,58 @@ mod tests {
       assert!(command_named(word).is_none(), "{}", word);
     }
     assert!(parse_command(command_named("history").unwrap(), &["list".into()]).is_err());
+  }
+
+  #[test]
+  fn test_each_command_s_args_and_usage_name_just_its_subcommands() {
+    // The lowercase words of `text` outside `<...>`: `show` in `[show <ID> | --all]`.
+    fn words(text: &str) -> Vec<String> {
+      let mut depth = 0;
+      let outside: String = text
+        .chars()
+        .map(|c| {
+          match c {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            _ => {}
+          }
+          if depth == 0 && c != '>' { c } else { ' ' }
+        })
+        .collect();
+      outside
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .filter(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase()))
+        .map(str::to_string)
+        .collect()
+    }
+    for command in COMMANDS {
+      let mut listed: Vec<String> = command
+        .subcommands
+        .iter()
+        .map(|s| s.word.to_string())
+        .collect();
+      listed.sort();
+      let mut named = words(command.args);
+      named.sort();
+      assert_eq!(
+        named, listed,
+        "mto {}'s args: {}",
+        command.name, command.args
+      );
+      // Each usage line's first word is a subcommand, or none is, and each subcommand
+      // has a line.
+      let mut first = Vec::new();
+      for line in command.usage {
+        let rest = line
+          .strip_prefix(&format!("mto {}", command.name))
+          .unwrap_or_else(|| panic!("{} is not mto {}'s", line, command.name));
+        let next = rest.split_whitespace().next().unwrap_or("");
+        first.extend(words(next));
+      }
+      first.sort();
+      first.dedup();
+      assert_eq!(first, listed, "mto {}'s usage", command.name);
+    }
   }
 
   #[test]

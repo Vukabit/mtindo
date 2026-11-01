@@ -1,0 +1,35 @@
+# Keeps the pinned actions and the dependencies current: one grouped pull request a
+# week per ecosystem, against `dev`. Commit headers follow flow.toml's rules (the
+# `messages` check holds a bot's commits to their first line only).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(ci)"
+  - package-ecosystem: cargo
+    directory: "/"
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(build)"
+  - package-ecosystem: cargo
+    directory: "/fuzz"
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      fuzz:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(fuzz)"

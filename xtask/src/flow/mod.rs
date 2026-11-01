@@ -220,6 +220,14 @@ fn messages_in(root: &Path, flow: &Flow, ranges: &[Vec<String>]) -> Result<(), S
         continue;
       }
       let text = message::cleaned(&git::message(root, &sha)?);
+      // A GitHub bot (Dependabot) always writes a body; only its first line is held to
+      // the rules.
+      let author = git::git(root, &["log", "-1", "--format=%an", &sha]).unwrap_or_default();
+      let text = if author.trim().ends_with("[bot]") {
+        text.lines().next().unwrap_or("").to_string()
+      } else {
+        text
+      };
       let short = &sha[..sha.len().min(10)];
       let first = text.lines().next().unwrap_or("").to_string();
       if message::is_autosquash(&text) {

@@ -85,7 +85,7 @@ pub fn run(root: &Path, repos: &[(String, PathBuf)], markdown: bool, log: &Logge
     }
   };
   crate::common::conditions::settle(root, "the corpus bench");
-  let mto = root.join("target").join("release").join("mto");
+  let mto = crate::common::build::mto_path(root);
   // mto first: rustfmt keeps every core busy for half a minute, and a processor that hot
   // runs slower for a while after, which would count against whatever came next.
   let config = copies.base.join("mto-bench.toml");
@@ -359,11 +359,7 @@ fn prepare(root: &Path, repos: &[(String, PathBuf)], log: &Logger) -> Result<Cop
   }
   // Lay the copy out with the mto being measured; on a laid-out copy this changes little.
   println!("building mto (release) and laying out the copy...");
-  let build = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
-  if process::capture(root, "cargo", &build, &[], process::LONG).0 != 0 {
-    return Err("cannot build mto".to_string());
-  }
-  let mto = root.join("target").join("release").join("mto");
+  let mto = crate::common::build::mto(root)?;
   let laid_out = process::output(
     Command::new(&mto)
       .arg("--config-path")

@@ -21,6 +21,7 @@
 //! the legal values is an error, naming the file, line and column.
 
 mod cargo;
+pub mod env;
 mod files;
 pub mod toml;
 pub mod user;

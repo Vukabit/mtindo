@@ -12,6 +12,7 @@ use std::process::{Command, ExitCode};
 use mtindo::cli::spec::{
   CARGO_FLAGS, CargoFlag, CargoFlagSpec, Forward, cargo_flag, cargo_spec_of, listed, spec_of,
 };
+use mtindo::config::env::{COMMAND, PATHS_FILE};
 use mtindo::config::workspace::{self, Selection};
 use mtindo::{HelpPalette, color_enabled};
 
@@ -20,9 +21,6 @@ const HELP_COLUMN: usize = 30;
 
 /// The longest list of targets given to mto as arguments, in characters.
 const LONGEST_LINE: usize = 30_000;
-
-/// Names the file a longer list is given to mto in, one path a line.
-const PATHS_FILE: &str = "MTINDO_PATHS_FILE";
 
 /// Small blocks come from a per-thread cache in front of the system allocator.
 #[global_allocator]
@@ -133,7 +131,7 @@ fn main() -> ExitCode {
     _ => &typed[..],
   };
   command.env(
-    "MTINDO_COMMAND",
+    COMMAND,
     ["cargo mto".to_string()]
       .into_iter()
       .chain(typed.iter().cloned())

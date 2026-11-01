@@ -42,7 +42,11 @@ impl TestEnvironment {
   /// `mto` with `args`, as [`TestEnvironment::mto_cmd`] runs it, started and not waited
   /// for.
   pub fn mto_spawn(&self, args: &[&str]) -> std::process::Child {
-    StdCommand::new(assert_cmd::cargo::cargo_bin("mto"))
+    let mut command = StdCommand::new(assert_cmd::cargo::cargo_bin("mto"));
+    for name in mtindo::config::env::ALL {
+      command.env_remove(name);
+    }
+    command
       .args(args)
       .current_dir(self.dir.path())
       .env("HOME", self.dir.path().join(".home"))
@@ -52,9 +56,6 @@ impl TestEnvironment {
       // every system reads and writes the same folders under the test's home.
       .env("XDG_CONFIG_HOME", self.dir.path().join(".home/.config"))
       .env("XDG_STATE_HOME", self.dir.path().join(".home/.local/state"))
-      .env_remove("MTINDO_COMMAND")
-      .env_remove("MTINDO_PATHS_FILE")
-      .env_remove("MTINDO_CONFIG")
       .stdout(std::process::Stdio::null())
       .stderr(std::process::Stdio::null())
       .spawn()
@@ -73,10 +74,10 @@ impl TestEnvironment {
       // Set rather than removed: they come before `%APPDATA%` and `%LOCALAPPDATA%`, so
       // every system reads and writes the same folders under the test's home.
       .env("XDG_CONFIG_HOME", self.dir.path().join(".home/.config"))
-      .env("XDG_STATE_HOME", self.dir.path().join(".home/.local/state"))
-      .env_remove("MTINDO_COMMAND")
-      .env_remove("MTINDO_PATHS_FILE")
-      .env_remove("MTINDO_CONFIG");
+      .env("XDG_STATE_HOME", self.dir.path().join(".home/.local/state"));
+    for name in mtindo::config::env::ALL {
+      cmd.env_remove(name);
+    }
     cmd
   }
 

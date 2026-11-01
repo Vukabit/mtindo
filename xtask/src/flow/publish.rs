@@ -286,7 +286,14 @@ fn host_triple(root: &Path) -> Option<String> {
 fn sbom_text(root: &Path, flow: &Flow, version: &str) -> Result<Json, String> {
   let created = git::git(root, &["log", "-1", "--format=%cI", "HEAD"])?;
   let created = created.trim();
-  let license = "MIT OR Apache-2.0";
+  // The license Cargo.toml declares, as crates.io shows it.
+  let manifest = fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?;
+  let license = manifest
+    .lines()
+    .find_map(|l| l.strip_prefix("license = "))
+    .map(|l| l.trim().trim_matches('"').to_string())
+    .ok_or("Cargo.toml declares no license")?;
+  let license = license.as_str();
   let package = Json::object(vec![
     ("name", "mtindo".into()),
     ("SPDXID", "SPDXRef-Package-mtindo".into()),

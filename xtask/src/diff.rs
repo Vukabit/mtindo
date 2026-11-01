@@ -120,15 +120,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   }
   let done = process::output(
     Command::new("cargo")
-      .args([
-        "run",
-        "--quiet",
-        "--release",
-        "--package",
-        "xtask-tools",
-        "--",
-      ])
-      .args(&forwarded)
+      .args(crate::common::build::tools(&forwarded))
       .current_dir(root),
     process::HEAVY,
   );

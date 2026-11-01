@@ -10,6 +10,10 @@ use std::path::Path;
 /// Keys in rustfmt's test headers that steer its test runner rather than set options.
 pub const DIRECTIVES: &[&str] = &["target", "stable", "unstable"];
 
+/// How a header line starts: rustfmt's own repository (and its stable releases' suites)
+/// write a comment, the suite in rust-lang/rust a directive.
+pub const HEADER_PREFIXES: &[&str] = &["// rustfmt-", "//@ rustfmt-"];
+
 /// `settings` as a `rustfmt.toml`.
 pub fn config_text(settings: &[(String, String)], string_keys: &BTreeSet<String>) -> String {
   settings
@@ -18,15 +22,16 @@ pub fn config_text(settings: &[(String, String)], string_keys: &BTreeSet<String>
     .collect()
 }
 
+/// What follows a header line's prefix (`KEY: VALUE`), when `line` is one.
+pub fn header(line: &str) -> Option<&str> {
+  HEADER_PREFIXES.iter().find_map(|p| line.strip_prefix(p))
+}
+
 /// The settings a test input asks for, from its `// rustfmt-KEY: VALUE` lines.
 pub fn headers(text: &str) -> Vec<(String, String)> {
   text
     .lines()
-    .filter_map(|line| {
-      line
-        .strip_prefix("// rustfmt-")
-        .or_else(|| line.strip_prefix("//@ rustfmt-"))
-    })
+    .filter_map(header)
     .filter_map(|rest| rest.split_once(':'))
     .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
     .filter(|(key, _)| !key.is_empty() && key.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
@@ -44,6 +49,14 @@ pub fn older_headers(text: &str) -> String {
       None => line.to_string(),
     })
     .collect()
+}
+
+/// Whether `line` is the test runner's rather than the pair's: a header in any spelling a
+/// suite has written one (`//rustfmt-` too), or another `//@` directive. A suite may spell
+/// these anew without changing the formatting.
+pub fn runner_line(line: &str) -> bool {
+  let line = line.trim_start();
+  header(line).is_some() || line.starts_with("//@") || line.starts_with("//rustfmt-")
 }
 
 /// The settings an input runs with, following rustfmt's test harness: `config` loads a

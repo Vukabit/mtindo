@@ -34,28 +34,18 @@ pub fn run(root: &Path, update: bool) -> ExitCode {
     );
     return ExitCode::SUCCESS;
   }
-  let build = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
-  if process::capture(root, "cargo", &build, &[], process::LONG).0 != 0 {
-    println!("cannot build mto");
-    return ExitCode::from(1);
-  }
-  let mto = root.join("target/release/mto");
+  let mto = match crate::common::build::mto(root) {
+    Ok(mto) => mto,
+    Err(e) => {
+      println!("{}", e);
+      return ExitCode::from(1);
+    }
+  };
   let scratch = std::env::temp_dir().join(format!("mtindo-instructions-{}", std::process::id()));
   let _ = fs::remove_dir_all(&scratch);
   let workload = scratch.join("workload");
-  let args: Vec<String> = [
-    "run",
-    "--quiet",
-    "--release",
-    "--package",
-    "xtask-tools",
-    "--",
-    "perf-workload",
-  ]
-  .iter()
-  .map(|s| s.to_string())
-  .chain([workload.display().to_string()])
-  .collect();
+  let args =
+    crate::common::build::tools(&["perf-workload".to_string(), workload.display().to_string()]);
   let (code, said) = process::capture(root, "cargo", &args, &[], process::LONG);
   if code != 0 {
     println!("cannot write the workload:\n{}", said);
@@ -177,10 +167,11 @@ fn parse(text: &str) -> (String, BTreeMap<String, u64>) {
 }
 
 fn record_text(target: &str, counts: &BTreeMap<String, u64>) -> String {
-  let mut out = String::from(
+  let mut out = format!(
     "# Instructions the release mto runs to check each file of the fixed workload, counted\n\
      # by Cachegrind (`cargo xtask speed instructions --update` writes it). Compared on the\n\
-     # target named, where a count may not grow more than 3%.\n",
+     # target named, where a count may not grow more than {}%.\n",
+    (TOLERANCE * 1000.0).round() / 10.0
   );
   out.push_str(&format!("target {}\n", target));
   for (kind, n) in counts {
@@ -244,5 +235,11 @@ mod tests {
       "{}",
       other
     );
+  }
+
+  /// The record's header states [`TOLERANCE`].
+  #[test]
+  fn test_the_record_states_the_tolerance() {
+    assert!(record_text("x", &BTreeMap::new()).contains("more than 3%.\n"));
   }
 }

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::options::format::{FormatConfig, NewlineStyle};
 use mtindo::syntax::{Edition, SyntaxElement, parse};
+use xtask_core::harness;
 
 use super::*;
 use crate::common::{edition_for, header_edition};
@@ -256,7 +257,7 @@ pub(crate) fn collect_cases(options: &Options) -> Vec<Case> {
         continue;
       }
       let pair = test_pair(tests, relative, expected);
-      let set = if pair.input.lines().any(|l| l.starts_with("// rustfmt-")) {
+      let set = if pair.input.lines().any(|l| harness::header(l).is_some()) {
         Source::TestsWithSettings
       } else {
         Source::Tests
@@ -435,7 +436,7 @@ pub(crate) fn header_settings(input: &str, config_dir: &Path) -> FormatConfig {
   };
   let settings: Vec<(String, String)> = input
     .lines()
-    .filter_map(|line| line.strip_prefix("// rustfmt-"))
+    .filter_map(harness::header)
     .filter_map(|rest| rest.split_once(':'))
     .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
     .filter(accepted)
@@ -444,7 +445,7 @@ pub(crate) fn header_settings(input: &str, config_dir: &Path) -> FormatConfig {
   // `--config-path` reads one.
   let config_path = input
     .lines()
-    .filter_map(|line| line.strip_prefix("// rustfmt-config:"))
+    .filter_map(|line| harness::header(line)?.strip_prefix("config:"))
     .map(|name| config_dir.join(name.trim()))
     .next();
   let overrides = Overrides {

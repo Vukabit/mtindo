@@ -64,9 +64,12 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   }
   // Built first, so the build is not what the machine is busy with when timing starts.
   let tools = ["build", "--quiet", "--release", "--package", "xtask-tools"].map(String::from);
-  if build_mto(root).is_err() || process::capture(root, "cargo", &tools, &[], process::LONG).0 != 0
-  {
-    println!("cannot build mto and xtask-tools");
+  if let Err(e) = crate::common::build::mto(root) {
+    println!("{}", e);
+    return ExitCode::from(1);
+  }
+  if process::capture(root, "cargo", &tools, &[], process::LONG).0 != 0 {
+    println!("cannot build xtask-tools");
     return ExitCode::from(1);
   }
   crate::common::conditions::settle(root, "cargo xtask speed");
@@ -89,21 +92,6 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   } else {
     ExitCode::SUCCESS
   }
-}
-
-fn build_mto(root: &Path) -> Result<PathBuf, ()> {
-  let build = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
-  let (code, output) = process::capture(root, "cargo", &build, &[], process::LONG);
-  if code != 0 {
-    println!("cannot build mto:\n{}", output);
-    return Err(());
-  }
-  Ok(
-    root
-      .join("target")
-      .join("release")
-      .join(format!("mto{}", std::env::consts::EXE_SUFFIX)),
-  )
 }
 
 /// The corpus folders, fetched first if they are not.
@@ -190,7 +178,7 @@ fn keep(root: &Path, name: &str, value: f64, unit: &str, breaches: &mut Vec<Stri
 }
 
 fn latency(root: &Path, breaches: &mut Vec<String>) -> Result<(), ()> {
-  let mto = build_mto(root)?;
+  let mto = crate::common::build::mto_path(root);
   let scratch = std::env::temp_dir().join("mtindo-perf-latency");
   let _ = fs::remove_dir_all(&scratch);
   let project = scratch.join("project");
@@ -333,17 +321,7 @@ fn scaling(root: &Path, breaches: &mut Vec<String>) -> Result<(), ()> {
 
 /// Runs xtask-tools, release, with `args`; its output.
 fn tools(root: &Path, args: &[String]) -> Result<String, ()> {
-  let mut all: Vec<String> = [
-    "run",
-    "--quiet",
-    "--release",
-    "--package",
-    "xtask-tools",
-    "--",
-  ]
-  .map(String::from)
-  .to_vec();
-  all.extend(args.iter().cloned());
+  let all = crate::common::build::tools(args);
   let (code, output) = process::capture(root, "cargo", &all, &[], process::LONG);
   if code != 0 {
     println!("xtask-tools {} failed:\n{}", args[0], output);

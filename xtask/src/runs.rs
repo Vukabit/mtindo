@@ -33,6 +33,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::common::awake::KeepAwake;
 use crate::common::log::timestamp;
 use crate::common::store;
+use crate::common::toml_string::{quote, unquote};
 use crate::common::{process, sample, tree};
 
 /// Set for a supervised command: its run's folder.
@@ -86,7 +87,6 @@ pub struct Record {
 
 impl Record {
   pub fn to_toml(&self) -> String {
-    let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
     let mut out = String::new();
     out.push_str(&format!("id = {}\n", quote(&self.id)));
     let words: Vec<String> = self.command.iter().map(|w| quote(w)).collect();
@@ -661,21 +661,6 @@ fn unknown(id: &str) -> ExitCode {
   ExitCode::from(2)
 }
 
-/// A quoted TOML string's content.
-fn unquote(value: &str) -> Option<String> {
-  let inner = value.strip_prefix('"')?.strip_suffix('"')?;
-  let mut out = String::new();
-  let mut chars = inner.chars();
-  while let Some(c) = chars.next() {
-    if c == '\\' {
-      out.push(chars.next()?);
-    } else {
-      out.push(c);
-    }
-  }
-  Some(out)
-}
-
 /// The run whose id is `id` or ends with it (`a1b2` is enough), the newest if several.
 /// `runs why`: the manifest of `id` against `other`'s, or against the latest earlier run of
 /// the same command that has one.
@@ -736,11 +721,7 @@ fn why_text(before: &str, after: &str, differences: &[(String, String, String)])
 }
 
 fn write(dir: &Path, record: &Record) {
-  let path = record_path(dir);
-  let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
-  if fs::write(&temporary, record.to_toml()).is_ok() {
-    let _ = fs::rename(&temporary, &path);
-  }
+  let _ = crate::common::files::write_atomic(&record_path(dir), &record.to_toml());
 }
 
 #[cfg(test)]

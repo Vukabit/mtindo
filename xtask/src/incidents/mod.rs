@@ -28,8 +28,10 @@ use std::time::SystemTime;
 
 pub use command::run;
 
+use crate::common::files::write_atomic;
 use crate::common::log::timestamp;
 use crate::common::store;
+use crate::common::toml_string::{quote, unquote};
 use crate::sha256;
 
 /// Every kind: (name, what it is, whether an open one fails the suite).
@@ -720,23 +722,6 @@ fn page(dir: &Path, i: &Incident) -> String {
   out
 }
 
-fn quote(s: &str) -> String {
-  let mut out = String::from("\"");
-  for c in s.chars() {
-    match c {
-      '"' => out.push_str("\\\""),
-      '\\' => out.push_str("\\\\"),
-      '\n' => out.push_str("\\n"),
-      '\r' => out.push_str("\\r"),
-      '\t' => out.push_str("\\t"),
-      c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
-      c => out.push(c),
-    }
-  }
-  out.push('"');
-  out
-}
-
 fn signature(kind: &str, target: &str, key: &str) -> String {
   sha256::hex_digest(format!("{}\0{}\0{}", kind, target, key).as_bytes())[..16].to_string()
 }
@@ -777,36 +762,6 @@ fn title_of(kind: &str, said: &str) -> String {
         .map_or(String::new(), |(_, meaning, _)| meaning.to_string())
     });
   line.chars().take(100).collect()
-}
-
-/// Reads a string `quote` wrote.
-fn unquote(value: &str) -> Option<String> {
-  let inner = value.strip_prefix('"')?.strip_suffix('"')?;
-  let mut out = String::new();
-  let mut chars = inner.chars();
-  while let Some(c) = chars.next() {
-    if c != '\\' {
-      out.push(c);
-      continue;
-    }
-    match chars.next()? {
-      'n' => out.push('\n'),
-      'r' => out.push('\r'),
-      't' => out.push('\t'),
-      'u' => {
-        let hex: String = chars.by_ref().take(4).collect();
-        out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
-      }
-      c => out.push(c),
-    }
-  }
-  Some(out)
-}
-
-fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
-  let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
-  fs::write(&temporary, text)?;
-  fs::rename(&temporary, path)
 }
 
 #[cfg(test)]

@@ -61,16 +61,13 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   // A run's fixed costs weigh differently on another number of files, so only the
   // default size is kept.
   let keep = files == DEFAULT_FILES as usize;
-  let build = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
-  let (code, output) = process::capture(root, "cargo", &build, &[], process::LONG);
-  if code != 0 {
-    println!("cannot build mto:\n{}", output);
-    return ExitCode::from(1);
-  }
-  let mto = root
-    .join("target")
-    .join("release")
-    .join(format!("mto{}", std::env::consts::EXE_SUFFIX));
+  let mto = match crate::common::build::mto(root) {
+    Ok(mto) => mto,
+    Err(e) => {
+      println!("{}", e);
+      return ExitCode::from(1);
+    }
+  };
   crate::common::conditions::settle(root, "the write bench");
   let scratch = std::env::temp_dir().join("mtindo-io-bench");
   println!(

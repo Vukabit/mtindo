@@ -293,18 +293,7 @@ fn bench(root: &Path, markdown: bool, log: &Logger) -> u8 {
   let table_failed = crate::bench::run(root, &repos, markdown, log) != 0;
 
   // Layout's own speed, from xtask-tools.
-  let mut args: Vec<String> = [
-    "run",
-    "--quiet",
-    "--release",
-    "--package",
-    "xtask-tools",
-    "--",
-    "corpus-speed",
-  ]
-  .iter()
-  .map(|s| s.to_string())
-  .collect();
+  let mut args: Vec<String> = crate::common::build::tools(&["corpus-speed".to_string()]);
   for pin in pins.iter().filter(|p| !p.opt_in) {
     args.push(format!(
       "{}={}",
@@ -362,18 +351,7 @@ fn check(root: &Path, flags: &[&str], with_rust: bool, log: &Logger) -> u8 {
       return 1;
     }
   };
-  let mut args: Vec<String> = [
-    "run",
-    "--quiet",
-    "--release",
-    "--package",
-    "xtask-tools",
-    "--",
-    "corpus-check",
-  ]
-  .iter()
-  .map(|s| s.to_string())
-  .collect();
+  let mut args: Vec<String> = crate::common::build::tools(&["corpus-check".to_string()]);
   if flags.contains(&"--baseline") {
     args.push("--baseline".to_string());
   }

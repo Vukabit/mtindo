@@ -32,14 +32,16 @@ impl Check {
         ..Said::default()
       };
     };
-    let child = Command::new(program)
+    let mut command = Command::new(program);
+    // What `cargo mto` told this run is not for the command.
+    for name in crate::config::env::FROM_CARGO_MTO {
+      command.env_remove(name);
+    }
+    let child = command
       .args(args)
       .current_dir(&self.dir)
       // Errors are read as text, so they come without color.
       .env("CARGO_TERM_COLOR", "never")
-      // What `cargo mto` told this run is not for the command.
-      .env_remove("MTINDO_COMMAND")
-      .env_remove("MTINDO_PATHS_FILE")
       .stdin(Stdio::null())
       .stdout(Stdio::piped())
       .stderr(Stdio::piped())

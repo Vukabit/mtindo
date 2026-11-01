@@ -148,6 +148,49 @@ fn completions_output(
   cmd.output().unwrap()
 }
 
+/// Each key of a parsed table, with its section (`history.enabled`), and its value.
+fn flattened(table: &mtindo::config::toml::Table) -> Vec<(String, mtindo::config::toml::Value)> {
+  let mut out = Vec::new();
+  for entry in table.entries() {
+    match &entry.value {
+      mtindo::config::toml::Value::Table(inner) => {
+        for (key, value) in flattened(inner) {
+          out.push((format!("{}.{}", entry.key, key), value));
+        }
+      }
+      value => out.push((entry.key.clone(), value.clone())),
+    }
+  }
+  out
+}
+
+/// The ` ```toml ` blocks of a guide page, in order.
+fn guide_toml(page: &str) -> Vec<String> {
+  let text = fs::read_to_string(format!(
+    "{}/docs/guide/{}",
+    env!("CARGO_MANIFEST_DIR"),
+    page
+  ))
+  .unwrap();
+  let mut blocks = Vec::new();
+  let mut current: Option<String> = None;
+  for line in text.lines() {
+    match (&mut current, line) {
+      (None, "```toml") => current = Some(String::new()),
+      (Some(block), "```") => {
+        blocks.push(std::mem::take(block));
+        current = None;
+      }
+      (Some(block), line) => {
+        block.push_str(line);
+        block.push('\n');
+      }
+      (None, _) => {}
+    }
+  }
+  blocks
+}
+
 fn help_output(
   env: &TestEnvironment,
   args: &[&str],
@@ -2383,5 +2426,119 @@ fn test_completions_match_their_snapshots() {
         program
       ),
     }
+  }
+}
+
+/// The command-line guide lists every top-level flag with its values, every command,
+/// and the exit codes.
+#[test]
+fn test_the_command_line_guide_lists_the_flags_commands_and_codes() {
+  use mtindo::cli::spec::{COMMANDS, EXIT_CODES, FLAGS, Group};
+  let text = fs::read_to_string(format!(
+    "{}/docs/guide/command-line.md",
+    env!("CARGO_MANIFEST_DIR")
+  ))
+  .unwrap();
+  let options = &text[text.find("## Options").unwrap()..text.find("## Walking").unwrap()];
+  for flag in FLAGS.iter().filter(|f| Group::SHOWN.contains(&f.group)) {
+    let shown = if flag.values.is_empty() {
+      flag.long.to_string()
+    } else {
+      format!("{} {}", flag.long, flag.values.join("|"))
+    };
+    let listed = options.match_indices(&shown).any(|(at, _)| {
+      options[at + shown.len()..].starts_with(['`', ' ', ','])
+        && options[..at].ends_with(['`', ' '])
+    });
+    assert!(
+      listed,
+      "docs/guide/command-line.md's options lack {}",
+      shown
+    );
+  }
+  for line in options.lines().filter(|l| l.starts_with("* `")) {
+    for long in line
+      .split('`')
+      .skip(1)
+      .step_by(2)
+      .filter_map(|code| code.split([' ', ',']).find(|w| w.starts_with("--")))
+    {
+      assert!(
+        FLAGS.iter().any(|f| f.long == long),
+        "docs/guide/command-line.md lists {}, not a flag",
+        long
+      );
+    }
+  }
+  let commands = &text[text.find("## Commands").unwrap()..text.find("## Exit codes").unwrap()];
+  for command in COMMANDS {
+    assert!(
+      commands.contains(&format!("`mto {}", command.name))
+        || commands.contains(&format!("`{}`", command.name)),
+      "docs/guide/command-line.md's commands lack {}",
+      command.name
+    );
+  }
+  let codes = &text[text.find("## Exit codes").unwrap()..];
+  let listed: Vec<&str> = codes
+    .lines()
+    .filter_map(|l| l.strip_prefix("| "))
+    .filter_map(|l| l.split(' ').next())
+    .filter(|c| c.chars().all(|c| c.is_ascii_digit()))
+    .collect();
+  let specified: Vec<&str> = EXIT_CODES.iter().map(|(code, _)| *code).collect();
+  assert_eq!(listed, specified, "docs/guide/command-line.md's exit codes");
+}
+
+/// The configuration guide's `mto.toml` is what `mto init` writes, without its comments.
+#[test]
+fn test_the_guide_shows_the_mto_toml_init_writes() {
+  let env = TestEnvironment::new();
+  let _ = fs::remove_file(env.dir.path().join("mto.toml"));
+  env.mto_cmd().arg("init").assert().success();
+  let init = fs::read_to_string(env.dir.path().join("mto.toml")).unwrap();
+  let blocks = guide_toml("configuration.md");
+  let guide = blocks
+    .iter()
+    .find(|b| b.starts_with("layout = true"))
+    .expect("the guide's mto.toml");
+  let parse = |text: &str| flattened(&mtindo::config::toml::parse(text).unwrap());
+  assert_eq!(parse(guide), parse(&init), "docs/guide/configuration.md");
+}
+
+/// The configuration guide's user config holds every user setting at its default.
+#[test]
+fn test_the_guide_shows_the_user_settings_at_their_defaults() {
+  use mtindo::options::{self, File};
+  let blocks = guide_toml("configuration.md");
+  let guide = blocks
+    .iter()
+    .find(|b| b.starts_with("[history]"))
+    .expect("the guide's user config");
+  let shown = flattened(&mtindo::config::toml::parse(guide).unwrap());
+  let settings: Vec<_> = options::all()
+    .filter(|s| s.file == File::User && !s.hidden)
+    .collect();
+  for setting in &settings {
+    let (_, key) = setting.name.split_once('.').unwrap();
+    let default = mtindo::config::toml::parse(&format!("{} = {}\n", key, setting.default))
+      .unwrap()
+      .get(key)
+      .cloned()
+      .unwrap();
+    let found = shown.iter().find(|(name, _)| name == setting.name);
+    assert_eq!(
+      found.map(|(_, v)| v),
+      Some(&default),
+      "docs/guide/configuration.md: {}",
+      setting.name
+    );
+  }
+  for (name, _) in &shown {
+    assert!(
+      settings.iter().any(|s| s.name == name),
+      "docs/guide/configuration.md shows {}, not a user setting",
+      name
+    );
   }
 }

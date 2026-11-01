@@ -130,6 +130,9 @@ const NAMING_ALLOWED_SPELLINGS: &[&str] = &[
 /// that run it.
 const NAMING_README_SECTIONS: &[&str] = &["## Credits", "## Development"];
 
+/// The modules of `src/` outside the layers: the binaries, and the allocator they install.
+const UNLAYERED: &[&str] = &["bin", "cache_alloc"];
+
 /// The files of mtindo allowed unsafe code: the `fcntl` calls macOS syncs with, which the
 /// standard library does not offer (see src/durable), the binaries' allocator cache, and
 /// the calls that turn on escape codes in a Windows console.
@@ -151,9 +154,20 @@ enum Allowed {
   AnyBut(&'static [&'static str]),
 }
 
-/// Every manifest may only declare the runtime dependencies allowed for it.
+/// Every manifest may only declare the runtime dependencies allowed for it, and every
+/// workspace member's manifest is listed with what it may declare.
 pub fn check_dependencies(root: &Path) -> Vec<String> {
   let mut problems = Vec::new();
+  let workspace = fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
+  for member in workspace_members(&workspace) {
+    let manifest = format!("{}/Cargo.toml", member);
+    if !ALLOWED_DEPENDENCIES.iter().any(|(m, _)| *m == manifest) {
+      problems.push(format!(
+        "{}: a workspace member with no entry in ALLOWED_DEPENDENCIES (xtask/src/gates.rs)",
+        manifest
+      ));
+    }
+  }
   for (manifest, allowed) in ALLOWED_DEPENDENCIES {
     let text = match fs::read_to_string(root.join(manifest)) {
       Ok(text) => text,
@@ -219,6 +233,7 @@ pub fn check_layering(root: &Path) -> Vec<String> {
   collect_rust_files(&src, &mut files);
   files.sort();
   let mut problems = Vec::new();
+  let mut unlayered: Vec<String> = Vec::new();
   for file in files.iter() {
     let relative = file.strip_prefix(root).unwrap_or(file);
     let module = match top_module(&src, file) {
@@ -226,6 +241,13 @@ pub fn check_layering(root: &Path) -> Vec<String> {
       None => continue,
     };
     if layer_of(&module).is_none() {
+      if !UNLAYERED.contains(&module.as_str()) && !unlayered.contains(&module) {
+        problems.push(format!(
+          "src/{}: a module in no layer (LAYERS, xtask/src/gates.rs)",
+          module
+        ));
+        unlayered.push(module);
+      }
       continue;
     }
     if let Ok(content) = fs::read_to_string(file) {
@@ -346,6 +368,25 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     println!("gates ({}): {} problem(s)", which, problems.len());
     ExitCode::from(1)
   }
+}
+
+/// The top-level module a file under `src/` belongs to, e.g. `syntax` for
+/// `src/syntax/lexer/mod.rs`. Files directly in `src/` other than `<module>.rs` (such as
+/// `lib.rs` and `main.rs`) belong to none.
+/// The workspace members a root `Cargo.toml` names (`members = [...]`).
+pub fn workspace_members(manifest: &str) -> Vec<String> {
+  let Some(start) = manifest.find("members") else {
+    return Vec::new();
+  };
+  let rest = &manifest[start..];
+  let (Some(open), Some(close)) = (rest.find('['), rest.find(']')) else {
+    return Vec::new();
+  };
+  rest[open + 1..close]
+    .split(',')
+    .map(|m| m.trim().trim_matches('"').to_string())
+    .filter(|m| !m.is_empty())
+    .collect()
 }
 
 /// The lines of `text` that name the reference formatter outside the allowed spellings (and,
@@ -560,9 +601,6 @@ fn runtime_dependencies(manifest: &str) -> Vec<String> {
   entries
 }
 
-/// The top-level module a file under `src/` belongs to, e.g. `syntax` for
-/// `src/syntax/lexer/mod.rs`. Files directly in `src/` other than `<module>.rs` (such as
-/// `lib.rs` and `main.rs`) belong to none.
 fn top_module(src: &Path, file: &Path) -> Option<String> {
   let relative = file.strip_prefix(src).ok()?;
   let mut components = relative.components();
@@ -753,5 +791,11 @@ mod tests {
     // A comment or a string naming it is not an attribute.
     assert!(unsafe_problems("src/a.rs", "// see allow(unsafe_code)\n").is_empty());
     assert!(unsafe_problems("src/a.rs", "let s = \"#![allow(unsafe_code)]\";\n").is_empty());
+  }
+
+  #[test]
+  fn test_workspace_members_are_read() {
+    let manifest = "[workspace]\nmembers = [\"a\", \"b/c\"]\nexclude = [\"d\"]\n";
+    assert_eq!(workspace_members(manifest), vec!["a", "b/c"]);
   }
 }

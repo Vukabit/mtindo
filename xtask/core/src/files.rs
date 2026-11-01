@@ -40,6 +40,13 @@ pub fn repo(root: &Path, pathspecs: &[&str]) -> Result<Vec<String>, String> {
   Ok(files)
 }
 
+/// Writes `text` to `path` whole or not at all: to a file beside it, then renamed over it.
+pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+  let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
+  std::fs::write(&temporary, text)?;
+  std::fs::rename(&temporary, path)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

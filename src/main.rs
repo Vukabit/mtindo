@@ -564,7 +564,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     i += 1;
   }
   // `cargo mto` gives a list of targets too long for a command line in a file.
-  if let Some(list) = env::var_os("MTINDO_PATHS_FILE").filter(|l| !l.is_empty()) {
+  if let Some(list) = env::var_os(config::env::PATHS_FILE).filter(|l| !l.is_empty()) {
     match std::fs::read_to_string(&list) {
       Ok(text) => paths.extend(text.lines().filter(|l| !l.is_empty()).map(PathBuf::from)),
       Err(e) => {

@@ -15,9 +15,7 @@ pub fn edition_for(file: &Path, text: &str) -> Edition {
 pub fn header_edition(text: &str) -> Option<Edition> {
   text.lines().take(20).find_map(|line| {
     let line = line.trim();
-    let year = line
-      .strip_prefix("// rustfmt-edition:")
-      .or_else(|| line.strip_prefix("//@ rustfmt-edition:"))?;
+    let year = xtask_core::harness::header(line)?.strip_prefix("edition:")?;
     Edition::from_year(year.trim())
   })
 }

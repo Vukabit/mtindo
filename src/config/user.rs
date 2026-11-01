@@ -66,7 +66,8 @@ pub fn path(env: &Environment) -> Result<Option<PathBuf>, Error> {
   if let Some(path) = &env.mtindo_config {
     if !path.is_file() {
       return Err(Error::new(format!(
-        "MTINDO_CONFIG names {}, which is not a file",
+        "{} names {}, which is not a file",
+        super::env::CONFIG,
         path.display()
       )));
     }

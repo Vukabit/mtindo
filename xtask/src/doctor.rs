@@ -54,19 +54,8 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let mut failed = false;
   let mut breaches = Vec::new();
   // In mto.
-  let mut args: Vec<String> = [
-    "run",
-    "--quiet",
-    "--release",
-    "--package",
-    "xtask-tools",
-    "--",
-    "doctor-bench",
-    "--trials",
-  ]
-  .iter()
-  .map(|s| s.to_string())
-  .collect();
+  let mut args: Vec<String> =
+    crate::common::build::tools(&["doctor-bench".to_string(), "--trials".to_string()]);
   args.push(trials.to_string());
   args.extend(SHAPED.iter().map(|c| corpus.join(c).display().to_string()));
   let (code, output) = process::capture(root, "cargo", &args, &[], process::LONG);
@@ -89,21 +78,13 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     failed = true;
   }
   // On real crates.
-  let (code, built) = process::capture(
-    root,
-    "cargo",
-    &["build", "--quiet", "--release", "--bin", "mto"]
-      .iter()
-      .map(|s| s.to_string())
-      .collect::<Vec<_>>(),
-    &[],
-    process::LONG,
-  );
-  if code != 0 {
-    println!("cannot build mto:\n{}", built);
-    return ExitCode::from(1);
-  }
-  let mto = root.join("target").join("release").join("mto");
+  let mto = match crate::common::build::mto(root) {
+    Ok(mto) => mto,
+    Err(e) => {
+      println!("{}", e);
+      return ExitCode::from(1);
+    }
+  };
   println!("guarded runs (cargo check --offline, target folder warm; middle of three):");
   for name in GUARDED {
     match guarded(&mto, &corpus.join(name), name) {

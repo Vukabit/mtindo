@@ -905,7 +905,7 @@ fn milliseconds(seconds: f64) -> String {
 }
 
 fn mto_binary(root: &Path) -> PathBuf {
-  root.join("target").join("release").join("mto")
+  crate::common::build::mto_path(root)
 }
 
 fn mto_runs(race: &Race, idx: usize) -> bool {
@@ -1053,16 +1053,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     versions.insert(tool, version);
   }
   println!("building mto (release)...");
-  let (code, out) = process::capture(
-    root,
-    "cargo",
-    &["build", "--quiet", "--release", "--bin", "mto"].map(String::from),
-    &[],
-    process::LONG,
-  );
-  if code != 0 {
-    return Err(format!("cannot build mto:\n{}", out));
-  }
+  crate::common::build::mto(root)?;
   let head = process::capture(
     root,
     "git",

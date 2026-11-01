@@ -149,24 +149,19 @@ The hooks in `.githooks/` are one line each; [flow.toml](flow.toml)'s
 `[stages]` says what each runs, and CI runs the same checks;
 `cargo xtask checks` lists every check, what it checks and where it runs.
 
-- **`commit-msg`**, every commit: the message, as above.
-- **`pre-commit`**, every commit: `no-internal`, `secrets`, `fmt`, `gates`,
-  the command reference, on what is staged (a change left unstaged neither
-  fails nor passes it).
-- **`pre-push`**, every push: `messages`, `hold`, `clippy-lib`; the test
+- **`commit-msg`** and **`pre-commit`**, every commit: the message, as
+  above, and quick checks of what is staged (a change left unstaged neither
+  fails nor passes them).
+- **`pre-push`**, every push: the pushed messages and the hold; the test
   suites run in CI.
-- **`check`** (`cargo xtask check`), when you like: `fmt`, `gates`, the
-  command reference, and the unit tests of each package you changed.
-- **`prove`** (`cargo xtask prove`), before asking for a release: the rules,
-  the whole suite and the compatibility record, each skipped when already
-  proven for this tree, and `cargo deny`.
-- **`ci`**, once per push in CI: `messages`, `no-internal`, `secrets`,
-  `fmt`, `gates`, pinned actions and tools, every generated page, the docs
-  site, clippy on the whole workspace and xtask's unit tests.
-- **`build`**, on each CI platform: `clippy-lib`, `tests-lib`.
-- **`msrv`**, in CI: the tests on the oldest supported Rust.
-- **`audit`**, in CI weekly and when a manifest or `Cargo.lock` changes:
-  `cargo deny` on the dependency graph (`deny.toml`).
+- **`check`** (`cargo xtask check`), when you like; **`prove`**
+  (`cargo xtask prove`), before asking for a release, each part skipped when
+  already proven for this tree.
+- **`ci`** once per push, **`build`** on each CI platform, **`msrv`** on the
+  oldest supported Rust, and **`audit`** weekly and when a manifest or
+  `Cargo.lock` changes.
+
+`cargo xtask checks` shows the checks of each stage as they are now.
 
 When one fails:
 

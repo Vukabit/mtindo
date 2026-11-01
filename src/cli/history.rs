@@ -74,7 +74,7 @@ impl Settings {
 /// The command line a run is recorded with: `$MTINDO_COMMAND` (which `cargo mto` sets to
 /// its own), else this process's arguments.
 pub fn command_line() -> String {
-  if let Some(command) = std::env::var_os("MTINDO_COMMAND").filter(|c| !c.is_empty()) {
+  if let Some(command) = std::env::var_os(crate::config::env::COMMAND).filter(|c| !c.is_empty()) {
     return command.to_string_lossy().to_string();
   }
   let mut words = vec!["mto".to_string()];

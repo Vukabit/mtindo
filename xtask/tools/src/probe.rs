@@ -200,13 +200,9 @@ fn first_difference(a: &str, b: &str) -> Option<usize> {
   )
 }
 
-/// The lines of a pair's text the formatting decides: not the test runner's header lines
-/// (`// rustfmt-KEY: VALUE` in any spacing, or a `//@` directive).
+/// The lines of a pair's text the formatting decides: not the test runner's.
 fn formatted_lines(text: &str) -> impl Iterator<Item = &str> {
-  text.lines().filter(|line| {
-    let line = line.trim_start();
-    !(line.starts_with("//@") || line.starts_with("//rustfmt-") || line.starts_with("// rustfmt-"))
-  })
+  text.lines().filter(|line| !harness::runner_line(line))
 }
 
 /// The settings a stable rustfmt says it cannot set (an unstable option or value), from

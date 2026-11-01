@@ -202,9 +202,19 @@ pub fn parse_record(text: &str) -> (String, Vec<Limit>) {
   (machine, limits)
 }
 
-/// The ratchet: the machine it was recorded on, and its limits.
+/// The ratchet: the machine it was recorded on, and its limits, each with the tolerance
+/// and direction [`RATCHETED`] gives it now (the record's columns say what they were when
+/// it was written).
 pub fn read_record(root: &Path) -> (String, Vec<Limit>) {
-  parse_record(&fs::read_to_string(root.join(RECORD)).unwrap_or_default())
+  let (machine, mut limits) =
+    parse_record(&fs::read_to_string(root.join(RECORD)).unwrap_or_default());
+  for limit in &mut limits {
+    if let Some((_, tolerance, better)) = RATCHETED.iter().find(|(n, _, _)| *n == limit.name) {
+      limit.tolerance = *tolerance;
+      limit.better = *better;
+    }
+  }
+  (machine, limits)
 }
 
 /// Appends a measurement to series `name`. Never fails the command: a figure that cannot
@@ -779,5 +789,37 @@ mod tests {
   fn test_sparkline() {
     assert_eq!(sparkline(&[1.0, 2.0, 3.0]), "▁▅█");
     assert_eq!(sparkline(&[5.0, 5.0]), "▄▄");
+  }
+
+  /// The committed ratchet holds a limit for each ratcheted series and no other, written
+  /// with the tolerance and direction [`RATCHETED`] gives it: a changed tolerance is
+  /// written into ratchet.txt's column by hand, with no new measurement.
+  #[test]
+  fn test_the_ratchet_record_agrees_with_ratcheted() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let (_, limits) = parse_record(&fs::read_to_string(root.join(RECORD)).unwrap());
+    for (name, tolerance, better) in RATCHETED {
+      let limit = limits.iter().find(|l| l.name == *name);
+      assert!(limit.is_some(), "{} has no limit in {}", name, RECORD);
+      let limit = limit.unwrap();
+      assert!(
+        limit.tolerance == *tolerance && limit.better == *better,
+        "{}: {} has {} {:?}, RATCHETED {} {:?}",
+        name,
+        RECORD,
+        limit.tolerance,
+        limit.better,
+        tolerance,
+        better
+      );
+    }
+    for limit in &limits {
+      assert!(
+        RATCHETED.iter().any(|(n, _, _)| *n == limit.name),
+        "{} limits {}, which RATCHETED does not list",
+        RECORD,
+        limit.name
+      );
+    }
   }
 }

@@ -16,18 +16,7 @@ use crate::{corpus, incidents, metrics};
 pub fn run(root: &Path, sub: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "fuzz-diff");
   let tools = |args: Vec<String>| {
-    let mut all: Vec<String> = [
-      "run",
-      "--quiet",
-      "--release",
-      "--package",
-      "xtask-tools",
-      "--",
-      "diff-fuzz",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    let mut all: Vec<String> = crate::common::build::tools(&["diff-fuzz".to_string()]);
     all.extend(args);
     process::capture(root, "cargo", &all, &[], process::LONG)
   };

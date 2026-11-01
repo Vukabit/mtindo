@@ -88,6 +88,10 @@ pub const CHECKS: &[(&str, &str)] = &[
     "docs/generated/commands.md matches every command's help",
   ),
   (
+    "release-targets",
+    "release.yml builds flow.toml's release targets, and binstall takes a zip for each Windows one",
+  ),
+  (
     "generated-pages",
     "every generated page and table matches what it is written from (`cargo xtask docs --check`)",
   ),
@@ -119,6 +123,13 @@ const MUTATED: &[&str] = &[
   "src/verify/rewrites.rs",
   "src/format/comment.rs",
 ];
+
+/// The repository's settings on GitHub are those MAINTAINING.md lists: public, `main`
+/// and release tags guarded by rulesets, the crates-io environment behind approval,
+/// workflows read-only by default, private vulnerability reporting on.
+/// The ci.yml jobs whose checks main requires (MAINTAINING.md): `instructions` is left
+/// out, as a count may need recording before it passes.
+const REQUIRED_JOBS: &[&str] = &["flow", "msrv", "test"];
 
 /// What a stage checks: the staged files for `pre-commit`, the refs being pushed for
 /// `pre-push`, a range of commits for `ci`.
@@ -459,9 +470,6 @@ fn gates(root: &Path) -> Result<(), String> {
   }
 }
 
-/// The repository's settings on GitHub are those MAINTAINING.md lists: public, `main`
-/// and release tags guarded by rulesets, the crates-io environment behind approval,
-/// workflows read-only by default, private vulnerability reporting on.
 fn github_settings(root: &Path, flow: &Flow) -> Result<(), String> {
   let repo = &flow.release.repository;
   let ask = |path: &str, jq: &str| -> Result<String, String> {
@@ -495,6 +503,7 @@ fn github_settings(root: &Path, flow: &Flow) -> Result<(), String> {
   )?;
   let mut branch = false;
   let mut tags = false;
+  let mut required: Vec<String> = Vec::new();
   for id in ids.lines() {
     let line = ask(
       &format!("repos/{}/rulesets/{}", repo, id),
@@ -514,6 +523,15 @@ fn github_settings(root: &Path, flow: &Flow) -> Result<(), String> {
       && has("required_status_checks")
     {
       branch = true;
+      required.extend(
+        ask(
+          &format!("repos/{}/rulesets/{}", repo, id),
+          ".rules[] | select(.type == \"required_status_checks\") \
+           | .parameters.required_status_checks[].context",
+        )?
+        .lines()
+        .map(str::to_string),
+      );
     }
     if target == "tag" && refs.contains("refs/tags/v") && has("update") && has("deletion") {
       tags = true;
@@ -527,6 +545,26 @@ fn github_settings(root: &Path, flow: &Flow) -> Result<(), String> {
   }
   if !tags {
     found.push("no active ruleset on tags v* refusing updates and deletion".to_string());
+  }
+  // The checks main requires are those ci.yml's jobs report, by name: a job renamed
+  // leaves a required check that never reports, and every merge waits on it.
+  let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml"))
+    .map_err(|e| format!("ci.yml: {}", e))?;
+  let reported = job_checks(&workflow);
+  if branch {
+    for (job, check) in &reported {
+      if REQUIRED_JOBS.contains(&job.as_str()) && !required.contains(check) {
+        found.push(format!("main's ruleset does not require `{}`", check));
+      }
+    }
+    for check in &required {
+      if !reported.iter().any(|(_, c)| c == check) {
+        found.push(format!(
+          "main's ruleset requires `{}`, which no ci.yml job reports",
+          check
+        ));
+      }
+    }
   }
   let environments = ask(
     &format!("repos/{}/environments", repo),
@@ -647,6 +685,49 @@ fn indent(text: &str) -> String {
     .join("\n")
 }
 
+/// Each check a workflow's jobs report, by job: the job's `name` (with each
+/// `${{ matrix.target }}` of its matrix), else its id.
+fn job_checks(workflow: &str) -> Vec<(String, String)> {
+  let mut jobs: Vec<(String, Option<String>, Vec<String>)> = Vec::new();
+  let mut in_jobs = false;
+  for line in workflow.lines() {
+    if line == "jobs:" {
+      in_jobs = true;
+    } else if !line.starts_with(' ') && !line.is_empty() {
+      in_jobs = false;
+    } else if in_jobs {
+      if let Some(id) = line.strip_prefix("  ").and_then(|l| l.strip_suffix(':'))
+        && !id.starts_with(' ')
+        && !id.starts_with('#')
+      {
+        jobs.push((id.to_string(), None, Vec::new()));
+      } else if let Some((_, name, targets)) = jobs.last_mut() {
+        let trimmed = line.trim();
+        if let Some(n) = line.strip_prefix("    name: ") {
+          *name = Some(n.trim().to_string());
+        } else if let Some(t) = trimmed
+          .strip_prefix("target: ")
+          .or_else(|| trimmed.strip_prefix("- target: "))
+        {
+          targets.push(t.trim().to_string());
+        }
+      }
+    }
+  }
+  let mut out = Vec::new();
+  for (id, name, targets) in jobs {
+    let name = name.unwrap_or_else(|| id.clone());
+    if name.contains("${{ matrix.target }}") {
+      for target in &targets {
+        out.push((id.clone(), name.replace("${{ matrix.target }}", target)));
+      }
+    } else {
+      out.push((id, name));
+    }
+  }
+  out
+}
+
 fn lines<T: AsRef<str>>(items: &[T]) -> String {
   items
     .iter()
@@ -659,6 +740,10 @@ fn lines<T: AsRef<str>>(items: &[T]) -> String {
 /// miss is listed (in `mutants.out/missed.txt` too), not failed: the run is a report. A
 /// build that fails, or a run that cannot finish, fails it.
 fn mutants(root: &Path) -> Result<(), String> {
+  // A file renamed away would be mutated nowhere, and the report would say all is caught.
+  if let Some(gone) = MUTATED.iter().find(|f| !root.join(f).is_file()) {
+    return Err(format!("{}: in MUTATED but not in the tree", gone));
+  }
   let mut args: Vec<String> = vec!["mutants".into(), "--package".into(), "mtindo".into()];
   for file in MUTATED {
     args.extend(["--file".to_string(), file.to_string()]);
@@ -859,6 +944,21 @@ fn run_check(
     "suite" => suite(root),
     "compat" => compat(root),
     "tools-pinned" => tools_pinned(root, flow),
+    "release-targets" => {
+      let read = |file: &str| {
+        std::fs::read_to_string(root.join(file)).map_err(|e| format!("{}: {}", file, e))
+      };
+      let found = targets_disagree(
+        &flow.release.targets,
+        &read(".github/workflows/release.yml")?,
+        &read("Cargo.toml")?,
+      );
+      if found.is_empty() {
+        Ok(())
+      } else {
+        Err(found.join("\n"))
+      }
+    }
     "msrv" => match flow.tool("msrv") {
       Some(msrv) => command(
         root,
@@ -988,6 +1088,67 @@ fn summary(stage: &str, names: &[String], rows: &[(String, Result<(), String>, f
   out
 }
 
+/// The pins agree with the files that name the same versions: rust-toolchain.toml's
+/// channel and components with `[tools.stable]`, Cargo.toml's rust-version with
+/// `[tools.msrv]`; and every `needed_by` names a stage or a command.
+/// Where release.yml's build matrix (`target:` lines) and Cargo.toml's binstall overrides
+/// disagree with the release targets: every target built, and a zip for exactly the
+/// Windows ones, as `flow package` packs them.
+fn targets_disagree(targets: &[String], workflow: &str, manifest: &str) -> Vec<String> {
+  let built: Vec<&str> = workflow
+    .lines()
+    .filter_map(|l| l.trim().strip_prefix("target:"))
+    .map(str::trim)
+    .collect();
+  let mut found = Vec::new();
+  for target in targets {
+    if !built.contains(&target.as_str()) {
+      found.push(format!("release.yml does not build {}", target));
+    }
+  }
+  for target in &built {
+    if !targets.iter().any(|t| t == target) {
+      found.push(format!(
+        "release.yml builds {}, not a release target (flow.toml)",
+        target
+      ));
+    }
+  }
+  let mut zipped = Vec::new();
+  let mut current: Option<&str> = None;
+  for line in manifest.lines().map(str::trim) {
+    if line.starts_with('[') {
+      current = line
+        .strip_prefix("[package.metadata.binstall.overrides.")
+        .and_then(|l| l.strip_suffix(']'));
+    } else if let Some(target) = current
+      && line.replace(' ', "") == "pkg-fmt=\"zip\""
+    {
+      zipped.push(target);
+    }
+  }
+  for target in targets {
+    let windows = target.contains("windows");
+    if windows != zipped.contains(&target.as_str()) {
+      found.push(format!(
+        "Cargo.toml's binstall {} a zip for {}, which `flow package` packs as a {}",
+        if windows { "lacks" } else { "names" },
+        target,
+        if windows { "zip" } else { "tar.gz" }
+      ));
+    }
+  }
+  for target in zipped {
+    if !targets.iter().any(|t| t == target) {
+      found.push(format!(
+        "Cargo.toml's binstall overrides {}, not a release target",
+        target
+      ));
+    }
+  }
+  found
+}
+
 /// `tests-near`: the unit tests of the packages the uncommitted changes touch.
 fn tests_near(root: &Path) -> Result<(), String> {
   let mut changed: Vec<String> = git::git(root, &["diff", "--name-only", "HEAD"])?
@@ -1039,9 +1200,6 @@ fn tokens(flow: &Flow) -> Result<(), String> {
   }
 }
 
-/// The pins agree with the files that name the same versions: rust-toolchain.toml's
-/// channel and components with `[tools.stable]`, Cargo.toml's rust-version with
-/// `[tools.msrv]`; and every `needed_by` names a stage or a command.
 fn tools_pinned(root: &Path, flow: &Flow) -> Result<(), String> {
   let mut found = Vec::new();
   let read = |file: &str| {
@@ -1158,6 +1316,10 @@ fn version_agrees(root: &Path) -> Result<(), String> {
 mod tests {
   use super::*;
 
+  fn root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
+  }
+
   #[test]
   fn test_a_failed_test_run_shows_the_failure_before_the_warnings() {
     let stdout = "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\nfailures:\n\n---- b stdout ----\nthread 'b' panicked: left != right\n\nfailures:\n    b\n\ntest result: FAILED. 1 passed; 1 failed\n";
@@ -1219,6 +1381,98 @@ mod tests {
     );
     assert_eq!(days(""), None);
     assert_eq!(days("2026-13-01"), None);
+  }
+
+  /// Every check has its arm in `run_check`, and every arm is a listed check.
+  #[test]
+  fn test_every_check_runs_and_every_arm_is_a_check() {
+    let source = include_str!("checks.rs");
+    let body = &source[source.find("fn run_check(").unwrap()..];
+    let body = &body[..body.find("\n}\n").unwrap()];
+    let arms: Vec<&str> = body
+      .lines()
+      .filter_map(|l| l.trim().strip_prefix('"'))
+      .filter_map(|l| l.split_once("\" =>").map(|(id, _)| id))
+      .collect();
+    for (id, _) in CHECKS {
+      assert!(arms.contains(id), "`{}` has no arm in run_check", id);
+    }
+    for arm in &arms {
+      assert!(
+        CHECKS.iter().any(|(id, _)| id == arm),
+        "run_check's `{}` is not in CHECKS",
+        arm
+      );
+    }
+  }
+
+  #[test]
+  fn test_every_mutated_file_is_in_the_tree() {
+    for file in MUTATED {
+      assert!(root().join(file).is_file(), "{} is gone", file);
+    }
+  }
+
+  /// Every workspace member's tests run in tests-xtask (or are the library's) and near
+  /// its files.
+  #[test]
+  fn test_every_workspace_member_is_tested() {
+    let workspace = std::fs::read_to_string(root().join("Cargo.toml")).unwrap();
+    let members = crate::gates::workspace_members(&workspace);
+    assert!(!members.is_empty());
+    let source = include_str!("checks.rs");
+    let xtask = &source[source.find("\"tests-xtask\" => command(").unwrap()..];
+    let xtask = &xtask[..xtask.find("),\n").unwrap()];
+    for member in members {
+      let manifest = std::fs::read_to_string(root().join(&member).join("Cargo.toml")).unwrap();
+      let name = manifest
+        .lines()
+        .find_map(|l| l.strip_prefix("name = "))
+        .unwrap()
+        .trim_matches('"');
+      assert!(
+        xtask.contains(&format!("\"{}\"", name)),
+        "tests-xtask does not test {}",
+        name
+      );
+      let file = format!("{}/src/main.rs", member);
+      assert!(
+        near(std::slice::from_ref(&file))
+          .iter()
+          .any(|(_, args)| args.contains(&name)),
+        "tests-near runs no tests of {} for {}",
+        name,
+        file
+      );
+    }
+  }
+
+  #[test]
+  fn test_release_targets_are_built_and_packed_as_listed() {
+    let targets = vec!["a-linux".to_string(), "b-windows".to_string()];
+    let workflow =
+      "          - os: x\n            target: a-linux\n            target: b-windows\n";
+    let manifest = "[package.metadata.binstall.overrides.b-windows]\npkg-fmt = \"zip\"\n";
+    assert!(targets_disagree(&targets, workflow, manifest).is_empty());
+    let found = targets_disagree(&targets, "target: a-linux\ntarget: c\n", "");
+    assert_eq!(found.len(), 3, "{:?}", found);
+    assert!(found[0].contains("does not build b-windows"));
+    assert!(found[1].contains("builds c"));
+    assert!(found[2].contains("lacks a zip for b-windows"));
+  }
+
+  #[test]
+  fn test_the_checks_ci_reports_are_read_by_job() {
+    let checks =
+      job_checks(&std::fs::read_to_string(root().join(".github/workflows/ci.yml")).unwrap());
+    let names: Vec<&str> = checks.iter().map(|(_, c)| c.as_str()).collect();
+    assert!(names.contains(&"flow"), "{:?}", names);
+    assert!(names.contains(&"msrv"), "{:?}", names);
+    assert!(names.contains(&"test (windows x86_64)"), "{:?}", names);
+    assert!(names.contains(&"instructions"), "{:?}", names);
+    for job in REQUIRED_JOBS {
+      assert!(checks.iter().any(|(j, _)| j == job), "no job {}", job);
+    }
   }
 
   /// The staged tree holds what is staged, not what the work tree has since, and git run

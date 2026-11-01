@@ -383,18 +383,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     names.join(","),
     options.files
   ));
-  let mut args: Vec<String> = [
-    "run",
-    "--quiet",
-    "--release",
-    "--package",
-    "xtask-tools",
-    "--",
-    "pairs",
-  ]
-  .iter()
-  .map(|s| s.to_string())
-  .collect();
+  let mut args: Vec<String> = crate::common::build::tools(&["pairs".to_string()]);
   args.extend([
     "--seed".to_string(),
     seed.to_string(),
@@ -415,7 +404,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   }
   let mut crates = read_results(&names, &output);
   if options.compile {
-    let mto = build_mto(root);
+    let mto = crate::common::build::mto(root);
     for result in &mut crates {
       result.build = if !COMPILED.contains(&result.name.as_str()) {
         Build::NotChecked("scored only (not a compile-checked crate)")
@@ -570,16 +559,6 @@ fn build(original: &Path, name: &str, scratch: &Path, mto: &Path) -> Build {
     mto: mto_result,
     standard,
   }
-}
-
-/// The release mto, built.
-fn build_mto(root: &Path) -> Result<PathBuf, String> {
-  let args = ["build", "--quiet", "--release", "--bin", "mto"].map(String::from);
-  let (code, output) = process::capture(root, "cargo", &args, &[], process::LONG);
-  if code != 0 {
-    return Err(format!("cannot build mto:\n{}", output));
-  }
-  Ok(root.join("target").join("release").join("mto"))
 }
 
 fn collect_files(dir: &Path, files: &mut Vec<PathBuf>) {

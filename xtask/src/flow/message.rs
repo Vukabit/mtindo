@@ -314,6 +314,40 @@ mod tests {
     );
   }
 
+  /// CONTRIBUTING.md states the message rules with flow.toml's numbers and kinds.
+  #[test]
+  fn test_contributing_states_the_message_rules_flow_toml_sets() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .parent()
+      .unwrap();
+    let flow = super::super::config::load(root).unwrap();
+    let guide = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
+    let guide = guide.split_whitespace().collect::<Vec<_>>().join(" ");
+    let commit = &flow.commit;
+    let body = &commit.body;
+    let refused: Vec<String> = body
+      .refused_kinds
+      .iter()
+      .map(|k| format!("`{}`", k))
+      .collect();
+    let (last, rest) = refused.split_last().unwrap();
+    for said in [
+      format!("The first line is at most {} columns", commit.max_header),
+      format!("changes under {} lines", body.min_changed_lines),
+      format!(
+        "{} lines of at most {} columns",
+        body.max_lines, body.max_width
+      ),
+      format!("It is refused for {} and {} commits", rest.join(", "), last),
+    ] {
+      assert!(
+        guide.contains(&said),
+        "CONTRIBUTING.md does not say: {}",
+        said
+      );
+    }
+  }
+
   #[test]
   fn test_the_first_line_is_checked() {
     let long = format!("fix(format): {}", "a".repeat(70));

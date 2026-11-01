@@ -67,7 +67,7 @@ impl Environment {
       app_data,
       xdg_state_home: path("XDG_STATE_HOME").filter(|p| p.is_absolute()),
       local_app_data: path("LOCALAPPDATA"),
-      mtindo_config: path("MTINDO_CONFIG"),
+      mtindo_config: path(super::env::CONFIG),
       ci: env::var_os("CI").is_some(),
     }
   }

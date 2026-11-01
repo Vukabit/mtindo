@@ -167,6 +167,7 @@ ci = [
   "gates",
   "actions-pinned",
   "tools-pinned",
+  "release-targets",
   "generated-pages",
   "site",
   "clippy",

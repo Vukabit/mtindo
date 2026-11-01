@@ -8,6 +8,7 @@ use std::process::ExitCode;
 
 use crate::common::log::Logger;
 use crate::common::process;
+use crate::common::store;
 use crate::corpus::{checkout_into, parse_pins};
 
 const PINS_PATH: &str = "records/pins/toml-test.txt";
@@ -28,7 +29,7 @@ pub fn run(root: &Path, _: &clap::ArgMatches) -> ExitCode {
     println!("{} pins nothing", PINS_PATH);
     return ExitCode::from(1);
   };
-  let base = root.join(".dev").join("cache").join("toml-test");
+  let base = store::dir(root, store::CACHE).join("toml-test");
   match checkout_into(&base, pin, &log) {
     Ok(what) => log.info(&format!("toml-test {} at {}", what, pin.commit)),
     Err(e) => {

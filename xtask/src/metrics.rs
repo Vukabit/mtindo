@@ -27,6 +27,7 @@ use std::time::SystemTime;
 
 use crate::common::conditions;
 use crate::common::log::timestamp;
+use crate::common::store;
 use crate::common::tree;
 use crate::incidents;
 
@@ -142,7 +143,7 @@ impl Point {
 }
 
 pub fn dir(root: &Path) -> PathBuf {
-  root.join(".dev").join("metrics")
+  store::dir(root, store::METRICS)
 }
 
 /// This machine, as the ratchet names it: system, architecture and core count.

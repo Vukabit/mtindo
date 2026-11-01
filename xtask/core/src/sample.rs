@@ -21,6 +21,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::process;
+use crate::store;
 
 pub const HEADER: &str = "seconds\trss_kb\tcpu_seconds\tprocesses\n";
 
@@ -193,9 +194,7 @@ pub fn run_path(root: &Path, name: &str) -> PathBuf {
     .filter(|c| c.is_ascii_digit() || *c == 'T')
     .map(|c| if c == 'T' { '-' } else { c })
     .collect();
-  root
-    .join(".dev")
-    .join("runs")
+  store::dir(root, store::RUNS)
     .join(format!("{}-{}", stamp, name))
     .join("samples.tsv")
 }

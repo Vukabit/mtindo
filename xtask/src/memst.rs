@@ -25,6 +25,7 @@ use std::process::ExitCode;
 
 use crate::cli::{on, text, texts};
 use crate::common::log::Logger;
+use crate::common::store;
 use crate::common::{process, sample};
 
 /// The settings mto is profiled with: layout and formatting, nothing from outside.
@@ -71,7 +72,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       // mto, on the inputs given or the corpus's serde.
       inputs = texts(m, "input").iter().map(PathBuf::from).collect();
       if inputs.is_empty() {
-        let serde = root.join(".dev/cache/corpus/serde");
+        let serde = store::dir(root, store::CACHE).join("corpus/serde");
         inputs.push(if serde.is_dir() {
           serde
         } else {

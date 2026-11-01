@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::store;
+
 const BACKUP_COUNT: u32 = 3;
 
 const MAX_BYTES: u64 = 5 * 1024 * 1024;
@@ -29,7 +31,7 @@ impl Logger {
   /// Opens `.dev/logs/NAME.log` under `root` and records the start of a run.
   pub fn new(root: &Path, name: &str) -> Logger {
     let logger = Logger {
-      dir: root.join(".dev").join("logs"),
+      dir: store::dir(root, store::LOGS),
       name: name.to_string(),
       broken: Mutex::new(false),
     };
@@ -170,7 +172,7 @@ mod tests {
     let root = std::env::temp_dir().join(format!("xtask-log-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     let logger = Logger::new(&root, "rotation");
-    let dir = root.join(".dev").join("logs");
+    let dir = store::dir(&root, store::LOGS);
     for idx in 1..=5 {
       fs::write(dir.join("rotation.log"), vec![b'x'; MAX_BYTES as usize]).unwrap();
       logger.info(&format!("entry {}", idx));
@@ -204,9 +206,9 @@ mod tests {
   fn test_unwritable_log_does_not_fail() {
     let root = std::env::temp_dir().join(format!("xtask-log-file-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(root.join(".dev")).unwrap();
+    fs::create_dir_all(store::root(&root)).unwrap();
     // `logs` is a file, so the log directory cannot be created.
-    fs::write(root.join(".dev").join("logs"), "").unwrap();
+    fs::write(store::dir(&root, store::LOGS), "").unwrap();
     let logger = Logger::new(&root, "broken");
     logger.error("dropped");
     assert!(*logger.broken.lock().unwrap());

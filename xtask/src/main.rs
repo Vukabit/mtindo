@@ -33,6 +33,7 @@ mod runs;
 mod settings;
 mod sha256;
 mod status;
+mod store;
 mod test;
 // mtindo's own TOML parser, shared without linking mtindo (as `common` shares its colors).
 #[allow(dead_code, unused_imports)]
@@ -139,6 +140,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "runs" => runs::run(root, m),
     "settings" => settings::run(root, m),
     "status" => status::run(root, m),
+    "store" => store::run(root, m),
     "toml-test" => toml_test::run(root, m),
     "unicode" => unicode::run(root, m),
     other => unreachable!("{} is in the tree but has no entry point", other),

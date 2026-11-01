@@ -59,6 +59,7 @@ use crate::common::awake::KeepAwake;
 use crate::common::color::color_enabled;
 use crate::common::log::Logger;
 use crate::common::process;
+use crate::common::store;
 
 /// Columns besides the feature name in the compact layout: " " + 10 + " " + 10 + " " + 14.
 const COMPACT_COLUMNS: usize = 37;
@@ -1180,7 +1181,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
     );
   }
   // The real-code row: the corpus's largest source files, each with its crate's edition.
-  let corpus = root.join(".dev").join("cache").join("corpus");
+  let corpus = store::dir(root, store::CACHE).join("corpus");
   if options.real > 0 {
     let real = largest_sources(&corpus, options.real);
     if real.is_empty() {

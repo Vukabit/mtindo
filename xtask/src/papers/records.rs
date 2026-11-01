@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::common::log::timestamp;
+use crate::common::store;
 
 /// What [`score_bands`] counts, in order.
 pub const SCORE_BANDS: [&str; 4] = ["every line", "99% or more", "90% to 99%", "under 90%"];
@@ -112,7 +113,7 @@ pub fn file_history(root: &Path, path: &str) -> Result<Vec<Version>, String> {
 /// diff run (`.dev/logs/diff-first.txt`), with how many files each, most first; `None`
 /// without the log.
 pub fn first_kinds(root: &Path) -> Option<Vec<(String, u64)>> {
-  let text = fs::read_to_string(root.join(".dev/logs/diff-first.txt")).ok()?;
+  let text = fs::read_to_string(store::dir(root, store::LOGS).join("diff-first.txt")).ok()?;
   let mut counts: BTreeMap<String, u64> = BTreeMap::new();
   for line in text.lines() {
     if let Some((kind, _)) = line.split_once(" [") {
@@ -231,7 +232,7 @@ pub fn reference_version(reference: &str) -> String {
 /// each, the files by the share of their answer's lines they keep, in [`SCORE_BANDS`]; and
 /// the day the log was written. `None` without the log.
 pub fn score_bands(root: &Path) -> Option<(String, BTreeMap<String, [u64; 4]>)> {
-  let path = root.join(".dev/logs/diff-scores.txt");
+  let path = store::dir(root, store::LOGS).join("diff-scores.txt");
   let text = fs::read_to_string(&path).ok()?;
   let mut bands: BTreeMap<String, [u64; 4]> = BTreeMap::new();
   for line in text.lines() {
@@ -312,7 +313,7 @@ mod tests {
   #[test]
   fn test_the_last_diff_logs_are_read_by_set_and_kind() {
     let root = std::env::temp_dir().join(format!("mtindo-papers-{}", std::process::id()));
-    let logs = root.join(".dev/logs");
+    let logs = store::dir(&root, store::LOGS);
     assert_eq!(score_bands(&root), None);
     fs::create_dir_all(&logs).unwrap();
     fs::write(

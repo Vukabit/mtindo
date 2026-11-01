@@ -174,7 +174,7 @@ pub const ENTRIES: &[Entry] = &[
     holds: "speed and memory",
     written_by: "`cargo xtask docs`",
     read_by: "people",
-    shown_in: "records/results/ratchet.txt, baseline.txt; .dev/series",
+    shown_in: "records/results/ratchet.txt, baseline.txt; .dev/metrics",
   },
   Entry {
     path: "docs/generated/metrics/fuzzing.md",
@@ -206,7 +206,7 @@ pub const ENTRIES: &[Entry] = &[
     holds: "scrambled corpus pairs",
     written_by: "`cargo xtask docs`",
     read_by: "people",
-    shown_in: ".dev/series",
+    shown_in: ".dev/metrics",
   },
   Entry {
     path: "docs/generated/metrics/dictionary.md",

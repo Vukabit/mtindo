@@ -771,6 +771,15 @@ runs, fuzz crashes
 cargo xtask status
 ```
 
+## `cargo xtask store`
+
+What .dev/ holds, area by area, with what each keeps, and what no command writes
+any more
+
+```text
+cargo xtask store
+```
+
 ## `cargo xtask toml-test`
 
 Run the TOML conformance suite (records/pins/toml-test.txt) against mto's parser

@@ -8,6 +8,7 @@ use std::process::{Command, ExitCode, Stdio};
 
 use crate::capabilities::{fetch as surface_fetch, load_surface};
 use crate::common::log::Logger;
+use crate::common::store;
 use crate::common::{process, proof};
 use crate::corpus;
 
@@ -57,19 +58,25 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     "--reference".into(),
     reference,
     "--cache".into(),
-    root.join(".dev/cache/diff").display().to_string(),
+    store::dir(root, store::CACHE)
+      .join("diff")
+      .display()
+      .to_string(),
     "--record".into(),
     root
       .join("records/results/compatibility.txt")
       .display()
       .to_string(),
     "--meaning-log".into(),
-    root
-      .join(".dev/logs/diff-meaning.txt")
+    store::dir(root, store::LOGS)
+      .join("diff-meaning.txt")
       .display()
       .to_string(),
     "--broke-log".into(),
-    root.join(".dev/logs/diff-broke.txt").display().to_string(),
+    store::dir(root, store::LOGS)
+      .join("diff-broke.txt")
+      .display()
+      .to_string(),
     "--exceptions".into(),
     root
       .join("records/policy/exceptions.txt")
@@ -85,7 +92,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     ));
   }
   log.info("running xtask-tools diff (release build)");
-  let findings = root.join(".dev/logs/diff-findings.tsv");
+  let findings = store::dir(root, store::LOGS).join("diff-findings.tsv");
   let _ = std::fs::remove_file(&findings);
   let done = process::output(
     Command::new("cargo")
@@ -110,7 +117,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
         );
       }
       // The run's numbers become series.
-      let tallies = root.join(".dev/logs/diff-tallies.tsv");
+      let tallies = store::dir(root, store::LOGS).join("diff-tallies.tsv");
       if let Ok(text) = std::fs::read_to_string(&tallies) {
         for line in text.lines() {
           let f: Vec<&str> = line.split('\t').collect();
@@ -137,7 +144,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       // The run's findings become incidents; on a complete run, those no longer found
       // are fixed.
       if let Ok(text) = std::fs::read_to_string(&findings) {
-        let inputs = root.join(".dev/logs/diff-inputs");
+        let inputs = store::dir(root, store::LOGS).join("diff-inputs");
         let counts = crate::incidents::from_diff(root, &text, &inputs);
         println!(
           "incidents: {} new, {} reopened, {} seen again, {} fixed (cargo xtask incidents)",

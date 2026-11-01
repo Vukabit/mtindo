@@ -7,6 +7,7 @@ use std::time::Instant;
 use super::config::Flow;
 use super::git;
 use crate::common::process;
+use crate::common::store;
 
 /// Every check name a stage may list.
 pub const NAMES: &[&str] = &[
@@ -75,12 +76,12 @@ impl Staged {
       format!("gitdir: {}\n", git_dir.trim()),
     )
     .map_err(|e| format!("the staged tree's .git: {}", e))?;
-    let records = root.join(".dev");
+    let records = store::root(root);
     if records.is_dir() {
       #[cfg(unix)]
-      let linked = std::os::unix::fs::symlink(&records, staged.dir.join(".dev"));
+      let linked = std::os::unix::fs::symlink(&records, store::root(&staged.dir));
       #[cfg(windows)]
-      let linked = std::os::windows::fs::symlink_dir(&records, staged.dir.join(".dev"));
+      let linked = std::os::windows::fs::symlink_dir(&records, store::root(&staged.dir));
       linked.map_err(|e| format!("the staged tree's .dev: {}", e))?;
     }
     Ok(staged)

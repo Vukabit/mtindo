@@ -36,6 +36,7 @@ use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::history::sha256;
 use mtindo::options::format::{FormatConfig, NewlineStyle};
 use mtindo::syntax::{Edition, SyntaxElement, SyntaxKind, parse};
+use xtask_core::store;
 
 use crate::common::edition_for;
 use crate::process;
@@ -1367,7 +1368,7 @@ fn record_found(path: &Path, found: &[Found<'_>]) -> Vec<(String, String)> {
     .ancestors()
     .find(|dir| dir.file_name().is_some_and(|name| name == "records"))
     .and_then(Path::parent)
-    .map(|root| root.join(".dev/upstream/rustfmt"));
+    .map(|root| store::dir(root, store::UPSTREAM).join("rustfmt"));
   found
     .iter()
     .map(|f| {
@@ -1839,7 +1840,7 @@ mod tests {
   fn test_found_flags_are_listed_and_kept() {
     let root = std::env::temp_dir().join(format!("mtindo-found-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
-    let upstream = root.join(".dev/upstream/rustfmt");
+    let upstream = store::dir(&root, store::UPSTREAM).join("rustfmt");
     fs::create_dir_all(upstream.join("01-old")).unwrap();
     fs::write(
       upstream.join("README.md"),

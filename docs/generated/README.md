@@ -29,7 +29,7 @@ since it is written the same way.
 - **[metrics/meaning.md](metrics/meaning.md)** (page): the meaning check and its
   exceptions. From records/policy/exceptions.txt, history.
 - **[metrics/performance.md](metrics/performance.md)** (page): speed and memory.
-  From records/results/ratchet.txt, baseline.txt; .dev/series.
+  From records/results/ratchet.txt, baseline.txt; .dev/metrics.
 - **[metrics/fuzzing.md](metrics/fuzzing.md)** (page): fuzz targets and kept
   regression inputs. From fuzz/, tests/fuzz_regressions, history; .dev.
 - **[metrics/layout.md](metrics/layout.md)** (page): layout's checks. From the
@@ -37,7 +37,7 @@ since it is written the same way.
 - **[metrics/compile-safety.md](metrics/compile-safety.md)** (page): real crates
   still compiling after mto. From records/pins/corpus.txt; .dev.
 - **[metrics/scrambled-pairs.md](metrics/scrambled-pairs.md)** (page): scrambled
-  corpus pairs. From .dev/series.
+  corpus pairs. From .dev/metrics.
 - **[metrics/dictionary.md](metrics/dictionary.md)** (page): what each metric
   means. From xtask/src/papers/dictionary.rs.
 - **`src/options/rustfmt.rs`** (code): the standard formatter's settings, from

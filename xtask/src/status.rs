@@ -10,6 +10,7 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::common::store;
 use crate::common::{sample, tree};
 use crate::runs;
 
@@ -49,7 +50,7 @@ fn gates(record: &str) -> Vec<(String, f64, f64)> {
 
 /// The last line of `.dev/logs/last-green.tsv`: when, which tree, which groups.
 fn last_green(root: &Path) -> String {
-  fs::read_to_string(root.join(".dev/logs/last-green.tsv"))
+  fs::read_to_string(store::dir(root, store::LOGS).join("last-green.tsv"))
     .ok()
     .and_then(|text| {
       let line = text.lines().skip(1).last()?.to_string();

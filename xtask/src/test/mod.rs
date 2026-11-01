@@ -39,6 +39,7 @@ use tasks::{
 use crate::common::awake::{self, KeepAwake, Stamp};
 use crate::common::color::{HelpPalette, color_enabled};
 use crate::common::log::{Logger, timestamp};
+use crate::common::store;
 use crate::common::{process, tree};
 
 /// Lines of a failed task's output shown in the terminal; the log has all of it.
@@ -573,7 +574,7 @@ fn record_green(root: &Path, revision: &str, groups: &[String], elapsed: f64, lo
     elapsed
   ));
   let written =
-    fs::create_dir_all(root.join(".dev").join("logs")).and_then(|_| fs::write(&path, text));
+    fs::create_dir_all(store::dir(root, store::LOGS)).and_then(|_| fs::write(&path, text));
   match written {
     Ok(()) => log.info(&format!("Recorded green tree {}", revision)),
     Err(e) => log.warning(&format!("cannot write {}: {}", GREEN_FILE, e)),

@@ -22,6 +22,7 @@ use std::thread;
 
 use crate::common::log::Logger;
 use crate::common::process;
+use crate::common::store;
 
 /// The marker that records which commit a checkout holds.
 const MARKER: &str = ".mtindo-commit";
@@ -43,7 +44,7 @@ pub struct Pin {
 }
 
 pub fn cache_dir(root: &Path) -> PathBuf {
-  root.join(".dev").join("cache").join("corpus")
+  store::dir(root, store::CACHE).join("corpus")
 }
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {

@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::common::log::Logger;
+use crate::common::store;
 use crate::common::{process, tree};
 use crate::{corpus, incidents, metrics};
 
@@ -828,7 +829,7 @@ fn write_scores(root: &Path, crates: &[Crate]) {
       ));
     }
   }
-  let logs = root.join(".dev").join("logs");
+  let logs = store::dir(root, store::LOGS);
   let _ = fs::create_dir_all(&logs);
   let _ = fs::write(logs.join("pairs-files.tsv"), out);
 }

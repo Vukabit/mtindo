@@ -12,4 +12,4 @@ pub mod proof;
 pub mod tree;
 
 // Shared with xtask/tools.
-pub use xtask_core::{edition, files, log, process, sample};
+pub use xtask_core::{edition, files, log, process, sample, store};

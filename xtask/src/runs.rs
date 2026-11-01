@@ -32,6 +32,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::common::awake::KeepAwake;
 use crate::common::log::timestamp;
+use crate::common::store;
 use crate::common::{process, sample, tree};
 
 /// Set for a supervised command: its run's folder.
@@ -58,7 +59,9 @@ const SUPERVISE: &str = "XTASK_SUPERVISE";
 
 /// Commands that run without a record: they only read records or print help, or (`flow`)
 /// run as git hooks, which read what git gives them on stdin and run at every commit.
-const UNRECORDED: &[&str] = &["help", "-h", "--help", "status", "runs", "metrics", "flow"];
+const UNRECORDED: &[&str] = &[
+  "help", "-h", "--help", "status", "store", "runs", "metrics", "flow",
+];
 
 /// Set by the SIGINT handler: the terminal's Ctrl-C, which the child gets too.
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
@@ -205,7 +208,7 @@ pub fn prune(root: &Path, dry: bool) -> (usize, u64) {
   let gone = prunable(root, SystemTime::now());
   let mut bytes = 0;
   for dir in &gone {
-    bytes += size(dir);
+    bytes += store::size(dir).0;
     if !dry {
       let _ = fs::remove_dir_all(dir);
     }
@@ -233,7 +236,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
          going and those a finding names)",
         if dry { "would remove" } else { "removed" },
         count,
-        shown_bytes(bytes),
+        store::shown_bytes(bytes),
         KEEP_RUNS,
         KEEP_DAYS
       );
@@ -267,7 +270,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
 }
 
 pub fn runs_dir(root: &Path) -> PathBuf {
-  root.join(".dev").join("runs")
+  store::dir(root, store::RUNS)
 }
 
 /// Runs `args` under a supervisor: in the foreground (the exit code is the command's) or,
@@ -364,7 +367,7 @@ fn cancel(dir: &Path, record: &Record) -> ExitCode {
 /// The run folders the findings name (`.dev/runs/<name>` in their files).
 fn cited_runs(root: &Path) -> std::collections::HashSet<String> {
   let mut cited = std::collections::HashSet::new();
-  let mut stack = vec![root.join(".dev").join("incidents")];
+  let mut stack = vec![store::dir(root, store::INCIDENTS)];
   while let Some(dir) = stack.pop() {
     for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
       let path = entry.path();
@@ -495,32 +498,6 @@ fn show_text(dir: &Path, record: &Record) -> String {
 }
 
 /// Bytes as GB, MB or KB.
-fn shown_bytes(bytes: u64) -> String {
-  let b = bytes as f64;
-  if b >= 1e9 {
-    format!("{:.1} GB", b / 1e9)
-  } else if b >= 1e6 {
-    format!("{:.1} MB", b / 1e6)
-  } else {
-    format!("{:.0} KB", b / 1e3)
-  }
-}
-
-fn size(path: &Path) -> u64 {
-  let mut total = 0;
-  let mut stack = vec![path.to_path_buf()];
-  while let Some(here) = stack.pop() {
-    for entry in fs::read_dir(&here).into_iter().flatten().flatten() {
-      match entry.metadata() {
-        Ok(m) if m.is_dir() => stack.push(entry.path()),
-        Ok(m) => total += m.len(),
-        Err(_) => {}
-      }
-    }
-  }
-  total
-}
-
 /// A TOML array of quoted strings, as [`Record::to_toml`] writes it.
 fn strings(value: &str) -> Option<Vec<String>> {
   let inner = value.strip_prefix('[')?.strip_suffix(']')?.trim();
@@ -644,7 +621,7 @@ fn supervise(root: &Path, dir: &Path, args: &[String]) -> ExitCode {
     eprintln!(
       "removed {} old run folder(s) from .dev/runs ({})",
       count,
-      shown_bytes(bytes)
+      store::shown_bytes(bytes)
     );
   }
   ExitCode::from(code.clamp(0, 255) as u8)
@@ -837,7 +814,7 @@ mod tests {
     }
     fs::create_dir_all(runs.join("20260901-000000-memst")).unwrap();
     fs::create_dir_all(runs.join("20260902-000000-fuzz")).unwrap();
-    let incident = root.join(".dev/incidents/fuzz-slow/x");
+    let incident = store::dir(&root, store::INCIDENTS).join("fuzz-slow/x");
     fs::create_dir_all(&incident).unwrap();
     fs::write(
       incident.join("README.md"),

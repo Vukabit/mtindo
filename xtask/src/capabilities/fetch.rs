@@ -11,6 +11,7 @@ use std::process::{Command, Stdio};
 
 use crate::common::log::Logger;
 use crate::common::process;
+use crate::common::store;
 
 const DIST_URL: &str = "https://static.rust-lang.org/dist";
 
@@ -43,7 +44,7 @@ pub struct Release {
 }
 
 pub fn cache_root(root: &Path) -> PathBuf {
-  root.join(".dev").join("cache").join("rustfmt")
+  store::dir(root, store::CACHE).join("rustfmt")
 }
 
 /// The rustfmt directory of a complete cached checkout, after undoing any edits made to it

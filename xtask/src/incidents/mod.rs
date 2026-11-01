@@ -29,6 +29,7 @@ use std::time::SystemTime;
 pub use command::run;
 
 use crate::common::log::timestamp;
+use crate::common::store;
 use crate::sha256;
 
 /// Every kind: (name, what it is, whether an open one fails the suite).
@@ -578,7 +579,7 @@ pub fn recognize(said: &str) -> (String, String) {
 }
 
 pub fn root_dir(root: &Path) -> PathBuf {
-  root.join(".dev").join("incidents")
+  store::dir(root, store::INCIDENTS)
 }
 
 /// Writes an incident's record and page, and the board.

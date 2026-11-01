@@ -15,6 +15,7 @@ use std::time::SystemTime;
 
 use crate::common::log::timestamp;
 use crate::common::process;
+use crate::common::store;
 
 /// What `cargo xtask diff` reads: the formatter, the harness that scores it, and the
 /// records it compares with (not the generated READMEs or the history).
@@ -95,10 +96,7 @@ pub fn record(root: &Path, check: &Check, hash: &str, run: &str) {
 }
 
 fn file(root: &Path, check: &Check) -> std::path::PathBuf {
-  root
-    .join(".dev")
-    .join("proofs")
-    .join(format!("{}.txt", check.name))
+  store::dir(root, store::PROOFS).join(format!("{}.txt", check.name))
 }
 
 #[cfg(test)]

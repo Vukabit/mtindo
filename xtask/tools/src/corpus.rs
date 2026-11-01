@@ -27,6 +27,7 @@ use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::{Edition, parse};
 use mtindo::verify::verify_layout;
 use mtindo::{LayoutConfig, try_reorganize};
+use xtask_core::store;
 
 use crate::common;
 use crate::log::Logger;
@@ -130,7 +131,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
   let mut valid_with_errors = Vec::new();
   let mut rejected_by_both = 0;
   for (path, edition, message) in totals.with_errors.iter() {
-    let shown = display(path, &root.join(".dev").join("cache").join("corpus"));
+    let shown = display(path, &store::dir(root, store::CACHE).join("corpus"));
     match rustfmt_accepts(path, *edition) {
       Some(true) => valid_with_errors.push(format!("{}: {}", shown, message)),
       Some(false) => rejected_by_both += 1,

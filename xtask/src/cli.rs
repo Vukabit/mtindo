@@ -229,6 +229,7 @@ pub fn tree() -> Command {
     runs(),
     settings(),
     status(),
+    store(),
     toml_test(),
     unicode(),
     Command::new("help")
@@ -1003,6 +1004,12 @@ fn settings() -> Command {
 fn status() -> Command {
   Command::new("status").about(
     "Where the project stands: tree, last green, v0.1.0 gates, running jobs, latest runs, fuzz crashes",
+  )
+}
+
+fn store() -> Command {
+  Command::new("store").about(
+    "What .dev/ holds, area by area, with what each keeps, and what no command writes any more",
   )
 }
 

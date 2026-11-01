@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
 use crate::common::process;
+use crate::common::store;
 use crate::sha256;
 
 const BASE_URL: &str = "https://www.unicode.org/Public";
@@ -115,11 +116,7 @@ pub(crate) fn rustfmt(source: &str) -> Result<String, String> {
 }
 
 fn cache_dir(root: &Path, version: &str) -> PathBuf {
-  root
-    .join(".dev")
-    .join("cache")
-    .join("unicode")
-    .join(version)
+  store::dir(root, store::CACHE).join("unicode").join(version)
 }
 
 /// Downloads one data file (or reuses the cached copy) and checks it is the requested version.

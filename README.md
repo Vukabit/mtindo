@@ -29,16 +29,16 @@ sha256sum --check --ignore-missing SHA256SUMS      # Linux
 shasum -a 256 --check --ignore-missing SHA256SUMS  # macOS
 ```
 
-Or build it with Cargo, which needs Rust 1.88 or later and nothing beyond
-the Rust standard library:
+Or install it from crates.io with Cargo, which needs Rust 1.88 or later:
 
 ```bash
 cargo install mtindo
 ```
 
-This places `mto` and `cargo-mto` in Cargo's binary directory
-(`~/.cargo/bin`); the second makes `cargo mto` work. From a clone of the
-repository, run `cargo install --path .` in its root.
+Cargo puts `mto` and `cargo-mto` in its binary folder (`~/.cargo/bin`, or
+`%USERPROFILE%\.cargo\bin` on Windows), which rustup adds to your `PATH`.
+`cargo-mto` is what makes `cargo mto` work. To build from a clone of the
+repository instead, run `cargo install --path .` in its root.
 
 ## Quick start
 

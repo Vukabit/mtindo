@@ -7,9 +7,9 @@ pub mod awake;
 #[path = "../../../src/text/color.rs"]
 pub mod color;
 pub mod conditions;
-pub mod log;
 pub mod manifest;
-pub mod process;
 pub mod proof;
-pub mod sample;
 pub mod tree;
+
+// Shared with xtask/tools.
+pub use xtask_core::{edition, files, log, process, sample};

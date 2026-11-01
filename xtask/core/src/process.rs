@@ -319,7 +319,7 @@ pub fn run(
 }
 
 /// [`run`], sampling the child's process tree into `samples` while it runs (see
-/// [`super::sample`]); with what it used, when sampling could start.
+/// [`crate::sample`]); with what it used, when sampling could start.
 pub fn run_sampled(
   root: &Path,
   program: &str,
@@ -327,7 +327,7 @@ pub fn run_sampled(
   env_extra: &[(String, String)],
   limit: Duration,
   samples: Option<&Path>,
-) -> (Outcome, Option<super::sample::Summary>) {
+) -> (Outcome, Option<crate::sample::Summary>) {
   run_tapped(root, program, args, env_extra, limit, samples, None)
 }
 
@@ -341,7 +341,7 @@ pub fn run_tapped(
   limit: Duration,
   samples: Option<&Path>,
   mut tap: Option<Tap>,
-) -> (Outcome, Option<super::sample::Summary>) {
+) -> (Outcome, Option<crate::sample::Summary>) {
   let failed = |output: String| {
     (
       Outcome {
@@ -377,7 +377,7 @@ pub fn run_tapped(
   // The parent's copies of the pipe's write end live in `command`; drop them so the read
   // ends when the child and everything it started have exited.
   drop(command);
-  let sampler = samples.and_then(|path| super::sample::Sampler::start(child.id(), path).ok());
+  let sampler = samples.and_then(|path| crate::sample::Sampler::start(child.id(), path).ok());
   let bytes = Arc::new(Mutex::new(Vec::new()));
   let sink = Arc::clone(&bytes);
   let reading = thread::spawn(move || {
@@ -393,7 +393,7 @@ pub fn run_tapped(
     }
   });
   let (status, timed_out) = wait(child, limit);
-  let used = sampler.map(super::sample::Sampler::stop);
+  let used = sampler.map(crate::sample::Sampler::stop);
   // A grandchild may hold the pipe open after the child exits; read what arrives shortly
   // after, then go on without it.
   let drained = Instant::now();
@@ -447,7 +447,7 @@ pub fn watch(
   args: &[String],
   env_extra: &[(String, String)],
   how: Watch,
-) -> std::io::Result<(Watched, Option<super::sample::Summary>)> {
+) -> std::io::Result<(Watched, Option<crate::sample::Summary>)> {
   let mut command = Command::new(program);
   command.args(args).current_dir(root).stdin(Stdio::null());
   for (key, value) in env_extra {
@@ -464,7 +464,7 @@ pub fn watch(
   (how.started)(child.id());
   let sampler = how
     .samples
-    .and_then(|path| super::sample::Sampler::start(child.id(), path).ok());
+    .and_then(|path| crate::sample::Sampler::start(child.id(), path).ok());
   let started = Instant::now();
   let mut stopped = false;
   let mut timed_out = false;
@@ -483,7 +483,7 @@ pub fn watch(
     }
     thread::sleep(Duration::from_millis(100));
   };
-  let used = sampler.map(super::sample::Sampler::stop);
+  let used = sampler.map(crate::sample::Sampler::stop);
   let code = if timed_out {
     TIMED_OUT
   } else {
@@ -723,13 +723,20 @@ mod tests {
     assert!(output.starts_with("cannot run no-such-program-xtask"));
   }
 
-  /// Every child xtask starts runs under a time limit: only this module spawns or waits on
-  /// one, apart from the keep-awake guard, which runs as long as it lives.
+  /// Every child xtask or its tools start runs under a time limit: only this module spawns
+  /// or waits on one, apart from the keep-awake guard, which runs as long as it lives.
   #[test]
   fn test_children_are_started_only_here() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let allowed = [src.join("common/process.rs"), src.join("common/awake.rs")];
-    let mut files = vec![src.clone()];
+    let xtask = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let allowed = [
+      xtask.join("core/src/process.rs"),
+      xtask.join("src/common/awake.rs"),
+    ];
+    let mut files = vec![
+      xtask.join("src"),
+      xtask.join("core/src"),
+      xtask.join("tools/src"),
+    ];
     let mut found = Vec::new();
     while let Some(path) = files.pop() {
       if path.is_dir() {

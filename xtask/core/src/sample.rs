@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use super::process;
+use crate::process;
 
 pub const HEADER: &str = "seconds\trss_kb\tcpu_seconds\tprocesses\n";
 
@@ -187,7 +187,7 @@ pub fn read(path: &Path) -> Vec<Sample> {
 
 /// Where a run's samples go: `.dev/runs/<UTC>-<name>/samples.tsv`.
 pub fn run_path(root: &Path, name: &str) -> PathBuf {
-  let stamp: String = super::log::timestamp(std::time::SystemTime::now())
+  let stamp: String = crate::log::timestamp(std::time::SystemTime::now())
     .chars()
     .take(19)
     .filter(|c| c.is_ascii_digit() || *c == 'T')

@@ -643,31 +643,9 @@ fn draw(
   }
 }
 
-/// The edition of the crate a file belongs to: `edition = "YEAR"` in the nearest
-/// `Cargo.toml` that sets one (workspace ones included), else 2015, rustfmt's default.
+/// The edition of the crate a file belongs to.
 fn edition_for(file: &Path) -> String {
-  let mut dir = file.parent();
-  while let Some(current) = dir {
-    if let Ok(manifest) = fs::read_to_string(current.join("Cargo.toml")) {
-      for line in manifest.lines() {
-        if let Some(value) = line.trim().strip_prefix("edition") {
-          let year = value
-            .trim()
-            .trim_start_matches('=')
-            .trim()
-            .trim_matches('"');
-          if ["2015", "2018", "2021", "2024"].contains(&year) {
-            return year.to_string();
-          }
-        }
-      }
-      if manifest.contains("[package]") && !manifest.contains("edition.workspace") {
-        return "2015".to_string();
-      }
-    }
-    dir = current.parent();
-  }
-  "2015".to_string()
+  crate::common::edition::of_crate(file).to_string()
 }
 
 /// Takes every input either rustfmt failed on out of all rows (rows left empty go too).

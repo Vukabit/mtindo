@@ -7,3 +7,4 @@ edition = "2024"
 [dependencies]
 ra-ap-rustc_lexer = "=0.176.0"
 mtindo = { path = "../.." }
+xtask-core = { path = "../core" }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["xtask", "xtask/tools"]
+members = ["xtask", "xtask/core", "xtask/tools"]
 exclude = ["fuzz"]
 
 [package]

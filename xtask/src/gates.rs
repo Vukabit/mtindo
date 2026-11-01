@@ -54,10 +54,12 @@ pub const GATES: &[Gate] = &[
 
 /// Each manifest and the dependencies it may declare. mtindo and the mto binary are
 /// std-only. The dev tooling may use crates, but xtask (the test runner) must build even
-/// when mtindo does not, so it may not depend on mtindo; xtask/tools exists to use it.
+/// when mtindo does not, so it may not depend on mtindo; xtask/tools exists to use it, and
+/// xtask/core, which both use, is std-only too.
 const ALLOWED_DEPENDENCIES: &[(&str, Allowed)] = &[
   ("Cargo.toml", Allowed::Only(&[])),
   ("xtask/Cargo.toml", Allowed::AnyBut(&["mtindo"])),
+  ("xtask/core/Cargo.toml", Allowed::Only(&[])),
   ("xtask/tools/Cargo.toml", Allowed::AnyBut(&[])),
 ];
 

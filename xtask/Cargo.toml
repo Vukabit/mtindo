@@ -10,5 +10,7 @@ edition = "2024"
 [dependencies]
 # Every command's arguments, defined once (src/cli.rs): parsing, help and the TUI's forms.
 clap = { version = "4.5", default-features = false, features = ["std", "usage", "error-context", "suggestions"] }
+# What xtask/tools shares with it: processes, sampling, the log, files, editions.
+xtask-core = { path = "core" }
 # The run supervisor's Ctrl-C handler.
 libc = "0.2"

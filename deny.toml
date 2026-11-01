@@ -18,13 +18,13 @@ allow = ["Apache-2.0", "MIT", "Unicode-3.0", "Unlicense"]
 confidence-threshold = 0.9
 
 [licenses.private]
-# xtask and xtask-tools are never published.
+# xtask, xtask-core and xtask-tools are never published.
 ignore = true
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-# xtask-tools links mtindo by path; it is never published.
+# The xtask crates link each other and mtindo by path; none is published.
 allow-wildcard-paths = true
 
 [sources]

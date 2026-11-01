@@ -923,7 +923,12 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "libc",
+ "xtask-core",
 ]
+
+[[package]]
+name = "xtask-core"
+version = "0.0.0"
 
 [[package]]
 name = "xtask-tools"
@@ -931,6 +936,7 @@ version = "0.0.0"
 dependencies = [
  "mtindo",
  "ra-ap-rustc_lexer",
+ "xtask-core",
 ]
 
 [[package]]

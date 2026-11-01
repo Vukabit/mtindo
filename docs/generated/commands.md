@@ -685,7 +685,7 @@ Run records under .dev/runs/: every command leaves one; --detach runs one in the
 background
 
 ```text
-cargo xtask runs [list|show|tail|cancel|prune]
+cargo xtask runs [list|show|tail|cancel|prune|why]
 ```
 
 ## `cargo xtask runs list`
@@ -739,6 +739,18 @@ cargo xtask runs prune [--dry-run]
 ```
 
 - `--dry-run`: Only say what would go
+
+## `cargo xtask runs why`
+
+What differs between what produced two runs (tree, tools, machine, records);
+without OTHER, the run before ID of the same command
+
+```text
+cargo xtask runs why ID [OTHER]
+```
+
+- `ID`: A run id, or its end
+- `OTHER`: The run to compare with
 
 ## `cargo xtask settings`
 

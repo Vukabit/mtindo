@@ -26,6 +26,7 @@ pub const COMPAT: Check = Check {
     "Cargo.toml",
     "Cargo.lock",
     "rust-toolchain.toml",
+    "xtask/core",
     "xtask/tools",
     "xtask/src/diff.rs",
     "xtask/src/corpus.rs",
@@ -56,26 +57,9 @@ pub fn holds(root: &Path, check: &Check, hash: &str) -> Option<String> {
 /// The hash of what `check` reads, as the tree and tools are now; `None` when git cannot
 /// list the files.
 pub fn inputs(root: &Path, check: &Check) -> Option<String> {
-  let mut args: Vec<String> = [
-    "ls-files",
-    "--cached",
-    "--others",
-    "--exclude-standard",
-    "--",
-  ]
-  .iter()
-  .map(|s| s.to_string())
-  .collect();
-  args.extend(check.paths.iter().map(|p| p.to_string()));
-  let (code, listing) = process::capture(root, "git", &args, &[], process::QUICK);
-  if code != 0 {
-    return None;
-  }
-  let mut files: Vec<&str> = listing.lines().filter(|l| !l.is_empty()).collect();
-  files.sort_unstable();
-  files.dedup();
+  let files = crate::common::files::repo(root, check.paths).ok()?;
   let mut data: Vec<u8> = Vec::new();
-  for file in files {
+  for file in &files {
     data.extend_from_slice(file.as_bytes());
     data.push(0);
     match fs::read(root.join(file)) {

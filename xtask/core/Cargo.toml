@@ -1,0 +1,9 @@
+[package]
+name = "xtask-core"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# std only, and never mtindo: both xtask (which must build when mtindo does not) and
+# xtask/tools (which links mtindo) use it.
+[dependencies]

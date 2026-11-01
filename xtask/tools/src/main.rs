@@ -8,21 +8,9 @@ mod diff;
 mod diff_fuzz;
 mod doctor_bench;
 mod lexdiff;
-// The same logger as xtask, compiled from its file: .dev/logs/NAME.log at the repository root.
-#[allow(dead_code)]
-#[path = "../../src/common/log.rs"]
-mod log;
 mod pairs;
 mod parsecheck;
 mod perf;
-// The same child-process helpers as xtask, with their time limits.
-#[allow(dead_code)]
-#[path = "../../src/common/process.rs"]
-mod process;
-// Sampling a child's memory, which the process helpers offer.
-#[allow(dead_code)]
-#[path = "../../src/common/sample.rs"]
-mod sample;
 mod scramble;
 mod toml_test;
 mod unformat;
@@ -30,6 +18,8 @@ mod unformat;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use xtask_core::{log, process};
 
 // The allocator the mto binaries install, so that what is measured in process here (the
 // perf benches above all) runs as mto does.

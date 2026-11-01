@@ -1,12 +1,8 @@
 //! Helpers shared by the tools.
 
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use mtindo::syntax::Edition;
-
-use crate::process;
 
 /// The edition to parse `file` with.
 pub fn edition_for(file: &Path, text: &str) -> Edition {
@@ -17,67 +13,21 @@ pub fn edition_for(file: &Path, text: &str) -> Edition {
       return edition;
     }
   }
-  let mut dir = file.parent();
-  while let Some(current) = dir {
-    if let Ok(manifest) = fs::read_to_string(current.join("Cargo.toml")) {
-      for line in manifest.lines() {
-        let line = line.trim();
-        if let Some(value) = line.strip_prefix("edition") {
-          let year = value
-            .trim()
-            .trim_start_matches('=')
-            .trim()
-            .trim_matches('"');
-          if let Some(edition) = Edition::from_year(year) {
-            return edition;
-          }
-        }
-      }
-      if manifest.contains("[package]") && !manifest.contains("edition.workspace") {
-        return Edition::E2015;
-      }
-    }
-    dir = current.parent();
-  }
-  Edition::E2015
+  Edition::from_year(xtask_core::edition::of_crate(file)).unwrap_or(Edition::E2015)
 }
 
 /// Every `.rs` file of the repository, tracked or new and not ignored by git, sorted: what
 /// the checks over the repository's own code read when given no paths, so that a new
 /// folder is covered without being listed anywhere.
 pub fn repo_rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
-  let listing = process::output(
-    Command::new("git")
-      .args([
-        "ls-files",
-        "--cached",
-        "--others",
-        "--exclude-standard",
-        "--",
-        "*.rs",
-      ])
-      .current_dir(root)
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped()),
-    process::QUICK,
+  Ok(
+    xtask_core::files::repo(root, &["*.rs"])?
+      .iter()
+      .map(|line| root.join(line))
+      // Listed but deleted in the working tree.
+      .filter(|path| path.is_file())
+      .collect(),
   )
-  .map_err(|e| format!("cannot run git: {}", e))?;
-  if listing.code != 0 {
-    return Err(format!(
-      "cannot list the repository's files with git: {}",
-      String::from_utf8_lossy(&listing.stderr).trim()
-    ));
-  }
-  let mut files: Vec<PathBuf> = String::from_utf8_lossy(&listing.stdout)
-    .lines()
-    .filter(|line| !line.is_empty())
-    .map(|line| root.join(line))
-    // Listed but deleted in the working tree.
-    .filter(|path| path.is_file())
-    .collect();
-  files.sort();
-  files.dedup();
-  Ok(files)
 }
 
 #[cfg(test)]

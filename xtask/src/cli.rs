@@ -1022,6 +1022,14 @@ fn perf() -> Command {
     .subcommand(
       Command::new("growth").about("Generated files of doubling size: how time grows with each"),
     )
+    .subcommand(
+      Command::new("instructions")
+        .about(
+          "Instructions the release mto runs on a fixed workload, counted by Cachegrind \
+           (Linux): fails when one grows over 3% past records/results/instructions.txt",
+        )
+        .arg(flag("update", "Record the counts")),
+    )
 }
 
 fn probe() -> Command {

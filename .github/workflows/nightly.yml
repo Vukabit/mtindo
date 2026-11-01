@@ -1,0 +1,76 @@
+# What no push waits for, every night: the whole comparison against the corpus, the
+# standard formatter's releases checked for news, and half an hour of differential
+# fuzzing. Each writes what it found on the run's summary page.
+name: nightly
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # `sync rustfmt --check` (a newer stable than recorded fails it; a newer nightly is
+  # noted), then `compare`: every recorded set against the record. The standard
+  # formatter's answers are kept between nights, keyed by the corpus pins and the
+  # toolchain, so a night runs only mto and the inputs that changed.
+  corpus:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .dev/cache
+          key: answers-${{ hashFiles('records/pins/corpus.txt', 'rust-toolchain.toml') }}-${{ github.run_id }}
+          restore-keys: answers-${{ hashFiles('records/pins/corpus.txt', 'rust-toolchain.toml') }}-
+      - name: Upstream
+        run: |
+          status=0
+          cargo xtask sync rustfmt --check > sync.txt 2>&1 || status=$?
+          cat sync.txt
+          { echo '### upstream'; echo '```text'; cat sync.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Compare
+        if: always()
+        run: |
+          status=0
+          cargo xtask compare > compare.txt 2>&1 || status=$?
+          cat compare.txt
+          { echo '### compare'; echo '```text'; head -c 60000 compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  # Scrambled corpus files and generated source, formatted by mto and the standard
+  # formatter; each new way they disagree is shrunk and kept, uploaded for triage.
+  fuzz-diff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .dev/cache
+          key: answers-${{ hashFiles('records/pins/corpus.txt', 'rust-toolchain.toml') }}-${{ github.run_id }}
+          restore-keys: answers-${{ hashFiles('records/pins/corpus.txt', 'rust-toolchain.toml') }}-
+      - name: Fuzz
+        run: |
+          cargo xtask corpus fetch
+          cargo xtask fuzz diff --time 1800 2>&1 | tee fuzz-diff.txt
+          { echo '### differential fuzzing'; echo '```text'; tail -c 30000 fuzz-diff.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mismatches
+          path: .dev/incidents/mismatch/
+          if-no-files-found: ignore

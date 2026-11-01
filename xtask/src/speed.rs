@@ -5,6 +5,7 @@
 //! - `throughput`: the corpus against the standard formatter, stable and nightly (`corpus
 //!   bench`);
 //! - `latency`, `scaling`, `growth`: one small file, thread counts, doubling sizes (`perf`);
+//! - `instructions`: instructions counted on a fixed workload, by Cachegrind (`perf`);
 //! - `io`: what writing files costs, by way of syncing (`io bench`);
 //! - `features`: the standard formatter and mto feature by feature, live (`race`);
 //! - `doctor`: what the build guard costs (`doctor bench`).
@@ -37,6 +38,11 @@ pub const MEASURES: &[(&str, &[&str], &str)] = &[
     "growth",
     &["perf", "growth"],
     "generated files of doubling size",
+  ),
+  (
+    "instructions",
+    &["perf", "instructions"],
+    "instructions counted on a fixed workload (Linux, Cachegrind)",
   ),
   (
     "io",

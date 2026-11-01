@@ -45,6 +45,7 @@ fn main() -> ExitCode {
     Some("upstream") => upstream::run(&args[1..]),
     Some("perf-scaling") => perf::scaling(&args[1..]),
     Some("perf-growth") => perf::growth(&args[1..]),
+    Some("perf-workload") => perf::workload(&args[1..]),
     Some("perf-depth") => perf::depth(&args[1..]),
     Some("perf-stages") => perf::stages(&args[1..]),
     Some("perf-walk") => perf::walk(&args[1..]),

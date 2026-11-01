@@ -120,6 +120,8 @@ const NAMING_ALLOWED_SPELLINGS: &[&str] = &[
   "options/rustfmt.rs",
   "\"rustfmt\"",
   "rustfmt-surface.txt",
+  // The part of `cargo xtask sync` that brings the standard formatter's releases in.
+  "sync rustfmt",
   "rustfmt::RUSTFMT_VERSION",
   "config/rustfmt/",
 ];

@@ -8,6 +8,9 @@
 //!   `threads N files F bytes B seconds S`.
 //! - `perf-growth SCRATCH`: generated files of doubling size in each way a file can grow;
 //!   prints `growth KIND SIZE BYTES SECONDS`.
+//! - `perf-workload DIR`: one file of each kind at the largest size growth uses, written to
+//!   DIR as `KIND.rs`, the same bytes every time: the input whose instructions `cargo xtask
+//!   perf instructions` counts; prints `workload KIND BYTES`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -278,6 +281,27 @@ pub fn walk(args: &[String]) -> ExitCode {
     best = best.min(started.elapsed().as_secs_f64());
   }
   println!("walk {} {:.4} {}", files, best, found);
+  ExitCode::SUCCESS
+}
+
+/// `perf-workload DIR`: each kind's largest file, written to DIR.
+pub fn workload(args: &[String]) -> ExitCode {
+  let Some(dir) = args.first().map(PathBuf::from) else {
+    eprintln!("perf-workload DIR");
+    return ExitCode::from(2);
+  };
+  if fs::create_dir_all(&dir).is_err() {
+    eprintln!("cannot make {}", dir.display());
+    return ExitCode::from(1);
+  }
+  for (kind, generate, smallest) in KINDS {
+    let text = generate(smallest << (STEPS - 1));
+    if fs::write(dir.join(format!("{}.rs", kind)), &text).is_err() {
+      eprintln!("cannot write {}", dir.display());
+      return ExitCode::from(1);
+    }
+    println!("workload {} {}", kind, text.len());
+  }
   ExitCode::SUCCESS
 }
 

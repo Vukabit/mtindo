@@ -124,6 +124,11 @@ kind = "cargo"
 version = "0.20.2"
 needed_by = ["audit"]
 
+[tools.cargo-mutants]
+kind = "cargo"
+version = "27.1.0"
+needed_by = ["mutants"]
+
 [tools.gh]
 kind = "system"
 version = "2.40.0"
@@ -167,6 +172,9 @@ msrv = ["msrv"]
 # The dependency graph (dev-dependencies and xtask): advisories, licenses, sources
 # (deny.toml). CI runs it weekly and when a manifest or the lock file changes.
 audit = ["deny"]
+# The meaning check and comment handling with bugs put in, one at a time: whether the
+# tests notice each. CI runs it weekly; the mutants they miss are listed, not failed.
+mutants = ["mutants"]
 release = [
   "clean",
   "pushed",

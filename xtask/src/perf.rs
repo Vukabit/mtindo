@@ -58,6 +58,10 @@ type Point = (f64, f64, f64);
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let which = m.subcommand_name();
+  // Counted, not timed: neither the machine's quiet nor the other measures matter to it.
+  if let Some(("instructions", sub)) = m.subcommand() {
+    return crate::instructions::run(root, crate::cli::on(sub, "update"));
+  }
   // Built first, so the build is not what the machine is busy with when timing starts.
   let tools = ["build", "--quiet", "--release", "--package", "xtask-tools"].map(String::from);
   if build_mto(root).is_err() || process::capture(root, "cargo", &tools, &[], process::LONG).0 != 0

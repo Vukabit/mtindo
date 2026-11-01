@@ -25,6 +25,7 @@ mod fuzz_soak;
 mod gaps;
 mod gates;
 mod incidents;
+mod instructions;
 mod io;
 mod mcp;
 mod memst;

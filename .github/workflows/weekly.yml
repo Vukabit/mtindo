@@ -1,0 +1,39 @@
+# Once a week: the meaning check and comment handling with bugs put in, one at a time
+# (flow.toml's `mutants` stage), to show which the tests miss. A report, not a gate: the
+# missed mutants are listed on the summary page and kept as an artifact.
+name: weekly
+
+on:
+  schedule:
+    - cron: "41 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mutants:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Tools
+        run: |
+          rustup toolchain install
+          cargo xtask bootstrap --go --for mutants
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Mutants
+        run: cargo xtask flow check mutants
+      - name: Missed
+        if: always()
+        run: |
+          { echo '### missed mutants'; echo '```text'; cat mutants.out/missed.txt 2>/dev/null || echo none; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutants
+          path: mutants.out/
+          if-no-files-found: ignore

@@ -548,7 +548,7 @@ Measure one-file latency, thread scaling and growth with size; all three with no
 subcommand
 
 ```text
-cargo xtask perf [latency|scaling|growth]
+cargo xtask perf [latency|scaling|growth|instructions]
 ```
 
 ## `cargo xtask perf latency`
@@ -574,6 +574,17 @@ Generated files of doubling size: how time grows with each
 ```text
 cargo xtask perf growth
 ```
+
+## `cargo xtask perf instructions`
+
+Instructions the release mto runs on a fixed workload, counted by Cachegrind
+(Linux): fails when one grows over 3% past records/results/instructions.txt
+
+```text
+cargo xtask perf instructions [--update]
+```
+
+- `--update`: Record the counts
 
 ## `cargo xtask lexdiff`
 
@@ -885,8 +896,8 @@ growth, io, features (live), doctor; ARGS go to the command that makes it
 cargo xtask speed MEASURE [ARGS...]
 ```
 
-- `MEASURE`: (one of: throughput, latency, scaling, growth, io, features,
-  doctor)
+- `MEASURE`: (one of: throughput, latency, scaling, growth, instructions, io,
+  features, doctor)
 - `ARGS...`: Passed to the measure's command (e.g. features --live)
 
 ## `cargo xtask status`

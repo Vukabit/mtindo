@@ -26,3 +26,4 @@ docs/internal/
 
 # Release archives (cargo xtask flow package).
 /dist/
+/mutants.out*/

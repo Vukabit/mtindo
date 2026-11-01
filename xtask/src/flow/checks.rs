@@ -95,6 +95,17 @@ pub const CHECKS: &[(&str, &str)] = &[
     "deny",
     "`cargo deny` on the dependency graph: advisories, licenses, sources",
   ),
+  (
+    "mutants",
+    "the meaning check and comment handling mutated: which mutants the tests miss",
+  ),
+];
+
+/// The files `mutants` puts bugs in: the meaning check, its rewrites, and comment handling.
+const MUTATED: &[&str] = &[
+  "src/verify/format.rs",
+  "src/verify/rewrites.rs",
+  "src/format/comment.rs",
 ];
 
 /// What a stage checks: the staged files for `pre-commit`, the refs being pushed for
@@ -632,6 +643,42 @@ fn lines<T: AsRef<str>>(items: &[T]) -> String {
     .join("\n")
 }
 
+/// `mutants`: cargo-mutants on [`MUTATED`] against the library's tests. A mutant the tests
+/// miss is listed (in `mutants.out/missed.txt` too), not failed: the run is a report. A
+/// build that fails, or a run that cannot finish, fails it.
+fn mutants(root: &Path) -> Result<(), String> {
+  let mut args: Vec<String> = vec!["mutants".into(), "--package".into(), "mtindo".into()];
+  for file in MUTATED {
+    args.extend(["--file".to_string(), file.to_string()]);
+  }
+  args.extend(["--".to_string(), "--lib".to_string()]);
+  let done = process::output(
+    Command::new("cargo")
+      .args(&args)
+      .current_dir(root)
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::HEAVY,
+  )
+  .map_err(|e| format!("cargo mutants could not be run: {}", e))?;
+  let missed = std::fs::read_to_string(root.join("mutants.out/missed.txt")).unwrap_or_default();
+  match done.code {
+    // 0: every mutant caught; 2: some missed; 3: some timed out, which counts as caught.
+    0 | 2 | 3 => {
+      let missed: Vec<&str> = missed.lines().filter(|l| !l.trim().is_empty()).collect();
+      println!("  {} mutant(s) the tests miss", missed.len());
+      for line in missed.iter().take(50) {
+        println!("    {}", line);
+      }
+      Ok(())
+    }
+    _ => Err(failure_text(
+      &String::from_utf8_lossy(&done.stdout),
+      &String::from_utf8_lossy(&done.stderr),
+    )),
+  }
+}
+
 /// The packages the uncommitted changes (against HEAD, untracked files included) fall in,
 /// each with the `cargo test` arguments for its unit tests.
 fn near(changed: &[String]) -> Vec<(&'static str, &'static [&'static str])> {
@@ -774,6 +821,7 @@ fn run_check(
       ],
     ),
     "deny" => command(root, "cargo", &["deny", "--workspace", "check"]),
+    "mutants" => mutants(root),
     "github-settings" => github_settings(root, flow),
     "tests-lib" => command(
       root,

@@ -28,6 +28,7 @@ mod pairs;
 mod papers;
 mod perf;
 mod race;
+mod registry;
 mod runs;
 mod settings;
 mod sha256;
@@ -100,6 +101,14 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
       let commands = commands_page(root, check);
       if commands != ExitCode::SUCCESS {
         return commands;
+      }
+      // The two READMEs' tables of every record and generated file.
+      let problems = registry::run(root, check);
+      for problem in &problems {
+        println!("{}", problem);
+      }
+      if !problems.is_empty() {
+        return ExitCode::from(1);
       }
       if tables == ExitCode::SUCCESS {
         papers

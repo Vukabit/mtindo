@@ -15,6 +15,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use crate::common::harness;
+use crate::common::json::Json;
 use crate::common::log::Logger;
 use crate::common::store;
 
@@ -112,6 +113,43 @@ pub fn collect(root: &Path, log: &Logger) -> Result<Gaps, String> {
   })
 }
 
+/// The gaps as `mtindo.xtask.gaps/1` (one setting's, when named): each pair with its
+/// lines, where it first differs, its settings, those mto lacks, and why it is excused or
+/// which keys disagree on it.
+pub fn json(gaps: &Gaps, setting: Option<&str>) -> Json {
+  let pairs: Vec<Json> = gaps
+    .gaps
+    .iter()
+    .filter(|g| setting.is_none_or(|s| g.settings.iter().any(|x| x == s)))
+    .map(|g| {
+      Json::object(vec![
+        ("name", (&g.name).into()),
+        ("set", (&g.set).into()),
+        ("matched", g.matched.into()),
+        ("lines", g.total.into()),
+        (
+          "first",
+          g.first.as_ref().map_or(Json::Null, |(kind, line)| {
+            Json::object(vec![("kind", kind.into()), ("line", (*line).into())])
+          }),
+        ),
+        ("settings", g.settings.clone().into()),
+        ("unhonored", g.unhonored.clone().into()),
+        ("excused", g.excused.clone().into()),
+        ("disagreements", g.disagreements.clone().into()),
+      ])
+    })
+    .collect();
+  Json::document(
+    "mtindo.xtask.gaps/1",
+    vec![
+      ("measured", gaps.measured.clone().into()),
+      ("setting", setting.map(str::to_string).into()),
+      ("pairs", Json::List(pairs)),
+    ],
+  )
+}
+
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "gaps");
   let gaps = match collect(root, &log) {
@@ -122,6 +160,10 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     }
   };
   let setting = crate::cli::text(m, "setting");
+  if crate::cli::on(m, "json") {
+    println!("{}", json(&gaps, setting.as_deref()).render());
+    return ExitCode::SUCCESS;
+  }
   let all = crate::cli::on(m, "all");
   print!("{}", text(&gaps, setting.as_deref(), all));
   ExitCode::SUCCESS

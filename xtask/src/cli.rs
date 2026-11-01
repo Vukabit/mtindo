@@ -214,10 +214,12 @@ pub fn tree() -> Command {
       "The quick look at what changed: formatting, the rules, the command reference, the \
        unit tests of each package changed (flow.toml stage `check`)",
     ),
-    Command::new("checks").about(
-      "Every check by its one id, what it checks, and the test group and flow stages it \
-       runs in",
-    ),
+    Command::new("checks")
+      .about(
+        "Every check by its one id, what it checks, and the test group and flow stages it \
+         runs in",
+      )
+      .arg(flag("json", "As JSON (schema mtindo.xtask.checks/1)")),
     compare(),
     corpus(),
     diff(),
@@ -673,6 +675,7 @@ fn gaps() -> Command {
       "Only the pairs that set this setting",
     ))
     .arg(flag("all", "Every setting and kind, not the top ones"))
+    .arg(flag("json", "As JSON (schema mtindo.xtask.gaps/1)"))
 }
 
 fn gates_command() -> Command {
@@ -827,18 +830,7 @@ fn json_command(command: &Command, out: &mut String) {
 }
 
 fn json_string(text: &str) -> String {
-  let mut out = String::from("\"");
-  for c in text.chars() {
-    match c {
-      '"' => out.push_str("\\\""),
-      '\\' => out.push_str("\\\\"),
-      '\n' => out.push_str("\\n"),
-      c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-      c => out.push(c),
-    }
-  }
-  out.push('"');
-  out
+  crate::common::json::string(text)
 }
 
 fn lexdiff() -> Command {
@@ -971,6 +963,7 @@ fn next() -> Command {
        disagreements, and what is left to triage",
     )
     .arg(flag("all", "The whole queue, not the first ten"))
+    .arg(flag("json", "As JSON (schema mtindo.xtask.next/1)"))
 }
 
 fn option(name: &'static str, value: &'static str, help: &'static str) -> Arg {
@@ -1174,9 +1167,11 @@ fn status() -> Command {
 }
 
 fn store() -> Command {
-  Command::new("store").about(
-    "What .dev/ holds, area by area, with what each keeps, and what no command writes any more",
-  )
+  Command::new("store")
+    .about(
+      "What .dev/ holds, area by area, with what each keeps, and what no command writes any more",
+    )
+    .arg(flag("json", "As JSON (schema mtindo.xtask.store/1)"))
 }
 
 fn test() -> Command {

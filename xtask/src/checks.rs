@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::common::json::Json;
+
 /// One check: its title, the `cargo xtask test` group it runs in, and the stages that list
 /// it (a gate is also in every stage that lists `gates`).
 #[derive(Debug, Default, PartialEq)]
@@ -15,6 +17,29 @@ pub struct Entry {
   pub title: String,
   pub group: Option<String>,
   pub stages: Vec<String>,
+}
+
+/// Every check as `mtindo.xtask.checks/1`: its id, title, test group and stages.
+pub fn json(registry: &BTreeMap<String, Entry>) -> Json {
+  Json::document(
+    "mtindo.xtask.checks/1",
+    vec![(
+      "checks",
+      Json::List(
+        registry
+          .iter()
+          .map(|(id, e)| {
+            Json::object(vec![
+              ("id", id.into()),
+              ("title", (&e.title).into()),
+              ("group", e.group.clone().into()),
+              ("stages", e.stages.clone().into()),
+            ])
+          })
+          .collect(),
+      ),
+    )],
+  )
 }
 
 /// Every check, by id.
@@ -63,6 +88,10 @@ pub fn run(root: &Path, _m: &clap::ArgMatches) -> ExitCode {
       return ExitCode::from(1);
     }
   };
+  if _m.get_flag("json") {
+    println!("{}", json(&registry).render());
+    return ExitCode::SUCCESS;
+  }
   print!("{}", text(&registry));
   ExitCode::SUCCESS
 }

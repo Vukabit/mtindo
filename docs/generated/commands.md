@@ -111,8 +111,10 @@ Every check by its one id, what it checks, and the test group and flow stages it
 runs in
 
 ```text
-cargo xtask checks
+cargo xtask checks [--json]
 ```
+
+- `--json`: As JSON (schema mtindo.xtask.checks/1)
 
 ## `cargo xtask compare`
 
@@ -407,11 +409,12 @@ The standard formatter's test pairs mto does not match yet, by setting and by
 where they first differ, from the last diff
 
 ```text
-cargo xtask gaps [--setting NAME] [--all]
+cargo xtask gaps [--setting NAME] [--all] [--json]
 ```
 
 - `--setting NAME`: Only the pairs that set this setting
 - `--all`: Every setting and kind, not the top ones
+- `--json`: As JSON (schema mtindo.xtask.gaps/1)
 
 ## `cargo xtask gates`
 
@@ -697,10 +700,11 @@ record, test pairs not matching, the settings with the most gaps, fuzzed
 disagreements, and what is left to triage
 
 ```text
-cargo xtask next [--all]
+cargo xtask next [--all] [--json]
 ```
 
 - `--all`: The whole queue, not the first ten
+- `--json`: As JSON (schema mtindo.xtask.next/1)
 
 ## `cargo xtask pairs`
 
@@ -891,8 +895,10 @@ What .dev/ holds, area by area, with what each keeps, and what no command writes
 any more
 
 ```text
-cargo xtask store
+cargo xtask store [--json]
 ```
+
+- `--json`: As JSON (schema mtindo.xtask.store/1)
 
 ## `cargo xtask sync`
 

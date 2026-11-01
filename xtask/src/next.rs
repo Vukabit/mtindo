@@ -17,6 +17,7 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::common::json::Json;
 use crate::common::log::Logger;
 use crate::common::{proof, store, tree};
 use crate::incidents;
@@ -27,6 +28,28 @@ pub struct Item {
   pub tier: u8,
   pub what: String,
   pub then: String,
+}
+
+/// The whole queue as `mtindo.xtask.next/1`: each item's tier, what it is and the command.
+pub fn json(items: &[Item]) -> Json {
+  Json::document(
+    "mtindo.xtask.next/1",
+    vec![(
+      "items",
+      Json::List(
+        items
+          .iter()
+          .map(|i| {
+            Json::object(vec![
+              ("tier", (i.tier as usize).into()),
+              ("what", (&i.what).into()),
+              ("then", (&i.then).into()),
+            ])
+          })
+          .collect(),
+      ),
+    )],
+  )
 }
 
 /// The queue, most urgent first.
@@ -46,6 +69,10 @@ pub fn queue(root: &Path, log: &Logger) -> Vec<Item> {
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let log = Logger::new(root, "next");
   let items = queue(root, &log);
+  if crate::cli::on(m, "json") {
+    println!("{}", json(&items).render());
+    return ExitCode::SUCCESS;
+  }
   let all = crate::cli::on(m, "all");
   print!("{}", text(&items, if all { usize::MAX } else { 10 }));
   ExitCode::SUCCESS

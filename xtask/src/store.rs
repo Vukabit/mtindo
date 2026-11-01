@@ -4,11 +4,50 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::common::json::Json;
 use crate::common::store;
 
-pub fn run(root: &Path, _m: &clap::ArgMatches) -> ExitCode {
+pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
+  if crate::cli::on(m, "json") {
+    println!("{}", json(root).render());
+    return ExitCode::SUCCESS;
+  }
   print!("{}", text(root));
   ExitCode::SUCCESS
+}
+
+/// The store as `mtindo.xtask.store/1`: each area's size, files, what it holds and keeps,
+/// and what is there in no area.
+fn json(root: &Path) -> Json {
+  let areas: Vec<Json> = store::AREAS
+    .iter()
+    .map(|area| {
+      let (bytes, files) = store::size(&store::dir(root, area.name));
+      Json::object(vec![
+        ("name", area.name.into()),
+        ("bytes", bytes.into()),
+        ("files", files.into()),
+        ("holds", area.holds.into()),
+        ("kept", area.kept.into()),
+      ])
+    })
+    .collect();
+  let unknown: Vec<Json> = store::unknown(root)
+    .iter()
+    .map(|path| {
+      Json::object(vec![
+        ("path", path.display().to_string().into()),
+        ("bytes", store::size(path).0.into()),
+      ])
+    })
+    .collect();
+  Json::document(
+    "mtindo.xtask.store/1",
+    vec![
+      ("areas", Json::List(areas)),
+      ("unknown", Json::List(unknown)),
+    ],
+  )
 }
 
 fn text(root: &Path) -> String {

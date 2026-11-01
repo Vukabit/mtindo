@@ -255,20 +255,18 @@ fn command(root: &Path, program: &str, args: &[&str]) -> Result<(), String> {
 
 /// `cargo xtask diff` passed on exactly this tree: the corpus is at or above the record.
 fn compat_record(root: &Path) -> Result<(), String> {
-  let tree = crate::common::tree::identity(root);
-  let passed = crate::runs::list(root).into_iter().any(|(_, record)| {
-    record.command.first().map(String::as_str) == Some("diff")
-      && record.exit == Some(0)
-      && record.tree == tree
-  });
-  if passed {
-    Ok(())
-  } else {
-    Err(format!(
-      "no passing `cargo xtask diff` for this tree ({}): run it first",
-      tree
-    ))
+  use crate::common::proof;
+  // A proof for what the comparison reads, as it is now: a commit that changed none of
+  // it (docs, the changelog) keeps the proof.
+  let hash =
+    proof::inputs(root, &proof::COMPAT).ok_or("cannot list the files the comparison reads")?;
+  if proof::holds(root, &proof::COMPAT, &hash).is_some() {
+    return Ok(());
   }
+  Err(format!(
+    "no passing `cargo xtask diff` for what it reads now (inputs {}): run it first",
+    &hash[..12]
+  ))
 }
 
 /// Days since 1970-01-01 of a `YYYY-MM-DD` date (what follows it ignored).

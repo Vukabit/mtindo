@@ -9,5 +9,6 @@ pub mod color;
 pub mod conditions;
 pub mod log;
 pub mod process;
+pub mod proof;
 pub mod sample;
 pub mod tree;

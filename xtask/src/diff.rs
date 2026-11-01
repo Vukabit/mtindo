@@ -8,7 +8,7 @@ use std::process::{Command, ExitCode, Stdio};
 
 use crate::capabilities::{fetch as surface_fetch, load_surface};
 use crate::common::log::Logger;
-use crate::common::process;
+use crate::common::{process, proof};
 use crate::corpus;
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
@@ -144,6 +144,21 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
           counts.new, counts.reopened, counts.again, counts.fixed
         );
         log.info(&format!("incidents from the diff: {:?}", counts));
+      }
+      // A passing run is a proof for what it read (taken after `--update` wrote the
+      // record), so the release check need not run it again.
+      if done.code == 0
+        && !done.timed_out
+        && let Some(hash) = proof::inputs(root, &proof::COMPAT)
+      {
+        let run = std::env::var_os(crate::runs::RUN_DIR)
+          .and_then(|d| {
+            Path::new(&d)
+              .file_name()
+              .map(|n| n.to_string_lossy().into_owned())
+          })
+          .unwrap_or_else(|| "-".to_string());
+        proof::record(root, &proof::COMPAT, &hash, &run);
       }
       ExitCode::from(done.code.clamp(0, 255) as u8)
     }

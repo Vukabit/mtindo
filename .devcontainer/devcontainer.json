@@ -1,0 +1,16 @@
+// A ready development environment (VS Code, Codespaces, a cloud agent): a Rust image,
+// then the toolchains and tools flow.toml pins, by `cargo xtask bootstrap`, which stays
+// the one place they are named.
+{
+  "name": "mtindo",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "rustup toolchain install && cargo xtask bootstrap --go",
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer"]
+    }
+  }
+}

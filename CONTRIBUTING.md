@@ -45,7 +45,25 @@ corpus is compared against), the oldest supported Rust, a nightly for fuzzing,
 and the cargo tools the release uses. Run it again whenever `flow.toml`
 changes; it updates only what differs. Each check below also looks for the
 tools it needs and says to run `bootstrap` when one is missing or at another
-version.
+version. The repository's devcontainer (`.devcontainer/`, for VS Code,
+Codespaces or a cloud agent) runs the same `bootstrap` when it is made.
+
+## Your first change
+
+A small, real change from start to end, to see how the pieces fit:
+
+1. **Pick one.** `cargo x next` lists what is waiting, most urgent first;
+   `cargo x gaps` the standard formatter's test pairs mto does not match yet,
+   by setting. Issues labelled `good first issue` are picked for this.
+2. **Look at it.** `cargo x probe tests/NAME.rs --show tests@stable` formats
+   one pair with mto and shows where its output parts from the expected
+   file, and whether the standard formatter itself agrees with that file.
+3. **Change it**, in `src/`, with a test beside the code that shows the
+   output now matches.
+4. **Check it.** `cargo x fix-up`, then `cargo x check`; `cargo x probe`
+   again should say `matches`.
+5. **Commit it** as below; the hooks run what `check` did. `cargo x diff`
+   before a pull request shows the change did not cost anything elsewhere.
 
 ## Making a change
 

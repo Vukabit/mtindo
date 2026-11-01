@@ -304,16 +304,13 @@ fn command(root: &Path, program: &str, args: &[&str]) -> Result<(), String> {
   if done.code == 0 {
     return Ok(());
   }
-  let mut text = String::from_utf8_lossy(&done.stdout).into_owned();
-  text.push_str(&String::from_utf8_lossy(&done.stderr));
-  // The end, where the failures are summed up.
-  let tail: Vec<&str> = text.lines().rev().take(40).collect();
-  let tail: Vec<&str> = tail.into_iter().rev().collect();
+  let stdout = String::from_utf8_lossy(&done.stdout);
+  let stderr = String::from_utf8_lossy(&done.stderr);
   Err(format!(
     "`{} {}` failed:\n{}",
     program,
     args.join(" "),
-    tail.join("\n")
+    failure_text(&stdout, &stderr)
   ))
 }
 
@@ -361,6 +358,49 @@ fn days(date: &str) -> Option<i64> {
   let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
   let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
   Some(era * 146097 + doe - 719468)
+}
+
+/// What a failed command said that matters: each failing test's report (cargo test
+/// prints them on stdout, from `failures:` to `test result: FAILED`), then the end of
+/// stderr, where a build error or the failed target is named. Without the first, a build
+/// with many warnings on stderr pushes the failures out of sight.
+fn failure_text(stdout: &str, stderr: &str) -> String {
+  let mut out: Vec<&str> = Vec::new();
+  let mut inside = false;
+  for line in stdout.lines() {
+    if line == "failures:" && !inside {
+      inside = true;
+    }
+    if inside {
+      out.push(line);
+    }
+    if line.starts_with("test result: FAILED") {
+      inside = false;
+    }
+  }
+  out.truncate(300);
+  if out.is_empty() {
+    // Not a test run: the end of what it printed, where failures are summed up.
+    out.extend(
+      stdout
+        .lines()
+        .rev()
+        .take(20)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev(),
+    );
+  }
+  out.extend(
+    stderr
+      .lines()
+      .rev()
+      .take(20)
+      .collect::<Vec<_>>()
+      .into_iter()
+      .rev(),
+  );
+  out.join("\n")
 }
 
 fn gates(root: &Path) -> Result<(), String> {
@@ -949,6 +989,24 @@ fn version_agrees(root: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn test_a_failed_test_run_shows_the_failure_before_the_warnings() {
+    let stdout = "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\nfailures:\n\n---- b stdout ----\nthread 'b' panicked: left != right\n\nfailures:\n    b\n\ntest result: FAILED. 1 passed; 1 failed\n";
+    let stderr = format!(
+      "{}error: test failed, to rerun pass `--test x`\n",
+      "warning: unused\n".repeat(400)
+    );
+    let shown = failure_text(stdout, &stderr);
+    assert!(shown.starts_with("failures:"), "{}", shown);
+    assert!(shown.contains("panicked: left != right"));
+    assert!(
+      shown.ends_with("error: test failed, to rerun pass `--test x`"),
+      "{}",
+      shown
+    );
+    assert!(shown.lines().count() < 40, "{}", shown);
+  }
 
   #[test]
   fn test_dates_count_days() {

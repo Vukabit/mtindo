@@ -107,9 +107,10 @@ fn check_words() -> Vec<String> {
 
 /// The script `mto completions SHELL` prints.
 fn completion_script(env: &TestEnvironment, shell: &str) -> String {
-  let (code, out, err) = completions_cmd(env, &[shell], None);
-  assert_eq!(code, 0, "{}", err);
-  out
+  let output = completions_output(env, &[shell], None);
+  assert_eq!(output.status.code(), Some(0), "{}", printed(&output.stderr));
+  // As printed, backslashes and all: a script is not a path, so it is not normalized.
+  String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 /// `mto completions` and its subcommands in `env`, with the shell's folders under the
@@ -119,6 +120,20 @@ fn completions_cmd(
   args: &[&str],
   shell: Option<&str>,
 ) -> (i32, String, String) {
+  let output = completions_output(env, args, shell);
+  (
+    output.status.code().unwrap_or(-1),
+    printed(&output.stdout),
+    printed(&output.stderr),
+  )
+}
+
+/// [`completions_cmd`]'s run, its output as mto wrote it.
+fn completions_output(
+  env: &TestEnvironment,
+  args: &[&str],
+  shell: Option<&str>,
+) -> std::process::Output {
   let mut cmd = env.mto_cmd();
   cmd
     .arg("completions")
@@ -130,12 +145,7 @@ fn completions_cmd(
   if let Some(shell) = shell {
     cmd.env("SHELL", shell);
   }
-  let output = cmd.output().unwrap();
-  (
-    output.status.code().unwrap_or(-1),
-    printed(&output.stdout),
-    printed(&output.stderr),
-  )
+  cmd.output().unwrap()
 }
 
 fn help_output(
@@ -177,7 +187,13 @@ fn printed(bytes: &[u8]) -> String {
 }
 
 /// Runs `program` with `args`, or `None` when it is not on this machine.
+///
+/// Not on Windows: there `bash` may be Git Bash or WSL's, which take Windows paths
+/// differently, and the shells' own behavior is what CI checks on Linux and macOS.
 fn run_shell(program: &str, args: &[&str], dir: &std::path::Path) -> Option<std::process::Output> {
+  if cfg!(windows) {
+    return None;
+  }
   std::process::Command::new(program)
     .args(args)
     .current_dir(dir)

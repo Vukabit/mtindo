@@ -172,15 +172,17 @@ pub fn parse(text: &str) -> Result<Flow, String> {
     .iter()
     .map(|e| {
       let checks = strings(&e.value, &format!("stages.{}", e.key))?;
-      if let Some(bad) = checks
-        .iter()
-        .find(|c| !super::checks::NAMES.contains(&c.as_str()))
-      {
+      if let Some(bad) = checks.iter().find(|c| !super::checks::known(c)) {
         return Err(format!(
           "flow.toml: stages.{} lists `{}`, which is not a check ({})",
           e.key,
           bad,
-          super::checks::NAMES.join(", ")
+          super::checks::CHECKS
+            .iter()
+            .map(|(n, _)| *n)
+            .chain(crate::gates::GATES.iter().map(|(n, _, _)| *n))
+            .collect::<Vec<_>>()
+            .join(", ")
         ));
       }
       Ok((e.key.clone(), checks))

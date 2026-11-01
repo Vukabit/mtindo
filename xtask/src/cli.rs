@@ -210,6 +210,14 @@ pub fn tree() -> Command {
     bootstrap(),
     capabilities(),
     changelog(),
+    Command::new("check").about(
+      "The quick look at what changed: formatting, the rules, the command reference, the \
+       unit tests of each package changed (flow.toml stage `check`)",
+    ),
+    Command::new("checks").about(
+      "Every check by its one id, what it checks, and the test group and flow stages it \
+       runs in",
+    ),
     corpus(),
     diff(),
     docs(),
@@ -228,6 +236,10 @@ pub fn tree() -> Command {
     pairs(),
     parsecheck(),
     probe(),
+    Command::new("prove").about(
+      "What a release needs, reusing what is proven for this tree: the rules, the whole \
+       suite, the compatibility record, the dependency audit (flow.toml stage `prove`)",
+    ),
     race(),
     runs(),
     settings(),

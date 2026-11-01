@@ -146,7 +146,11 @@ needed_by = ["memst"]
 [stages]
 pre-commit = ["no-internal", "secrets", "fmt", "gates", "commands-doc"]
 # The test suites take minutes: CI runs them on every push (`build`).
-pre-push = ["messages", "hold", "clippy"]
+pre-push = ["messages", "hold", "clippy-lib"]
+# `cargo xtask check`: the quick look at what changed. `cargo xtask prove`: what a
+# release needs, reusing what is already proven for this tree.
+check = ["fmt", "gates", "commands-doc", "tests-near"]
+prove = ["fmt", "gates", "commands-doc", "suite", "compat", "deny"]
 ci = [
   "messages",
   "no-internal",
@@ -158,7 +162,7 @@ ci = [
   "commands-doc",
   "tests-xtask",
 ]
-build = ["clippy", "tests"]
+build = ["clippy-lib", "tests-lib"]
 msrv = ["msrv"]
 # The dependency graph (dev-dependencies and xtask): advisories, licenses, sources
 # (deny.toml). CI runs it weekly and when a manifest or the lock file changes.

@@ -9,6 +9,7 @@
 mod bench;
 mod capabilities;
 mod changelog;
+mod checks;
 mod cli;
 mod common;
 mod corpus;
@@ -91,6 +92,8 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "bootstrap" => flow::bootstrap(root, m),
     "capabilities" => capabilities::run(root, m),
     "changelog" => changelog::run(root, m),
+    "check" => stage(root, "check"),
+    "checks" => checks::run(root, m),
     "corpus" => corpus::run(root, m),
     "diff" => diff::run(root, m),
     // The settings reference and the manual are written by xtask-tools, which links mtindo;
@@ -144,6 +147,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "pairs" => pairs::run(root, m),
     "parsecheck" => forward(root, "parsecheck", cli::texts(m, "paths")),
     "probe" => probe::run(root, m),
+    "prove" => stage(root, "prove"),
     "race" => race::run(root, m),
     "runs" => runs::run(root, m),
     "settings" => settings::run(root, m),
@@ -225,6 +229,19 @@ fn render_help(root: &Path, path: &[String], color: bool) -> Option<String> {
     }
   }
   Some(out)
+}
+
+/// Runs the flow stage `name` on the whole tree: `cargo xtask check` and `prove`.
+fn stage(root: &Path, name: &str) -> ExitCode {
+  match flow::check(root, name, None) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(e) => {
+      if !e.is_empty() {
+        eprintln!("{}", e);
+      }
+      ExitCode::from(1)
+    }
+  }
 }
 
 #[cfg(test)]

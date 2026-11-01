@@ -333,6 +333,18 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   ExitCode::from(1)
 }
 
+/// The latest line of [`GREEN_FILE`]: when, and which tree.
+pub(crate) fn last_green(root: &Path) -> Option<(String, String)> {
+  let text = fs::read_to_string(root.join(GREEN_FILE)).ok()?;
+  let line = text
+    .lines()
+    .skip(1)
+    .filter(|l| !l.trim().is_empty())
+    .last()?;
+  let mut fields = line.split('\t');
+  Some((fields.next()?.to_string(), fields.next()?.to_string()))
+}
+
 fn describe(task: &Task) -> String {
   match &task.action {
     Action::Check(_) => "(built-in check)".to_string(),
@@ -382,18 +394,6 @@ fn last_failed(root: &Path) -> Vec<String> {
       (f.get(2) == Some(&"failed")).then(|| f[0].to_string())
     })
     .collect()
-}
-
-/// The latest line of [`GREEN_FILE`]: when, and which tree.
-fn last_green(root: &Path) -> Option<(String, String)> {
-  let text = fs::read_to_string(root.join(GREEN_FILE)).ok()?;
-  let line = text
-    .lines()
-    .skip(1)
-    .filter(|l| !l.trim().is_empty())
-    .last()?;
-  let mut fields = line.split('\t');
-  Some((fields.next()?.to_string(), fields.next()?.to_string()))
 }
 
 fn options_of(m: &clap::ArgMatches) -> Options {

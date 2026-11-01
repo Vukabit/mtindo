@@ -94,6 +94,24 @@ cargo xtask changelog [--tag TAG] [--check]
   of Unreleased
 - `--check`: Only compare; fails when the section is out of date
 
+## `cargo xtask check`
+
+The quick look at what changed: formatting, the rules, the command reference,
+the unit tests of each package changed (flow.toml stage `check`)
+
+```text
+cargo xtask check
+```
+
+## `cargo xtask checks`
+
+Every check by its one id, what it checks, and the test group and flow stages it
+runs in
+
+```text
+cargo xtask checks
+```
+
 ## `cargo xtask corpus`
 
 The pinned real-world corpus (records/pins/corpus.txt)
@@ -700,6 +718,15 @@ cargo xtask probe [CASE] [--show KEY] [--toolchain NAME] [--scan] [--record]
 - `--toolchain NAME`: The nightly toolchain for run@nightly (default: nightly)
 - `--scan`: Check every pair; fails on a disagreement not recorded
 - `--record`: Record the disagreements found, to triage
+
+## `cargo xtask prove`
+
+What a release needs, reusing what is proven for this tree: the rules, the whole
+suite, the compatibility record, the dependency audit (flow.toml stage `prove`)
+
+```text
+cargo xtask prove
+```
 
 ## `cargo xtask race`
 

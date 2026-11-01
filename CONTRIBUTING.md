@@ -125,17 +125,23 @@ in flow.toml) are never checked.
 ## What the hooks check
 
 The hooks in `.githooks/` are one line each; [flow.toml](flow.toml)'s
-`[stages]` says what each runs, and CI runs the same checks.
+`[stages]` says what each runs, and CI runs the same checks;
+`cargo xtask checks` lists every check, what it checks and where it runs.
 
 - **`commit-msg`**, every commit: the message, as above.
 - **`pre-commit`**, every commit: `no-internal`, `secrets`, `fmt`, `gates`,
   the command reference, on what is staged (a change left unstaged neither
   fails nor passes it).
-- **`pre-push`**, every push: `messages`, `hold`, `clippy`; the test suites
-  run in CI.
+- **`pre-push`**, every push: `messages`, `hold`, `clippy-lib`; the test
+  suites run in CI.
+- **`check`** (`cargo xtask check`), when you like: `fmt`, `gates`, the
+  command reference, and the unit tests of each package you changed.
+- **`prove`** (`cargo xtask prove`), before asking for a release: the rules,
+  the whole suite and the compatibility record, each skipped when already
+  proven for this tree, and `cargo deny`.
 - **`ci`**, once per push in CI: `messages`, `no-internal`, `secrets`,
   `fmt`, `gates`, pinned actions and tools, the command reference.
-- **`build`**, on each CI platform: `clippy`, `tests`.
+- **`build`**, on each CI platform: `clippy-lib`, `tests-lib`.
 - **`msrv`**, in CI: the tests on the oldest supported Rust.
 - **`audit`**, in CI weekly and when a manifest or `Cargo.lock` changes:
   `cargo deny` on the dependency graph (`deny.toml`).

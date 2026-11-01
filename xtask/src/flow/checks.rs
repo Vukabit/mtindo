@@ -9,31 +9,89 @@ use super::git;
 use crate::common::process;
 use crate::common::store;
 
-/// Every check name a stage may list.
-pub const NAMES: &[&str] = &[
-  "no-internal",
-  "secrets",
-  "fmt",
-  "gates",
-  "actions-pinned",
-  "messages",
-  "hold",
-  "tools-pinned",
-  "clippy",
-  "tests",
-  "msrv",
-  "clean",
-  "pushed",
-  "ci-green",
-  "compat-record",
-  "version-agrees",
-  "tokens",
-  "package",
-  "history-clean",
-  "commands-doc",
-  "tests-xtask",
-  "github-settings",
-  "deny",
+/// Every check a stage may list, with what it checks: the registry `cargo xtask checks`
+/// shows. A stage may also list any gate of `cargo xtask gates` by its id.
+pub const CHECKS: &[(&str, &str)] = &[
+  (
+    "no-internal",
+    "nothing under docs/internal/ (working notes) is committed",
+  ),
+  (
+    "secrets",
+    "nothing that looks like a credential is committed",
+  ),
+  ("fmt", "`cargo fmt --all --check` agrees with the layout"),
+  ("gates", "every repository rule of `cargo xtask gates`"),
+  (
+    "actions-pinned",
+    "every workflow action is pinned to a full commit hash",
+  ),
+  (
+    "messages",
+    "the commit messages follow CONTRIBUTING.md's rules",
+  ),
+  (
+    "hold",
+    "`main` and release tags are pushed only as a release left them",
+  ),
+  (
+    "tools-pinned",
+    "flow.toml's tool pins agree with the files that name the same versions",
+  ),
+  ("clippy-lib", "clippy on mtindo, warnings are errors"),
+  ("tests-lib", "mtindo's tests"),
+  (
+    "tests-near",
+    "the unit tests of each package the uncommitted changes touch",
+  ),
+  (
+    "suite",
+    "`cargo xtask test`, unless the last green run was on this tree",
+  ),
+  ("msrv", "mtindo's tests on the oldest supported Rust"),
+  ("clean", "nothing uncommitted, untracked files included"),
+  (
+    "pushed",
+    "HEAD is on its remote branch, which a release fast-forwards to",
+  ),
+  ("ci-green", "every CI run for HEAD finished and passed"),
+  (
+    "compat",
+    "the compatibility record holds for this tree, running `cargo xtask diff` unless proven",
+  ),
+  (
+    "compat-record",
+    "`cargo xtask diff` passed on exactly this tree",
+  ),
+  (
+    "version-agrees",
+    "the release tag, Cargo.toml's version and a CHANGELOG.md section agree",
+  ),
+  (
+    "tokens",
+    "every expiring credential CI uses is more than 14 days from expiry",
+  ),
+  (
+    "package",
+    "the crate builds as crates.io gets it (`cargo package --locked`)",
+  ),
+  (
+    "history-clean",
+    "no commit ever made holds a credential or a working note",
+  ),
+  (
+    "commands-doc",
+    "docs/generated/commands.md matches every command's help",
+  ),
+  ("tests-xtask", "the xtask unit tests"),
+  (
+    "github-settings",
+    "the repository's GitHub settings are those MAINTAINING.md lists",
+  ),
+  (
+    "deny",
+    "`cargo deny` on the dependency graph: advisories, licenses, sources",
+  ),
 ];
 
 /// What a stage checks: the staged files for `pre-commit`, the refs being pushed for
@@ -92,6 +150,11 @@ impl Drop for Staged {
   fn drop(&mut self) {
     let _ = std::fs::remove_dir_all(&self.dir);
   }
+}
+
+/// Whether `name` is a check a stage may list: one of [`CHECKS`] or a gate.
+pub fn known(name: &str) -> bool {
+  CHECKS.iter().any(|(n, _)| *n == name) || crate::gates::GATES.iter().any(|(n, _, _)| *n == name)
 }
 
 /// Runs `stage`'s checks in order, a line each; stops at the first that fails. With
@@ -252,6 +315,16 @@ fn command(root: &Path, program: &str, args: &[&str]) -> Result<(), String> {
     args.join(" "),
     tail.join("\n")
   ))
+}
+
+/// `compat`: the compatibility record holds for this tree; `cargo xtask diff` runs to
+/// show it unless a proof already does.
+fn compat(root: &Path) -> Result<(), String> {
+  if compat_record(root).is_ok() {
+    println!("  (proven: `cargo xtask diff` passed on this tree)");
+    return Ok(());
+  }
+  command(root, "cargo", &["xtask", "diff"])
 }
 
 /// `cargo xtask diff` passed on exactly this tree: the corpus is at or above the record.
@@ -498,6 +571,33 @@ fn lines<T: AsRef<str>>(items: &[T]) -> String {
     .join("\n")
 }
 
+/// The packages the uncommitted changes (against HEAD, untracked files included) fall in,
+/// each with the `cargo test` arguments for its unit tests.
+fn near(changed: &[String]) -> Vec<(&'static str, &'static [&'static str])> {
+  const PACKAGES: &[(&str, &[&str], &[&str])] = &[
+    ("xtask/core/", &[], &["test", "--package", "xtask-core"]),
+    ("xtask/tools/", &[], &["test", "--package", "xtask-tools"]),
+    ("xtask/", &[], &["test", "--package", "xtask"]),
+    (
+      "",
+      &["src/", "tests/", "build.rs", "Cargo.toml", "Cargo.lock"],
+      &["test", "--package", "mtindo", "--lib", "--bins"],
+    ),
+  ];
+  let mut out: Vec<(&'static str, &'static [&'static str])> = Vec::new();
+  for file in changed {
+    let hit = PACKAGES.iter().find(|(prefix, also, _)| {
+      (!prefix.is_empty() && file.starts_with(prefix)) || also.iter().any(|a| file.starts_with(a))
+    });
+    if let Some((prefix, _, args)) = hit
+      && !out.iter().any(|(p, _)| p == prefix)
+    {
+      out.push((prefix, args));
+    }
+  }
+  out
+}
+
 /// `docs/internal/` holds working notes that never enter the history.
 fn no_internal(root: &Path, scope: &Scope) -> Result<(), String> {
   let files = match &scope.files {
@@ -558,7 +658,7 @@ fn run_check(
     "actions-pinned" => actions_pinned(root),
     "messages" => super::messages_in(root, flow, &scope.ranges),
     "hold" => hold(root, flow, scope),
-    "clippy" => command(
+    "clippy-lib" => command(
       root,
       "cargo",
       &[
@@ -574,11 +674,14 @@ fn run_check(
     "tests-xtask" => command(root, "cargo", &["test", "--package", "xtask"]),
     "deny" => command(root, "cargo", &["deny", "--workspace", "check"]),
     "github-settings" => github_settings(root, flow),
-    "tests" => command(
+    "tests-lib" => command(
       root,
       "cargo",
       &["test", "--package", "mtindo", "--no-fail-fast"],
     ),
+    "tests-near" => tests_near(root),
+    "suite" => suite(root),
+    "compat" => compat(root),
     "tools-pinned" => tools_pinned(root, flow),
     "msrv" => match flow.tool("msrv") {
       Some(msrv) => command(
@@ -604,6 +707,18 @@ fn run_check(
         Ok(())
       } else {
         Err("docs/generated/commands.md is out of date: run `cargo xtask docs`".to_string())
+      }
+    }
+    gate if crate::gates::GATES.iter().any(|(n, _, _)| *n == gate) => {
+      let problems: Vec<String> = crate::gates::GATES
+        .iter()
+        .filter(|(n, _, _)| *n == gate)
+        .flat_map(|(_, _, check)| check(tree))
+        .collect();
+      if problems.is_empty() {
+        Ok(())
+      } else {
+        Err(problems.join("\n"))
       }
     }
     other => Err(format!("no check `{}` (flow.toml [stages])", other)),
@@ -654,6 +769,37 @@ fn secrets(root: &Path, flow: &Flow, scope: &Scope) -> Result<(), String> {
     "what looks like a credential (flow.toml [secrets]); remove it, rotate it if it was real:\n{}",
     lines(&places)
   ))
+}
+
+/// `suite`: `cargo xtask test`, unless its last green run was on exactly this tree.
+fn suite(root: &Path) -> Result<(), String> {
+  let here = crate::common::tree::identity(root);
+  if crate::test::last_green(root).is_some_and(|(_, tree)| tree == here) {
+    println!("  (proven: the last green `cargo xtask test` ran on this tree)");
+    return Ok(());
+  }
+  command(root, "cargo", &["xtask", "test"])
+}
+
+/// `tests-near`: the unit tests of the packages the uncommitted changes touch.
+fn tests_near(root: &Path) -> Result<(), String> {
+  let mut changed: Vec<String> = git::git(root, &["diff", "--name-only", "HEAD"])?
+    .lines()
+    .map(str::to_string)
+    .collect();
+  changed.extend(
+    git::git(root, &["ls-files", "--others", "--exclude-standard"])?
+      .lines()
+      .map(str::to_string),
+  );
+  let packages = near(&changed);
+  if packages.is_empty() {
+    println!("  (no package changed since HEAD)");
+  }
+  for (_, args) in packages {
+    command(root, "cargo", args)?;
+  }
+  Ok(())
 }
 
 /// Each expiring credential CI uses has a recorded expiry, more than 14 days off (warned

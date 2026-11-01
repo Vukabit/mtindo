@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::common::process;
-use crate::{capabilities, gates};
+use crate::gates;
 
 pub const DEFAULT_FUZZ_TIME: u32 = 10;
 
@@ -229,64 +229,19 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     )
     .requires(&["clippy"]),
   );
-  tasks.push(Task::new(
-    "deps",
-    "mtindo has no runtime dependencies; xtask does not depend on mtindo",
-    "gates",
-    Action::Check(gate("deps")),
-  ));
-  tasks.push(Task::new(
-    "layering",
-    "Modules only use lower layers",
-    "gates",
-    Action::Check(gate("layering")),
-  ));
-  tasks.push(Task::new(
-    "docs",
-    "Public Markdown stays within 80 columns",
-    "gates",
-    Action::Check(gate("docs")),
-  ));
-  tasks.push(Task::new(
-    "metrics-docs",
-    "The metrics papers match the tracked records they are generated from",
-    "gates",
-    Action::Check(gate("metrics-docs")),
-  ));
-  tasks.push(Task::new(
-    "naming",
-    "The reference formatter is named only where the name does work",
-    "gates",
-    Action::Check(gate("naming")),
-  ));
-  tasks.push(Task::new(
-    "incidents",
-    "No open fuzz crash, meaning or unstable incident, or mto panic",
-    "gates",
-    Action::Check(gate("incidents")),
-  ));
-  tasks.push(Task::new(
-    "planning",
-    "Comments in src/, tests/ and fuzz/ name no stages, milestones or decision ids",
-    "gates",
-    Action::Check(gate("planning")),
-  ));
-  tasks.push(Task::new(
-    "unsafe",
-    "mtindo denies unsafe code, but for the macOS sync calls in src/durable/apple.rs",
-    "gates",
-    Action::Check(gate("unsafe")),
-  ));
-  tasks.push(Task::new(
-    "capabilities",
-    "Every rustfmt option, value and flag has a status",
-    "gates",
-    Action::Check(capabilities::check),
-  ));
+  // Every repository rule, under the id and title it has in gates.rs.
+  for (id, title, check) in gates::GATES {
+    tasks.push(Task::new(
+      id,
+      &capitalized(title),
+      "gates",
+      Action::Check(*check),
+    ));
+  }
   tasks.push(
     Task::new(
-      "rustfmt",
-      "rustfmt agrees with the repo layout",
+      "fmt",
+      "The standard formatter agrees with the repository's layout",
       "gates",
       command("cargo", &["fmt", "--all", "--check"]),
     )
@@ -525,7 +480,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     let toolchain = format!("+{}", version);
     tasks.push(
       Task::new(
-        "msrv",
+        "msrv-build",
         &format!("Builds with Rust {}, the package's rust-version", version),
         "heavy",
         command(
@@ -580,6 +535,15 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
   (tasks, warnings)
 }
 
+/// `text` with its first letter capitalized: a gate's description as a task's title.
+fn capitalized(text: &str) -> String {
+  let mut chars = text.chars();
+  match chars.next() {
+    Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    None => String::new(),
+  }
+}
+
 fn command(program: &str, args: &[&str]) -> Action {
   Action::Command(
     program.to_string(),
@@ -601,14 +565,6 @@ fn fuzz_24h(root: &Path) -> Vec<String> {
     crate::fuzz_soak::View::Quiet,
     &log,
   )
-}
-
-fn gate(name: &str) -> fn(&Path) -> Vec<String> {
-  gates::GATES
-    .iter()
-    .find(|(n, _, _)| *n == name)
-    .map(|(_, _, check)| *check)
-    .unwrap_or(|_| vec!["unknown gate".to_string()])
 }
 
 /// `rust-version` from the root `Cargo.toml`'s `[package]`.

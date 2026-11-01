@@ -16,8 +16,8 @@
 //!   to take one back.
 //! - `package TARGET` and `prepare TAG` are the release workflow's steps.
 
-mod checks;
-mod config;
+pub(crate) mod checks;
+pub(crate) mod config;
 mod git;
 mod glob;
 mod message;
@@ -124,22 +124,9 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   }
 }
 
-/// The hooks in `.githooks/` turned on for this clone.
-pub(super) fn setup(root: &Path) -> Result<(), String> {
-  config::load(root)?;
-  git::git(root, &["config", "core.hooksPath", ".githooks"])?;
-  let hooks: Vec<String> = fs::read_dir(root.join(".githooks"))
-    .map_err(|e| format!(".githooks: {}", e))?
-    .filter_map(|e| e.ok())
-    .map(|e| e.file_name().to_string_lossy().into_owned())
-    .collect();
-  println!("hooks: core.hooksPath = .githooks ({})", hooks.join(", "));
-  Ok(())
-}
-
 /// `check STAGE [--range A..B]`: a stage's checks on the whole tree, the range's commit
 /// messages too (CI's push or pull request).
-fn check(root: &Path, stage: &str, range: Option<String>) -> Result<(), String> {
+pub(crate) fn check(root: &Path, stage: &str, range: Option<String>) -> Result<(), String> {
   let flow = config::load(root)?;
   let names = flow
     .stage(stage)
@@ -153,6 +140,19 @@ fn check(root: &Path, stage: &str, range: Option<String>) -> Result<(), String> 
   };
   tools::require(&flow, stage)?;
   checks::run_stage(root, &flow, names, &scope)
+}
+
+/// The hooks in `.githooks/` turned on for this clone.
+pub(super) fn setup(root: &Path) -> Result<(), String> {
+  config::load(root)?;
+  git::git(root, &["config", "core.hooksPath", ".githooks"])?;
+  let hooks: Vec<String> = fs::read_dir(root.join(".githooks"))
+    .map_err(|e| format!(".githooks: {}", e))?
+    .filter_map(|e| e.ok())
+    .map(|e| e.file_name().to_string_lossy().into_owned())
+    .collect();
+  println!("hooks: core.hooksPath = .githooks ({})", hooks.join(", "));
+  Ok(())
 }
 
 /// `commit-msg FILE`: the message git is about to commit.

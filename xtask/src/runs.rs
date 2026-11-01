@@ -60,7 +60,7 @@ const SUPERVISE: &str = "XTASK_SUPERVISE";
 /// Commands that run without a record: they only read records or print help, or (`flow`)
 /// run as git hooks, which read what git gives them on stdin and run at every commit.
 const UNRECORDED: &[&str] = &[
-  "help", "-h", "--help", "status", "store", "runs", "metrics", "flow", "gaps", "next",
+  "help", "-h", "--help", "status", "store", "runs", "metrics", "flow", "gaps", "next", "checks",
 ];
 
 /// Set by the SIGINT handler: the terminal's Ctrl-C, which the child gets too.

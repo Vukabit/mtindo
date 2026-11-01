@@ -132,6 +132,21 @@ pub fn run(args: &[String]) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// The installed rustfmt of `toolchain`, by its version; `None` when it cannot run.
+pub(crate) fn version(toolchain: &str) -> Option<String> {
+  let out = process::output(
+    Command::new("rustfmt")
+      .arg("--version")
+      .env("RUSTUP_TOOLCHAIN", toolchain)
+      .env("RUSTUP_AUTO_INSTALL", "0")
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped()),
+    process::QUICK,
+  )
+  .ok()?;
+  (out.code == 0).then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 fn append_record(path: &Path, new: &[Disagreement]) {
   if new.is_empty() {
     return;
@@ -602,21 +617,6 @@ fn unfit(
     return Some("it runs the module without its crate root's skip attributes".to_string());
   }
   None
-}
-
-/// The installed rustfmt of `toolchain`, by its version; `None` when it cannot run.
-fn version(toolchain: &str) -> Option<String> {
-  let out = process::output(
-    Command::new("rustfmt")
-      .arg("--version")
-      .env("RUSTUP_TOOLCHAIN", toolchain)
-      .env("RUSTUP_AUTO_INSTALL", "0")
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped()),
-    process::QUICK,
-  )
-  .ok()?;
-  (out.code == 0).then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 #[cfg(test)]

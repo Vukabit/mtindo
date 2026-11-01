@@ -50,7 +50,7 @@ pub const TEST_REGISTRY: &[(&str, &str, &str)] = &[
   ("lib", "Library and binary unit tests", "tests"),
   (
     "xtask",
-    "xtask unit tests: runner, gates, capabilities, logging, lexdiff",
+    "xtask unit tests: xtask, xtask-core and xtask-tools",
     "tests",
   ),
   (
@@ -325,6 +325,8 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
           "xtask",
           "--package",
           "xtask-tools",
+          "--package",
+          "xtask-core",
           "--quiet",
         ],
       ),

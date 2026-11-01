@@ -371,15 +371,7 @@ fn verdict(case: &Case, toolchain: &str, home: &Path) -> (Verdict, Option<String
 }
 
 fn version(toolchain: &str) -> String {
-  let out = std::process::Command::new("rustfmt")
-    .arg("--version")
-    .env("RUSTUP_TOOLCHAIN", toolchain)
-    .env("RUSTUP_AUTO_INSTALL", "0")
-    .output();
-  match out {
-    Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-    _ => format!("rustfmt of {}", toolchain),
-  }
+  crate::probe::version(toolchain).unwrap_or_else(|| format!("rustfmt of {}", toolchain))
 }
 
 #[cfg(test)]

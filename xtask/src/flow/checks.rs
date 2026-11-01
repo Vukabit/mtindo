@@ -83,7 +83,10 @@ pub const CHECKS: &[(&str, &str)] = &[
     "commands-doc",
     "docs/generated/commands.md matches every command's help",
   ),
-  ("tests-xtask", "the xtask unit tests"),
+  (
+    "tests-xtask",
+    "the unit tests of xtask, xtask-core and xtask-tools",
+  ),
   (
     "github-settings",
     "the repository's GitHub settings are those MAINTAINING.md lists",
@@ -711,7 +714,19 @@ fn run_check(
         "warnings",
       ],
     ),
-    "tests-xtask" => command(root, "cargo", &["test", "--package", "xtask"]),
+    "tests-xtask" => command(
+      root,
+      "cargo",
+      &[
+        "test",
+        "--package",
+        "xtask",
+        "--package",
+        "xtask-core",
+        "--package",
+        "xtask-tools",
+      ],
+    ),
     "deny" => command(root, "cargo", &["deny", "--workspace", "check"]),
     "github-settings" => github_settings(root, flow),
     "tests-lib" => command(

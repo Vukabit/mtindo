@@ -1,6 +1,6 @@
 name: Idea
 description: Something mto could do
-labels: [idea]
+labels: [enhancement]
 body:
   - type: textarea
     id: want

@@ -88,6 +88,10 @@ pub const CHECKS: &[(&str, &str)] = &[
     "docs/generated/commands.md matches every command's help",
   ),
   (
+    "generated-pages",
+    "every generated page and table matches what it is written from (`cargo xtask docs --check`)",
+  ),
+  (
     "tests-xtask",
     "the unit tests of xtask, xtask-core and xtask-tools",
   ),
@@ -844,6 +848,7 @@ fn run_check(
     "deny" => command(root, "cargo", &["deny", "--workspace", "check"]),
     "mutants" => mutants(root),
     "site" => command(root, "cargo", &["xtask", "site"]),
+    "generated-pages" => command(root, "cargo", &["xtask", "docs", "--check", "--tracked"]),
     "github-settings" => github_settings(root, flow),
     "tests-lib" => command(
       root,

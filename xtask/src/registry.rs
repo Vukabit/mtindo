@@ -1,7 +1,7 @@
 //! Every file under records/ and every generated file, wherever it lives: what it holds,
 //! what writes it, what reads it and where it is shown. records/README.md and
 //! docs/generated/README.md show their part of this table; `cargo xtask docs` writes it
-//! there and `--check` (the `docs` gate's run) fails when a table is stale or a file
+//! there and `--check` (the `generated-pages` check's run) fails when a table is stale or a file
 //! under records/ or docs/generated/ is not listed.
 
 use std::fs;

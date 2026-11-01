@@ -161,7 +161,8 @@ The hooks in `.githooks/` are one line each; [flow.toml](flow.toml)'s
   the whole suite and the compatibility record, each skipped when already
   proven for this tree, and `cargo deny`.
 - **`ci`**, once per push in CI: `messages`, `no-internal`, `secrets`,
-  `fmt`, `gates`, pinned actions and tools, the command reference.
+  `fmt`, `gates`, pinned actions and tools, every generated page, the docs
+  site, clippy on the whole workspace and xtask's unit tests.
 - **`build`**, on each CI platform: `clippy-lib`, `tests-lib`.
 - **`msrv`**, in CI: the tests on the oldest supported Rust.
 - **`audit`**, in CI weekly and when a manifest or `Cargo.lock` changes:

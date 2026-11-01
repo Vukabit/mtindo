@@ -149,8 +149,8 @@ optional = true
 needed_by = ["memst"]
 
 # The checks each stage runs, in order. A hook runs the stage of its name; CI
-# runs `ci` once and `build` on every platform. Each check is described in
-# CONTRIBUTING.md.
+# runs `ci` once and `build` on every platform. `cargo xtask checks` describes each
+# check.
 [stages]
 pre-commit = ["no-internal", "secrets", "fmt", "gates", "commands-doc"]
 # The test suites take minutes: CI runs them on every push (`build`).
@@ -167,7 +167,7 @@ ci = [
   "gates",
   "actions-pinned",
   "tools-pinned",
-  "commands-doc",
+  "generated-pages",
   "site",
   "clippy",
   "tests-xtask",

@@ -174,6 +174,31 @@ fn gh(root: &Path, args: &[&str]) -> Result<String, String> {
 mod tests {
   use super::*;
 
+  /// The labels the issue forms put on an issue are labels the repository has.
+  #[test]
+  fn test_the_issue_forms_use_listed_labels() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let wanted = parse(&fs::read_to_string(root.join(FILE)).unwrap()).unwrap();
+    let forms = root.join(".github/ISSUE_TEMPLATE");
+    for entry in fs::read_dir(&forms).unwrap() {
+      let path = entry.unwrap().path();
+      let text = fs::read_to_string(&path).unwrap();
+      let Some(list) = text.lines().find_map(|l| l.strip_prefix("labels:")) else {
+        continue;
+      };
+      for name in list.trim().trim_matches(['[', ']']).split(',') {
+        let name = name.trim().trim_matches(['"', '\'']);
+        assert!(
+          name.is_empty() || wanted.iter().any(|l| l.name == name),
+          "{}: `{}` is not in {}",
+          path.display(),
+          name,
+          FILE
+        );
+      }
+    }
+  }
+
   #[test]
   fn test_the_repository_file_reads_and_plans() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();

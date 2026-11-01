@@ -21,13 +21,10 @@ use crate::common::log::Logger;
 use crate::common::process;
 use crate::papers::wrap;
 
-/// git-cliff's settings: Keep a Changelog headings, one per changelog heading
-/// `[kinds]` names in the order first named, each kind's commits under its own; kinds
-/// without one, and anything else, left out.
 /// The scopes of the development tooling, which mto's users never see: a commit naming
 /// only these (with `docs`, which tooling commits name for the generated command
 /// reference) is not in the changelog. `docs` alone is the user documentation, and stays.
-const TOOLING: &[&str] = &["xtask", "records", "flow", "ci", "tests", "fuzz"];
+const TOOLING: &[&str] = &["xtask", "records", "ci", "tests", "fuzz"];
 
 const UNRELEASED: &str = "## [Unreleased]";
 
@@ -429,6 +426,20 @@ fn tooling_pattern() -> String {
 mod tests {
   use super::*;
 
+  /// Each tooling scope is one a commit may name: a flow.toml section or a path.
+  #[test]
+  fn test_every_tooling_scope_is_a_scope() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let flow = crate::flow::config::load(root).unwrap();
+    for scope in TOOLING {
+      assert!(
+        flow.section(scope).is_some() || root.join(scope).exists(),
+        "`{}` is neither a section of flow.toml nor a path",
+        scope
+      );
+    }
+  }
+
   #[test]
   fn test_long_items_wrap_under_their_words() {
     let long = format!("- {}\n", "word ".repeat(30).trim_end());
@@ -494,6 +505,6 @@ mod tests {
     assert!(!tooling_only("feat(cli,xtask): a"));
     assert!(!tooling_only("fix(docs): a"));
     assert!(!tooling_only("feat: a"));
-    assert!(tooling_pattern().contains("(xtask|records|flow|ci|tests|fuzz)"));
+    assert!(tooling_pattern().contains("(xtask|records|ci|tests|fuzz)"));
   }
 }

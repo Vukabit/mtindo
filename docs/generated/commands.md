@@ -68,7 +68,8 @@ cargo xtask capabilities report [--markdown]
 ## `cargo xtask changelog`
 
 Render CHANGELOG.md's newest section from the commits after the last release tag
-with git-cliff (xtask/cliff.toml), wrapped to 80 columns
+with git-cliff (its settings written from flow.toml's [kinds]), wrapped to 80
+columns
 
 ```text
 cargo xtask changelog [--tag TAG] [--check] [--preview]

@@ -47,7 +47,7 @@ pub const GATES: &[Gate] = &[
   ),
   (
     "unsafe",
-    "mtindo denies unsafe code, but for the macOS sync calls and the allocator cache",
+    "mtindo denies unsafe code, but for the macOS sync calls, the allocator cache and the Windows console mode",
     check_unsafe,
   ),
 ];
@@ -131,7 +131,8 @@ const NAMING_ALLOWED_SPELLINGS: &[&str] = &[
 const NAMING_README_SECTIONS: &[&str] = &["## Credits", "## Development"];
 
 /// The files of mtindo allowed unsafe code: the `fcntl` calls macOS syncs with, which the
-/// standard library does not offer (see src/durable), and the binaries' allocator cache.
+/// standard library does not offer (see src/durable), the binaries' allocator cache, and
+/// the calls that turn on escape codes in a Windows console.
 const UNSAFE_ALLOWED: &[&str] = &[
   "src/durable/apple.rs",
   "src/cache_alloc.rs",

@@ -435,7 +435,7 @@ fn capabilities_all() -> Command {
 
 fn changelog() -> Command {
   Command::new("changelog")
-    .about("Render CHANGELOG.md's newest section from the commits after the last release tag with git-cliff (xtask/cliff.toml), wrapped to 80 columns")
+    .about("Render CHANGELOG.md's newest section from the commits after the last release tag with git-cliff (its settings written from flow.toml's [kinds]), wrapped to 80 columns")
     .arg(
       Arg::new("tag")
         .long("tag")

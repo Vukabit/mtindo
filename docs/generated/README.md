@@ -1,9 +1,9 @@
 # Generated pages
 
 Written from `src/` and [records/](../../records/); never edit them by hand.
-`cargo xtask docs` writes them and `cargo xtask docs --check` (the `docs`
-gate) fails when one is out of date. Code generated into `src/` is listed too,
-since it is written the same way.
+`cargo xtask docs` writes them and `cargo xtask docs --check` (the
+`generated-pages` check, in CI) fails when one is out of date. Code generated
+into `src/` is listed too, since it is written the same way.
 
 <!-- registry: written by cargo xtask docs from xtask/src/registry.rs -->
 

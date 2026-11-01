@@ -971,6 +971,14 @@ fn runs() -> Command {
         .about("Stop a run and its processes")
         .arg(id()),
     )
+    .subcommand(
+      Command::new("prune")
+        .about(
+          "Remove run folders past retention: the newest 50 of the last 30 days are kept, \
+           with those still going and those a finding names (each run does this when it ends)",
+        )
+        .arg(flag("dry-run", "Only say what would go")),
+    )
 }
 
 fn settings() -> Command {

@@ -685,7 +685,7 @@ Run records under .dev/runs/: every command leaves one; --detach runs one in the
 background
 
 ```text
-cargo xtask runs [list|show|tail|cancel]
+cargo xtask runs [list|show|tail|cancel|prune]
 ```
 
 ## `cargo xtask runs list`
@@ -727,6 +727,18 @@ cargo xtask runs cancel ID
 ```
 
 - `ID`: A run id, or its end
+
+## `cargo xtask runs prune`
+
+Remove run folders past retention: the newest 50 of the last 30 days are kept,
+with those still going and those a finding names (each run does this when it
+ends)
+
+```text
+cargo xtask runs prune [--dry-run]
+```
+
+- `--dry-run`: Only say what would go
 
 ## `cargo xtask settings`
 

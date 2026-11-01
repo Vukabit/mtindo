@@ -39,6 +39,13 @@ pub const RUN_DIR: &str = "XTASK_RUN_DIR";
 /// How often the supervisor rewrites the heartbeat.
 const HEARTBEAT: Duration = Duration::from_secs(5);
 
+const KEEP_DAYS: u64 = 30;
+
+/// How many run folders are kept, at most, and how old one may get: a run is kept while it
+/// is among the newest [`KEEP_RUNS`] and at most [`KEEP_DAYS`] old, and always while it is
+/// still going or a finding (`.dev/incidents/`) names it.
+const KEEP_RUNS: usize = 50;
+
 /// The longest any supervised command may run; each has its own, shorter limits within.
 const RUN_LIMIT: Duration = Duration::from_secs(48 * 60 * 60);
 
@@ -162,6 +169,49 @@ pub fn parse_time(stamp: &str) -> Option<SystemTime> {
   Some(UNIX_EPOCH + Duration::from_millis((seconds * 1000 + millis) as u64))
 }
 
+/// The run folders retention removes, oldest first.
+pub fn prunable(root: &Path, now: SystemTime) -> Vec<PathBuf> {
+  let mut dirs: Vec<PathBuf> = fs::read_dir(runs_dir(root))
+    .into_iter()
+    .flatten()
+    .flatten()
+    .map(|e| e.path())
+    .filter(|p| p.is_dir())
+    .collect();
+  // A folder's name starts with its UTC start time, so names sort by age.
+  dirs.sort();
+  let cited = cited_runs(root);
+  let newest = dirs.len().saturating_sub(KEEP_RUNS);
+  let limit = Duration::from_secs(KEEP_DAYS * 24 * 60 * 60);
+  dirs
+    .iter()
+    .enumerate()
+    .filter(|(i, dir)| {
+      let name = dir.file_name().unwrap_or_default().to_string_lossy();
+      let old = name_time(&name)
+        .and_then(|t| now.duration_since(t).ok())
+        .is_some_and(|age| age > limit);
+      let going = read(dir).is_some_and(|r| r.current_state() == "running");
+      (*i < newest || old) && !going && !cited.contains(name.as_ref())
+    })
+    .map(|(_, dir)| dir.clone())
+    .collect()
+}
+
+/// Removes what retention does not keep (or, `dry`, only says what it would): how many
+/// folders, and their bytes.
+pub fn prune(root: &Path, dry: bool) -> (usize, u64) {
+  let gone = prunable(root, SystemTime::now());
+  let mut bytes = 0;
+  for dir in &gone {
+    bytes += size(dir);
+    if !dry {
+      let _ = fs::remove_dir_all(dir);
+    }
+  }
+  (gone.len(), bytes)
+}
+
 pub fn read(dir: &Path) -> Option<Record> {
   Record::from_toml(&fs::read_to_string(record_path(dir)).ok()?)
 }
@@ -172,6 +222,20 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   match m.subcommand() {
     None => {
       print!("{}", list_text(&list(root), 30));
+      ExitCode::SUCCESS
+    }
+    Some(("prune", sub)) => {
+      let dry = crate::cli::on(sub, "dry-run");
+      let (count, bytes) = prune(root, dry);
+      println!(
+        "{} {} run folder(s), {} (kept: the newest {} of the last {} days, those still \
+         going and those a finding names)",
+        if dry { "would remove" } else { "removed" },
+        count,
+        shown_bytes(bytes),
+        KEEP_RUNS,
+        KEEP_DAYS
+      );
       ExitCode::SUCCESS
     }
     Some(("list", sub)) => {
@@ -295,6 +359,34 @@ fn cancel(dir: &Path, record: &Record) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// The run folders the findings name (`.dev/runs/<name>` in their files).
+fn cited_runs(root: &Path) -> std::collections::HashSet<String> {
+  let mut cited = std::collections::HashSet::new();
+  let mut stack = vec![root.join(".dev").join("incidents")];
+  while let Some(dir) = stack.pop() {
+    for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        stack.push(path);
+        continue;
+      }
+      let Ok(text) = fs::read_to_string(&path) else {
+        continue;
+      };
+      for (at, _) in text.match_indices(".dev/runs/") {
+        let name: String = text[at + ".dev/runs/".len()..]
+          .chars()
+          .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+          .collect();
+        if !name.is_empty() {
+          cited.insert(name);
+        }
+      }
+    }
+  }
+  cited
+}
+
 /// How a watched command ended, as a record's state.
 fn ending(watched: &process::Watched, interrupted: bool) -> &'static str {
   if watched.stopped || interrupted || watched.code == 130 {
@@ -347,6 +439,20 @@ fn list_text(runs: &[(PathBuf, Record)], limit: usize) -> String {
   out
 }
 
+/// `20261101-024914-…` as the time it names.
+fn name_time(name: &str) -> Option<SystemTime> {
+  let (date, time) = (name.get(0..8)?, name.get(9..15)?);
+  parse_time(&format!(
+    "{}-{}-{}T{}:{}:{}Z",
+    &date[0..4],
+    &date[4..6],
+    &date[6..8],
+    &time[0..2],
+    &time[2..4],
+    &time[4..6]
+  ))
+}
+
 /// A new run's id: `<UTC>-<command>-<4 hex>`.
 fn new_id(command: &str) -> String {
   let now = SystemTime::now();
@@ -385,6 +491,33 @@ fn show_text(dir: &Path, record: &Record) -> String {
   }
   out.push_str(&format!("folder {}\n", dir.display()));
   out
+}
+
+/// Bytes as GB, MB or KB.
+fn shown_bytes(bytes: u64) -> String {
+  let b = bytes as f64;
+  if b >= 1e9 {
+    format!("{:.1} GB", b / 1e9)
+  } else if b >= 1e6 {
+    format!("{:.1} MB", b / 1e6)
+  } else {
+    format!("{:.0} KB", b / 1e3)
+  }
+}
+
+fn size(path: &Path) -> u64 {
+  let mut total = 0;
+  let mut stack = vec![path.to_path_buf()];
+  while let Some(here) = stack.pop() {
+    for entry in fs::read_dir(&here).into_iter().flatten().flatten() {
+      match entry.metadata() {
+        Ok(m) if m.is_dir() => stack.push(entry.path()),
+        Ok(m) => total += m.len(),
+        Err(_) => {}
+      }
+    }
+  }
+  total
 }
 
 /// A TOML array of quoted strings, as [`Record::to_toml`] writes it.
@@ -498,6 +631,15 @@ fn supervise(root: &Path, dir: &Path, args: &[String]) -> ExitCode {
     }
   };
   write(dir, &record);
+  // Retention, once the run is recorded.
+  let (count, bytes) = prune(root, false);
+  if count > 0 {
+    eprintln!(
+      "removed {} old run folder(s) from .dev/runs ({})",
+      count,
+      shown_bytes(bytes)
+    );
+  }
   ExitCode::from(code.clamp(0, 255) as u8)
 }
 
@@ -614,6 +756,40 @@ mod tests {
     assert_eq!(ending(&w(130, false, false), false), "cancelled");
     assert_eq!(ending(&w(1, false, false), true), "cancelled");
     assert_eq!(ending(&w(137, false, false), false), "crashed");
+  }
+
+  /// Retention keeps the newest runs that are recent enough, and a cited or running one
+  /// whatever its age.
+  #[test]
+  fn test_retention_keeps_the_newest_recent_runs_and_cited_ones() {
+    let root = std::env::temp_dir().join(format!("mtindo-prune-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let runs = runs_dir(&root);
+    // 60 recent runs, one old one cited by a finding, one old one not.
+    for i in 0..60 {
+      fs::create_dir_all(runs.join(format!("20261101-{:06}-test-a{:02}", i, i))).unwrap();
+    }
+    fs::create_dir_all(runs.join("20260901-000000-memst")).unwrap();
+    fs::create_dir_all(runs.join("20260902-000000-fuzz")).unwrap();
+    let incident = root.join(".dev/incidents/fuzz-slow/x");
+    fs::create_dir_all(&incident).unwrap();
+    fs::write(
+      incident.join("README.md"),
+      "see .dev/runs/20260902-000000-fuzz/output.log\n",
+    )
+    .unwrap();
+    let now = parse_time("2026-11-02T00:00:00Z").unwrap();
+    let gone: Vec<String> = prunable(&root, now)
+      .iter()
+      .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+      .collect();
+    // The memst run is old and uncited; ten of the recent ones fall past the newest 50.
+    assert!(gone.contains(&"20260901-000000-memst".to_string()));
+    assert!(!gone.contains(&"20260902-000000-fuzz".to_string()));
+    assert_eq!(gone.len(), 1 + 10);
+    assert!(gone.contains(&"20261101-000000-test-a00".to_string()));
+    assert!(!gone.contains(&"20261101-000059-test-a59".to_string()));
+    let _ = fs::remove_dir_all(&root);
   }
 
   #[test]

@@ -38,6 +38,7 @@ jobs:
           - os: windows-2025
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -63,6 +64,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -97,6 +99,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: github
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     environment: crates-io
     permissions:
       id-token: write
@@ -120,6 +123,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/heads/dry-run/')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:

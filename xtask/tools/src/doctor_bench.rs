@@ -1,6 +1,6 @@
 //! `doctor-bench DIR...`: what the build guard costs mto, and how quickly a narrowing finds
 //! what to hold back, measured on the corpus's files with a pretend build. Prints each
-//! figure as `metric NAME VALUE UNIT` for `cargo xtask doctor bench` to keep.
+//! figure as `metric NAME VALUE UNIT` for `cargo xtask speed doctor` to keep.
 //!
 //! - **Shaping:** every file laid out and formatted as an ordinary run does, then again
 //!   holding back two moves and a run of lines by content, as remembered holds are; the

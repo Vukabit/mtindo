@@ -1,5 +1,5 @@
 # Instructions the release mto runs to check each file of the fixed workload, counted
-# by Cachegrind (`cargo xtask perf instructions --update` writes it). Compared on the
+# by Cachegrind (`cargo xtask speed instructions --update` writes it). Compared on the
 # target named, where a count may not grow more than 3%.
 target x86_64-unknown-linux-gnu
 count chain 33536042

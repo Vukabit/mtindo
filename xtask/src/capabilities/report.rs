@@ -15,7 +15,7 @@ const BAR_WIDTH: usize = 16;
 
 const LINE_WIDTH: usize = 80;
 
-/// How rustfmt's own test pairs fare, as `cargo xtask diff` last recorded them
+/// How rustfmt's own test pairs fare, as `cargo xtask compare` last recorded them
 /// (records/results/compatibility.txt): those with default settings, and those setting options.
 pub enum Cases {
   Recorded {

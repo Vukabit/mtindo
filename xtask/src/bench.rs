@@ -1,4 +1,4 @@
-//! `cargo xtask corpus bench`: the speed target (S2-1) on this machine, as a table.
+//! `cargo xtask speed throughput`: the speed target (S2-1) on this machine, as a table.
 //!
 //! Every tool is timed on the pinned corpus, end to end, by the wall clock and by CPU time
 //! (children's user plus system time, from `/usr/bin/time -p`):

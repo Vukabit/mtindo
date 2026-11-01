@@ -1,4 +1,4 @@
-//! `cargo xtask race`: times rustfmt (stable), rustfmt (nightly) and mto on the same inputs,
+//! `cargo xtask speed features`: times rustfmt (stable), rustfmt (nightly) and mto on the same inputs,
 //! feature by feature, with the results drawn live.
 //!
 //! - **Rows** are features: every `KEY=VALUE` that rustfmt's own test inputs set with
@@ -80,7 +80,7 @@ const LAYOUT_DEFAULTS_ROW: &str = "layout (defaults)";
 
 /// mto's settings no layout row varies: `layout` is on in every row, `ignore_dirs` only
 /// steers directory walks, which the race does not do, `format` is formatting, not
-/// layout, measured by `cargo xtask diff`, and the generated-file settings only decide
+/// layout, measured by `cargo xtask compare`, and the generated-file settings only decide
 /// whether a file is laid out at all.
 #[cfg(test)]
 const LAYOUT_EXEMPT: &[&str] = &[
@@ -321,7 +321,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let options = match options_of(m) {
     Ok(options) => options,
     Err(e) => {
-      eprintln!("cargo xtask race: error: {}", e);
+      eprintln!("cargo xtask speed features: error: {}", e);
       return ExitCode::from(2);
     }
   };
@@ -967,7 +967,7 @@ fn needed(race: &Race) -> Vec<usize> {
   set.into_iter().collect()
 }
 
-/// The options from `cargo xtask race`'s matches; clap has checked each value's type.
+/// The options from `cargo xtask speed features`'s matches; clap has checked each value's type.
 fn options_of(m: &clap::ArgMatches) -> Result<Options, String> {
   use crate::cli::{on, text};
   let mut sizes = Vec::new();
@@ -1026,14 +1026,14 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
         .iter()
         .find(|(label, _)| label == "stable")
         .map(|(_, d)| d.clone())
-        .ok_or("no stable release in records/upstream/rustfmt-surface.txt; run `cargo xtask capabilities refresh` online")?;
+        .ok_or("no stable release in records/upstream/rustfmt-surface.txt; run `cargo xtask sync rustfmt` online")?;
   let commit = description
     .split([' ', ','])
     .find(|w| w.len() == 40 && w.chars().all(|c| c.is_ascii_hexdigit()))
     .ok_or("the stable source names no commit")?
     .to_string();
   let rustfmt_dir = fetch::cached_checkout(root, &commit, log)?
-    .ok_or("rustfmt's tests are not cached; run `cargo xtask capabilities refresh` online")?;
+    .ok_or("rustfmt's tests are not cached; run `cargo xtask sync rustfmt` online")?;
 
   // Versions, and that every tool can run.
   let mut versions = BTreeMap::new();
@@ -1151,7 +1151,7 @@ fn prepare(root: &Path, options: &Options, log: &Logger) -> Result<Race, String>
   }
   if skipped_configs > 0 {
     println!(
-      "{} inputs left out: their tests/config file is not cached; run `cargo xtask capabilities refresh` online",
+      "{} inputs left out: their tests/config file is not cached; run `cargo xtask sync rustfmt` online",
       skipped_configs
     );
   }
@@ -2571,11 +2571,13 @@ mod tests {
   #[test]
   fn test_size_argument() {
     let parsed = |words: &[&str]| {
-      let mut all = vec!["race".to_string()];
-      all.extend(words.iter().map(|s| s.to_string()));
-      match crate::cli::parse(&all) {
-        crate::cli::Parsed::Run(_, m) => options_of(&m),
-        _ => Err("bad arguments".to_string()),
+      let all: Vec<String> = words.iter().map(|s| s.to_string()).collect();
+      match crate::cli::internal("race")
+        .unwrap()
+        .try_get_matches_from(&all)
+      {
+        Ok(m) => options_of(&m),
+        Err(_) => Err("bad arguments".to_string()),
       }
     };
     let options = parsed(&["--size", "80x24,40x10", "--live", "--frames", "/tmp/f"]).unwrap();

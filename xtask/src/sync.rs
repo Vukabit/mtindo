@@ -19,7 +19,6 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use crate::common::log::Logger;
-use crate::common::process;
 
 /// The parts, in the order `sync` runs them all.
 pub const PARTS: &[&str] = &["rustfmt", "unicode", "changelog", "docs"];
@@ -34,7 +33,7 @@ enum Step {
 impl Step {
   fn name(&self) -> String {
     match self {
-      Step::Command(args) => format!("cargo xtask {}", args.join(" ")),
+      Step::Command(args) => args.join(" "),
       Step::NewReleases => "newer rustfmt releases than recorded".to_string(),
     }
   }
@@ -60,9 +59,9 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     for step in steps(part, check, parts.len() > 1) {
       let ok = match &step {
         Step::Command(args) => {
-          println!("\n== cargo xtask {}", args.join(" "));
+          println!("\n== {}", args.join(" "));
           let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-          process::forward(root, &["xtask"], &args) == ExitCode::SUCCESS
+          crate::run_internal(root, &args[0], &args[1..]) == ExitCode::SUCCESS
         }
         Step::NewReleases => {
           println!("\n== newer rustfmt releases than recorded");
@@ -177,11 +176,7 @@ mod tests {
         for step in steps(part, check, false) {
           if let Step::Command(args) = step {
             let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-            assert!(
-              matches!(crate::cli::parse(&args), crate::cli::Parsed::Run(..)),
-              "{:?}",
-              args
-            );
+            assert!(crate::cli::takes(&args), "{:?}", args);
           }
         }
       }

@@ -15,8 +15,6 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::common::process;
-
 /// Each measure and the command that makes it.
 pub const MEASURES: &[(&str, &[&str], &str)] = &[
   (
@@ -38,6 +36,11 @@ pub const MEASURES: &[(&str, &[&str], &str)] = &[
     "growth",
     &["perf", "growth"],
     "generated files of doubling size",
+  ),
+  (
+    "timings",
+    &["perf"],
+    "latency, scaling and growth, one after another",
   ),
   (
     "instructions",
@@ -65,7 +68,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   };
   let mut args: Vec<String> = command.iter().map(|s| s.to_string()).collect();
   args.extend(crate::cli::texts(m, "args"));
-  process::forward(root, &["xtask"], &args)
+  crate::run_internal(root, &args[0], &args[1..])
 }
 
 #[cfg(test)]
@@ -77,12 +80,7 @@ mod tests {
   fn test_every_measure_is_a_command() {
     for (name, command, _) in MEASURES {
       let args: Vec<String> = command.iter().map(|s| s.to_string()).collect();
-      assert!(
-        matches!(crate::cli::parse(&args), crate::cli::Parsed::Run(..)),
-        "{}: {:?}",
-        name,
-        command
-      );
+      assert!(crate::cli::takes(&args), "{}: {:?}", name, command);
     }
   }
 }

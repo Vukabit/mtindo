@@ -135,7 +135,12 @@ mod tests {
       .map(|(id, _)| *id)
       .filter(|id| tasks.iter().any(|t| t.id == *id))
       .collect();
-    assert_eq!(shared, vec!["fmt"], "a shared id must name one check");
+    // Both run `cargo fmt --all --check` and `cargo clippy --workspace --all-targets`.
+    assert_eq!(
+      shared,
+      vec!["fmt", "clippy"],
+      "a shared id must name one check"
+    );
   }
 
   #[test]

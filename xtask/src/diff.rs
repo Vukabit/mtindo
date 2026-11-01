@@ -1,4 +1,4 @@
-//! `cargo xtask diff`: how much of the Rust style mto reproduces (stage 3, F1). Fetches the
+//! `cargo xtask compare`: how much of the Rust style mto reproduces (stage 3, F1). Fetches the
 //! corpus and the standard formatter's pinned test suite, then runs the harness in
 //! `xtask-tools` (which links mtindo), comparing against `records/results/compatibility.txt`.
 //! `--update` records new numbers; `--markdown` prints a shareable report.

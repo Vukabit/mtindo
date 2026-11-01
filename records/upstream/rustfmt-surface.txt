@@ -1,5 +1,5 @@
 # rustfmt's options, option values and command-line flags, written by
-# `cargo xtask capabilities refresh`; do not edit. `in` lists the sources that have
+# `cargo xtask sync rustfmt`; do not edit. `in` lists the sources that have
 # an item and `stable` the sources that call it stable. Only release sources know
 # whether a value is stable. `hidden` marks options rustfmt leaves out of its own
 # listings (deprecated or internal).

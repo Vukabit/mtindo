@@ -1,11 +1,11 @@
-//! `cargo xtask pairs`: the scrambled-pair suite. Each run draws corpus files with a fresh
+//! `cargo xtask compare pairs`: the scrambled-pair suite. Each run draws corpus files with a fresh
 //! seed and scrambles them (`xtask-tools pairs`, which links mtindo): items shuffled where
 //! their order carries no meaning, then whitespace, each pass checked token for token, so
 //! every run samples other states real files may be in. The seed is printed, and `--seed`
 //! replays a run.
 //!
 //! Each scrambled file is formatted by mto and by the standard formatter, and scored as
-//! `cargo xtask diff` scores: files and lines matching (formatting only; the standard
+//! `cargo xtask compare` scores: files and lines matching (formatting only; the standard
 //! formatter does not reorder items).
 //!
 //! The crates that compile offline (those of `domain_13_rw`) are also built three times,
@@ -56,7 +56,7 @@ const DRAWN_PER_KIND: usize = 3;
 
 /// What mto's copy is laid out and formatted with.
 const MTO_SETTINGS: &str =
-  "# Written by `cargo xtask pairs`.\nroot = true\nlayout = true\nformat = true\n";
+  "# Written by `cargo xtask compare pairs`.\nroot = true\nlayout = true\nformat = true\n";
 
 /// How a crate's copies built.
 #[derive(Clone, Debug, PartialEq)]
@@ -300,7 +300,7 @@ pub fn render(seed: u64, crates: &[Crate], totals: &Totals) -> String {
     totals.standard_breaks
   ));
   out.push_str(&format!(
-    "{} scrambler bug(s); replay with: cargo xtask pairs --seed {}\n",
+    "{} scrambler bug(s); replay with: cargo xtask compare pairs -- --seed {}\n",
     totals.scrambler_bugs, seed
   ));
   out
@@ -439,7 +439,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   }
   let replay = |name: &str| {
     format!(
-      "cargo xtask pairs --seed {} --crates {} --files {}",
+      "cargo xtask compare pairs -- --seed {} --crates {} --files {}",
       seed, name, options.files
     )
   };
@@ -843,12 +843,13 @@ mod tests {
   }
 
   fn parsed(words: &[&str]) -> Options {
-    match crate::cli::parse(&names(words)) {
-      crate::cli::Parsed::Run(name, m) => {
-        assert_eq!(name, "pairs");
-        options(&m)
-      }
-      _ => panic!("not a run: {:?}", words),
+    assert_eq!(words.first(), Some(&"pairs"));
+    match crate::cli::internal("pairs")
+      .unwrap()
+      .try_get_matches_from(names(&words[1..]))
+    {
+      Ok(m) => options(&m),
+      Err(e) => panic!("not a run: {:?}: {}", words, e),
     }
   }
 
@@ -943,7 +944,7 @@ noise from cargo
     assert!(table.contains("after mto: error[E0425]: cannot find value `x`"));
     assert!(table.contains("SCRAMBLER BUG"));
     assert!(table.contains("scrambler bug in src/y.rs: whitespace: token 3 differs"));
-    assert!(table.contains("cargo xtask pairs --seed 77"));
+    assert!(table.contains("cargo xtask compare pairs -- --seed 77"));
     assert!(!table.contains("rustfmt"));
   }
 }

@@ -63,8 +63,6 @@ text = ["src/text/**"]
 fuzz = ["fuzz/**", "src/fuzzing/**"]
 tests = ["tests/**", "benches/**"]
 records = ["records/**"]
-# The old name of records/, for the commits made before the move.
-compat = ["compat/**", "records/**"]
 xtask = ["xtask/**"]
 ci = [".github/**", ".githooks/**", "flow.toml"]
 docs = ["*.md", "docs/**"]
@@ -171,6 +169,7 @@ ci = [
   "tools-pinned",
   "commands-doc",
   "site",
+  "clippy",
   "tests-xtask",
 ]
 build = ["clippy-lib", "tests-lib"]

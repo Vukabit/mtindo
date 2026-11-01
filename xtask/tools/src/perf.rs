@@ -1,4 +1,4 @@
-//! The in-process half of `cargo xtask perf`: what laying out and formatting costs with more
+//! The in-process half of `cargo xtask speed latency|scaling|growth`: what laying out and formatting costs with more
 //! threads, and as inputs grow. Each file goes through `mtindo::run_file` as a `--check`
 //! does (read, layout, formatting, both verifiers, the diff), with layout and formatting on
 //! at their defaults.

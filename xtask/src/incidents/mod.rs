@@ -89,7 +89,7 @@ pub const KINDS: &[(&str, &str, bool)] = &[
 
 pub const STATUSES: &[&str] = &["open", "flaky", "fixed", "wont-fix"];
 
-/// The kinds `cargo xtask diff` finds, and so rechecks.
+/// The kinds `cargo xtask compare` finds, and so rechecks.
 const DIFF_KINDS: &[&str] = &["meaning", "unstable", "panic", "compat-break"];
 
 /// How a compile break `domain_13_rw` filed is seen again.
@@ -432,7 +432,7 @@ pub fn from_diff(root: &Path, findings: &str, inputs: &Path) -> DiffCounts {
       target: set,
       said: &said,
       input: input.as_deref(),
-      replay: "cargo xtask diff",
+      replay: "cargo xtask compare",
       tree: &tree,
       run: &run,
       key: Some(name),

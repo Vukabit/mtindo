@@ -1,5 +1,5 @@
 # Every first-class target builds mto, runs its tests and measures what writing files
-# costs there (`cargo xtask io bench`): each platform syncs its own way (src/durable).
+# costs there (`cargo xtask speed io`): each platform syncs its own way (src/durable).
 name: ci
 
 on:
@@ -55,7 +55,7 @@ jobs:
       - name: What writing costs here
         run: |
           status=0
-          cargo xtask io bench > io-bench.txt 2>&1 || status=$?
+          cargo xtask speed io > io-bench.txt 2>&1 || status=$?
           cat io-bench.txt
           head -c 65536 io-bench.txt >> "$GITHUB_STEP_SUMMARY"
           exit $status
@@ -112,7 +112,7 @@ jobs:
           cargo xtask flow check ci --range "$range"
 
   # Instructions the release mto runs on a fixed workload, counted by Cachegrind
-  # (`cargo xtask perf instructions`): the same from run to run, so a runner too noisy
+  # (`cargo xtask speed instructions`): the same from run to run, so a runner too noisy
   # for wall time still catches a few percent of slowdown.
   instructions:
     runs-on: ubuntu-24.04
@@ -128,7 +128,7 @@ jobs:
       - name: Count
         run: |
           status=0
-          cargo xtask perf instructions > instructions.txt 2>&1 || status=$?
+          cargo xtask speed instructions > instructions.txt 2>&1 || status=$?
           cat instructions.txt
           { echo '```text'; cat instructions.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit $status

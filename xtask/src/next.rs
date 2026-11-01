@@ -162,7 +162,7 @@ fn gaps(root: &Path, log: &Logger) -> Vec<Item> {
     return vec![Item {
       tier: 3,
       what: "no diff has been run here, so the gaps are unknown".to_string(),
-      then: "cargo xtask diff".to_string(),
+      then: "cargo xtask compare".to_string(),
     }];
   };
   let mut out: Vec<Item> = gaps
@@ -338,7 +338,7 @@ fn unproven(root: &Path) -> Vec<Item> {
     what: "the compatibility record is not proven for this tree (what the diff reads changed \
            since it last passed)"
       .to_string(),
-    then: "cargo xtask diff".to_string(),
+    then: "cargo xtask compare".to_string(),
   }]
 }
 

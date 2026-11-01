@@ -210,7 +210,7 @@ compatibility harness check it.
   requires no false alarm (a file against itself, and a file with its items
   moved in a safe order, are clean) and no panic. Finds kept as tests live
   in `tests/fuzz_regressions/`, replayed by `tests/fuzz_regressions.rs`.
-- **The standard formatter's output:** `cargo xtask diff` runs
+- **The standard formatter's output:** `cargo xtask compare` runs
   `verify_format` on the standard formatter's own output over the corpus
   and its test suite. A flag there is either a bug of that formatter's or a
   safe rewrite the table lacks. Known cases are listed, each with its

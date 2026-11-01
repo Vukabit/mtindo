@@ -25,8 +25,8 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
   suite, at a commit. Written by hand; read by toml-test.
 - **[upstream/rustfmt-surface.txt](upstream/rustfmt-surface.txt)** (snapshot):
   the standard formatter's options, values and flags, per release. Written by
-  `cargo xtask capabilities refresh`; read by capabilities gate, settings, diff;
-  shown in config reference.
+  `cargo xtask sync rustfmt`; read by capabilities gate, settings, diff; shown
+  in config reference.
 - **[policy/capabilities.txt](policy/capabilities.txt)** (policy): how far mto
   supports each of the standard formatter's items. Written by hand
   (`capabilities sync` adds new items); read by capabilities gate,
@@ -36,14 +36,15 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
   `cargo xtask probe --scan --record` (auto-recorded); read by probe.
 - **[policy/exceptions.txt](policy/exceptions.txt)** (policy): outputs of the
   standard formatter the meaning check flags, and excused pairs. Written by
-  hand, `cargo xtask diff` (auto-recorded); read by diff; shown in meaning page.
+  hand, `cargo xtask compare` (auto-recorded); read by diff; shown in meaning
+  page.
 - **[results/compatibility.txt](results/compatibility.txt)** (result): files and
-  lines matching the standard formatter, per set. Written by `cargo xtask diff
-  --update`; read by diff (the ratchet), release, capabilities report; shown in
-  compatibility page, README.
+  lines matching the standard formatter, per set. Written by `cargo xtask
+  compare -- --update`; read by diff (the ratchet), release, capabilities
+  report; shown in compatibility page, README.
 - **[results/instructions.txt](results/instructions.txt)** (result):
   instructions the release mto runs on a fixed workload, on Linux. Written by
-  `cargo xtask perf instructions --update`, from CI's counts; read by perf
+  `cargo xtask speed instructions --update`, from CI's counts; read by perf
   instructions (CI).
 - **[results/ratchet.txt](results/ratchet.txt)** (result): speed and memory
   limits, for one named machine. Written by `cargo xtask metrics ratchet

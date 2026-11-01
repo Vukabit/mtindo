@@ -8,6 +8,6 @@
       are on (`cargo xtask bootstrap --go`).
 - [ ] A test covers the change; a formatting fix's expected output is the
       standard formatter's.
-- [ ] For formatting: `cargo xtask diff` passes; its numbers:
+- [ ] For formatting: `cargo xtask compare` passes; its numbers:
 
 <!-- corpus files and lines, before and after -->

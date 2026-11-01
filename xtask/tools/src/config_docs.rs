@@ -274,7 +274,7 @@ fn generate(root: &Path) -> Result<Vec<(&'static str, String)>, String> {
   if sources.stable.version != options::RUSTFMT_VERSION {
     return Err(format!(
       "records/upstream/rustfmt-surface.txt pins rustfmt {}, but src/options/rustfmt.rs follows {}; \
-       run `cargo xtask settings`",
+       run `cargo xtask sync rustfmt`",
       sources.stable.version,
       options::RUSTFMT_VERSION
     ));

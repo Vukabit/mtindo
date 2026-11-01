@@ -164,7 +164,7 @@ pub fn parse_before(text: &str) -> Vec<Before> {
     .collect()
 }
 
-/// The compatibility record's text, read as `cargo xtask diff` reads it.
+/// The compatibility record's text, read as `cargo xtask compare` reads it.
 pub fn parse_compat(text: &str) -> Compat {
   let mut compat = Compat::default();
   for line in text.lines() {

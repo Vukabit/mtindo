@@ -1,4 +1,4 @@
-//! `cargo xtask diff`: how much of the Rust style mto reproduces, measured against the
+//! `cargo xtask compare`: how much of the Rust style mto reproduces, measured against the
 //! standard formatter (S3-1, S3-2, S3-6, S3-7).
 //!
 //! Three input sets, each file scored by whether mto's output equals the answer exactly, and
@@ -200,7 +200,7 @@ pub fn lexer(root: &Path, args: &[String]) -> ExitCode {
 /// ```
 ///
 /// with each file's scrambled, standard and mto texts under `DIR/scrambled|standard|mto/
-/// NAME/FILE`, for `cargo xtask pairs` to build the copies it compiles.
+/// NAME/FILE`, for `cargo xtask compare pairs` to build the copies it compiles.
 pub fn pairs(args: &[String]) -> ExitCode {
   let PairsArgs {
     seed,
@@ -369,7 +369,7 @@ pub fn run(args: &[String]) -> ExitCode {
     "{}",
     report(&tallies, &kinds, &options.reference, options.markdown)
   );
-  // This run's numbers, for `cargo xtask diff` to keep as series.
+  // This run's numbers, for `cargo xtask compare` to keep as series.
   if let Some(dir) = options.broke_log.as_ref().and_then(|log| log.parent()) {
     let mut out = String::new();
     for (set, t) in &tallies {

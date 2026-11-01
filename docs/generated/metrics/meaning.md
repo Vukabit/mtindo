@@ -2,9 +2,9 @@
 paper: "meaning"
 title: "Meaning and stability"
 status: "measured"
-generated: "2026-11-01T02:35:40.822Z"
-commit: "096a91d-dirty.7f47fb1f"
-command: "cargo xtask diff"
+generated: "2026-11-01T17:27:47.926Z"
+commit: "f3946ea-dirty.44ab751f"
+command: "cargo xtask compare"
 sources:
   - records/policy/exceptions.txt
   - records/results/compatibility.txt
@@ -27,11 +27,11 @@ metrics:
 ## Abstract
 
 <!-- generated: abstract -->
-Every output of mto that `cargo xtask diff` scores must keep the input's meaning
-and must not change when formatted again, or the run fails. The same meaning
-check, run on the standard formatter's own outputs, flags 21 files, each listed
-with its reason: 5 are rewrites the check does not model yet, and 16 are the
-formatter changing meaning, writing invalid code, or test inputs that differ
+Every output of mto that `cargo xtask compare` scores must keep the input's
+meaning and must not change when formatted again, or the run fails. The same
+meaning check, run on the standard formatter's own outputs, flags 21 files, each
+listed with its reason: 5 are rewrites the check does not model yet, and 16 are
+the formatter changing meaning, writing invalid code, or test inputs that differ
 from their expected files beyond formatting.
 <!-- end generated -->
 

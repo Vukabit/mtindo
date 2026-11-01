@@ -53,7 +53,7 @@ pub fn fence(downloads: &Path) {
   let fences = [
     (
       "mto.toml",
-      "# Written by `cargo xtask diff`: nothing here takes settings from above.\nroot = true\n",
+      "# Written by `cargo xtask compare`: nothing here takes settings from above.\nroot = true\n",
     ),
     ("rustfmt.toml", ""),
   ];

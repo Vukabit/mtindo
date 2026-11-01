@@ -1,6 +1,6 @@
 # What mto supports of rustfmt's surface (records/upstream/rustfmt-surface.txt), plus mto's
 # own features. One line per item: KIND NAME STATUS [# NOTE]. Checked by
-# `cargo xtask gates capabilities`; `cargo xtask capabilities sync` adds new items
+# `cargo xtask gates capabilities`; `cargo xtask sync rustfmt` adds new items
 # as missing, drops stale ones and restores the canonical layout.
 #
 # supported    works as in rustfmt; the note names the test that shows it
@@ -206,7 +206,7 @@ mto     command:init                                     supported    # tests/do
 mto     command:report                                   supported    # tests/domain_8_cli.rs
 mto     command:restore                                  supported    # tests/domain_8_cli.rs
 mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
-mto     config:format                                    partial      # every construct, matching the standard formatter on the corpus (cargo xtask diff); some of its settings not yet (mto config options); what it gives up on is left as written (src/format/file/tests.rs, tests/domain_8_cli.rs)
+mto     config:format                                    partial      # every construct, matching the standard formatter on the corpus (cargo xtask compare); some of its settings not yet (mto config options); what it gives up on is left as written (src/format/file/tests.rs, tests/domain_8_cli.rs)
 mto     config:generated_markers                         supported    # tests/domain_8_cli.rs
 mto     config:group_impls                               supported    # tests/domain_2_golden.rs
 mto     config:ignore_dirs                               supported    # tests/domain_9_config_hierarchy.rs

@@ -14,8 +14,6 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::common::process;
-
 /// Every source: its name, its family's command, and what it is.
 pub const SOURCES: &[(&str, &str, &str)] = &[
   (
@@ -61,7 +59,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       return ExitCode::from(2);
     }
   };
-  process::forward(root, &["xtask"], &args)
+  crate::run_internal(root, &args[0], &args[1..])
 }
 
 /// The command a run of `names` is, with `rest` passed on.
@@ -119,12 +117,7 @@ mod tests {
   fn test_every_source_names_a_command() {
     for (name, command, _) in SOURCES {
       let args = vec![command.to_string()];
-      assert!(
-        matches!(crate::cli::parse(&args), crate::cli::Parsed::Run(..)),
-        "{}: {}",
-        name,
-        command
-      );
+      assert!(crate::cli::takes(&args), "{}: {}", name, command);
       assert_eq!(
         *command == "diff",
         crate::diff::SETS.contains(name),

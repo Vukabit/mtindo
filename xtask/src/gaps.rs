@@ -1,6 +1,6 @@
 //! `cargo xtask gaps`: the standard formatter's test pairs mto does not match yet, grouped
 //! by the settings they set and by where they first differ, from what the last
-//! `cargo xtask diff` wrote (nothing is run again):
+//! `cargo xtask compare` wrote (nothing is run again):
 //!
 //! - `.dev/logs/diff-scores.txt`: each pair's matched lines, `[SET] NAME MATCHED/TOTAL`;
 //! - `.dev/logs/diff-first.txt`: each mismatch's first differing line, `KIND [SET] NAME:LINE`;
@@ -52,7 +52,7 @@ pub fn collect(root: &Path, log: &Logger) -> Result<Gaps, String> {
   let logs = store::dir(root, store::LOGS);
   let scores_path = logs.join("diff-scores.txt");
   let scores = fs::read_to_string(&scores_path).map_err(|_| {
-    "no diff has been run here (.dev/logs/diff-scores.txt): run `cargo xtask diff`".to_string()
+    "no diff has been run here (.dev/logs/diff-scores.txt): run `cargo xtask compare`".to_string()
   })?;
   let measured = fs::metadata(&scores_path)
     .and_then(|m| m.modified())

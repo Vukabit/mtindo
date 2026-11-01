@@ -99,7 +99,7 @@ fn compatibility(root: &Path, local: bool) -> Result<Paper, String> {
     repositories.to_string(),
   ));
   let front = Front::new("compatibility", COMPATIBILITY, "measured")
-    .text("command", "cargo xtask diff --update")
+    .text("command", "cargo xtask compare -- --update")
     .list(
       "sources",
       &[
@@ -496,7 +496,7 @@ fn last_diff(root: &Path) -> Option<String> {
   let (day, bands) = records::score_bands(root)?;
   let mut out = wrap(
     &format!(
-      "From the last `cargo xtask diff` run recorded on the machine that generated this \
+      "From the last `cargo xtask compare` run recorded on the machine that generated this \
        page ({}), which need not be the run the record above was made from. Scored files \
        by the share of their expected lines mto's output keeps:",
       day
@@ -626,7 +626,7 @@ fn meaning(root: &Path, local: bool) -> Result<Paper, String> {
   ));
   figures.push(("meaning.exceptions.other".to_string(), other.to_string()));
   let front = Front::new("meaning", MEANING, "measured")
-    .text("command", "cargo xtask diff")
+    .text("command", "cargo xtask compare")
     .list(
       "sources",
       &[
@@ -640,7 +640,7 @@ fn meaning(root: &Path, local: bool) -> Result<Paper, String> {
     .map("metrics", figures)
     .done()?;
   let summary = format!(
-    "Every output of mto that `cargo xtask diff` scores must keep the input's meaning and \
+    "Every output of mto that `cargo xtask compare` scores must keep the input's meaning and \
      must not change when formatted again, or the run fails. The same meaning check, run \
      on the standard formatter's own outputs, flags {} files, each listed with its reason: \
      {} are rewrites the check does not model yet, and {} are the formatter changing \
@@ -1050,17 +1050,24 @@ mod tests {
   fn test_every_page_keeps_to_the_rules_for_public_markdown() {
     for local in [false, true] {
       for page in all(root(), local).unwrap() {
-        let mut text = page
+        let front = page
           .front
           .as_ref()
           .map_or(String::new(), |f| f.render(&super::super::Stamp::blank()));
+        let mut body = String::new();
         for region in &page.regions {
-          text.push_str(region.text.as_deref().unwrap_or_default());
+          body.push_str(region.text.as_deref().unwrap_or_default());
         }
+        let text = format!("{}{}", front, body);
         for line in text.lines() {
           assert!(line.chars().count() <= WIDTH, "{}: {}", page.path, line);
+        }
+        // No dash for punctuation in the prose; a command's `--` in code is not one, nor
+        // one in the front matter's data.
+        for line in body.lines() {
+          let prose: String = line.split('`').step_by(2).collect();
           assert!(
-            !line.contains('\u{2014}') && !line.contains(" -- "),
+            !prose.contains('\u{2014}') && !prose.contains(" -- "),
             "{}",
             line
           );

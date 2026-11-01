@@ -1,7 +1,7 @@
 //! `records/policy/capabilities.txt`: mto's status for every item, kept by hand.
 //!
 //! A line is `KIND NAME STATUS [# NOTE]`, sorted by kind then name, in fixed columns; the
-//! comment block at the top is kept as written. `cargo xtask capabilities sync` rewrites the
+//! comment block at the top is kept as written. `cargo xtask sync rustfmt` rewrites the
 //! file in canonical form.
 
 use super::surface::{KIND_WIDTH, Kind, NAME_WIDTH};
@@ -9,7 +9,7 @@ use super::surface::{KIND_WIDTH, Kind, NAME_WIDTH};
 pub const DEFAULT_HEADER: &str = "\
 # What mto supports of rustfmt's surface (records/upstream/rustfmt-surface.txt), plus mto's
 # own features. One line per item: KIND NAME STATUS [# NOTE]. Checked by
-# `cargo xtask gates capabilities`; `cargo xtask capabilities sync` adds new items
+# `cargo xtask gates capabilities`; `cargo xtask sync rustfmt` adds new items
 # as missing, drops stale ones and restores the canonical layout.
 #
 # supported    works as in rustfmt; the note names the test that shows it

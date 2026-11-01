@@ -1,4 +1,4 @@
-//! The scrambler of the scrambled-pair suite (`cargo xtask pairs`): a file put in another
+//! The scrambler of the scrambled-pair suite (`cargo xtask compare pairs`): a file put in another
 //! state it could have been written in, one that still compiles to the same program, so a
 //! formatter that fails on it is at fault and never the scrambler.
 //!

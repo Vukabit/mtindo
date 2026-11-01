@@ -397,7 +397,10 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
       "speed",
       "Speed target: mto at least 2x rustfmt's throughput (S2-1); layout per core",
       "heavy",
-      Action::Command(this_binary.clone(), vec!["corpus".into(), "bench".into()]),
+      Action::Command(
+        this_binary.clone(),
+        vec!["speed".into(), "throughput".into()],
+      ),
     )
     .requires(&["git"]),
   );
@@ -405,13 +408,13 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     "io",
     "Writing generated files with each way of syncing; the io.* ratchet holds",
     "heavy",
-    Action::Command(this_binary.clone(), vec!["io".into(), "bench".into()]),
+    Action::Command(this_binary.clone(), vec!["speed".into(), "io".into()]),
   ));
   tasks.push(Task::new(
     "perf",
     "One-file latency, thread scaling over the corpus and growth with size; perf.* series",
     "heavy",
-    Action::Command(this_binary.clone(), vec!["perf".into()]),
+    Action::Command(this_binary.clone(), vec!["speed".into(), "timings".into()]),
   ));
   tasks.push(
     Task::new(
@@ -440,18 +443,18 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
       "diff",
       "Compatibility with the Rust style stays at or above records/results/compatibility.txt",
       "heavy",
-      Action::Command(this_binary.clone(), vec!["diff".into()]),
+      Action::Command(this_binary.clone(), vec!["compare".into()]),
     )
     .requires(&["git", "rustfmt"]),
   );
   tasks.push(
     Task::new(
       "settings",
-      "src/options/rustfmt.rs matches the pinned rustfmt releases",
+      "The capabilities record, src/options/rustfmt.rs and their docs match the pinned rustfmt releases, and no newer stable is out",
       "heavy",
       Action::Command(
         this_binary.clone(),
-        vec!["settings".into(), "--check".into()],
+        vec!["sync".into(), "rustfmt".into(), "--check".into()],
       ),
     )
     .requires(&["git"]),
@@ -472,7 +475,7 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
       "heavy",
       Action::Command(
         this_binary.clone(),
-        vec!["unicode".into(), "--check".into()],
+        vec!["sync".into(), "unicode".into(), "--check".into()],
       ),
     )
     .requires(&["curl"]),

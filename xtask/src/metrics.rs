@@ -604,7 +604,7 @@ fn record_text(root: &Path) -> Result<String, String> {
   }
   if !missing.is_empty() {
     return Err(format!(
-      "no measurement yet for {}; run `cargo xtask corpus bench`, `cargo xtask memst`, `cargo xtask doctor bench`, `cargo xtask io bench` and `cargo xtask perf` first",
+      "no measurement yet for {}; run `cargo xtask speed throughput`, `cargo xtask memst`, `cargo xtask speed doctor`, `cargo xtask speed io` and `cargo xtask speed latency`, `scaling` and `growth` first",
       missing.join(", ")
     ));
   }

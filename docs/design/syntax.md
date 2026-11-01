@@ -46,9 +46,9 @@ and `split_tuple_field_floats` then splits a float that follows a single `.`
 into integer and dot tokens, as rustc's parser does, so the tree holds a chain
 of two tuple fields.
 
-The lexer is kept honest by `cargo xtask lexdiff`, which runs it beside rustc's
-own lexer on real source files and reports any token boundary where the two
-disagree.
+The lexer is kept honest by `cargo xtask compare lexer`, which runs it beside
+rustc's own lexer on real source files and reports any token boundary where the
+two disagree.
 
 ## Editions
 

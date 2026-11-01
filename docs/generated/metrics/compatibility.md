@@ -2,9 +2,9 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-11-01T13:40:53.901Z"
-commit: "2fb0060-dirty.a44e8579"
-command: "cargo xtask diff --update"
+generated: "2026-11-01T17:27:47.926Z"
+commit: "f3946ea-dirty.44ab751f"
+command: "cargo xtask compare -- --update"
 sources:
   - records/results/compatibility.txt
   - records/pins/corpus.txt

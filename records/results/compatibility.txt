@@ -1,6 +1,6 @@
 # How much of the Rust style mto reproduces: files and lines matching the standard
-# formatter exactly, per input set (`cargo xtask diff`), and the inputs it refuses
-# (skipped). Matches may only go up, skipped only down; `cargo xtask diff --update`
+# formatter exactly, per input set (`cargo xtask compare`), and the inputs it refuses
+# (skipped). Matches may only go up, skipped only down; `cargo xtask compare -- --update`
 # records new numbers.
 reference rustfmt 1.10.0-stable (58cf8f9c35 2026-10-13)
 set tests files 455 460 lines 11192 11205 skipped 0

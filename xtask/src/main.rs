@@ -68,6 +68,25 @@ const EXIT_CODES: &[(&str, &str)] = &[
   ("2", "bad arguments"),
 ];
 
+/// Runs the command `name` with `args` as its entry point reads them, in this process: one of
+/// the commands the front doors run but the command line no longer offers
+/// ([`cli::internal`]), or any command of the tree.
+pub fn run_internal(root: &Path, name: &str, args: &[String]) -> ExitCode {
+  let command = cli::internal(name)
+    .or_else(|| cli::find(&[name.to_string()]).map(|command| command.no_binary_name(true)));
+  match command.map(|command| command.try_get_matches_from(args)) {
+    Some(Ok(m)) => dispatch(root, name, &m),
+    Some(Err(e)) => {
+      eprintln!("{}", e);
+      ExitCode::from(2)
+    }
+    None => {
+      eprintln!("no command `{}`", name);
+      ExitCode::from(2)
+    }
+  }
+}
+
 /// `docs/generated/commands.md` written from the command tree, or (`check`) compared.
 fn commands_page(root: &Path, check: bool) -> ExitCode {
   let path = root.join("docs/generated/commands.md");

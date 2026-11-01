@@ -75,7 +75,7 @@ pub const FIELDS: &[Entry] = &[
     definition: "The version of the standard formatter the compatibility record was made \
       against: the `reference` line of records/results/compatibility.txt without the program's \
       name.",
-    measured: "`cargo xtask diff --update`, which asks the formatter for its version.",
+    measured: "`cargo xtask compare -- --update`, which asks the formatter for its version.",
     values: &[],
   },
   Entry {
@@ -122,7 +122,7 @@ pub const FIELDS: &[Entry] = &[
   },
 ];
 
-/// The ways `cargo xtask perf growth` grows a generated file.
+/// The ways `cargo xtask speed growth` grows a generated file.
 pub const GROWTHS: &[&str] = &["items", "nesting", "line", "chain", "match"];
 
 /// The metrics, by the names front matter uses for them.
@@ -133,7 +133,7 @@ pub const METRICS: &[Entry] = &[
     definition: "Files whose output from mto equals the answer byte for byte, as a share \
       of the files scored in the set: `files_matched` over `files_scored`, times 100, \
       rounded to two decimals.",
-    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`. The \
+    measured: "`cargo xtask compare`; recorded in records/results/compatibility.txt by `--update`. The \
       same figure is kept as the series of this name.",
     values: SETS,
   },
@@ -141,7 +141,7 @@ pub const METRICS: &[Entry] = &[
     name: "compat.<set>.files_matched",
     unit: "files",
     definition: "Files of the set whose output from mto equals the answer exactly.",
-    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
+    measured: "`cargo xtask compare`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -149,7 +149,7 @@ pub const METRICS: &[Entry] = &[
     unit: "files",
     definition: "Files of the set that were scored: every input the standard formatter \
       answered. The inputs it refused are counted in `skipped` instead.",
-    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
+    measured: "`cargo xtask compare`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -158,7 +158,7 @@ pub const METRICS: &[Entry] = &[
     definition: "The answers' lines that mto's outputs keep, as a share of all the \
       answers' lines: `lines_matched` over `lines_total`, times 100, rounded to two \
       decimals.",
-    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`. The \
+    measured: "`cargo xtask compare`; recorded in records/results/compatibility.txt by `--update`. The \
       same figure is kept as the series of this name.",
     values: SETS,
   },
@@ -169,7 +169,7 @@ pub const METRICS: &[Entry] = &[
       subsequence of the lines of mto's output and the lines of the answer (every line of \
       a file that matches). A line counts wherever it sits, as long as the lines counted \
       keep their order.",
-    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
+    measured: "`cargo xtask compare`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -178,7 +178,7 @@ pub const METRICS: &[Entry] = &[
     definition: "Summed over the scored files: the answer's lines, counted as the pieces \
       of its text between line feeds, so that a file ending in a line feed counts one \
       empty last line.",
-    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`.",
+    measured: "`cargo xtask compare`; recorded in records/results/compatibility.txt by `--update`.",
     values: SETS,
   },
   Entry {
@@ -187,7 +187,7 @@ pub const METRICS: &[Entry] = &[
     definition: "Inputs of the set the standard formatter refused (it exited non-zero). \
       They are left out of every other figure, and the record holds this count down: a \
       run that refuses more fails.",
-    measured: "`cargo xtask diff`; recorded in records/results/compatibility.txt by `--update`. The \
+    measured: "`cargo xtask compare`; recorded in records/results/compatibility.txt by `--update`. The \
       same figure is kept as the series of this name.",
     values: SETS,
   },
@@ -204,15 +204,15 @@ pub const METRICS: &[Entry] = &[
     unit: "files",
     definition: "Entries of records/policy/exceptions.txt for the set: files where the \
       meaning check flags the standard formatter's own output, each listed with its \
-      reason. A flagged file not listed fails `cargo xtask diff`.",
-    measured: "Written by hand after `cargo xtask diff` reports a flagged file.",
+      reason. A flagged file not listed fails `cargo xtask compare`.",
+    measured: "Written by hand after `cargo xtask compare` reports a flagged file.",
     values: SETS,
   },
   Entry {
     name: "meaning.exceptions.total",
     unit: "files",
     definition: "Entries of records/policy/exceptions.txt over every set.",
-    measured: "Written by hand after `cargo xtask diff` reports a flagged file.",
+    measured: "Written by hand after `cargo xtask compare` reports a flagged file.",
     values: &[],
   },
   Entry {
@@ -270,7 +270,7 @@ pub const METRICS: &[Entry] = &[
       (`speed.mto.laid_out.mb_per_s`) over the standard formatter's, stable release, run \
       as `cargo fmt --all --check` runs it, one repository at a time; by the wall clock. \
       The formatter's bytes are those of the files it says it formats.",
-    measured: "`cargo xtask corpus bench`.",
+    measured: "`cargo xtask speed throughput`.",
     values: &[],
   },
   Entry {
@@ -278,7 +278,7 @@ pub const METRICS: &[Entry] = &[
     unit: "times",
     definition: "As `speed.speedup.stable`, against the standard formatter's nightly \
       release.",
-    measured: "`cargo xtask corpus bench`.",
+    measured: "`cargo xtask speed throughput`.",
     values: &[],
   },
   Entry {
@@ -286,7 +286,7 @@ pub const METRICS: &[Entry] = &[
     unit: "MB/s (10^6 bytes per second)",
     definition: "Corpus bytes over wall seconds for the release `mto --check` on a copy of \
       the corpus already laid out, using every core: the median of three runs.",
-    measured: "`cargo xtask corpus bench`.",
+    measured: "`cargo xtask speed throughput`.",
     values: &[],
   },
   Entry {
@@ -294,14 +294,14 @@ pub const METRICS: &[Entry] = &[
     unit: "MB/s (10^6 bytes per second)",
     definition: "As `speed.mto.laid_out.mb_per_s`, on the corpus as fetched, where most \
       files would change and each is also verified and diffed.",
-    measured: "`cargo xtask corpus bench`.",
+    measured: "`cargo xtask speed throughput`.",
     values: &[],
   },
   Entry {
     name: "speed.layout.one_thread.mb_per_s",
     unit: "MB/s (10^6 bytes per second)",
     definition: "Corpus bytes over seconds for layout alone, in process, on one thread.",
-    measured: "`cargo xtask corpus bench`.",
+    measured: "`cargo xtask speed throughput`.",
     values: &[],
   },
   Entry {
@@ -336,7 +336,7 @@ pub const METRICS: &[Entry] = &[
     definition: "The time to lay out and format every file of five corpus crates (serde, \
       tokio, clap, syn, regex) while holding back two moves and one run of changed lines, \
       as remembered holds do, over the time without holds; one thread, in process.",
-    measured: "`cargo xtask doctor bench`.",
+    measured: "`cargo xtask speed doctor`.",
     values: &[],
   },
   Entry {
@@ -346,21 +346,21 @@ pub const METRICS: &[Entry] = &[
       back, over seeded draws (`--trials`, 10 by default) of 10 corpus files with 1 move \
       planted as the culprit. The build is a pretend one that breaks while a culprit's \
       item comes before the item it was moved in front of.",
-    measured: "`cargo xtask doctor bench`.",
+    measured: "`cargo xtask speed doctor`.",
     values: &[],
   },
   Entry {
     name: "doctor.narrow.n100.k1.checks",
     unit: "checks",
     definition: "As `doctor.narrow.n10.k1.checks`, with 100 files and 1 culprit.",
-    measured: "`cargo xtask doctor bench`.",
+    measured: "`cargo xtask speed doctor`.",
     values: &[],
   },
   Entry {
     name: "doctor.narrow.n100.k3.checks",
     unit: "checks",
     definition: "As `doctor.narrow.n10.k1.checks`, with 100 files and 3 culprits.",
-    measured: "`cargo xtask doctor bench`.",
+    measured: "`cargo xtask speed doctor`.",
     values: &[],
   },
   Entry {
@@ -368,7 +368,7 @@ pub const METRICS: &[Entry] = &[
     unit: "fraction (0 to 1)",
     definition: "The share of every narrowing measured that ended holding back no more \
       than the planted culprits.",
-    measured: "`cargo xtask doctor bench`.",
+    measured: "`cargo xtask speed doctor`.",
     values: &[],
   },
   Entry {
@@ -377,14 +377,14 @@ pub const METRICS: &[Entry] = &[
     definition: "Wall time per file for the release `mto` to rewrite every file of a \
       generated 600-file project with `safety.sync = \"batch\"` and history on: the whole \
       run over the file count, the median of three fresh runs.",
-    measured: "`cargo xtask io bench`.",
+    measured: "`cargo xtask speed io`.",
     values: &[],
   },
   Entry {
     name: "io.write.batch.plain.ms_per_file",
     unit: "milliseconds",
     definition: "As `io.write.batch.history.ms_per_file`, with history off.",
-    measured: "`cargo xtask io bench`.",
+    measured: "`cargo xtask speed io`.",
     values: &[],
   },
   Entry {
@@ -394,7 +394,7 @@ pub const METRICS: &[Entry] = &[
       process by one thread: the fastest of three passes. From 2026-10-25 with the allocator \
       the mto binaries install (`cache_alloc`), as mto runs; before, with the system's, \
       about 12 to 17% slower.",
-    measured: "`cargo xtask perf scaling`.",
+    measured: "`cargo xtask speed scaling`.",
     values: &[],
   },
   Entry {
@@ -402,7 +402,7 @@ pub const METRICS: &[Entry] = &[
     unit: "milliseconds",
     definition: "The median wall time of 200 runs of the release `mto --check FILE` on one \
       small file, process start-up included.",
-    measured: "`cargo xtask perf latency`.",
+    measured: "`cargo xtask speed latency`.",
     values: &[],
   },
   Entry {
@@ -412,12 +412,12 @@ pub const METRICS: &[Entry] = &[
       of log time against log size over the three largest of five sizes, each double the \
       last. `items` adds items, `nesting` nests deeper, `line` lengthens one line, `chain` \
       lengthens a method chain and `match` adds match arms.",
-    measured: "`cargo xtask perf growth`.",
+    measured: "`cargo xtask speed growth`.",
     values: GROWTHS,
   },
 ];
 
-/// The input sets of `cargo xtask diff`, by the keys its record uses.
+/// The input sets of `cargo xtask compare`, by the keys its record uses.
 pub const SETS: &[&str] = &[
   "tests",
   "tests-with-settings",

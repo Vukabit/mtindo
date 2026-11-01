@@ -227,11 +227,11 @@ pub fn render_help(root: &Path, color: bool) -> String {
     ),
     (
       "records/upstream/rustfmt-surface.txt",
-      "rustfmt's options and flags; update with cargo xtask capabilities refresh",
+      "rustfmt's options and flags; update with cargo xtask sync rustfmt",
     ),
     (
       "records/policy/capabilities.txt",
-      "mto's status for each; add new items with cargo xtask capabilities sync",
+      "mto's status for each; add new items with cargo xtask sync rustfmt",
     ),
   ] {
     out.push_str(&format!("  {:<28}{}\n", path, info));

@@ -1,4 +1,4 @@
-//! `cargo xtask perf instructions [--update]`: how many instructions the release mto runs
+//! `cargo xtask speed instructions [--update]`: how many instructions the release mto runs
 //! to check each file of a fixed workload (`xtask-tools perf-workload`: a large file of
 //! each way a file grows), counted by Cachegrind. A count is the same from run to run on
 //! the same build and machine, so a CI runner, too noisy for wall time, still catches a
@@ -179,7 +179,7 @@ fn parse(text: &str) -> (String, BTreeMap<String, u64>) {
 fn record_text(target: &str, counts: &BTreeMap<String, u64>) -> String {
   let mut out = String::from(
     "# Instructions the release mto runs to check each file of the fixed workload, counted\n\
-     # by Cachegrind (`cargo xtask perf instructions --update` writes it). Compared on the\n\
+     # by Cachegrind (`cargo xtask speed instructions --update` writes it). Compared on the\n\
      # target named, where a count may not grow more than 3%.\n",
   );
   out.push_str(&format!("target {}\n", target));

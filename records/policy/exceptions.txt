@@ -1,4 +1,4 @@
-# Files where the standard formatter's own output fails the meaning check (`cargo xtask diff`).
+# Files where the standard formatter's own output fails the meaning check (`cargo xtask compare`).
 # Each is a bug of the formatter's (it changes meaning or writes invalid code), or an equivalent
 # rewrite the check does not model yet. `PATH [SET]`, then the reason. A file flagged that is not
 # listed is added here when mto's own output for it passes (an "auto-recorded" reason, to

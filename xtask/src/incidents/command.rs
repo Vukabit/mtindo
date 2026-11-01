@@ -12,7 +12,7 @@
 //!   once it no longer fails, and record the test as its guard.
 //! - `board`: write `.dev/incidents/INCIDENTS.md` and every incident's page again.
 //!
-//! Incidents other than fuzz ones are rechecked by what found them: `cargo xtask diff`
+//! Incidents other than fuzz ones are rechecked by what found them: `cargo xtask compare`
 //! for meaning, unstable, panic and compat-break incidents, the `domain_13_rw` task for
 //! compile breaks.
 

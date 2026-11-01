@@ -1,4 +1,4 @@
-//! `cargo xtask perf`: what mto costs beyond a whole corpus at once, kept as `perf.*` series.
+//! `cargo xtask speed latency|scaling|growth`: what mto costs beyond a whole corpus at once, kept as `perf.*` series.
 //!
 //! - `latency`: one small file, as an editor formats on save (`mto -`) and as `mto --check
 //!   FILE`, against `mto --version` (starting the process and nothing else); the middle and
@@ -69,7 +69,7 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
     println!("cannot build mto and xtask-tools");
     return ExitCode::from(1);
   }
-  crate::common::conditions::settle(root, "cargo xtask perf");
+  crate::common::conditions::settle(root, "cargo xtask speed");
   let mut breaches = Vec::new();
   let mut failed = false;
   if which.is_none() || which == Some("latency") {

@@ -228,7 +228,7 @@ last statement.
 
 ## Measuring compatibility
 
-`cargo xtask diff` compares mto's output with the standard formatter's own
+`cargo xtask compare` compares mto's output with the standard formatter's own
 test pairs and with its output on a pinned corpus, as written and with the
 whitespace scrambled. Exact file and line matches are recorded in
 `records/results/compatibility.txt` and may only rise. `mto debug layout FILE`

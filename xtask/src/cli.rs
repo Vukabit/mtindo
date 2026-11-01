@@ -117,6 +117,31 @@ pub fn help(path: &[String], color: bool) -> Option<String> {
   Some(out)
 }
 
+/// The whole tree, `cargo xtask` at the root.
+/// The commands the front doors run but the command line no longer offers (`compare`
+/// runs `diff`, `pairs`, `lexdiff` and `parsecheck`; `speed` runs `perf`, `race`, `io`,
+/// `corpus bench` and `doctor`; `sync` runs `settings`, `unicode` and `capabilities
+/// refresh|sync`), by name, as their entry points read their arguments; `None` for a name
+/// that is not one of them.
+pub fn internal(name: &str) -> Option<Command> {
+  let command = match name {
+    "diff" => diff(),
+    "pairs" => pairs(),
+    "lexdiff" => lexdiff(),
+    "parsecheck" => parsecheck(),
+    "perf" => perf(),
+    "race" => race(),
+    "io" => io(),
+    "doctor" => doctor(),
+    "settings" => settings(),
+    "unicode" => unicode(),
+    "corpus" => corpus_all(),
+    "capabilities" => capabilities_all(),
+    _ => return None,
+  };
+  Some(command.no_binary_name(true))
+}
+
 /// The whole tree as JSON: each command's name, about and arguments, and its commands
 /// below.
 pub fn json() -> String {
@@ -189,6 +214,18 @@ pub fn reference() -> String {
   out
 }
 
+#[cfg(test)]
+/// Whether `args` (a command's name, then its arguments) is a command `run_internal` runs:
+/// an internal one or one of the tree, with arguments it takes.
+pub fn takes(args: &[String]) -> bool {
+  let Some((name, rest)) = args.split_first() else {
+    return false;
+  };
+  internal(name)
+    .or_else(|| find(std::slice::from_ref(name)).map(|c| c.no_binary_name(true)))
+    .is_some_and(|c| c.try_get_matches_from(rest).is_ok())
+}
+
 /// A string argument's value, if given.
 pub fn text(m: &ArgMatches, id: &str) -> Option<String> {
   m.try_get_one::<String>(id).ok().flatten().cloned()
@@ -203,7 +240,6 @@ pub fn texts(m: &ArgMatches, id: &str) -> Vec<String> {
     .unwrap_or_default()
 }
 
-/// The whole tree, `cargo xtask` at the root.
 pub fn tree() -> Command {
   let commands = [
     test(),
@@ -222,18 +258,13 @@ pub fn tree() -> Command {
       .arg(flag("json", "As JSON (schema mtindo.xtask.checks/1)")),
     compare(),
     corpus(),
-    diff(),
     docs(),
-    doctor(),
     fix_up(),
     flow(),
     fuzz(),
     gaps(),
     gates_command(),
     incidents(),
-    io(),
-    perf(),
-    lexdiff(),
     memst(),
     Command::new("mcp").about(
       "The tooling as an MCP server over stdio: next, gaps, checks, store, probe and why, \
@@ -241,16 +272,12 @@ pub fn tree() -> Command {
     ),
     metrics(),
     next(),
-    pairs(),
-    parsecheck(),
     probe(),
     Command::new("prove").about(
       "What a release needs, reusing what is proven for this tree: the rules, the whole \
        suite, the compatibility record, the dependency audit (flow.toml stage `prove`)",
     ),
-    race(),
     runs(),
-    settings(),
     Command::new("site").about(
       "The public docs as one site, built by mdBook into target/site/: docs/'s pages, its \
        README's contents in order, links out of docs/ pointed at GitHub",
@@ -275,7 +302,6 @@ pub fn tree() -> Command {
         "Only compare; fails when something is out of date or a newer rustfmt is out",
       )),
     toml_test(),
-    unicode(),
     upstream(),
     Command::new("help")
       .about("Show help for xtask or for one command")
@@ -382,20 +408,28 @@ fn bootstrap() -> Command {
 
 fn capabilities() -> Command {
   Command::new("capabilities")
-    .about("Track rustfmt's options and flags against mto (records/)")
-    .subcommand_required(true)
-    .subcommand(Command::new("refresh").about(
-      "Re-read rustfmt's options and flags (local binaries; latest stable and nightly when online)",
-    ))
-    .subcommand(Command::new("check").about("Every rustfmt option, value and flag has a status"))
-    .subcommand(
-      Command::new("sync")
-        .about("Add new items to records/policy/capabilities.txt as missing; drop stale ones"),
+    .about(
+      "Track rustfmt's options and flags against mto (records/); `cargo xtask sync rustfmt` \
+       re-reads them",
     )
+    .subcommand_required(true)
+    .subcommand(Command::new("check").about("Every rustfmt option, value and flag has a status"))
     .subcommand(
       Command::new("report")
         .about("How much of rustfmt mto supports, and how rustfmt's own tests fare")
         .arg(flag("markdown", "As a Markdown table")),
+    )
+}
+
+/// [`capabilities`] with the steps `sync rustfmt` runs: `refresh` and `sync`.
+fn capabilities_all() -> Command {
+  capabilities()
+    .subcommand(Command::new("refresh").about(
+      "Re-read rustfmt's options and flags (local binaries; latest stable and nightly when online)",
+    ))
+    .subcommand(
+      Command::new("sync")
+        .about("Add new items to records/policy/capabilities.txt as missing; drop stale ones"),
     )
 }
 
@@ -478,11 +512,15 @@ fn corpus() -> Command {
           "Record parsing speed in records/results/baseline.txt",
         )),
     )
-    .subcommand(
-      Command::new("bench")
-        .about("Speed against rustfmt stable and nightly, as a table; fails below 2x")
-        .arg(flag("markdown", "As a Markdown table")),
-    )
+}
+
+/// [`corpus`] with `bench`, which `speed throughput` runs.
+fn corpus_all() -> Command {
+  corpus().subcommand(
+    Command::new("bench")
+      .about("Speed against rustfmt stable and nightly, as a table; fails below 2x")
+      .arg(flag("markdown", "As a Markdown table")),
+  )
 }
 
 fn diff() -> Command {

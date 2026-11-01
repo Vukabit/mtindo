@@ -38,6 +38,10 @@ pub const CHECKS: &[(&str, &str)] = &[
     "tools-pinned",
     "flow.toml's tool pins agree with the files that name the same versions",
   ),
+  (
+    "clippy",
+    "clippy on every crate of the workspace, warnings are errors",
+  ),
   ("clippy-lib", "clippy on mtindo, warnings are errors"),
   ("tests-lib", "mtindo's tests"),
   (
@@ -57,11 +61,11 @@ pub const CHECKS: &[(&str, &str)] = &[
   ("ci-green", "every CI run for HEAD finished and passed"),
   (
     "compat",
-    "the compatibility record holds for this tree, running `cargo xtask diff` unless proven",
+    "the compatibility record holds for this tree, running `cargo xtask compare` unless proven",
   ),
   (
     "compat-record",
-    "`cargo xtask diff` passed on exactly this tree",
+    "`cargo xtask compare` passed on exactly this tree",
   ),
   (
     "version-agrees",
@@ -350,17 +354,17 @@ fn command(root: &Path, program: &str, args: &[&str]) -> Result<(), String> {
   ))
 }
 
-/// `compat`: the compatibility record holds for this tree; `cargo xtask diff` runs to
+/// `compat`: the compatibility record holds for this tree; `cargo xtask compare` runs to
 /// show it unless a proof already does.
 fn compat(root: &Path) -> Result<(), String> {
   if compat_record(root).is_ok() {
-    println!("  (proven: `cargo xtask diff` passed on this tree)");
+    println!("  (proven: `cargo xtask compare` passed on this tree)");
     return Ok(());
   }
-  command(root, "cargo", &["xtask", "diff"])
+  command(root, "cargo", &["xtask", "compare"])
 }
 
-/// `cargo xtask diff` passed on exactly this tree: the corpus is at or above the record.
+/// `cargo xtask compare` passed on exactly this tree: the corpus is at or above the record.
 fn compat_record(root: &Path) -> Result<(), String> {
   use crate::common::proof;
   // A proof for what the comparison reads, as it is now: a commit that changed none of
@@ -371,7 +375,7 @@ fn compat_record(root: &Path) -> Result<(), String> {
     return Ok(());
   }
   Err(format!(
-    "no passing `cargo xtask diff` for what it reads now (inputs {}): run it first",
+    "no passing `cargo xtask compare` for what it reads now (inputs {}): run it first",
     &hash[..12]
   ))
 }
@@ -798,6 +802,19 @@ fn run_check(
     "actions-pinned" => actions_pinned(root),
     "messages" => super::messages_in(root, flow, &scope.ranges),
     "hold" => hold(root, flow, scope),
+    "clippy" => command(
+      root,
+      "cargo",
+      &[
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--quiet",
+        "--",
+        "-D",
+        "warnings",
+      ],
+    ),
     "clippy-lib" => command(
       root,
       "cargo",

@@ -198,7 +198,7 @@ pub(crate) fn ratchet(options: &Options, tallies: &BTreeMap<Source, Tally>) -> E
   }
   let Ok(text) = fs::read_to_string(&options.record) else {
     println!(
-      "no record at {}; run `cargo xtask diff --update` to start one",
+      "no record at {}; run `cargo xtask compare -- --update` to start one",
       options.record.display()
     );
     return ExitCode::from(1);
@@ -208,7 +208,7 @@ pub(crate) fn ratchet(options: &Options, tallies: &BTreeMap<Source, Tally>) -> E
   if reference != options.reference {
     println!(
       "the record was made with {}, this run with {}; check the numbers, then run \
-             `cargo xtask diff --update`",
+             `cargo xtask compare -- --update`",
       reference, options.reference
     );
     return ExitCode::from(1);
@@ -283,8 +283,8 @@ pub(crate) fn record_found(path: &Path, found: &[Found<'_>]) -> Vec<(String, Str
 pub(crate) fn record_text(reference: &str, tallies: &BTreeMap<Source, Tally>) -> String {
   let mut out = String::from(
     "# How much of the Rust style mto reproduces: files and lines matching the standard\n\
-         # formatter exactly, per input set (`cargo xtask diff`), and the inputs it refuses\n\
-         # (skipped). Matches may only go up, skipped only down; `cargo xtask diff --update`\n\
+         # formatter exactly, per input set (`cargo xtask compare`), and the inputs it refuses\n\
+         # (skipped). Matches may only go up, skipped only down; `cargo xtask compare -- --update`\n\
          # records new numbers.\n",
   );
   out.push_str(&format!("reference {}\n", reference));
@@ -446,7 +446,7 @@ pub(crate) fn upstream_case(dir: &Path, f: &Found<'_>) -> Option<String> {
     case_dir.join("notes.md"),
     format!(
       "# {} (auto-recorded)\n\n\
-       - Found by: `cargo xtask diff`. The meaning check flags the standard formatter's\n  \
+       - Found by: `cargo xtask compare`. The meaning check flags the standard formatter's\n  \
        output where mto's own output passes it.\n\
        - The check said: {}\n\
        - To triage: confirm a bug of the formatter's (then name it, search upstream and\n  \
@@ -475,7 +475,7 @@ pub(crate) fn upstream_case(dir: &Path, f: &Found<'_>) -> Option<String> {
   Some(format!(".dev/upstream/rustfmt/{}", name))
 }
 
-/// What `cargo xtask diff` files as incidents, beside the logs: `diff-findings.tsv`, one
+/// What `cargo xtask compare` files as incidents, beside the logs: `diff-findings.tsv`, one
 /// line per finding (kind, set, file, message), and each finding's input under
 /// `diff-inputs/` (cleared on every run). The first line says whether every input was
 /// scored: only a complete run can say a finding is gone.

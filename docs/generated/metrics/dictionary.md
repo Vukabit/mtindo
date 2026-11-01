@@ -79,7 +79,7 @@ files with the whitespace between their tokens scrambled.
 - Definition: The version of the standard formatter the compatibility record was
   made against: the `reference` line of records/results/compatibility.txt
   without the program's name.
-- Measured: `cargo xtask diff --update`, which asks the formatter for its
+- Measured: `cargo xtask compare -- --update`, which asks the formatter for its
   version.
 
 ### `machine`
@@ -131,8 +131,8 @@ files with the whitespace between their tokens scrambled.
 - Definition: Files whose output from mto equals the answer byte for byte, as a
   share of the files scored in the set: `files_matched` over `files_scored`,
   times 100, rounded to two decimals.
-- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
-  `--update`. The same figure is kept as the series of this name.
+- Measured: `cargo xtask compare`; recorded in records/results/compatibility.txt
+  by `--update`. The same figure is kept as the series of this name.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -140,8 +140,8 @@ files with the whitespace between their tokens scrambled.
 
 - Unit: files.
 - Definition: Files of the set whose output from mto equals the answer exactly.
-- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
-  `--update`.
+- Measured: `cargo xtask compare`; recorded in records/results/compatibility.txt
+  by `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -150,8 +150,8 @@ files with the whitespace between their tokens scrambled.
 - Unit: files.
 - Definition: Files of the set that were scored: every input the standard
   formatter answered. The inputs it refused are counted in `skipped` instead.
-- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
-  `--update`.
+- Measured: `cargo xtask compare`; recorded in records/results/compatibility.txt
+  by `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -161,8 +161,8 @@ files with the whitespace between their tokens scrambled.
 - Definition: The answers' lines that mto's outputs keep, as a share of all the
   answers' lines: `lines_matched` over `lines_total`, times 100, rounded to two
   decimals.
-- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
-  `--update`. The same figure is kept as the series of this name.
+- Measured: `cargo xtask compare`; recorded in records/results/compatibility.txt
+  by `--update`. The same figure is kept as the series of this name.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -173,8 +173,8 @@ files with the whitespace between their tokens scrambled.
   subsequence of the lines of mto's output and the lines of the answer (every
   line of a file that matches). A line counts wherever it sits, as long as the
   lines counted keep their order.
-- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
-  `--update`.
+- Measured: `cargo xtask compare`; recorded in records/results/compatibility.txt
+  by `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -184,8 +184,8 @@ files with the whitespace between their tokens scrambled.
 - Definition: Summed over the scored files: the answer's lines, counted as the
   pieces of its text between line feeds, so that a file ending in a line feed
   counts one empty last line.
-- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
-  `--update`.
+- Measured: `cargo xtask compare`; recorded in records/results/compatibility.txt
+  by `--update`.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -195,8 +195,8 @@ files with the whitespace between their tokens scrambled.
 - Definition: Inputs of the set the standard formatter refused (it exited
   non-zero). They are left out of every other figure, and the record holds this
   count down: a run that refuses more fails.
-- Measured: `cargo xtask diff`; recorded in records/results/compatibility.txt by
-  `--update`. The same figure is kept as the series of this name.
+- Measured: `cargo xtask compare`; recorded in records/results/compatibility.txt
+  by `--update`. The same figure is kept as the series of this name.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -212,8 +212,8 @@ files with the whitespace between their tokens scrambled.
 - Unit: files.
 - Definition: Entries of records/policy/exceptions.txt for the set: files where
   the meaning check flags the standard formatter's own output, each listed with
-  its reason. A flagged file not listed fails `cargo xtask diff`.
-- Measured: Written by hand after `cargo xtask diff` reports a flagged file.
+  its reason. A flagged file not listed fails `cargo xtask compare`.
+- Measured: Written by hand after `cargo xtask compare` reports a flagged file.
 - `<set>` is one of `tests`, `tests-with-settings`, `corpus`,
   `corpus-unformatted`.
 
@@ -221,7 +221,7 @@ files with the whitespace between their tokens scrambled.
 
 - Unit: files.
 - Definition: Entries of records/policy/exceptions.txt over every set.
-- Measured: Written by hand after `cargo xtask diff` reports a flagged file.
+- Measured: Written by hand after `cargo xtask compare` reports a flagged file.
 
 ### `meaning.exceptions.unmodelled`
 
@@ -276,14 +276,14 @@ files with the whitespace between their tokens scrambled.
   (`speed.mto.laid_out.mb_per_s`) over the standard formatter's, stable release,
   run as `cargo fmt --all --check` runs it, one repository at a time; by the
   wall clock. The formatter's bytes are those of the files it says it formats.
-- Measured: `cargo xtask corpus bench`.
+- Measured: `cargo xtask speed throughput`.
 
 ### `speed.speedup.nightly`
 
 - Unit: times.
 - Definition: As `speed.speedup.stable`, against the standard formatter's
   nightly release.
-- Measured: `cargo xtask corpus bench`.
+- Measured: `cargo xtask speed throughput`.
 
 ### `speed.mto.laid_out.mb_per_s`
 
@@ -291,21 +291,21 @@ files with the whitespace between their tokens scrambled.
 - Definition: Corpus bytes over wall seconds for the release `mto --check` on a
   copy of the corpus already laid out, using every core: the median of three
   runs.
-- Measured: `cargo xtask corpus bench`.
+- Measured: `cargo xtask speed throughput`.
 
 ### `speed.mto.as_fetched.mb_per_s`
 
 - Unit: MB/s (10^6 bytes per second).
 - Definition: As `speed.mto.laid_out.mb_per_s`, on the corpus as fetched, where
   most files would change and each is also verified and diffed.
-- Measured: `cargo xtask corpus bench`.
+- Measured: `cargo xtask speed throughput`.
 
 ### `speed.layout.one_thread.mb_per_s`
 
 - Unit: MB/s (10^6 bytes per second).
 - Definition: Corpus bytes over seconds for layout alone, in process, on one
   thread.
-- Measured: `cargo xtask corpus bench`.
+- Measured: `cargo xtask speed throughput`.
 
 ### `memst.serde.allocs`
 
@@ -338,7 +338,7 @@ files with the whitespace between their tokens scrambled.
   (serde, tokio, clap, syn, regex) while holding back two moves and one run of
   changed lines, as remembered holds do, over the time without holds; one
   thread, in process.
-- Measured: `cargo xtask doctor bench`.
+- Measured: `cargo xtask speed doctor`.
 
 ### `doctor.narrow.n10.k1.checks`
 
@@ -347,26 +347,26 @@ files with the whitespace between their tokens scrambled.
   hold back, over seeded draws (`--trials`, 10 by default) of 10 corpus files
   with 1 move planted as the culprit. The build is a pretend one that breaks
   while a culprit's item comes before the item it was moved in front of.
-- Measured: `cargo xtask doctor bench`.
+- Measured: `cargo xtask speed doctor`.
 
 ### `doctor.narrow.n100.k1.checks`
 
 - Unit: checks.
 - Definition: As `doctor.narrow.n10.k1.checks`, with 100 files and 1 culprit.
-- Measured: `cargo xtask doctor bench`.
+- Measured: `cargo xtask speed doctor`.
 
 ### `doctor.narrow.n100.k3.checks`
 
 - Unit: checks.
 - Definition: As `doctor.narrow.n10.k1.checks`, with 100 files and 3 culprits.
-- Measured: `cargo xtask doctor bench`.
+- Measured: `cargo xtask speed doctor`.
 
 ### `doctor.narrow.found_rate`
 
 - Unit: fraction (0 to 1).
 - Definition: The share of every narrowing measured that ended holding back no
   more than the planted culprits.
-- Measured: `cargo xtask doctor bench`.
+- Measured: `cargo xtask speed doctor`.
 
 ### `io.write.batch.history.ms_per_file`
 
@@ -374,13 +374,13 @@ files with the whitespace between their tokens scrambled.
 - Definition: Wall time per file for the release `mto` to rewrite every file of
   a generated 600-file project with `safety.sync = "batch"` and history on: the
   whole run over the file count, the median of three fresh runs.
-- Measured: `cargo xtask io bench`.
+- Measured: `cargo xtask speed io`.
 
 ### `io.write.batch.plain.ms_per_file`
 
 - Unit: milliseconds.
 - Definition: As `io.write.batch.history.ms_per_file`, with history off.
-- Measured: `cargo xtask io bench`.
+- Measured: `cargo xtask speed io`.
 
 ### `perf.scaling.one_thread.mb_per_s`
 
@@ -389,14 +389,14 @@ files with the whitespace between their tokens scrambled.
   formatted in process by one thread: the fastest of three passes. From
   2026-10-25 with the allocator the mto binaries install (`cache_alloc`), as mto
   runs; before, with the system's, about 12 to 17% slower.
-- Measured: `cargo xtask perf scaling`.
+- Measured: `cargo xtask speed scaling`.
 
 ### `perf.latency.check.median_ms`
 
 - Unit: milliseconds.
 - Definition: The median wall time of 200 runs of the release `mto --check FILE`
   on one small file, process start-up included.
-- Measured: `cargo xtask perf latency`.
+- Measured: `cargo xtask speed latency`.
 
 ### `perf.growth.<kind>.exponent`
 
@@ -405,6 +405,6 @@ files with the whitespace between their tokens scrambled.
   slope of log time against log size over the three largest of five sizes, each
   double the last. `items` adds items, `nesting` nests deeper, `line` lengthens
   one line, `chain` lengthens a method chain and `match` adds match arms.
-- Measured: `cargo xtask perf growth`.
+- Measured: `cargo xtask speed growth`.
 - `<kind>` is one of `items`, `nesting`, `line`, `chain`, `match`.
 <!-- end generated -->

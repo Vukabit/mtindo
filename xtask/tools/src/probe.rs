@@ -1,7 +1,7 @@
 //! `probe`: one of the standard formatter's test pairs against every answer key, outside
 //! the repository, so that what a gap is measured against is seen rather than assumed.
 //!
-//! mto formats the pair's input with its header's settings, as `cargo xtask diff` scores
+//! mto formats the pair's input with its header's settings, as `cargo xtask compare` scores
 //! it. The keys are the expected file in the suite at stable and at nightly, and the
 //! output of each toolchain's rustfmt run on the input in an empty folder with the header's
 //! settings as its `rustfmt.toml` (and an empty home folder, so no setting leaks in).

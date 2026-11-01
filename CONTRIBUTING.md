@@ -14,7 +14,7 @@ tooling. Every development command, with its arguments, is in the
   (it changes what the code means, writes code that no longer builds, or
   needs a second run to settle), `mto` keeps the code right instead of
   copying the bug. A change to formatting is measured against a pinned corpus
-  of real crates and rustfmt's own tests (`cargo xtask diff`) and may not
+  of real crates and rustfmt's own tests (`cargo xtask compare`) and may not
   lower its record.
 - **A bug of rustfmt's is recorded, not matched.** When rustfmt's output fails
   the meaning check and `mto`'s passes, the run lists the file in
@@ -92,7 +92,7 @@ A formatting fix comes with a regression test whose expected output is the
 standard formatter's, and with a corpus run:
 
 ```bash
-cargo xtask diff     # files and lines matching, against the record
+cargo xtask compare     # files and lines matching, against the record
 ```
 
 ## Running the checks
@@ -192,7 +192,7 @@ before a release moves `main`. CI checks its commits
 and the tree, builds and tests on Linux (x86_64 and aarch64), macOS and
 Windows, and tests on the oldest supported Rust. Say what the change does for
 someone using `mto`; for a formatting change, include the corpus numbers
-`cargo xtask diff` printed.
+`cargo xtask compare` printed.
 
 ## Reporting bugs
 

@@ -58,12 +58,11 @@ impl Progress {
         eprint!("\r{}\x1b[K", self.line(done, self.started.elapsed()));
         let _ = std::io::stderr().flush();
       }
-    } else if self.total > 0 {
-      let tenth = done * 10 / self.total;
-      if tenth > shown.1 {
-        shown.1 = tenth;
-        eprintln!("{}", self.line(done, self.started.elapsed()));
-      }
+    } else if let Some(tenth) = (done * 10).checked_div(self.total)
+      && tenth > shown.1
+    {
+      shown.1 = tenth;
+      eprintln!("{}", self.line(done, self.started.elapsed()));
     }
   }
 

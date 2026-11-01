@@ -1,4 +1,4 @@
-//! `cargo xtask doctor bench`: what the build guard (`mto doctor`) costs and how well it
+//! `cargo xtask speed doctor`: what the build guard (`mto doctor`) costs and how well it
 //! narrows, kept as `doctor.*` series (`.dev/metrics/`), some held by the ratchet.
 //!
 //! - **In mto** (from `xtask-tools doctor-bench`, which links mtindo): shaping speed with
@@ -36,7 +36,7 @@ struct Figures {
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let Some(("bench", sub)) = m.subcommand() else {
-    eprintln!("cargo xtask doctor bench; see `cargo xtask doctor -h`");
+    eprintln!("cargo xtask speed doctor; see `cargo xtask doctor -h`");
     return ExitCode::from(2);
   };
   let trials = sub.get_one::<u32>("trials").copied().unwrap_or(10);

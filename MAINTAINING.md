@@ -17,10 +17,10 @@ pushed and checked by CI like anyone's.
 
 1. **Land the work** on a branch that `main` fast-forwards to, push it, and
    wait for CI to pass on its last commit.
-2. **Run the corpus** on that exact tree: `cargo xtask diff`. A release needs
-   a passing run for the commit it is cut from. To record new numbers, run
-   `cargo xtask diff --update` and commit `records/results/compatibility.txt`
-   first.
+2. **Run the corpus** on that exact tree: `cargo xtask compare`. A release
+   needs a passing run for the commit it is cut from. To record new numbers,
+   run `cargo xtask compare -- --update` and commit
+   `records/results/compatibility.txt` first.
 3. **See the plan**: `cargo xtask flow release 0.2.0`. It checks the tree is
    clean and pushed, CI passed, the corpus run, the credentials' expiry and
    that the crate builds as crates.io would get it, then says what it would
@@ -85,7 +85,7 @@ a branch for that release line:
 git switch -c release/0.1 v0.1.0
 git cherry-pick <the fix>
 git push -u origin release/0.1
-# CI passes, cargo xtask diff passes, then:
+# CI passes, cargo xtask compare passes, then:
 cargo xtask flow release 0.1.1 --go
 ```
 
@@ -109,7 +109,7 @@ and the `tools-pinned` check keeps them in step:
 
 - **The stable toolchain** is also `rust-toolchain.toml`'s channel. Its
   rustfmt is the corpus's answer key, so moving it can move the corpus
-  numbers: run `cargo xtask diff`, and if the reference changed, record it
+  numbers: run `cargo xtask compare`, and if the reference changed, record it
   with `--update` and say so in the commit.
 - **The oldest supported Rust** is also `Cargo.toml`'s `rust-version`.
 
@@ -131,10 +131,10 @@ toolchain pin above. `cargo xtask sync` alone runs every part.
 
 ## The corpus
 
-`records/pins/corpus.txt` pins real crates at fixed commits; `cargo xtask diff`
-formats them with `mto` and the standard formatter and compares, failing
-below `records/results/compatibility.txt`. `cargo xtask corpus update` moves
-every pin to its repository's current head; record the new numbers after.
+`records/pins/corpus.txt` pins real crates at fixed commits; `cargo xtask
+compare` formats them with `mto` and the standard formatter and compares,
+failing below `records/results/compatibility.txt`. `cargo xtask corpus update`
+moves every pin to its repository's current head; record the new numbers after.
 Findings are filed as incidents (`cargo xtask incidents`), as fuzzing's are
 (`cargo xtask fuzz run TARGET`).
 

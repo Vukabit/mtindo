@@ -294,7 +294,7 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
 }
 
 /// `corpus-speed NAME=DIR...`: layout's single-threaded speed over every file (read time
-/// excluded), printed as `layout-mb-per-s VALUE` for `cargo xtask corpus bench`.
+/// excluded), printed as `layout-mb-per-s VALUE` for `cargo xtask speed throughput`.
 pub fn speed(args: &[String]) -> ExitCode {
   let mut files = Vec::new();
   for arg in args {

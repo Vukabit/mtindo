@@ -1,4 +1,4 @@
-//! `cargo xtask io bench`: what writing costs, on this machine and file system, kept as
+//! `cargo xtask speed io`: what writing costs, on this machine and file system, kept as
 //! `io.*` series.
 //!
 //! A project of generated files, every one of which mto rewrites, is laid out by the
@@ -51,7 +51,7 @@ struct Way {
 
 pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
   let Some(("bench", sub)) = m.subcommand() else {
-    eprintln!("cargo xtask io bench; see `cargo xtask io -h`");
+    eprintln!("cargo xtask speed io; see `cargo xtask io -h`");
     return ExitCode::from(2);
   };
   let files = sub

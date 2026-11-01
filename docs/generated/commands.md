@@ -40,19 +40,11 @@ cargo xtask bootstrap [--go] [--for NAME]
 
 ## `cargo xtask capabilities`
 
-Track rustfmt's options and flags against mto (records/)
+Track rustfmt's options and flags against mto (records/); `cargo xtask sync
+rustfmt` re-reads them
 
 ```text
-cargo xtask capabilities refresh|check|sync|report
-```
-
-## `cargo xtask capabilities refresh`
-
-Re-read rustfmt's options and flags (local binaries; latest stable and nightly
-when online)
-
-```text
-cargo xtask capabilities refresh
+cargo xtask capabilities check|report
 ```
 
 ## `cargo xtask capabilities check`
@@ -61,14 +53,6 @@ Every rustfmt option, value and flag has a status
 
 ```text
 cargo xtask capabilities check
-```
-
-## `cargo xtask capabilities sync`
-
-Add new items to records/policy/capabilities.txt as missing; drop stale ones
-
-```text
-cargo xtask capabilities sync
 ```
 
 ## `cargo xtask capabilities report`
@@ -136,7 +120,7 @@ cargo xtask compare [SOURCE...] [ARGS...]
 The pinned real-world corpus (records/pins/corpus.txt)
 
 ```text
-cargo xtask corpus update|fetch|check|bench
+cargo xtask corpus update|fetch|check
 ```
 
 ## `cargo xtask corpus update`
@@ -168,32 +152,6 @@ cargo xtask corpus check [--with-rust] [--baseline]
 - `--with-rust`: Also the opt-in repositories (rust-lang/rust)
 - `--baseline`: Record parsing speed in records/results/baseline.txt
 
-## `cargo xtask corpus bench`
-
-Speed against rustfmt stable and nightly, as a table; fails below 2x
-
-```text
-cargo xtask corpus bench [--markdown]
-```
-
-- `--markdown`: As a Markdown table
-
-## `cargo xtask diff`
-
-How much of the Rust style mto reproduces, against
-records/results/compatibility.txt
-
-```text
-cargo xtask diff [--update] [--markdown] [--sources
-    tests|tests-with-settings|corpus|corpus-unformatted]
-```
-
-- `--update`: Record the numbers in records/results/compatibility.txt
-- `--markdown`: As Markdown tables
-- `--sources tests|tests-with-settings|corpus|corpus-unformatted`: Score only
-  these recorded sets (tests, tests-with-settings, corpus, corpus-unformatted):
-  reported, not recorded, logged or filed
-
 ## `cargo xtask docs`
 
 Regenerate everything under docs/generated/: the settings reference and
@@ -208,25 +166,6 @@ cargo xtask docs [--check] [--tracked]
 - `--check`: Only compare; fails when a page is out of date
 - `--tracked`: From the tracked records only: each page's machine-local regions
   are left as written
-
-## `cargo xtask doctor`
-
-Measure mto doctor, the build guard
-
-```text
-cargo xtask doctor bench
-```
-
-## `cargo xtask doctor bench`
-
-What the guard costs and how few checks a narrowing takes: in mto on the corpus,
-and on real crates with cargo check; kept as doctor.* metrics
-
-```text
-cargo xtask doctor bench [--trials N]
-```
-
-- `--trials N`: Narrowings per size, each with its own culprits [default: 10]
 
 ## `cargo xtask fix-up`
 
@@ -548,80 +487,6 @@ Write .dev/incidents/INCIDENTS.md and every incident's page
 cargo xtask incidents board
 ```
 
-## `cargo xtask io`
-
-Measure what writing files costs
-
-```text
-cargo xtask io bench
-```
-
-## `cargo xtask io bench`
-
-Write generated files with each way of syncing, history on and off; kept as io.*
-metrics
-
-```text
-cargo xtask io bench [--files N]
-```
-
-- `--files N`: Files in the generated project [default: 600]
-
-## `cargo xtask perf`
-
-Measure one-file latency, thread scaling and growth with size; all three with no
-subcommand
-
-```text
-cargo xtask perf [latency|scaling|growth|instructions]
-```
-
-## `cargo xtask perf latency`
-
-One small file through the release mto, many times: middle and p99
-
-```text
-cargo xtask perf latency
-```
-
-## `cargo xtask perf scaling`
-
-Every 8th corpus file laid out by 1, 2, 4 and 8 threads
-
-```text
-cargo xtask perf scaling
-```
-
-## `cargo xtask perf growth`
-
-Generated files of doubling size: how time grows with each
-
-```text
-cargo xtask perf growth
-```
-
-## `cargo xtask perf instructions`
-
-Instructions the release mto runs on a fixed workload, counted by Cachegrind
-(Linux): fails when one grows over 3% past records/results/instructions.txt
-
-```text
-cargo xtask perf instructions [--update]
-```
-
-- `--update`: Record the counts
-
-## `cargo xtask lexdiff`
-
-Compare mto's lexer with rustc's (default: every .rs file of this repository)
-
-```text
-cargo xtask lexdiff [--edition YEAR] [PATH...]
-```
-
-- `--edition YEAR`: The edition to lex with [default: 2021]
-- `PATH...`: Files or folders
-
 ## `cargo xtask memst`
 
 Where a Rust program's time and memory go, per function and line: wall and CPU
@@ -751,39 +616,6 @@ cargo xtask next [--all] [--json]
 - `--all`: The whole queue, not the first ten
 - `--json`: As JSON (schema mtindo.xtask.next/1)
 
-## `cargo xtask pairs`
-
-The scrambled-pair suite: corpus files drawn by a fresh seed, items shuffled and
-whitespace scrambled (checked token for token), formatted by mto and by the
-standard formatter; scored by files and lines matching, and the crates that
-compile offline built scrambled, after mto and after the standard formatter;
-kept as pairs.* metrics; exits 1 on an mto compile break, an mto panic or a
-scrambler bug
-
-```text
-cargo xtask pairs [--seed N] [--crates NAME,...] [--files N] [--no-compile]
-    [--keep DIR]
-```
-
-- `--seed N`: Draw and scramble from this seed, to replay a run (default: a new
-  one, printed)
-- `--crates NAME,...`: The corpus crates (default: six drawn by the seed, three
-  of them crates that compile offline)
-- `--files N`: Files drawn per crate; 0 for every file [default: 20]
-- `--no-compile`: Score likeness only; build no copies
-- `--keep DIR`: Keep the scrambled files and the built copies in DIR (outside
-  this repository) instead of a temporary folder that is deleted
-
-## `cargo xtask parsecheck`
-
-Parse with each crate's edition; report syntax errors (default: this repository)
-
-```text
-cargo xtask parsecheck [PATH...]
-```
-
-- `PATH...`: Files or folders
-
 ## `cargo xtask probe`
 
 One of the standard formatter's test pairs against every answer key (its suite
@@ -809,25 +641,6 @@ suite, the compatibility record, the dependency audit (flow.toml stage `prove`)
 ```text
 cargo xtask prove
 ```
-
-## `cargo xtask race`
-
-Time rustfmt, rustfmt nightly and mto feature by feature (net of start-up),
-drawn live
-
-```text
-cargo xtask race [--rounds N] [--filter TEXT] [--real N] [--gross] [--markdown]
-    [--live] [--size COLSxROWS] [--frames DIR]
-```
-
-- `--rounds N`: Rounds per input [default: 3]
-- `--filter TEXT`: Only rows whose name contains TEXT
-- `--real N`: Real-world files to time [default: 100]
-- `--gross`: Show times with start-up included
-- `--markdown`: As a Markdown table
-- `--live`: Draw live even when not on a terminal
-- `--size COLSxROWS`: Draw at these sizes (at least 20x8), comma-separated
-- `--frames DIR`: Write each drawn frame into DIR
 
 ## `cargo xtask runs`
 
@@ -902,16 +715,6 @@ cargo xtask runs why ID [OTHER]
 - `ID`: A run id, or its end
 - `OTHER`: The run to compare with
 
-## `cargo xtask settings`
-
-Regenerate src/options/rustfmt.rs from the pinned rustfmt releases
-
-```text
-cargo xtask settings [--check]
-```
-
-- `--check`: Only compare
-
 ## `cargo xtask site`
 
 The public docs as one site, built by mdBook into target/site/: docs/'s pages,
@@ -930,8 +733,8 @@ growth, io, features (live), doctor; ARGS go to the command that makes it
 cargo xtask speed MEASURE [ARGS...]
 ```
 
-- `MEASURE`: (one of: throughput, latency, scaling, growth, instructions, io,
-  features, doctor)
+- `MEASURE`: (one of: throughput, latency, scaling, growth, timings,
+  instructions, io, features, doctor)
 - `ARGS...`: Passed to the measure's command (e.g. features --live)
 
 ## `cargo xtask status`
@@ -976,17 +779,6 @@ Run the TOML conformance suite (records/pins/toml-test.txt) against mto's parser
 ```text
 cargo xtask toml-test
 ```
-
-## `cargo xtask unicode`
-
-Regenerate src/text/unicode tables from the Unicode Character Database
-
-```text
-cargo xtask unicode [--version X.Y.Z] [--check]
-```
-
-- `--version X.Y.Z`: The Unicode version (default: the toolchain's)
-- `--check`: Only compare
 
 ## `cargo xtask upstream`
 

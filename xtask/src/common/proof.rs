@@ -17,7 +17,7 @@ use crate::common::log::timestamp;
 use crate::common::process;
 use crate::common::store;
 
-/// What `cargo xtask diff` reads: the formatter, the harness that scores it, and the
+/// What `cargo xtask compare` reads: the formatter, the harness that scores it, and the
 /// records it compares with (not the generated READMEs or the history).
 pub const COMPAT: Check = Check {
   name: "compat",

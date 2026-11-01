@@ -169,21 +169,39 @@ pub fn run_stage(root: &Path, flow: &Flow, names: &[String], scope: &Scope) -> R
     None
   };
   let tree = snapshot.as_ref().map_or(root, |s| s.dir.as_path());
+  let mut rows: Vec<(String, Result<(), String>, f64)> = Vec::new();
+  let mut stopped = None;
   for name in names {
     let started = Instant::now();
     eprint!("{}  {} ", scope.stage, name);
     let outcome = run_check(root, tree, flow, name, scope);
     let took = started.elapsed().as_secs_f64();
-    match outcome {
+    match &outcome {
       Ok(()) => eprintln!("ok ({:.1}s)", took),
       Err(e) => {
         eprintln!("failed ({:.1}s)", took);
-        eprintln!("{}", indent(&e));
-        return Err(format!("{} stopped at `{}`", scope.stage, name));
+        eprintln!("{}", indent(e));
+        stopped = Some(name.clone());
       }
     }
+    rows.push((name.clone(), outcome, took));
+    if stopped.is_some() {
+      break;
+    }
   }
-  Ok(())
+  // On GitHub Actions, the stage's checks as a table on the run's summary page.
+  if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
+    let text = summary(&scope.stage, names, &rows);
+    let _ = std::fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(path)
+      .and_then(|mut file| std::io::Write::write_all(&mut file, text.as_bytes()));
+  }
+  match stopped {
+    Some(name) => Err(format!("{} stopped at `{}`", scope.stage, name)),
+    None => Ok(()),
+  }
 }
 
 /// Each `uses:` in the workflows names its action by a full commit hash, which a moved
@@ -660,6 +678,34 @@ fn no_internal(root: &Path, scope: &Scope) -> Result<(), String> {
   ))
 }
 
+/// `text` without terminal escape sequences (colors, character sets), for a page.
+fn plain(text: &str) -> String {
+  let mut out = String::with_capacity(text.len());
+  let mut chars = text.chars().peekable();
+  while let Some(c) = chars.next() {
+    if c != '\x1b' {
+      out.push(c);
+      continue;
+    }
+    match chars.next() {
+      // CSI: parameters, then one final letter.
+      Some('[') => {
+        for c in chars.by_ref() {
+          if c.is_ascii_alphabetic() {
+            break;
+          }
+        }
+      }
+      // A character set: one more character.
+      Some('(') | Some(')') => {
+        chars.next();
+      }
+      _ => {}
+    }
+  }
+  out
+}
+
 /// HEAD is on its remote branch, and the branch a release lands on fast-forwards to it
 /// (a `release/X.Y` branch is its own).
 fn pushed(root: &Path, flow: &Flow) -> Result<(), String> {
@@ -834,6 +880,37 @@ fn suite(root: &Path) -> Result<(), String> {
     return Ok(());
   }
   command(root, "cargo", &["xtask", "test"])
+}
+
+/// A stage's checks as Markdown for a job's summary: each with its result and time, those
+/// not reached after a failure marked so, and the failure's report under the table.
+fn summary(stage: &str, names: &[String], rows: &[(String, Result<(), String>, f64)]) -> String {
+  let failed = rows.iter().any(|(_, outcome, _)| outcome.is_err());
+  let mut out = format!(
+    "### `{}` {}\n\n| check | result | time |\n|---|---|---|\n",
+    stage,
+    if failed { "failed" } else { "passed" }
+  );
+  for name in names {
+    match rows.iter().find(|(n, _, _)| n == name) {
+      Some((_, Ok(()), took)) => out.push_str(&format!("| {} | ok | {:.1}s |\n", name, took)),
+      Some((_, Err(_), took)) => {
+        out.push_str(&format!("| {} | **failed** | {:.1}s |\n", name, took))
+      }
+      None => out.push_str(&format!("| {} | not run | |\n", name)),
+    }
+  }
+  for (name, outcome, _) in rows {
+    if let Err(e) = outcome {
+      out.push_str(&format!(
+        "\n<details open><summary>{}</summary>\n\n```text\n{}\n```\n</details>\n",
+        name,
+        plain(e.trim_end())
+      ));
+    }
+  }
+  out.push('\n');
+  out
 }
 
 /// `tests-near`: the unit tests of the packages the uncommitted changes touch.
@@ -1021,6 +1098,31 @@ mod tests {
       shown
     );
     assert!(shown.lines().count() < 40, "{}", shown);
+  }
+
+  #[test]
+  fn test_a_stage_summary_names_every_check_and_the_failure() {
+    let names: Vec<String> = ["fmt", "gates", "tests"]
+      .iter()
+      .map(|s| s.to_string())
+      .collect();
+    let rows = vec![
+      ("fmt".to_string(), Ok(()), 0.7),
+      (
+        "gates".to_string(),
+        Err("naming: 2 problems".to_string()),
+        0.6,
+      ),
+    ];
+    let text = summary("ci", &names, &rows);
+    assert!(text.starts_with("### `ci` failed\n"), "{}", text);
+    assert!(text.contains("| fmt | ok | 0.7s |"), "{}", text);
+    assert!(text.contains("| gates | **failed** | 0.6s |"), "{}", text);
+    assert!(text.contains("| tests | not run | |"), "{}", text);
+    assert!(text.contains("<summary>gates</summary>") && text.contains("naming: 2 problems"));
+    assert_eq!(plain("\x1b[31m-a\x1b(B\x1b[m b"), "-a b");
+    let passed = summary("ci", &names[..1], &rows[..1]);
+    assert!(passed.starts_with("### `ci` passed\n"), "{}", passed);
   }
 
   #[test]

@@ -204,51 +204,6 @@ pub fn show(store: &Store, id: &str) -> Result<String, String> {
   ))
 }
 
-/// A report as `show` prints it, in color when `on`: headings, its Rust in the colors of
-/// [`crate::syntax::highlight`], and the other blocks quiet.
-fn markdown(text: &str, on: bool) -> String {
-  if !on {
-    return text.to_string();
-  }
-  let mut out = String::with_capacity(text.len() * 2);
-  let mut block: Option<(bool, String)> = None;
-  for line in text.split_inclusive('\n') {
-    let body = line.trim_end_matches('\n');
-    let end = &line[body.len()..];
-    if let Some(fence) = body.strip_prefix("```") {
-      match block.take() {
-        Some((rust, code)) => {
-          if rust {
-            out.push_str(&crate::syntax::highlight::highlight(
-              &code,
-              crate::syntax::Edition::LATEST,
-            ));
-          } else {
-            out.push_str(&paint(true, tone::QUIET, code.trim_end_matches('\n')));
-            if code.ends_with('\n') {
-              out.push('\n');
-            }
-          }
-        }
-        None => block = Some((fence.trim() == "rust", String::new())),
-      }
-      out.push_str(&paint(true, tone::QUIET, body));
-      out.push_str(end);
-    } else if let Some((_, code)) = block.as_mut() {
-      code.push_str(line);
-    } else if body.starts_with('#') {
-      out.push_str(&paint(true, tone::HEADING, body));
-      out.push_str(end);
-    } else {
-      out.push_str(line);
-    }
-  }
-  if let Some((_, code)) = block {
-    out.push_str(&code);
-  }
-  out
-}
-
 /// The store a run keeps reports in; `None` with `report.save = false` or no state folder,
 /// when a bug's whole report is printed instead.
 pub fn store(resolver: &Resolver) -> Option<Store> {
@@ -373,6 +328,51 @@ fn link_body(text: &str, budget: usize) -> (String, bool) {
   }
   body.push_str(CUT_NOTE);
   (body, true)
+}
+
+/// A report as `show` prints it, in color when `on`: headings, its Rust in the colors of
+/// [`crate::syntax::highlight`], and the other blocks quiet.
+fn markdown(text: &str, on: bool) -> String {
+  if !on {
+    return text.to_string();
+  }
+  let mut out = String::with_capacity(text.len() * 2);
+  let mut block: Option<(bool, String)> = None;
+  for line in text.split_inclusive('\n') {
+    let body = line.trim_end_matches('\n');
+    let end = &line[body.len()..];
+    if let Some(fence) = body.strip_prefix("```") {
+      match block.take() {
+        Some((rust, code)) => {
+          if rust {
+            out.push_str(&crate::syntax::highlight::highlight(
+              &code,
+              crate::syntax::Edition::LATEST,
+            ));
+          } else {
+            out.push_str(&paint(true, tone::QUIET, code.trim_end_matches('\n')));
+            if code.ends_with('\n') {
+              out.push('\n');
+            }
+          }
+        }
+        None => block = Some((fence.trim() == "rust", String::new())),
+      }
+      out.push_str(&paint(true, tone::QUIET, body));
+      out.push_str(end);
+    } else if let Some((_, code)) = block.as_mut() {
+      code.push_str(line);
+    } else if body.starts_with('#') {
+      out.push_str(&paint(true, tone::HEADING, body));
+      out.push_str(end);
+    } else {
+      out.push_str(line);
+    }
+  }
+  if let Some((_, code)) = block {
+    out.push_str(&code);
+  }
+  out
 }
 
 /// Opens `link` in the browser, as the system opens links; whether it could.

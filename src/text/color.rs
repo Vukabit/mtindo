@@ -4,6 +4,31 @@
 //! builds even when the rest of mtindo does not. Keep it self-contained: std only, no
 //! `crate::` paths.
 
+/// The colors of mto's lists and statuses (`mto history`, `mto doctor`), one per meaning,
+/// in the help screens' hues.
+pub mod tone {
+  /// All is well: on, current, as written.
+  pub const GOOD: &str = "32";
+
+  /// A column's or a section's name.
+  pub const HEADING: &str = "1;34";
+
+  /// What names a thing on the list: a run's handle, a report's id.
+  pub const ID: &str = "33";
+
+  /// A setting's or a field's name.
+  pub const KEY: &str = "36";
+
+  /// What says little: times, sources, "none".
+  pub const QUIET: &str = "90";
+
+  /// A setting's value.
+  pub const VALUE: &str = "32";
+
+  /// Something wants a look: stale, changed since.
+  pub const WARN: &str = "33";
+}
+
 use std::env;
 use std::io::IsTerminal;
 
@@ -102,72 +127,6 @@ impl HelpPalette {
   }
 }
 
-/// The colors of mto's lists and statuses (`mto history`, `mto doctor`), one per meaning,
-/// in the help screens' hues.
-pub mod tone {
-  /// A column's or a section's name.
-  pub const HEADING: &str = "1;34";
-  /// What names a thing on the list: a run's handle, a report's id.
-  pub const ID: &str = "33";
-  /// What says little: times, sources, "none".
-  pub const QUIET: &str = "90";
-  /// All is well: on, current, as written.
-  pub const GOOD: &str = "32";
-  /// Something wants a look: stale, changed since.
-  pub const WARN: &str = "33";
-  /// A setting's or a field's name.
-  pub const KEY: &str = "36";
-  /// A setting's value.
-  pub const VALUE: &str = "32";
-}
-
-/// `text` in `code` when `on`; empty text stays empty.
-pub fn paint(on: bool, code: &str, text: &str) -> String {
-  if on && !text.is_empty() {
-    format!("\x1b[{}m{}\x1b[0m", code, text)
-  } else {
-    text.to_string()
-  }
-}
-
-/// TOML as `mto config print` writes it, in color when `on`: comments and the sources
-/// after values quiet, a `# section` or `[table]` line a heading, then keys and values.
-pub fn toml(text: &str, on: bool) -> String {
-  if !on {
-    return text.to_string();
-  }
-  let mut out = String::with_capacity(text.len() * 2);
-  for line in text.split_inclusive('\n') {
-    let (body, end) = match line.strip_suffix('\n') {
-      Some(body) => (body, "\n"),
-      None => (line, ""),
-    };
-    let painted = if body.starts_with("# ") && !body.contains(" = ") && body.ends_with(')') {
-      paint(true, tone::HEADING, body)
-    } else if body.starts_with('#') {
-      paint(true, tone::QUIET, body)
-    } else if body.starts_with('[') {
-      paint(true, tone::HEADING, body)
-    } else if let Some((key, rest)) = body.split_once(" = ") {
-      let (value, comment) = match rest.find("  # ") {
-        Some(at) => rest.split_at(at),
-        None => (rest, ""),
-      };
-      format!(
-        "{} = {}{}",
-        paint(true, tone::KEY, key),
-        paint(true, tone::VALUE, value),
-        paint(true, tone::QUIET, comment)
-      )
-    } else {
-      body.to_string()
-    };
-    out.push_str(&painted);
-    out.push_str(end);
-  }
-  out
-}
-
 /// Whether to color stdout (or stderr, with `is_err`). `--color always|never` decides when
 /// given; otherwise `NO_COLOR` turns color off and wins, then `FORCE_COLOR` turns it on,
 /// then the user config's `output.color`, then color goes only to a terminal.
@@ -218,6 +177,15 @@ pub fn help_width() -> usize {
     .unwrap_or(80)
 }
 
+/// `text` in `code` when `on`; empty text stays empty.
+pub fn paint(on: bool, code: &str, text: &str) -> String {
+  if on && !text.is_empty() {
+    format!("\x1b[{}m{}\x1b[0m", code, text)
+  } else {
+    text.to_string()
+  }
+}
+
 /// Sets `--color`: `Some(true)` always, `Some(false)` never, `None` automatic.
 pub fn set_color(choice: Option<bool>) {
   CHOICE.store(code(choice), std::sync::atomic::Ordering::Relaxed);
@@ -231,6 +199,44 @@ pub fn set_configured_color(choice: Option<bool>) {
 /// The terminal prints escape codes as text: color goes to it only when asked for.
 pub fn terminal_reads_no_escapes() {
   NO_ESCAPES.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// TOML as `mto config print` writes it, in color when `on`: comments and the sources
+/// after values quiet, a `# section` or `[table]` line a heading, then keys and values.
+pub fn toml(text: &str, on: bool) -> String {
+  if !on {
+    return text.to_string();
+  }
+  let mut out = String::with_capacity(text.len() * 2);
+  for line in text.split_inclusive('\n') {
+    let (body, end) = match line.strip_suffix('\n') {
+      Some(body) => (body, "\n"),
+      None => (line, ""),
+    };
+    let painted = if body.starts_with("# ") && !body.contains(" = ") && body.ends_with(')') {
+      paint(true, tone::HEADING, body)
+    } else if body.starts_with('#') {
+      paint(true, tone::QUIET, body)
+    } else if body.starts_with('[') {
+      paint(true, tone::HEADING, body)
+    } else if let Some((key, rest)) = body.split_once(" = ") {
+      let (value, comment) = match rest.find("  # ") {
+        Some(at) => rest.split_at(at),
+        None => (rest, ""),
+      };
+      format!(
+        "{} = {}{}",
+        paint(true, tone::KEY, key),
+        paint(true, tone::VALUE, value),
+        paint(true, tone::QUIET, comment)
+      )
+    } else {
+      body.to_string()
+    };
+    out.push_str(&painted);
+    out.push_str(end);
+  }
+  out
 }
 
 /// `text` in lines of at most `width` characters, broken at spaces; a word longer than the

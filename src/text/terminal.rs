@@ -15,6 +15,44 @@ use std::io::{IsTerminal, Write};
 
 use crate::text::color::color_enabled;
 
+/// `print!` through [`write`].
+#[macro_export]
+macro_rules! out {
+  ($($arg:tt)*) => {
+    $crate::text::terminal::write($crate::text::terminal::Stream::Out, format_args!($($arg)*))
+  };
+}
+
+/// `println!` through [`write`].
+#[macro_export]
+macro_rules! outln {
+  () => {
+    $crate::out!("\n")
+  };
+  ($($arg:tt)*) => {
+    $crate::out!("{}\n", format_args!($($arg)*))
+  };
+}
+
+/// `eprint!` through [`write`].
+#[macro_export]
+macro_rules! err {
+  ($($arg:tt)*) => {
+    $crate::text::terminal::write($crate::text::terminal::Stream::Err, format_args!($($arg)*))
+  };
+}
+
+/// `eprintln!` through [`write`].
+#[macro_export]
+macro_rules! errln {
+  () => {
+    $crate::err!("\n")
+  };
+  ($($arg:tt)*) => {
+    $crate::err!("{}\n", format_args!($($arg)*))
+  };
+}
+
 /// The escape codes mto colors with (`ESC [ code m`); any other is shown, never obeyed.
 const COLORS: &[&str] = &[
   "0", "1", "1;31", "1;32", "1;33", "1;34", "1;35", "1;36", "32", "33", "35", "36", "90",
@@ -49,33 +87,6 @@ impl Stream {
 /// gets them as they are.
 pub fn code_in_color() -> bool {
   Stream::Out.is_terminal() && color_enabled(false)
-}
-
-/// Writes `args` to `stream`, as `print!` does: shown safe on a terminal, and on stderr
-/// anywhere (see the module comment). A failed write panics with `print!`'s words, so a closed pipe still ends the
-/// run quietly.
-#[allow(clippy::disallowed_methods, reason = "the one place that writes")]
-pub fn write(stream: Stream, args: fmt::Arguments) {
-  let text = match args.as_str() {
-    Some(text) => Cow::Borrowed(text),
-    None => Cow::Owned(args.to_string()),
-  };
-  let text = if stream == Stream::Err || stream.is_terminal() {
-    shown(&text, color_enabled(stream == Stream::Err))
-  } else {
-    text
-  };
-  let result = match stream {
-    Stream::Out => std::io::stdout().lock().write_all(text.as_bytes()),
-    Stream::Err => std::io::stderr().lock().write_all(text.as_bytes()),
-  };
-  if let Err(e) = result {
-    let name = match stream {
-      Stream::Out => "stdout",
-      Stream::Err => "stderr",
-    };
-    panic!("failed printing to {}: {}", name, e);
-  }
 }
 
 /// `text` with every character that could control a terminal shown instead, but for the
@@ -113,6 +124,40 @@ pub fn shown(text: &str, color: bool) -> Cow<'_, str> {
   Cow::Owned(out)
 }
 
+/// Writes `args` to `stream`, as `print!` does: shown safe on a terminal, and on stderr
+/// anywhere (see the module comment). A failed write panics with `print!`'s words, so a closed pipe still ends the
+/// run quietly.
+#[allow(clippy::disallowed_methods, reason = "the one place that writes")]
+pub fn write(stream: Stream, args: fmt::Arguments) {
+  let text = match args.as_str() {
+    Some(text) => Cow::Borrowed(text),
+    None => Cow::Owned(args.to_string()),
+  };
+  let text = if stream == Stream::Err || stream.is_terminal() {
+    shown(&text, color_enabled(stream == Stream::Err))
+  } else {
+    text
+  };
+  let result = match stream {
+    Stream::Out => std::io::stdout().lock().write_all(text.as_bytes()),
+    Stream::Err => std::io::stderr().lock().write_all(text.as_bytes()),
+  };
+  if let Err(e) = result {
+    let name = match stream {
+      Stream::Out => "stdout",
+      Stream::Err => "stderr",
+    };
+    panic!("failed printing to {}: {}", name, e);
+  }
+}
+
+/// The length of the color code `text` starts with, when it is one of `COLORS`.
+fn color_code(text: &str) -> Option<usize> {
+  let body = text.strip_prefix("\x1b[")?;
+  let end = body.find('m')?;
+  COLORS.contains(&&body[..end]).then_some(end + 3)
+}
+
 /// Whether `c` can do more on a terminal than show itself: the C0 and C1 controls, and the
 /// characters that change the direction text runs in.
 fn controls(c: char) -> bool {
@@ -127,51 +172,6 @@ fn controls(c: char) -> bool {
       | '\u{202a}'..='\u{202e}'
       | '\u{2066}'..='\u{2069}'
   )
-}
-
-/// The length of the color code `text` starts with, when it is one of `COLORS`.
-fn color_code(text: &str) -> Option<usize> {
-  let body = text.strip_prefix("\x1b[")?;
-  let end = body.find('m')?;
-  COLORS.contains(&&body[..end]).then_some(end + 3)
-}
-
-/// `print!` through [`write`].
-#[macro_export]
-macro_rules! out {
-  ($($arg:tt)*) => {
-    $crate::text::terminal::write($crate::text::terminal::Stream::Out, format_args!($($arg)*))
-  };
-}
-
-/// `println!` through [`write`].
-#[macro_export]
-macro_rules! outln {
-  () => {
-    $crate::out!("\n")
-  };
-  ($($arg:tt)*) => {
-    $crate::out!("{}\n", format_args!($($arg)*))
-  };
-}
-
-/// `eprint!` through [`write`].
-#[macro_export]
-macro_rules! err {
-  ($($arg:tt)*) => {
-    $crate::text::terminal::write($crate::text::terminal::Stream::Err, format_args!($($arg)*))
-  };
-}
-
-/// `eprintln!` through [`write`].
-#[macro_export]
-macro_rules! errln {
-  () => {
-    $crate::err!("\n")
-  };
-  ($($arg:tt)*) => {
-    $crate::err!("{}\n", format_args!($($arg)*))
-  };
 }
 
 #[cfg(test)]

@@ -8,13 +8,61 @@ use crate::syntax::lexer::tokenize;
 use crate::syntax::parser::is_keyword_in;
 use crate::syntax::{Edition, SyntaxKind as K};
 
-const COMMENT: &str = "90";
-const KEYWORD: &str = "35";
-const STRING: &str = "32";
-const NUMBER: &str = "33";
 const ATTRIBUTE: &str = "36";
+
+const COMMENT: &str = "90";
+
+const KEYWORD: &str = "35";
+
 const LIFETIME: &str = "36";
+
 const MACRO: &str = "1;34";
+
+const NUMBER: &str = "33";
+
+const STRING: &str = "32";
+
+/// Colored text, with neighbours of one color in one span.
+struct Painter {
+  out: String,
+  /// The color the text written last is in, still open.
+  open: Option<&'static str>,
+}
+
+impl Painter {
+  /// `piece` in `color`, or plain; a span is closed at each line end.
+  fn push(&mut self, color: Option<&'static str>, piece: &str) {
+    for (idx, line) in piece.split('\n').enumerate() {
+      if idx > 0 {
+        self.close();
+        self.out.push('\n');
+      }
+      if line.is_empty() {
+        continue;
+      }
+      // Spaces take the color around them rather than end it.
+      let color = if line.trim().is_empty() && self.open.is_some() {
+        self.open
+      } else {
+        color
+      };
+      if color != self.open {
+        self.close();
+        if let Some(color) = color {
+          self.out.push_str(&format!("\x1b[{}m", color));
+        }
+        self.open = color;
+      }
+      self.out.push_str(line);
+    }
+  }
+
+  fn close(&mut self) {
+    if self.open.take().is_some() {
+      self.out.push_str("\x1b[0m");
+    }
+  }
+}
 
 /// `text` with color codes around its tokens.
 pub fn highlight(text: &str, edition: Edition) -> String {
@@ -87,48 +135,6 @@ pub fn highlight(text: &str, edition: Edition) -> String {
   out.out
 }
 
-/// Colored text, with neighbours of one color in one span.
-struct Painter {
-  out: String,
-  /// The color the text written last is in, still open.
-  open: Option<&'static str>,
-}
-
-impl Painter {
-  /// `piece` in `color`, or plain; a span is closed at each line end.
-  fn push(&mut self, color: Option<&'static str>, piece: &str) {
-    for (idx, line) in piece.split('\n').enumerate() {
-      if idx > 0 {
-        self.close();
-        self.out.push('\n');
-      }
-      if line.is_empty() {
-        continue;
-      }
-      // Spaces take the color around them rather than end it.
-      let color = if line.trim().is_empty() && self.open.is_some() {
-        self.open
-      } else {
-        color
-      };
-      if color != self.open {
-        self.close();
-        if let Some(color) = color {
-          self.out.push_str(&format!("\x1b[{}m", color));
-        }
-        self.open = color;
-      }
-      self.out.push_str(line);
-    }
-  }
-
-  fn close(&mut self) {
-    if self.open.take().is_some() {
-      self.out.push_str("\x1b[0m");
-    }
-  }
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -147,6 +153,12 @@ mod tests {
   }
 
   #[test]
+  fn test_a_token_across_lines_is_closed_at_each_line_end() {
+    let colored = highlight("/* one\ntwo */\n", Edition::E2021);
+    assert_eq!(colored, "\x1b[90m/* one\x1b[0m\n\x1b[90mtwo */\x1b[0m\n");
+  }
+
+  #[test]
   fn test_each_kind_of_token_gets_its_color() {
     let text = "#[derive(Debug)]\nfn f<'a>(x: &'a str) -> u8 {\n  // note\n  if !x.is_empty() { println!(\"{}\", 1) }\n  a != b\n}\n";
     let colored = highlight(text, Edition::E2021);
@@ -162,12 +174,6 @@ mod tests {
       assert!(colored.contains(piece), "{:?} not in {:?}", piece, colored);
     }
     assert_eq!(plain(&colored), text);
-  }
-
-  #[test]
-  fn test_a_token_across_lines_is_closed_at_each_line_end() {
-    let colored = highlight("/* one\ntwo */\n", Edition::E2021);
-    assert_eq!(colored, "\x1b[90m/* one\x1b[0m\n\x1b[90mtwo */\x1b[0m\n");
   }
 
   #[test]

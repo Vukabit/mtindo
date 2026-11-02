@@ -1,5 +1,6 @@
 // A test prints only to say what it did.
 #![allow(clippy::disallowed_macros)]
+
 mod common;
 
 use std::fs;

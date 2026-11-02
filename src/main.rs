@@ -165,6 +165,36 @@ fn choice(spec: &'static FlagSpec, given: Option<String>) -> Result<&'static str
   }
 }
 
+/// Prints `command`'s usage lines from its spec (those of subcommand `word` alone, when
+/// given) as an error, then `note`, and points at the command's help.
+fn command_usage<T>(
+  command: &CommandSpec,
+  word: Option<&str>,
+  note: Option<&str>,
+) -> Result<T, ()> {
+  let lead = match word {
+    Some(word) => format!("mto {} {}", command.name, word),
+    None => format!("mto {}", command.name),
+  };
+  let lines: Vec<&str> = command
+    .usage
+    .iter()
+    .copied()
+    .filter(|line| {
+      line
+        .strip_prefix(lead.as_str())
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+    })
+    .collect();
+  let mut text = format!("usage: {}", lines.join(&format!("\n{}", " ".repeat(14))));
+  if let Some(note) = note {
+    text.push_str(&format!("\n{}", note));
+  }
+  errln!("{}Error: {}{}", c_red(), text, c_reset(true));
+  errln!("Run 'mto {} --help' for usage.", command.name);
+  Err(())
+}
+
 /// Reads the value of a configuration flag into `overrides`.
 fn config_flag(
   spec: &FlagSpec,
@@ -1999,36 +2029,6 @@ fn usage_block(p: &HelpPalette, lines: &[&str]) -> String {
   out
 }
 
-/// Prints `command`'s usage lines from its spec (those of subcommand `word` alone, when
-/// given) as an error, then `note`, and points at the command's help.
-fn command_usage<T>(
-  command: &CommandSpec,
-  word: Option<&str>,
-  note: Option<&str>,
-) -> Result<T, ()> {
-  let lead = match word {
-    Some(word) => format!("mto {} {}", command.name, word),
-    None => format!("mto {}", command.name),
-  };
-  let lines: Vec<&str> = command
-    .usage
-    .iter()
-    .copied()
-    .filter(|line| {
-      line
-        .strip_prefix(lead.as_str())
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-    })
-    .collect();
-  let mut text = format!("usage: {}", lines.join(&format!("\n{}", " ".repeat(14))));
-  if let Some(note) = note {
-    text.push_str(&format!("\n{}", note));
-  }
-  errln!("{}Error: {}{}", c_red(), text, c_reset(true));
-  errln!("Run 'mto {} --help' for usage.", command.name);
-  Err(())
-}
-
 /// Prints a usage error and points at the help; returns the error for `?`-style use.
 fn usage_error<T>(message: &str) -> Result<T, ()> {
   errln!("{}Error: {}{}", c_red(), message, c_reset(true));
@@ -2052,6 +2052,58 @@ mod tests {
   use std::collections::HashSet;
 
   use super::*;
+
+  #[test]
+  fn test_each_command_s_args_and_usage_name_just_its_subcommands() {
+    // The lowercase words of `text` outside `<...>`: `show` in `[show <ID> | --all]`.
+    fn words(text: &str) -> Vec<String> {
+      let mut depth = 0;
+      let outside: String = text
+        .chars()
+        .map(|c| {
+          match c {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            _ => {}
+          }
+          if depth == 0 && c != '>' { c } else { ' ' }
+        })
+        .collect();
+      outside
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .filter(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase()))
+        .map(str::to_string)
+        .collect()
+    }
+    for command in COMMANDS {
+      let mut listed: Vec<String> = command
+        .subcommands
+        .iter()
+        .map(|s| s.word.to_string())
+        .collect();
+      listed.sort();
+      let mut named = words(command.args);
+      named.sort();
+      assert_eq!(
+        named, listed,
+        "mto {}'s args: {}",
+        command.name, command.args
+      );
+      // Each usage line's first word is a subcommand, or none is, and each subcommand
+      // has a line.
+      let mut first = Vec::new();
+      for line in command.usage {
+        let rest = line
+          .strip_prefix(&format!("mto {}", command.name))
+          .unwrap_or_else(|| panic!("{} is not mto {}'s", line, command.name));
+        let next = rest.split_whitespace().next().unwrap_or("");
+        first.extend(words(next));
+      }
+      first.sort();
+      first.dedup();
+      assert_eq!(first, listed, "mto {}'s usage", command.name);
+    }
+  }
 
   #[test]
   fn test_every_command_and_subcommand_dispatches() {
@@ -2126,58 +2178,6 @@ mod tests {
       assert!(command_named(word).is_none(), "{}", word);
     }
     assert!(parse_command(command_named("history").unwrap(), &["list".into()]).is_err());
-  }
-
-  #[test]
-  fn test_each_command_s_args_and_usage_name_just_its_subcommands() {
-    // The lowercase words of `text` outside `<...>`: `show` in `[show <ID> | --all]`.
-    fn words(text: &str) -> Vec<String> {
-      let mut depth = 0;
-      let outside: String = text
-        .chars()
-        .map(|c| {
-          match c {
-            '<' => depth += 1,
-            '>' => depth -= 1,
-            _ => {}
-          }
-          if depth == 0 && c != '>' { c } else { ' ' }
-        })
-        .collect();
-      outside
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
-        .filter(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase()))
-        .map(str::to_string)
-        .collect()
-    }
-    for command in COMMANDS {
-      let mut listed: Vec<String> = command
-        .subcommands
-        .iter()
-        .map(|s| s.word.to_string())
-        .collect();
-      listed.sort();
-      let mut named = words(command.args);
-      named.sort();
-      assert_eq!(
-        named, listed,
-        "mto {}'s args: {}",
-        command.name, command.args
-      );
-      // Each usage line's first word is a subcommand, or none is, and each subcommand
-      // has a line.
-      let mut first = Vec::new();
-      for line in command.usage {
-        let rest = line
-          .strip_prefix(&format!("mto {}", command.name))
-          .unwrap_or_else(|| panic!("{} is not mto {}'s", line, command.name));
-        let next = rest.split_whitespace().next().unwrap_or("");
-        first.extend(words(next));
-      }
-      first.sort();
-      first.dedup();
-      assert_eq!(first, listed, "mto {}'s usage", command.name);
-    }
   }
 
   #[test]

@@ -1405,6 +1405,15 @@ fn caught<T>(
   )))
 }
 
+/// Code for stdout, in color on a terminal ([`text::terminal::code_in_color`]).
+fn code(text: &str, edition: syntax::Edition) -> std::borrow::Cow<'_, str> {
+  if text::terminal::code_in_color() {
+    std::borrow::Cow::Owned(syntax::highlight::highlight(text, edition))
+  } else {
+    std::borrow::Cow::Borrowed(text)
+  }
+}
+
 /// What the terminal shows for `bug`: one line naming the report it is kept as, or the
 /// whole report when reports are not kept (or keeping it failed).
 fn deliver(bug: &report::Bug, reports: Option<&report::Store>) -> String {
@@ -1552,15 +1561,6 @@ fn emit_stdout(
     report.stdout.push_str(&format!("{}:\n\n", shown));
   }
   report.stdout.push_str(&code(text, edition));
-}
-
-/// Code for stdout, in color on a terminal ([`text::terminal::code_in_color`]).
-fn code(text: &str, edition: syntax::Edition) -> std::borrow::Cow<'_, str> {
-  if text::terminal::code_in_color() {
-    std::borrow::Cow::Owned(syntax::highlight::highlight(text, edition))
-  } else {
-    std::borrow::Cow::Borrowed(text)
-  }
 }
 
 fn is_symlink(entry: &fs::DirEntry) -> bool {

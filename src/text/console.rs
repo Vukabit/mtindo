@@ -18,6 +18,10 @@ unsafe extern "system" {
 
 /// Asks the consoles stdout and stderr write to, if any, to read escape codes. `false` when
 /// one of them refuses (a Windows older than 10), which then gets no color.
+#[allow(
+  clippy::disallowed_methods,
+  reason = "asks for the handles, prints nothing"
+)]
 pub fn enable_colors() -> bool {
   let ready = |stream: &dyn AsRawHandle| {
     let console = stream.as_raw_handle();

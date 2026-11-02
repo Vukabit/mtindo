@@ -26,6 +26,10 @@ Running `mto` with no arguments prints the short help, the same as `mto -h`,
 whether or not anything is piped in. Reading stdin always needs the explicit
 `-`.
 
+Code printed to a terminal, by `-` or `--emit stdout`, is in color while color
+is on. Code printed to a pipe or a file is never colored, even with
+`--color always`.
+
 ## Options
 
 `mto` takes the standard formatter's flags, so it can stand in for it in

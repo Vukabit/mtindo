@@ -594,9 +594,12 @@ pub fn process_stdin(
     .read_to_string(&mut source)
     .map_err(|e| MtoError::Io(format!("cannot read stdin: {}", e)))?;
   let mut report = FileReport::default();
+  let colored_as = settings
+    .as_ref()
+    .map_or(syntax::Edition::DEFAULT, |s| s.edition);
   let unchanged = |mut report: FileReport, outcome: Outcome| {
     if !opts.check && opts.emit != Emit::Json {
-      report.stdout.push_str(&source);
+      report.stdout.push_str(&code(&source, colored_as));
     }
     report.with(outcome)
   };
@@ -668,7 +671,7 @@ pub fn process_stdin(
         .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose));
     }
   } else {
-    report.stdout.push_str(&reorganized);
+    report.stdout.push_str(&code(&reorganized, edition));
   }
   Ok(report.with(Outcome::Changed))
 }
@@ -796,14 +799,14 @@ pub fn run_file(
         Outcome::Skipped
       };
       if opts.emit == Emit::Stdout {
-        emit_stdout(&mut report, &shown, &source, opts);
+        emit_stdout(&mut report, &shown, &source, opts, settings.edition);
       }
       return report.with(outcome);
     }
   };
   if reorganized == source {
     if opts.emit == Emit::Stdout {
-      emit_stdout(&mut report, &shown, &source, opts);
+      emit_stdout(&mut report, &shown, &source, opts, edition);
     }
     return report.with(Outcome::Unchanged);
   }
@@ -823,7 +826,7 @@ pub fn run_file(
   }
   match opts.emit {
     Emit::Stdout => {
-      emit_stdout(&mut report, &shown, &reorganized, opts);
+      emit_stdout(&mut report, &shown, &reorganized, opts, edition);
       return report.with(Outcome::Changed);
     }
     Emit::Json => {
@@ -1538,11 +1541,27 @@ fn directive_problems(source: &str, edition: syntax::Edition) -> Vec<(usize, Str
 }
 
 /// `--emit stdout`: the file's name, as the standard formatter prints it, then its text.
-fn emit_stdout(report: &mut FileReport, shown: &str, text: &str, opts: &RunOptions) {
+fn emit_stdout(
+  report: &mut FileReport,
+  shown: &str,
+  text: &str,
+  opts: &RunOptions,
+  edition: syntax::Edition,
+) {
   if !opts.quiet {
     report.stdout.push_str(&format!("{}:\n\n", shown));
   }
-  report.stdout.push_str(text);
+  report.stdout.push_str(&code(text, edition));
+}
+
+/// Code for stdout, in color on a terminal. Only on a terminal, even with `--color
+/// always`: a pipe or a file must get the code as it is.
+fn code(text: &str, edition: syntax::Edition) -> std::borrow::Cow<'_, str> {
+  if text::terminal::Stream::Out.is_terminal() && color_enabled(false) {
+    std::borrow::Cow::Owned(syntax::highlight::highlight(text, edition))
+  } else {
+    std::borrow::Cow::Borrowed(text)
+  }
 }
 
 fn is_symlink(entry: &fs::DirEntry) -> bool {

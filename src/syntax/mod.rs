@@ -3,6 +3,7 @@
 
 pub mod ast;
 pub mod edition;
+pub mod highlight;
 pub mod kind;
 pub mod lexer;
 pub mod marker;

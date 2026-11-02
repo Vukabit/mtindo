@@ -5,7 +5,9 @@
 //! control byte in that text would be read as a command (move the cursor, clear the
 //! screen, set the title, hide the lines after it), so it is shown instead: `^[` for an
 //! escape, `<U+202E>` for a character that turns text around. The color codes mto writes
-//! itself are kept while color is on. A pipe or a file gets the bytes unchanged.
+//! itself are kept while color is on. stderr is treated so wherever it goes, as it holds
+//! messages for people, and a log or a CI page may show escape codes too; stdout keeps its
+//! bytes unchanged in a pipe or a file, since it is data there.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -42,8 +44,15 @@ impl Stream {
   }
 }
 
-/// Writes `args` to `stream`, as `print!` does: shown safe on a terminal (see the module
-/// comment). A failed write panics with `print!`'s words, so a closed pipe still ends the
+/// Whether code and data printed to stdout (formatted code, `mto config print`) are in
+/// color: only on a terminal with color on. Even with `--color always`, a pipe or a file
+/// gets them as they are.
+pub fn code_in_color() -> bool {
+  Stream::Out.is_terminal() && color_enabled(false)
+}
+
+/// Writes `args` to `stream`, as `print!` does: shown safe on a terminal, and on stderr
+/// anywhere (see the module comment). A failed write panics with `print!`'s words, so a closed pipe still ends the
 /// run quietly.
 #[allow(clippy::disallowed_methods, reason = "the one place that writes")]
 pub fn write(stream: Stream, args: fmt::Arguments) {
@@ -51,7 +60,7 @@ pub fn write(stream: Stream, args: fmt::Arguments) {
     Some(text) => Cow::Borrowed(text),
     None => Cow::Owned(args.to_string()),
   };
-  let text = if stream.is_terminal() {
+  let text = if stream == Stream::Err || stream.is_terminal() {
     shown(&text, color_enabled(stream == Stream::Err))
   } else {
     text

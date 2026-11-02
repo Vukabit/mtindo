@@ -1554,10 +1554,9 @@ fn emit_stdout(
   report.stdout.push_str(&code(text, edition));
 }
 
-/// Code for stdout, in color on a terminal. Only on a terminal, even with `--color
-/// always`: a pipe or a file must get the code as it is.
+/// Code for stdout, in color on a terminal ([`text::terminal::code_in_color`]).
 fn code(text: &str, edition: syntax::Edition) -> std::borrow::Cow<'_, str> {
-  if text::terminal::Stream::Out.is_terminal() && color_enabled(false) {
+  if text::terminal::code_in_color() {
     std::borrow::Cow::Owned(syntax::highlight::highlight(text, edition))
   } else {
     std::borrow::Cow::Borrowed(text)

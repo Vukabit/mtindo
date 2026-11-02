@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::config::{Resolver, user};
 use crate::history::{self, Entry, History, Limits, Run, State, id};
 use crate::options::user::bytes;
+use crate::text::color::{paint, tone};
 use crate::{c_green, c_red, c_reset, c_yellow, errln, outln, write_atomic};
 
 /// What `mto history prune` was asked to keep, over the user config.
@@ -260,19 +261,38 @@ pub fn list(history: &History, here: Option<&Path>) -> Result<String, String> {
     width(3),
   ];
   let mut out = note;
-  for [run, when, count, project, command] in &table {
-    out.push_str(&format!(
-      "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {}\n",
-      run,
-      when,
-      files(count),
-      project,
-      command,
-      w0 = widths[0],
-      w1 = widths[1],
-      w2 = widths[2],
-      w3 = widths[3]
-    ));
+  // Each cell padded, then painted, so the colors do not count toward the widths.
+  let on = crate::color_enabled(false);
+  for (idx, [run, when, count, project, command]) in table.iter().enumerate() {
+    let pad = |text: &str, width: usize| format!("{:<width$}", text);
+    let cells = [
+      pad(run, widths[0]),
+      pad(when, widths[1]),
+      pad(&files(count), widths[2]),
+      pad(project, widths[3]),
+    ];
+    let line = if idx == 0 {
+      paint(
+        on,
+        tone::HEADING,
+        &format!("{}  {}", cells.join("  "), command),
+      )
+    } else {
+      format!(
+        "{}  {}  {}  {}  {}",
+        paint(on, tone::ID, &cells[0]),
+        paint(on, tone::QUIET, &cells[1]),
+        cells[2],
+        cells[3],
+        if command.starts_with("unreadable: ") {
+          paint(on, tone::WARN, command)
+        } else {
+          command.clone()
+        }
+      )
+    };
+    out.push_str(line.trim_end());
+    out.push('\n');
   }
   Ok(out)
 }
@@ -460,26 +480,46 @@ pub fn show(history: &History, spec: &str) -> Result<String, String> {
   let id = resolve_here(history, spec)?;
   let run = history.read(&id).map_err(|e| e.to_string())?;
   let ids = history.ids().unwrap_or_default();
+  let on = crate::color_enabled(false);
+  let key = |name: &str| paint(on, tone::KEY, &format!("{:<8}", name));
   let mut out = format!(
-    "run      {} ({})\nwhen     {} UTC\ncommand  {}\nin       {}\n",
-    id::handle(&id, &ids),
-    id,
-    utc(id::millis(&id)),
+    "{} {} {}\n{} {}\n{} {}\n{} {}\n",
+    key("run"),
+    paint(on, tone::ID, &id::handle(&id, &ids)),
+    paint(on, tone::QUIET, &format!("({})", id)),
+    key("when"),
+    paint(on, tone::QUIET, &format!("{} UTC", utc(id::millis(&id)))),
+    key("command"),
     run.command,
+    key("in"),
     run.cwd.display()
   );
   if let Some(of) = &run.restore_of {
-    out.push_str(&format!("restores {}\n", id::handle(of, &ids)));
+    out.push_str(&format!(
+      "{} {}\n",
+      key("restores"),
+      paint(on, tone::ID, &id::handle(of, &ids))
+    ));
   }
-  out.push_str(&format!("{}:\n", files(run.entries.len())));
+  out.push_str(&format!(
+    "{}\n",
+    paint(on, tone::HEADING, &format!("{}:", files(run.entries.len())))
+  ));
   for entry in &run.entries {
-    let state = match Run::state(entry) {
-      State::AsWritten => "as written; restore puts back what it replaced",
-      State::AsBefore => "holds what it held before",
-      State::Changed => "changed since; restore skips it without --force",
-      State::Missing => "missing; restore skips it without --force",
+    let (tone, state) = match Run::state(entry) {
+      State::AsWritten => (tone::GOOD, "as written; restore puts back what it replaced"),
+      State::AsBefore => (tone::QUIET, "holds what it held before"),
+      State::Changed => (
+        tone::WARN,
+        "changed since; restore skips it without --force",
+      ),
+      State::Missing => (tone::WARN, "missing; restore skips it without --force"),
     };
-    out.push_str(&format!("  {}  ({})\n", entry.path.display(), state));
+    out.push_str(&format!(
+      "  {}  {}\n",
+      entry.path.display(),
+      paint(on, tone, &format!("({})", state))
+    ));
   }
   Ok(out)
 }

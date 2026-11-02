@@ -45,11 +45,7 @@ impl HelpPalette {
   }
 
   pub fn paint(&self, code: &str, text: &str) -> String {
-    if self.on && !text.is_empty() {
-      format!("\x1b[{}m{}\x1b[0m", code, text)
-    } else {
-      text.to_string()
-    }
+    paint(self.on, code, text)
   }
 
   pub fn program(&self, text: &str) -> String {
@@ -104,6 +100,72 @@ impl HelpPalette {
   pub fn value(&self, text: &str) -> String {
     self.paint("1;33", text)
   }
+}
+
+/// The colors of mto's lists and statuses (`mto history`, `mto doctor`), one per meaning,
+/// in the help screens' hues.
+pub mod tone {
+  /// A column's or a section's name.
+  pub const HEADING: &str = "1;34";
+  /// What names a thing on the list: a run's handle, a report's id.
+  pub const ID: &str = "33";
+  /// What says little: times, sources, "none".
+  pub const QUIET: &str = "90";
+  /// All is well: on, current, as written.
+  pub const GOOD: &str = "32";
+  /// Something wants a look: stale, changed since.
+  pub const WARN: &str = "33";
+  /// A setting's or a field's name.
+  pub const KEY: &str = "36";
+  /// A setting's value.
+  pub const VALUE: &str = "32";
+}
+
+/// `text` in `code` when `on`; empty text stays empty.
+pub fn paint(on: bool, code: &str, text: &str) -> String {
+  if on && !text.is_empty() {
+    format!("\x1b[{}m{}\x1b[0m", code, text)
+  } else {
+    text.to_string()
+  }
+}
+
+/// TOML as `mto config print` writes it, in color when `on`: comments and the sources
+/// after values quiet, a `# section` or `[table]` line a heading, then keys and values.
+pub fn toml(text: &str, on: bool) -> String {
+  if !on {
+    return text.to_string();
+  }
+  let mut out = String::with_capacity(text.len() * 2);
+  for line in text.split_inclusive('\n') {
+    let (body, end) = match line.strip_suffix('\n') {
+      Some(body) => (body, "\n"),
+      None => (line, ""),
+    };
+    let painted = if body.starts_with("# ") && !body.contains(" = ") && body.ends_with(')') {
+      paint(true, tone::HEADING, body)
+    } else if body.starts_with('#') {
+      paint(true, tone::QUIET, body)
+    } else if body.starts_with('[') {
+      paint(true, tone::HEADING, body)
+    } else if let Some((key, rest)) = body.split_once(" = ") {
+      let (value, comment) = match rest.find("  # ") {
+        Some(at) => rest.split_at(at),
+        None => (rest, ""),
+      };
+      format!(
+        "{} = {}{}",
+        paint(true, tone::KEY, key),
+        paint(true, tone::VALUE, value),
+        paint(true, tone::QUIET, comment)
+      )
+    } else {
+      body.to_string()
+    };
+    out.push_str(&painted);
+    out.push_str(end);
+  }
+  out
 }
 
 /// Whether to color stdout (or stderr, with `is_err`). `--color always|never` decides when

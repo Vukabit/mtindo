@@ -1321,19 +1321,28 @@ fn run_completions(
           Ok(path) => path,
           Err(e) => return failed(e),
         };
+        use mtindo::text::color::{paint, tone};
+        let on = mtindo::color_enabled(false);
         let state = match completions::state_of(&path) {
-          State::Missing => "not installed".to_string(),
-          State::Current => format!("current (mto {})", version),
+          State::Missing => paint(on, tone::QUIET, "not installed"),
+          State::Current => paint(on, tone::GOOD, &format!("current (mto {})", version)),
           State::Stale(old) => format!(
-            "stale (mto {}): run `mto completions install {}`",
-            old,
+            "{}: run `mto completions install {}`",
+            paint(on, tone::WARN, &format!("stale (mto {})", old)),
             shell.name()
           ),
-          State::Foreign => "a file mto did not write".to_string(),
+          State::Foreign => paint(on, tone::WARN, "a file mto did not write"),
         };
-        outln!("{:<11} {}", shell.name(), state);
+        outln!(
+          "{} {}",
+          paint(on, tone::KEY, &format!("{:<11}", shell.name())),
+          state
+        );
         if path.exists() {
-          outln!("              {}", path.display());
+          outln!(
+            "              {}",
+            paint(on, tone::QUIET, &path.display().to_string())
+          );
         }
       }
       0
@@ -1362,10 +1371,15 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) ->
     Err(e) => return report_error(&e.into()),
   };
   print_warnings(&mut resolver);
-  out!(
-    "{}",
-    render_config(view, &config, &Environment::from_process())
-  );
+  let text = render_config(view, &config, &Environment::from_process());
+  if view == ConfigView::Path {
+    out!("{}", text);
+  } else {
+    out!(
+      "{}",
+      mtindo::text::color::toml(&text, mtindo::text::terminal::code_in_color())
+    );
+  }
   0
 }
 

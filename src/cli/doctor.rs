@@ -149,13 +149,24 @@ pub fn release(settings: &Settings, which: &str) -> Result<String, String> {
 
 /// `mto doctor`: whether the guard is on, its command, and what it holds.
 pub fn status(settings: &Settings, config: Option<&Path>) -> String {
+  use crate::text::color::{paint, tone};
+  let on = crate::color_enabled(false);
+  let key = |name: &str| paint(on, tone::KEY, &format!("{:<12}", format!("{}:", name)));
   let mut out = format!(
-    "build guard: {}\ncommand:     {} (in the project's folder)\n",
-    if settings.enabled { "on" } else { "off" },
-    settings.command.join(" ")
+    "{} {}\n{} {} {}\n",
+    key("build guard"),
+    if settings.enabled {
+      paint(on, tone::GOOD, "on")
+    } else {
+      paint(on, tone::QUIET, "off")
+    },
+    key("command"),
+    settings.command.join(" "),
+    paint(on, tone::QUIET, "(in the project's folder)")
   );
   out.push_str(&format!(
-    "limits:      {} per check, {} checks per narrowing\n",
+    "{} {} per check, {} checks per narrowing\n",
+    key("limits"),
     settings
       .timeout
       .map_or("no limit".to_string(), |t| format!("{} s", t.as_secs())),
@@ -163,14 +174,23 @@ pub fn status(settings: &Settings, config: Option<&Path>) -> String {
   ));
   let holds = settings.holds();
   out.push_str(&format!(
-    "holds:       {}\n",
+    "{} {}\n",
+    key("holds"),
     match holds.list.len() {
-      0 => "none".to_string(),
-      n => format!("{} (`mto doctor holds` lists them)", n),
+      0 => paint(on, tone::QUIET, "none"),
+      n => format!(
+        "{} {}",
+        paint(on, tone::WARN, &n.to_string()),
+        paint(on, tone::QUIET, "(`mto doctor holds` lists them)")
+      ),
     }
   ));
   if let Some(config) = config {
-    out.push_str(&format!("set in:      {}\n", config.display()));
+    out.push_str(&format!(
+      "{} {}\n",
+      key("set in"),
+      paint(on, tone::QUIET, &config.display().to_string())
+    ));
   }
   if !settings.enabled {
     out.push_str("`mto doctor on` turns it on; mto runs no command until then.\n");

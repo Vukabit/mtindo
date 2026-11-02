@@ -80,7 +80,8 @@ otherwise. Set `NO_COLOR` to turn color off, or `FORCE_COLOR` to turn it on;
 On a terminal, mto never passes on a control character it did not write
 itself, such as an escape code in a file's name or source. It shows the
 character instead: `^[` for an escape, `<U+202E>` for a character that
-reverses text. A pipe or a file gets the bytes unchanged.
+reverses text. Errors and warnings are treated so wherever they go, logs
+included. Other output keeps its bytes unchanged in a pipe or a file.
 
 ## Walking directories
 

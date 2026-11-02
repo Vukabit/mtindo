@@ -17,6 +17,7 @@ use std::process::{Command, Stdio};
 use crate::config::{Resolver, user};
 use crate::history::sha256;
 use crate::report::{Entry, Store};
+use crate::text::color::{paint, tone};
 
 /// Where a report's backtrace starts (see `crate::report`): its last part, and the first
 /// left out of a link.
@@ -65,9 +66,17 @@ pub fn list(store: &Store) -> String {
   if entries.is_empty() {
     return "no bug reports: mto has found no bug in itself here\n".to_string();
   }
+  let on = crate::color_enabled(false);
   let mut out = format!(
-    "{:<8} {:<20} {:>5}  {}\n",
-    "REPORT", "LAST SEEN", "SEEN", "WHAT"
+    "{}\n",
+    paint(
+      on,
+      tone::HEADING,
+      &format!(
+        "{:<8} {:<20} {:>5}  {}",
+        "REPORT", "LAST SEEN", "SEEN", "WHAT"
+      )
+    )
   );
   for entry in &entries {
     let file = entry
@@ -75,15 +84,24 @@ pub fn list(store: &Store) -> String {
       .first()
       .map_or(String::new(), |seen| format!(" ({})", seen.shown));
     out.push_str(&format!(
-      "{:<8} {:<20} {:>5}  {}{}\n",
-      &entry.id[..6],
-      super::history::utc(entry.last),
+      "{} {} {:>5}  {}{}\n",
+      paint(on, tone::ID, &format!("{:<8}", &entry.id[..6])),
+      paint(
+        on,
+        tone::QUIET,
+        &format!("{:<20}", super::history::utc(entry.last))
+      ),
       format!("{}x", entry.count),
       entry.title,
-      file
+      paint(on, tone::QUIET, &file)
     ));
   }
-  out.push_str("`mto report show ID` shows one; `mto report send ID` files it\n");
+  out.push_str(&paint(
+    on,
+    tone::QUIET,
+    "`mto report show ID` shows one; `mto report send ID` files it",
+  ));
+  out.push('\n');
   out
 }
 
@@ -178,7 +196,57 @@ pub fn show(store: &Store, id: &str) -> Result<String, String> {
   let text = entry
     .read()
     .map_err(|e| format!("cannot read report {}: {}", entry.id, e))?;
-  Ok(format!("{}\n{}", text, seen(&entry)))
+  let on = crate::text::terminal::code_in_color();
+  Ok(format!(
+    "{}\n{}\n",
+    markdown(&text, on),
+    paint(on, tone::QUIET, seen(&entry).trim_end())
+  ))
+}
+
+/// A report as `show` prints it, in color when `on`: headings, its Rust in the colors of
+/// [`crate::syntax::highlight`], and the other blocks quiet.
+fn markdown(text: &str, on: bool) -> String {
+  if !on {
+    return text.to_string();
+  }
+  let mut out = String::with_capacity(text.len() * 2);
+  let mut block: Option<(bool, String)> = None;
+  for line in text.split_inclusive('\n') {
+    let body = line.trim_end_matches('\n');
+    let end = &line[body.len()..];
+    if let Some(fence) = body.strip_prefix("```") {
+      match block.take() {
+        Some((rust, code)) => {
+          if rust {
+            out.push_str(&crate::syntax::highlight::highlight(
+              &code,
+              crate::syntax::Edition::LATEST,
+            ));
+          } else {
+            out.push_str(&paint(true, tone::QUIET, code.trim_end_matches('\n')));
+            if code.ends_with('\n') {
+              out.push('\n');
+            }
+          }
+        }
+        None => block = Some((fence.trim() == "rust", String::new())),
+      }
+      out.push_str(&paint(true, tone::QUIET, body));
+      out.push_str(end);
+    } else if let Some((_, code)) = block.as_mut() {
+      code.push_str(line);
+    } else if body.starts_with('#') {
+      out.push_str(&paint(true, tone::HEADING, body));
+      out.push_str(end);
+    } else {
+      out.push_str(line);
+    }
+  }
+  if let Some((_, code)) = block {
+    out.push_str(&code);
+  }
+  out
 }
 
 /// The store a run keeps reports in; `None` with `report.save = false` or no state folder,

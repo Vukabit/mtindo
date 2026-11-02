@@ -9,6 +9,7 @@ use super::holds::{self, Hold, Holds};
 use super::{Edit, File, Held, Narrowed, Tried, move_id, narrow, report};
 use crate::history::{self, Entry, History, Recorder, State};
 use crate::{Settings, c_green, c_red, c_reset, c_yellow, write_atomic};
+use crate::{errln, outln};
 
 /// How a guarded run ended.
 #[derive(Debug, PartialEq, Eq)]
@@ -71,7 +72,7 @@ pub fn finish(
       (None, Some(error)) => error.clone(),
       (None, None) => "it fails without an error the compiler's way".to_string(),
     };
-    eprintln!(
+    errln!(
       "{}doctor: `{}` already fails before mto changes anything ({}), so it cannot tell \
        whether this run breaks the build; nothing was written. Fix the build, give the \
        guard a command that passes (`mto doctor on -- COMMAND`), or pass --unguarded.{}",
@@ -90,7 +91,7 @@ pub fn finish(
       Ok(()) => {
         written.push(file.text.clone());
         if !guard.quiet {
-          println!(
+          outln!(
             "{}Formatted:{} {}",
             c_green(),
             c_reset(false),
@@ -99,7 +100,7 @@ pub fn finish(
         }
       }
       Err(e) => {
-        eprintln!("{}{}{}", c_red(), e, c_reset(true));
+        errln!("{}{}{}", c_red(), e, c_reset(true));
         written.push(file.source.clone());
         ended = Ended::Failed;
       }
@@ -226,7 +227,7 @@ pub fn finish(
   }
   remember(&narrowed, &planned, remembered, &run);
   if let Err(e) = remembered.save() {
-    eprintln!(
+    errln!(
       "{}warning: cannot keep the holds in {}: {}{}",
       c_yellow(true),
       guard.dir.display(),
@@ -406,7 +407,7 @@ fn remember(narrowed: &Narrowed, planned: &[Planned], holds: &mut Holds, run: &s
 
 fn say(guard: &Guard, line: &str) {
   if !guard.quiet {
-    eprintln!("{}", line);
+    errln!("{}", line);
   }
 }
 
@@ -529,7 +530,7 @@ fn write_report(
     std::fs::create_dir_all(guard.dir.join("reports")).and_then(|_| std::fs::write(&path, text));
   match saved {
     Ok(()) => say(guard, &format!("report: {}", path.display())),
-    Err(e) => eprintln!(
+    Err(e) => errln!(
       "{}warning: cannot write the report {}: {}{}",
       c_yellow(true),
       path.display(),

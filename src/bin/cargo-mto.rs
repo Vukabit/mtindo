@@ -15,7 +15,7 @@ use mtindo::cli::spec::{
 };
 use mtindo::config::env::{COMMAND, PATHS_FILE};
 use mtindo::config::workspace::{self, Selection};
-use mtindo::{HelpPalette, color_enabled};
+use mtindo::{HelpPalette, color_enabled, errln, out, outln};
 
 /// The column where help descriptions start.
 const HELP_COLUMN: usize = 30;
@@ -104,8 +104,8 @@ fn main() -> ExitCode {
     Ok(Parsed::Run(args)) => args,
     Ok(Parsed::Exit(code)) => return ExitCode::from(code),
     Err(message) => {
-      eprintln!("Error: {}", message);
-      eprintln!("Run 'cargo mto --help' for usage.");
+      errln!("Error: {}", message);
+      errln!("Run 'cargo mto --help' for usage.");
       return ExitCode::from(2);
     }
   };
@@ -120,13 +120,13 @@ fn main() -> ExitCode {
   let targets = match workspace::targets(args.manifest.as_deref(), &start, &selection) {
     Ok(targets) => targets,
     Err(message) => {
-      eprintln!("Error: {}", message);
+      errln!("Error: {}", message);
       return ExitCode::from(2);
     }
   };
   if args.verbose {
     for target in &targets {
-      println!("[{}] {}", target.kind, target.path.display());
+      outln!("[{}] {}", target.kind, target.path.display());
     }
   }
   let mut command = Command::new(mto_binary());
@@ -163,7 +163,7 @@ fn main() -> ExitCode {
     Some(lines) if listed > LONGEST_LINE => {
       let file = env::temp_dir().join(format!("mtindo-paths-{}.txt", std::process::id()));
       if let Err(e) = std::fs::write(&file, lines.join("\n")) {
-        eprintln!("Error: cannot write {}: {}", file.display(), e);
+        errln!("Error: cannot write {}: {}", file.display(), e);
         return ExitCode::from(2);
       }
       command.env(PATHS_FILE, &file);
@@ -188,7 +188,7 @@ fn main() -> ExitCode {
         .unwrap_or(3),
     ),
     Err(e) => {
-      eprintln!(
+      errln!(
         "Error: cannot run {}: {}; is mto installed?",
         Path::new(command.get_program()).display(),
         e
@@ -244,11 +244,11 @@ fn parse(raw: &[String]) -> Result<Parsed, String> {
     };
     match spec.flag {
       CargoFlag::Help => {
-        print!("{}", help(color_enabled(false)));
+        out!("{}", help(color_enabled(false)));
         return Ok(Parsed::Exit(0));
       }
       CargoFlag::Version => {
-        println!("mto {}", mtindo::version::short());
+        outln!("mto {}", mtindo::version::short());
         return Ok(Parsed::Exit(0));
       }
       CargoFlag::Check => args.check = true,

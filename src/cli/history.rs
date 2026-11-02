@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::config::{Resolver, user};
 use crate::history::{self, Entry, History, Limits, Run, State, id};
 use crate::options::user::bytes;
-use crate::{c_green, c_red, c_reset, c_yellow, write_atomic};
+use crate::{c_green, c_red, c_reset, c_yellow, errln, outln, write_atomic};
 
 /// What `mto history prune` was asked to keep, over the user config.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -110,7 +110,7 @@ pub fn finish_record(recorder: &mut history::Recorder, limits: Limits, quiet: bo
     Ok(true) => {}
     Ok(false) => return,
     Err(e) => {
-      eprintln!(
+      errln!(
         "{}warning: cannot finish the history record: {}{}",
         c_yellow(true),
         e,
@@ -122,13 +122,14 @@ pub fn finish_record(recorder: &mut history::Recorder, limits: Limits, quiet: bo
   if !quiet {
     let ids = recorder.history().ids().unwrap_or_default();
     let handle = id::handle(recorder.id(), &ids);
-    eprintln!(
+    errln!(
       "Recorded as run {}; `mto restore {}` undoes it.",
-      handle, handle
+      handle,
+      handle
     );
   }
   if let Err(e) = recorder.history().prune(limits, false) {
-    eprintln!(
+    errln!(
       "{}warning: cannot prune history: {}{}",
       c_yellow(true),
       e,
@@ -136,7 +137,7 @@ pub fn finish_record(recorder: &mut history::Recorder, limits: Limits, quiet: bo
     );
   }
   if let Err(e) = crate::cli::doctor::prune_reports(recorder.history()) {
-    eprintln!(
+    errln!(
       "{}warning: cannot prune the build guard's reports: {}{}",
       c_yellow(true),
       e,
@@ -380,12 +381,12 @@ pub fn restore(
     let shown = entry.path.display();
     match (Run::state(entry), force) {
       (State::AsBefore, _) => {
-        println!("{} already holds what it held before run {}", shown, handle);
+        outln!("{} already holds what it held before run {}", shown, handle);
         continue;
       }
       (State::AsWritten, _) | (_, true) => {}
       (State::Changed, false) => {
-        eprintln!(
+        errln!(
           "{}Skipped {}: changed since run {} wrote it (--force restores it \
                      anyway){}",
           c_yellow(true),
@@ -397,7 +398,7 @@ pub fn restore(
         continue;
       }
       (State::Missing, false) => {
-        eprintln!(
+        errln!(
           "{}Skipped {}: it no longer exists (--force recreates it){}",
           c_yellow(true),
           shown,
@@ -432,14 +433,14 @@ pub fn restore(
       fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     if let Err(e) = write_atomic(&entry.path, &before) {
-      eprintln!("{}Cannot write {}: {}{}", c_red(), shown, e, c_reset(true));
+      errln!("{}Cannot write {}: {}{}", c_red(), shown, e, c_reset(true));
       return Ok(3);
     }
-    println!("{}Restored{} {}", c_green(), c_reset(false), shown);
+    outln!("{}Restored{} {}", c_green(), c_reset(false), shown);
     if let (Some(recorder), Some(record)) = (recorder.as_mut(), record)
       && let Err(e) = recorder.record(&record)
     {
-      eprintln!(
+      errln!(
         "{}warning: cannot add {} to the history record: {}{}",
         c_yellow(true),
         shown,

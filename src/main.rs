@@ -21,6 +21,7 @@ use mtindo::{
   c_yellow, collect_jobs, collect_jobs_into, print_warnings, process_init, process_stdin, run_jobs,
   run_jobs_walking,
 };
+use mtindo::{errln, out, outln};
 
 /// The settings that decide which defaults apply.
 const EDITION_KEYS: [&str; 3] = ["edition", "style_edition", "version"];
@@ -200,7 +201,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
   if opts.emit == Emit::Json {
     let entries: Vec<&str> = done.iter().filter_map(|d| d.json.as_deref()).collect();
-    println!("[{}]", entries.join(","));
+    outln!("[{}]", entries.join(","));
   }
   let changed = count(Outcome::Changed);
   let off = count(Outcome::LayoutOff);
@@ -210,7 +211,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   let unsafe_writes = count(Outcome::VerifierFailed);
   let dirty = count(Outcome::Dirty);
   if dirty > 0 {
-    eprintln!(
+    errln!(
       "{}{} file(s) with uncommitted changes left alone: history is off, so nothing \
              could undo the change. Commit them, turn history on, or pass --allow-dirty.{}",
       c_yellow(true),
@@ -219,7 +220,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     );
   }
   if off > 0 && !opts.quiet {
-    eprintln!(
+    errln!(
       "{}{} file(s) left alone: layout and formatting are off (`format = false`). \
              Remove `format = false` to format them, or run `mto init` for an mto.toml \
              with `layout = true`.{}",
@@ -229,7 +230,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     );
   }
   if skipped > 0 && !opts.quiet {
-    eprintln!(
+    errln!(
       "{}{} file(s) skipped, each for the reason given above.{}",
       c_yellow(true),
       skipped,
@@ -237,7 +238,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     );
   }
   if broken > 0 {
-    eprintln!(
+    errln!(
       "{}{} file(s) have syntax errors and were left unchanged.{}",
       c_red(),
       broken,
@@ -245,7 +246,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     );
   }
   if unsafe_writes > 0 {
-    eprintln!(
+    errln!(
       "{}{} file(s) left unchanged because of a bug in mto, reported above.{}",
       c_red(),
       unsafe_writes,
@@ -259,7 +260,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   if opts.check {
     if changed > 0 {
       if !opts.quiet {
-        eprintln!(
+        errln!(
           "{}{} file(s) would be reformatted.{}",
           c_red(),
           changed,
@@ -269,7 +270,7 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
       return 1;
     }
     if !opts.quiet && !opts.files_with_diff && opts.emit == Emit::Files {
-      println!(
+      outln!(
         "{}Check passed successfully: no formatting drift detected.{}",
         c_green(),
         c_reset(false)
@@ -374,7 +375,7 @@ fn main() {
     } => run_config(view, &dir, &overrides),
     CliAction::Init { target_path } => match process_init(target_path) {
       Ok(path) => {
-        println!(
+        outln!(
           "{}Initialized default configuration:{} {}",
           c_green(),
           c_reset(false),
@@ -398,7 +399,7 @@ fn main() {
   let code = match mtindo::durable::settle() {
     Ok(()) => code,
     Err(e) => {
-      eprintln!(
+      errln!(
         "{}error: cannot sync what was written to disk: {}{}",
         c_red(),
         e,
@@ -441,7 +442,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   }
   if let Some(command) = command_named(&args[0]) {
     if args[1..].iter().any(|a| a == "-h" || a == "--help") {
-      print!(
+      out!(
         "{}",
         render_command_help(command, mtindo::color_enabled(false))
       );
@@ -481,7 +482,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
           return Ok(None);
         }
         Flag::Version => {
-          println!("mto {}", mtindo::version::short());
+          outln!("mto {}", mtindo::version::short());
           return Ok(None);
         }
         Flag::Man => return Ok(Some(CliAction::Man)),
@@ -765,7 +766,7 @@ fn parse_debug_args(command: &CommandSpec, args: &[String]) -> Result<CliAction,
         edition = match Edition::from_year(&args[i + 1]) {
           Some(edition) => edition,
           None => {
-            eprintln!(
+            errln!(
               "{}Error: unknown edition '{}'{}",
               c_red(),
               args[i + 1],
@@ -924,13 +925,13 @@ fn parse_restore_args(args: &[String]) -> Result<CliAction, ()> {
 }
 
 fn print_help() {
-  print!("{}", render_help(mtindo::color_enabled(false)));
+  out!("{}", render_help(mtindo::color_enabled(false)));
 }
 
 fn print_man_page() {
   let manual = mtindo::cli::manual::render();
   if !mtindo::color_enabled(false) {
-    print!("{}", manual);
+    out!("{}", manual);
     return;
   }
   let mut in_code_block = false;
@@ -938,30 +939,30 @@ fn print_man_page() {
   for line in manual.lines() {
     if let Some(fence_lang) = line.strip_prefix("```") {
       if in_code_block {
-        println!("\x1b[90m```\x1b[0m");
+        outln!("\x1b[90m```\x1b[0m");
         in_code_block = false;
       } else {
         in_code_block = true;
         lang = fence_lang.trim().to_string();
-        println!("\x1b[90m{}\x1b[0m", line);
+        outln!("\x1b[90m{}\x1b[0m", line);
       }
       continue;
     }
     if in_code_block {
       let trimmed = line.trim_start();
       if trimmed.starts_with('#') {
-        println!("\x1b[90m{}\x1b[0m", line);
+        outln!("\x1b[90m{}\x1b[0m", line);
       } else if lang == "toml" {
         if let Some(idx) = line.find('=') {
-          println!(
+          outln!(
             "\x1b[36m{}\x1b[0m=\x1b[32m{}\x1b[0m",
             &line[..idx],
             &line[idx + 1..]
           );
         } else if line.contains('"') {
-          println!("\x1b[32m{}\x1b[0m", line);
+          outln!("\x1b[32m{}\x1b[0m", line);
         } else {
-          println!("\x1b[35m{}\x1b[0m", line);
+          outln!("\x1b[35m{}\x1b[0m", line);
         }
       } else if lang == "bash" || lang == "text" {
         // The command as a word, not inside one (`mto.toml`).
@@ -970,14 +971,14 @@ fn print_man_page() {
           .replace("cargo install", "\x1b[32mcargo install\x1b[0m")
           .replace("[OPTIONS]", "\x1b[36m[OPTIONS]\x1b[0m")
           .replace("--path .", "\x1b[33m--path .\x1b[0m");
-        println!("{}", colored);
+        outln!("{}", colored);
       } else {
-        println!("{}", line);
+        outln!("{}", line);
       }
       continue;
     }
     if line.starts_with('#') && line.trim_start_matches('#').starts_with(' ') {
-      println!("\x1b[1;36m{}\x1b[0m", line);
+      outln!("\x1b[1;36m{}\x1b[0m", line);
     } else {
       let mut out = String::new();
       let mut in_backtick = false;
@@ -1004,7 +1005,7 @@ fn print_man_page() {
         }
       }
       out.push_str("\x1b[0m");
-      println!("{}", out);
+      outln!("{}", out);
     }
   }
 }
@@ -1188,7 +1189,7 @@ fn render_help(color: bool) -> String {
 }
 
 fn report_error(error: &MtoError) -> i32 {
-  eprintln!("{}Error: {}{}", c_red(), error, c_reset(true));
+  errln!("{}Error: {}{}", c_red(), error, c_reset(true));
   error.exit_code()
 }
 
@@ -1196,7 +1197,7 @@ fn report_error(error: &MtoError) -> i32 {
 fn resolver(overrides: &Overrides) -> Result<Resolver, MtoError> {
   let env = Environment::from_process();
   if let Err(e) = config::user::create_if_missing(&env) {
-    eprintln!("{}warning: {}{}", c_yellow(true), e, c_reset(true));
+    errln!("{}warning: {}{}", c_yellow(true), e, c_reset(true));
   }
   let resolver = Resolver::new(overrides, env)?;
   let color = resolver.user_value("output.color");
@@ -1248,21 +1249,21 @@ fn run_completions(
     how => format!("{} ({})", shell.name(), how.how()),
   };
   let failed = |(message, code): (String, i32)| {
-    eprintln!("{}Error: {}{}", c_red(), message, c_reset(true));
+    errln!("{}Error: {}{}", c_red(), message, c_reset(true));
     code
   };
   let version = mtindo::version::short();
   match (view, found) {
     (None, Some((shell, how))) => {
-      if how != Found::Named && std::io::IsTerminal::is_terminal(&std::io::stderr()) {
-        eprintln!(
+      if how != Found::Named && mtindo::text::terminal::Stream::Err.is_terminal() {
+        errln!(
           "note: completions for {}, the shell found {}; `mto completions <SHELL>` names \
            another",
           shell.name(),
           how.how()
         );
       }
-      print!("{}", completions::script(shell));
+      out!("{}", completions::script(shell));
       0
     }
     (Some("install"), Some((shell, how))) => {
@@ -1273,9 +1274,9 @@ fn run_completions(
             Installed::Current => "already current:",
             Installed::WouldWrite => "would write",
           };
-          println!("{}", title(shell, how));
-          println!("  {} {}  (mto {})", did, path.display(), version);
-          print!(
+          outln!("{}", title(shell, how));
+          outln!("  {} {}  (mto {})", did, path.display(), version);
+          out!(
             "{}",
             completions::next_step(shell, &path, dir.is_some(), &folders)
           );
@@ -1287,12 +1288,12 @@ fn run_completions(
     (Some("uninstall"), Some((shell, how))) => {
       match completions::uninstall(shell, dir, dry_run, &folders) {
         Ok((path, state)) => {
-          println!("{}", title(shell, how));
+          outln!("{}", title(shell, how));
           match state {
-            State::Missing => println!("  nothing to remove: {} is not there", path.display()),
-            State::Foreign => println!("  left {} alone: mto did not write it", path.display()),
-            _ if dry_run => println!("  would remove {}", path.display()),
-            _ => println!("  removed {}", path.display()),
+            State::Missing => outln!("  nothing to remove: {} is not there", path.display()),
+            State::Foreign => outln!("  left {} alone: mto did not write it", path.display()),
+            _ if dry_run => outln!("  would remove {}", path.display()),
+            _ => outln!("  removed {}", path.display()),
           }
           let startup = match shell {
             Shell::Bash => Some("~/.bashrc"),
@@ -1303,7 +1304,7 @@ fn run_completions(
           if let Some(file) = startup
             && matches!(state, State::Current | State::Stale(_))
           {
-            println!("\n  Remove the line you added to {} for it, if any.", file);
+            outln!("\n  Remove the line you added to {} for it, if any.", file);
           }
           0
         }
@@ -1330,9 +1331,9 @@ fn run_completions(
           ),
           State::Foreign => "a file mto did not write".to_string(),
         };
-        println!("{:<11} {}", shell.name(), state);
+        outln!("{:<11} {}", shell.name(), state);
         if path.exists() {
-          println!("              {}", path.display());
+          outln!("              {}", path.display());
         }
       }
       0
@@ -1343,7 +1344,7 @@ fn run_completions(
 
 fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) -> i32 {
   if let ConfigView::Options(toml) = view {
-    print!("{}", mtindo::cli::options::render(toml));
+    out!("{}", mtindo::cli::options::render(toml));
     return 0;
   }
   if !dir.is_dir() {
@@ -1361,7 +1362,7 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) ->
     Err(e) => return report_error(&e.into()),
   };
   print_warnings(&mut resolver);
-  print!(
+  out!(
     "{}",
     render_config(view, &config, &Environment::from_process())
   );
@@ -1394,7 +1395,7 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
         if let Some(error) = token.error {
           line.push_str(&format!("  error: {}", error.message()));
         }
-        println!("{}", line);
+        outln!("{}", line);
         offset = end;
       }
     }
@@ -1402,9 +1403,9 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
     DebugView::Layout => {}
     DebugView::Tree => {
       let parse = parse(&text, edition);
-      print!("{}", debug_dump(&parse.syntax_node()));
+      out!("{}", debug_dump(&parse.syntax_node()));
       for error in parse.errors() {
-        println!("error@{}: {}", error.range, error.message);
+        outln!("error@{}: {}", error.range, error.message);
       }
     }
   }
@@ -1427,13 +1428,13 @@ fn run_debug_layout(path: &std::path::Path, edition: Option<String>) -> i32 {
   let (source, notes) = match mtindo::explain_file(&mut resolver, path) {
     Ok(Some((source, notes, _))) => (source, notes),
     Ok(None) => {
-      println!("{}: formatting is not on here", path.display());
+      outln!("{}: formatting is not on here", path.display());
       return 0;
     }
     Err(e) => return report_error(&e),
   };
   if notes.is_empty() {
-    println!("{}: nothing left as written", path.display());
+    outln!("{}: nothing left as written", path.display());
     return 0;
   }
   // In the file's order; one not found in the file is about text mto made on the way (a
@@ -1445,13 +1446,13 @@ fn run_debug_layout(path: &std::path::Path, edition: Option<String>) -> i32 {
     .filter_map(|(note, place)| place.map(|place| (note, place)))
     .collect();
   if found.is_empty() {
-    println!("{}: nothing left as written", path.display());
+    outln!("{}: nothing left as written", path.display());
     return 0;
   }
   found.sort_by_key(|(_, place)| *place);
   for (note, (line, column)) in found {
     let at = format!("{}:{}", line, column);
-    println!(
+    outln!(
       "{}:{}  {}  {}\n    {}",
       path.display(),
       at,
@@ -1511,7 +1512,7 @@ fn run_doctor(view: DoctorView) -> i32 {
   };
   match result {
     Ok(text) => {
-      print!("{}", text);
+      out!("{}", text);
       0
     }
     Err(e) => report_error(&MtoError::Usage(e)),
@@ -1531,7 +1532,7 @@ fn run_doctor_run(
     Err(code) => return code,
   };
   for line in guard::recover(&store) {
-    eprintln!("{}", line);
+    errln!("{}", line);
   }
   let id = match history::resolve_here(&store, spec) {
     Ok(id) => id,
@@ -1566,7 +1567,7 @@ fn run_doctor_run(
       store.load(&entry.before),
       std::fs::read_to_string(&entry.path),
     ) else {
-      eprintln!(
+      errln!(
         "{}note: {} is left as it is: it is no longer laid out or formatted, or its \
          contents are gone{}",
         c_yellow(true),
@@ -1601,7 +1602,7 @@ fn run_doctor_run(
     }
   }
   let handle = mtindo::history::id::handle(&id, &store.ids().unwrap_or_default());
-  eprintln!(
+  errln!(
     "doctor: checking run {} with `{}`",
     handle,
     guard.check.line()
@@ -1686,7 +1687,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
   if writing {
     let removed = mtindo::remove_stale(&collected.stale);
     if removed > 0 && !opts.quiet {
-      eprintln!(
+      errln!(
         "{}note: removed {} temporary file(s) a run cut short left behind{}",
         c_yellow(true),
         removed,
@@ -1696,7 +1697,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
     if let Some(note) = &settings.note
       && !opts.quiet
     {
-      eprintln!("{}note: {}{}", c_yellow(true), note, c_reset(true));
+      errln!("{}note: {}{}", c_yellow(true), note, c_reset(true));
     }
     match &settings.history {
       Some(store) => {
@@ -1713,7 +1714,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
         if let Some(reason) = dirty.skipped
           && !opts.quiet
         {
-          eprintln!(
+          errln!(
             "{}note: {}; files with uncommitted changes are not protected{}",
             c_yellow(true),
             reason,
@@ -1731,7 +1732,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
   if writing {
     if let Some(store) = &settings.history {
       for line in guard::recover(store) {
-        eprintln!("{}", line);
+        errln!("{}", line);
       }
     }
     // Remembered holds apply with the guard off too; `--unguarded` writes every edit.
@@ -1818,7 +1819,7 @@ fn run_history(view: HistoryView) -> i32 {
   };
   match result {
     Ok(text) => {
-      print!("{}", text);
+      out!("{}", text);
       0
     }
     Err(e) => report_error(&MtoError::Usage(e)),
@@ -1869,7 +1870,7 @@ fn run_print_config(kind: PrintKind, path: Option<&Path>, overrides: &Overrides)
         )));
       }
     }
-    _ => print!("{}", text),
+    _ => out!("{}", text),
   }
   0
 }
@@ -1901,7 +1902,7 @@ fn run_report(view: ReportView) -> i32 {
   };
   match result {
     Ok(text) => {
-      print!("{}", text);
+      out!("{}", text);
       0
     }
     Err(e) => report_error(&MtoError::Usage(e)),
@@ -2009,15 +2010,15 @@ fn command_usage<T>(
   if let Some(note) = note {
     text.push_str(&format!("\n{}", note));
   }
-  eprintln!("{}Error: {}{}", c_red(), text, c_reset(true));
-  eprintln!("Run 'mto {} --help' for usage.", command.name);
+  errln!("{}Error: {}{}", c_red(), text, c_reset(true));
+  errln!("Run 'mto {} --help' for usage.", command.name);
   Err(())
 }
 
 /// Prints a usage error and points at the help; returns the error for `?`-style use.
 fn usage_error<T>(message: &str) -> Result<T, ()> {
-  eprintln!("{}Error: {}{}", c_red(), message, c_reset(true));
-  eprintln!("Run 'mto --help' for usage.");
+  errln!("{}Error: {}{}", c_red(), message, c_reset(true));
+  errln!("Run 'mto --help' for usage.");
   Err(())
 }
 
@@ -2025,10 +2026,10 @@ fn usage_error<T>(message: &str) -> Result<T, ()> {
 /// folders passed over.
 fn walk_notes(collected: &mtindo::Collected, opts: &RunOptions) {
   for problem in &collected.problems {
-    eprintln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
+    errln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
   }
   if !collected.nested.is_empty() && !opts.quiet {
-    eprintln!("{}", nested_note(&collected.nested, opts.verbose));
+    errln!("{}", nested_note(&collected.nested, opts.verbose));
   }
 }
 

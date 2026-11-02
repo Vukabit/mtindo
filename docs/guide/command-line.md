@@ -73,6 +73,11 @@ Output is colored only when it goes to a terminal, unless `--color` says
 otherwise. Set `NO_COLOR` to turn color off, or `FORCE_COLOR` to turn it on;
 `NO_COLOR` wins if both are set.
 
+On a terminal, mto never passes on a control character it did not write
+itself, such as an escape code in a file's name or source. It shows the
+character instead: `^[` for an escape, `<U+202E>` for a character that
+reverses text. A pipe or a file gets the bytes unchanged.
+
 ## Walking directories
 
 Symlinked directories are skipped unless `--follow-links` is given, and every

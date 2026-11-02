@@ -118,6 +118,8 @@ pub fn color_enabled(is_err: bool) -> bool {
   // Asked for every line of a diff, so worked out once per stream: the answer cannot
   // change during a run.
   static DETECTED: std::sync::OnceLock<(Option<bool>, bool, bool)> = std::sync::OnceLock::new();
+  // Asked here rather than of `terminal`, as the xtask runner compiles this file alone.
+  #[allow(clippy::disallowed_methods)]
   let (forced, stdout, stderr) = *DETECTED.get_or_init(|| {
     let set = |name: &str| env::var_os(name).is_some_and(|value| !value.is_empty());
     let forced = if set("NO_COLOR") {

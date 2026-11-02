@@ -1,0 +1,12 @@
+# mto prints through src/text/terminal.rs, which keeps text it did not write from
+# controlling a terminal. Use mtindo's out!, outln!, err! and errln! instead.
+disallowed-macros = [
+  { path = "std::print", reason = "use mtindo::out!" },
+  { path = "std::println", reason = "use mtindo::outln!" },
+  { path = "std::eprint", reason = "use mtindo::err!" },
+  { path = "std::eprintln", reason = "use mtindo::errln!" },
+]
+disallowed-methods = [
+  { path = "std::io::stdout", reason = "print through mtindo::text::terminal" },
+  { path = "std::io::stderr", reason = "print through mtindo::text::terminal" },
+]

@@ -11,6 +11,9 @@
 //! release workflow's; in CI, the tag being built counts when the shallow clone lacks
 //! it). Anything else, a dirty tree always, is a development build.
 
+// Cargo reads what a build script prints; it never reaches a terminal.
+#![allow(clippy::disallowed_macros)]
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -171,10 +171,10 @@ pub struct FileReport {
 impl FileReport {
   pub fn print(&self) {
     if !self.stdout.is_empty() {
-      let _ = io::stdout().lock().write_all(self.stdout.as_bytes());
+      out!("{}", self.stdout);
     }
     if !self.stderr.is_empty() {
-      let _ = io::stderr().lock().write_all(self.stderr.as_bytes());
+      err!("{}", self.stderr);
     }
   }
 
@@ -548,7 +548,7 @@ pub fn parse_toml_config(path: &Path) -> Result<LayoutConfig, MtoError> {
 /// Prints the configuration warnings found so far to stderr.
 pub fn print_warnings(resolver: &mut config::Resolver) {
   for warning in resolver.take_warnings() {
-    eprintln!("{}warning: {}{}", c_yellow(true), warning, c_reset(true));
+    errln!("{}warning: {}{}", c_yellow(true), warning, c_reset(true));
   }
 }
 
@@ -1104,7 +1104,7 @@ pub fn shape(
 pub fn try_reorganize(source: &str, config: &LayoutConfig, dbg: bool) -> Result<String, String> {
   let mut log = String::new();
   let result = arrange(source, config, dbg.then_some(&mut log)).map(|(text, _, _)| text);
-  print!("{}", log);
+  out!("{}", log);
   result
 }
 

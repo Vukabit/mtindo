@@ -196,6 +196,160 @@ pub fn set_configured_color(choice: Option<bool>) {
   CONFIGURED.store(code(choice), std::sync::atomic::Ordering::Relaxed);
 }
 
+/// A shell script (`mto completions`) with its comments, strings, variables and keywords
+/// colored as `mto` colors Rust; every line closes its colors. The rules are the shells'
+/// common ground (bash, zsh, fish, PowerShell), enough for the scripts mto writes.
+pub fn shell(text: &str, on: bool) -> String {
+  if !on {
+    return text.to_string();
+  }
+  const COMMENT: &str = "90";
+  const KEYWORD: &str = "35";
+  const STRING: &str = "32";
+  const VARIABLE: &str = "36";
+  const KEYWORDS: &[&str] = &[
+    "break", "case", "continue", "do", "done", "elif", "else", "end", "esac", "fi", "for",
+    "foreach", "function", "if", "local", "param", "return", "switch", "then", "until", "while",
+  ];
+  let mut out = String::with_capacity(text.len() * 2);
+  // Paints `piece` line by line, so a string running over a line end closes its color.
+  let mut push = |color: Option<&str>, piece: &str| match color {
+    Some(color) => {
+      for (at, line) in piece.split('\n').enumerate() {
+        if at > 0 {
+          out.push('\n');
+        }
+        out.push_str(&paint(true, color, line));
+      }
+    }
+    None => out.push_str(piece),
+  };
+  let bytes = text.as_bytes();
+  let name_end = |from: usize| {
+    let mut end = from;
+    while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+      end += 1;
+    }
+    end
+  };
+  // Past the character at `from`, or the end.
+  let after = |from: usize| {
+    from
+      + text
+        .get(from..)
+        .and_then(|rest| rest.chars().next())
+        .map_or(0, char::len_utf8)
+  };
+  // Where the variable at `from` (a `$`) ends, or `from` itself when it is not one.
+  let variable_end = |from: usize| match bytes.get(from + 1) {
+    Some(b'{') => text[from..]
+      .find('}')
+      .map_or(text.len(), |close| from + close + 1),
+    Some(b'#' | b'@' | b'*' | b'?') => from + 2,
+    Some(_) => name_end(from + 1),
+    None => from,
+  };
+  // A word is a command when it opens a line or follows `;`, `|`, `&`, `(` or `{`.
+  let mut command = true;
+  // `in` is a keyword on a line that opened with `for`, `foreach`, `case` or `select`.
+  let mut looping = false;
+  // Inside `name=( ... )`, an array's words, which are never commands.
+  let mut array = false;
+  let mut plain = 0;
+  let mut at = 0;
+  while at < bytes.len() {
+    let byte = bytes[at];
+    let word_start =
+      at == 0 || bytes[at - 1].is_ascii_whitespace() || b";|&({".contains(&bytes[at - 1]);
+    let end = match byte {
+      b'#' if word_start => Some((
+        COMMENT,
+        text[at..].find('\n').map_or(text.len(), |n| at + n),
+      )),
+      b'\'' => Some((
+        STRING,
+        text[at + 1..].find('\'').map_or(text.len(), |n| at + n + 2),
+      )),
+      b'"' => {
+        push(None, &text[plain..at]);
+        let mut end = at + 1;
+        let mut from = at;
+        while end < bytes.len() && bytes[end] != b'"' {
+          match bytes[end] {
+            b'\\' | b'`' => end = after(end + 1),
+            b'$' if variable_end(end) > end + 1 => {
+              push(Some(STRING), &text[from..end]);
+              let stop = variable_end(end).min(text.len());
+              push(Some(VARIABLE), &text[end..stop]);
+              from = stop;
+              end = stop;
+            }
+            _ => end += 1,
+          }
+        }
+        let end = (end + 1).min(text.len());
+        push(Some(STRING), &text[from..end]);
+        plain = end;
+        at = end;
+        command = false;
+        continue;
+      }
+      b'$' if variable_end(at) > at + 1 => Some((VARIABLE, variable_end(at).min(text.len()))),
+      b'\\' => {
+        at = after(at + 1);
+        continue;
+      }
+      _ if word_start && (byte.is_ascii_alphabetic() || byte == b'_') => {
+        let end = name_end(at);
+        let word = &text[at..end];
+        let opens = command && !array;
+        let keyword = (opens && KEYWORDS.contains(&word)) || (looping && word == "in");
+        if opens && word != "local" {
+          looping = matches!(word, "for" | "foreach" | "case" | "select");
+        }
+        // After these the next word is a command again: `then echo`, `do set`.
+        command = matches!(
+          word,
+          "then" | "do" | "else" | "elif" | "if" | "while" | "until"
+        );
+        if keyword {
+          Some((KEYWORD, end))
+        } else {
+          at = end;
+          continue;
+        }
+      }
+      _ => None,
+    };
+    match end {
+      Some((color, end)) => {
+        push(None, &text[plain..at]);
+        push(Some(color), &text[at..end]);
+        plain = end;
+        at = end;
+        // A keyword has set whether a command follows it.
+        command &= color == KEYWORD;
+      }
+      None => {
+        match byte {
+          b'\n' => {
+            command = true;
+            looping = false;
+          }
+          b'(' if at > 0 && bytes[at - 1] == b'=' => array = true,
+          b')' => array = false,
+          b';' | b'|' | b'&' | b'(' | b'{' => command = true,
+          _ if !byte.is_ascii_whitespace() => command = false,
+          _ => {}
+        }
+        at += 1;
+      }
+    }
+  }
+  push(None, &text[plain..]);
+  out
+}
+
 /// The terminal prints escape codes as text: color goes to it only when asked for.
 pub fn terminal_reads_no_escapes() {
   NO_ESCAPES.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -264,5 +418,77 @@ fn code(choice: Option<bool>) -> u8 {
     None => 0,
     Some(true) => 1,
     Some(false) => 2,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// `text` without its color codes.
+  fn plain(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("\x1b[") {
+      out.push_str(&rest[..at]);
+      let end = rest[at..].find('m').expect("a code ends in m");
+      rest = &rest[at + end + 1..];
+    }
+    out.push_str(rest);
+    out
+  }
+
+  #[test]
+  fn test_shell_closes_a_string_at_each_line_end() {
+    assert_eq!(
+      shell("'one\ntwo'\n", true),
+      "\x1b[32m'one\x1b[0m\n\x1b[32mtwo'\x1b[0m\n"
+    );
+  }
+
+  #[test]
+  fn test_shell_colors_a_keyword_after_then_and_do() {
+    let colored = shell(
+      "if a; then return 1; fi
+",
+      true,
+    );
+    assert!(
+      colored.contains("\x1b[35mthen\x1b[0m \x1b[35mreturn\x1b[0m 1; \x1b[35mfi\x1b[0m"),
+      "{:?}",
+      colored
+    );
+  }
+
+  #[test]
+  fn test_shell_colors_each_kind_of_word() {
+    let text = "# note\nfor w in $words; do\n  echo \"a ${x} é\\é\" 'it'\\''s' # end\ndone\n";
+    let colored = shell(text, true);
+    let expect = [
+      "\x1b[90m# note\x1b[0m\n",
+      "\x1b[35mfor\x1b[0m w \x1b[35min\x1b[0m \x1b[36m$words\x1b[0m; \x1b[35mdo\x1b[0m\n",
+      "echo \x1b[32m\"a \x1b[0m\x1b[36m${x}\x1b[0m\x1b[32m é\\é\"\x1b[0m",
+      "\x1b[32m'it'\x1b[0m\\'\x1b[32m's'\x1b[0m \x1b[90m# end\x1b[0m\n",
+      "\x1b[35mdone\x1b[0m\n",
+    ];
+    for piece in expect {
+      assert!(colored.contains(piece), "{:?} not in {:?}", piece, colored);
+    }
+    assert_eq!(plain(&colored), text);
+  }
+
+  #[test]
+  fn test_shell_leaves_words_and_unended_text_as_written() {
+    for text in [
+      "keys=(for done in)\n",
+      "a#b $ \"open $",
+      "x\\",
+      "'open",
+      "${open",
+    ] {
+      assert_eq!(plain(&shell(text, true)), text);
+    }
+    assert!(!shell("keys=(for done)\n", true).contains("\x1b[35m"));
+    assert_eq!(shell("# x\n", false), "# x\n");
   }
 }

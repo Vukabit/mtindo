@@ -27,8 +27,9 @@ whether or not anything is piped in. Reading stdin always needs the explicit
 `-`.
 
 Code printed to a terminal, by `-` or `--emit stdout`, is in color while color
-is on. Code printed to a pipe or a file is never colored, even with
-`--color always`.
+is on, and so are the settings `mto config print` shows and the script
+`mto completions` prints. Code printed to a pipe or a file is never colored,
+even with `--color always`.
 
 ## Options
 

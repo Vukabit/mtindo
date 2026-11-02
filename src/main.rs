@@ -1293,7 +1293,13 @@ fn run_completions(
           how.how()
         );
       }
-      out!("{}", completions::script(shell));
+      out!(
+        "{}",
+        mtindo::text::color::shell(
+          &completions::script(shell),
+          mtindo::text::terminal::code_in_color()
+        )
+      );
       0
     }
     (Some("install"), Some((shell, how))) => {

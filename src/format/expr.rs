@@ -492,7 +492,7 @@ pub fn dropped(token: &SyntaxToken, spacing: Spacing) -> bool {
 /// the kinds it may drop.
 pub fn dropped_tokens(node: &SyntaxNode, spacing: Spacing) -> Vec<usize> {
   node
-    .descendants_where(droppable)
+    .descendants_where(|kind| droppable(kind, spacing))
     .filter_map(|e| match e {
       SyntaxElement::Token(t) if dropped(&t, spacing) => Some(t.text_range().start as usize),
       _ => None,
@@ -519,7 +519,7 @@ pub fn flat(node: &SyntaxNode, spacing: Spacing) -> String {
   // One code token has nothing to space against: its text, unless [`dropped`] may drop it.
   let mut code = node.token_texts().filter(|(kind, _, _)| !kind.is_trivia());
   if let (Some((kind, text, _)), None) = (code.next(), code.next())
-    && !droppable(kind)
+    && !droppable(kind, spacing)
   {
     return text.to_string();
   }
@@ -559,7 +559,6 @@ pub fn flat_tokens(tokens: &[SyntaxToken], spacing: Spacing) -> String {
   } else {
     tokens
   };
-  let config = spacing.config();
   let mut out = String::with_capacity(tokens.iter().map(|t| t.text().len() + 1).sum());
   // Inside a macro's token tree the tokens are not code yet (`::` is two colons, `,` may
   // follow nothing): their commas stay and their spacing is as written, any space one space.
@@ -588,9 +587,9 @@ pub fn flat_tokens(tokens: &[SyntaxToken], spacing: Spacing) -> String {
       let previous = &tokens[i - 1];
       let written = previous.text_range().end < token.text_range().start;
       let spaced = if written {
-        space::spacing(previous, token, Edition::E2021, &config).unwrap_or(true)
+        space::spacing(previous, token, Edition::E2021, &spacing).unwrap_or(true)
       } else {
-        space::wants_space(previous, token, &config)
+        space::wants_space(previous, token, &spacing)
       };
       if spaced {
         out.push(' ');
@@ -2106,22 +2105,16 @@ fn definitive<S: AsRef<str>>(items: &[S], limit: usize) -> Tactic {
   }
 }
 
-/// Whether [`dropped`] may drop a token of this kind.
-fn droppable(kind: SyntaxKind) -> bool {
-  matches!(
-    kind,
-    SyntaxKind::Pipe
-      | SyntaxKind::Colon2
-      | SyntaxKind::InKw
-      | SyntaxKind::WhereKw
-      | SyntaxKind::Lt
-      | SyntaxKind::Gt
-      | SyntaxKind::LParen
-      | SyntaxKind::RParen
-      | SyntaxKind::Colon
-      | SyntaxKind::Ident
-      | SyntaxKind::RawIdent
-  )
+/// Whether [`dropped`] may drop a token of this kind with `spacing`: a name and its `:`
+/// only for `use_field_init_shorthand`, so that otherwise a lone name is its own text
+/// (most of [`flat`]'s calls).
+fn droppable(kind: SyntaxKind, spacing: Spacing) -> bool {
+  may_drop(kind)
+    && (spacing.field_init_shorthand
+      || !matches!(
+        kind,
+        SyntaxKind::Colon | SyntaxKind::Ident | SyntaxKind::RawIdent
+      ))
 }
 
 /// The attributes written just before a list's element, which the parser makes siblings of
@@ -2824,6 +2817,24 @@ fn macro_type_arguments(node: &SyntaxNode, spacing: Spacing) -> Option<MacroArgu
     })
 }
 
+/// Whether [`dropped`] may drop a token of this kind with any settings.
+fn may_drop(kind: SyntaxKind) -> bool {
+  matches!(
+    kind,
+    SyntaxKind::Pipe
+      | SyntaxKind::Colon2
+      | SyntaxKind::InKw
+      | SyntaxKind::WhereKw
+      | SyntaxKind::Lt
+      | SyntaxKind::Gt
+      | SyntaxKind::LParen
+      | SyntaxKind::RParen
+      | SyntaxKind::Colon
+      | SyntaxKind::Ident
+      | SyntaxKind::RawIdent
+  )
+}
+
 /// Whether `node` holds what may be kept as written past the line width (a literal, a
 /// macro call, a comment, an attribute), so that a layout of it on one line may be wider
 /// than the room it was given.
@@ -3428,7 +3439,7 @@ fn one_line_floor(node: &SyntaxNode) -> usize {
     .token_texts()
     .filter(|(kind, _, _)| {
       !kind.is_trivia()
-        && !droppable(*kind)
+        && !may_drop(*kind)
         && !matches!(
           kind,
           SyntaxKind::LBrace

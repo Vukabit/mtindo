@@ -328,7 +328,10 @@ impl Spacing {
 }
 
 impl Default for Spacing {
+  /// The defaults' spacing, worked out once: building a [`FormatConfig`] allocates, and
+  /// this is asked for on every flat layout.
   fn default() -> Self {
-    Spacing::of(&FormatConfig::default())
+    static DEFAULT: std::sync::OnceLock<Spacing> = std::sync::OnceLock::new();
+    *DEFAULT.get_or_init(|| Spacing::of(&FormatConfig::default()))
   }
 }

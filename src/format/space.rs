@@ -7,7 +7,7 @@
 
 use SyntaxKind as K;
 
-use crate::options::format::FormatConfig;
+use super::shape::Spacing;
 use crate::syntax::lexer::tokenize;
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxToken};
 
@@ -36,7 +36,7 @@ pub fn spacing(
   a: &SyntaxToken,
   b: &SyntaxToken,
   edition: Edition,
-  config: &FormatConfig,
+  config: &Spacing,
 ) -> Option<bool> {
   let wanted = rule(a, b, config)?;
   if !wanted && !separate_when_joined(a, b, edition) {
@@ -47,7 +47,7 @@ pub fn spacing(
 
 /// Whether two tokens written touching take a space: only when a rule asks for one, since
 /// they already read as themselves.
-pub fn wants_space(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> bool {
+pub fn wants_space(a: &SyntaxToken, b: &SyntaxToken, config: &Spacing) -> bool {
   rule(a, b, config) == Some(true)
 }
 
@@ -152,7 +152,7 @@ fn path_start(kind: SyntaxKind) -> bool {
   )
 }
 
-fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &FormatConfig) -> Option<bool> {
+fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &Spacing) -> Option<bool> {
   let (ka, kb) = (a.kind(), b.kind());
   let (pa, pb) = (a.parent().kind(), b.parent().kind());
   if ka.is_trivia() || kb.is_trivia() {

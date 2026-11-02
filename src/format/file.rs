@@ -2607,6 +2607,7 @@ fn overflowing(
 }
 
 fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConfig) -> String {
+  let token_spacing = super::shape::Spacing::of(config);
   let mut roles = roles(root, text, config);
   // Statements given up on as the pass reaches them (see below), beside the ranges known
   // before it.
@@ -3044,7 +3045,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         {
           Some(true)
         }
-        _ => next.and_then(|n| spacing(before, &n.token, edition, config)),
+        _ => next.and_then(|n| spacing(before, &n.token, edition, &token_spacing)),
       };
       match spaced {
         Some(true) => out.push(' '),
@@ -3721,7 +3722,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       && next.kind != SyntaxKind::Whitespace
       && !in_verbatim(tok.start)
       && !in_verbatim(next.start)
-      && wants_space(&tok.token, &next.token, config)
+      && wants_space(&tok.token, &next.token, &token_spacing)
     {
       out.push(' ');
     }

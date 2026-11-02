@@ -434,9 +434,10 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
     SyntaxElement::Token(t) if t.kind() == K::LBrace => Some(t),
     _ => None,
   })?;
-  let space = if super::space::wants_space(last, &open_token, config)
+  let spacing = Spacing::of(config);
+  let space = if super::space::wants_space(last, &open_token, &spacing)
     || last.text_range().end < open_token.text_range().start
-      && super::space::spacing(last, &open_token, Edition::E2021, config).unwrap_or(true)
+      && super::space::spacing(last, &open_token, Edition::E2021, &spacing).unwrap_or(true)
   {
     " "
   } else {

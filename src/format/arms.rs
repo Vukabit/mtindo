@@ -94,12 +94,15 @@ pub fn rewrite_arm_in(
   let tab = config.tab_spaces;
   // `| ` before the pattern with `match_arm_leading_pipes` "Always", or with "Preserve"
   // where one is written; the pattern and guard laid out after it.
-  let written_pipe = node
-    .descendants_where(|kind| kind == K::Pipe)
-    .any(|e| matches!(&e, crate::syntax::SyntaxElement::Token(t) if super::expr::leading_pipe(t) && super::expr::arm_pipe(t)));
+  // The arm is walked for a written pipe only when it decides (a walk makes its nodes).
+  let written_pipe = || {
+    node
+      .descendants_where(|kind| kind == K::Pipe)
+      .any(|e| matches!(&e, crate::syntax::SyntaxElement::Token(t) if super::expr::leading_pipe(t) && super::expr::arm_pipe(t)))
+  };
   let pipe = match config.leading_pipes {
     LeadingPipes::Always => "| ",
-    LeadingPipes::Preserve if written_pipe => "| ",
+    LeadingPipes::Preserve if written_pipe() => "| ",
     _ => "",
   };
   // 5 = ` => {`
@@ -107,7 +110,11 @@ pub fn rewrite_arm_in(
   if !pipe.is_empty() && pattern_text.contains('\n') {
     return None;
   }
-  let pattern_text = format!("{}{}", pipe, pattern_text);
+  let pattern_text = if pipe.is_empty() {
+    pattern_text
+  } else {
+    format!("{}{}", pipe, pattern_text)
+  };
   let guard_text = match &condition {
     Some(condition) => rewrite_guard(condition, shape, &pattern_text, tab, written_guard)?,
     None => String::new(),
@@ -451,7 +458,7 @@ pub fn rewrite_arm_in(
     })
     .collect();
   // A leading `|` the setting adds.
-  let written = if !pipe.is_empty() && !written_pipe {
+  let written = if !pipe.is_empty() && !written_pipe() {
     format!("|{}", written)
   } else {
     written

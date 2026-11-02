@@ -840,14 +840,17 @@ impl Resolver {
             .map(|i| options::support::OPTIONS[i].1),
           Ok("missing" | "not-planned")
         );
-        let default = value.to_toml() == setting.default
-          || setting.default_2024 == Some(value.to_toml().as_str());
+        // Asked last, as it writes the value out: most settings are their defaults.
+        let default = || {
+          let toml = value.to_toml();
+          toml == setting.default || setting.default_2024 == Some(toml.as_str())
+        };
         // A deprecated name has its own warning, naming the one to use.
         if setting.file == File::Format
           && setting.replaced_by.is_none()
           && !honored
-          && !default
           && !matches!(source, Source::Default | Source::Derived(_))
+          && !default()
         {
           self.warn(format!(
             "{}: `{}` is not honored by mto yet, so it is ignored (`mto config options` \
@@ -858,9 +861,9 @@ impl Resolver {
         // An option honored in part, set to a value that is not.
         if let Value::Text(text) = value
           && honored
-          && !default
           && !matches!(source, Source::Default | Source::Derived(_))
           && options::support::MISSING_VALUES.contains(&(&**name, &**text))
+          && !default()
         {
           self.warn(format!(
             "{}: `{} = \"{}\"` is not honored by mto yet, so it is ignored (`mto config \

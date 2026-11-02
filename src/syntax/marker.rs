@@ -121,19 +121,20 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
 /// The directive a comment's text seems meant as, written loosely: `mto` in any case, an
 /// optional colon, then `off` (or `of`), `on` or `pin`, as a word of its own.
 fn directive_word(body: &str) -> Option<&'static str> {
-  let lower = body.to_lowercase();
-  let rest = lower.strip_prefix("mto")?;
+  // Asked of every comment, so nothing is copied: the words are ASCII.
+  let rest = body
+    .get(..3)
+    .filter(|start| start.eq_ignore_ascii_case("mto"))
+    .map(|_| &body[3..])?;
   let rest = rest.strip_prefix(':').unwrap_or(rest).trim_start();
-  let word: String = rest
-    .chars()
-    .take_while(|c| c.is_ascii_alphanumeric())
-    .collect();
-  match word.as_str() {
-    "off" | "of" => Some("off"),
-    "on" => Some("on"),
-    "pin" => Some("pin"),
-    _ => None,
-  }
+  let end = rest
+    .find(|c: char| !c.is_ascii_alphanumeric())
+    .unwrap_or(rest.len());
+  let word = &rest[..end];
+  ["off", "of", "on", "pin"]
+    .into_iter()
+    .find(|w| word.eq_ignore_ascii_case(w))
+    .map(|w| if w == "of" { "off" } else { w })
 }
 
 /// A node whose children stand on lines of their own: items or statements.

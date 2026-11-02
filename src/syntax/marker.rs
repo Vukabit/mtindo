@@ -43,6 +43,14 @@ pub fn at(text: &str, start: usize, end: usize) -> Option<Marker> {
   parse(&text[start..end])
 }
 
+/// Whether `text` holds `mto` in any case, as every directive and near miss does.
+pub fn mentions(text: &str) -> bool {
+  text
+    .as_bytes()
+    .windows(3)
+    .any(|w| w.eq_ignore_ascii_case(b"mto"))
+}
+
 /// The directive a line comment's text is, when it is one.
 pub fn parse(comment: &str) -> Option<Marker> {
   let rest = comment.trim_end().strip_prefix("// mto: ")?;
@@ -61,6 +69,10 @@ pub fn parse(comment: &str) -> Option<Marker> {
 /// Every directive in the tree `root` (whose text is `text`), read as a whole.
 pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
   let mut found = Directives::default();
+  // Asked several times of every file; most never mention mto, so skip the walk.
+  if !mentions(text) {
+    return found;
+  }
   // Regions still open, with the block each started in.
   let mut open: Vec<(SyntaxNode, usize)> = Vec::new();
   for element in root.descendants_with_tokens_iter() {

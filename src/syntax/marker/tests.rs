@@ -41,6 +41,12 @@ fn test_a_directive_stands_alone_on_its_line() {
 }
 
 #[test]
+fn test_a_file_mentions_mto_in_any_case() {
+  assert!(mentions("// mTo: off") && mentions("x mto"));
+  assert!(!mentions("fn m() { to(); }") && !mentions("mt") && !mentions(""));
+}
+
+#[test]
 fn test_a_pin_is_found_where_it_stands() {
   let text = "fn z() {}\n// mto: pin\n// about m\nfn m() {}\n";
   assert_eq!(directives(text).pins, [10]);
@@ -86,6 +92,7 @@ fn test_near_misses_are_reported() {
   for text in [
     "//mto: off\nfn a() {}\n",
     "// MTO: on\nfn a() {}\n",
+    "// Mto: off\nfn a() {}\n",
     "// mto: of\nfn a() {}\n",
     "// mto: on    This is an example\nfn a() {}\n",
     "fn a() {} // mto: off\n",

@@ -1538,7 +1538,7 @@ fn directive_notes(shown: &str, problems: &[(usize, String)]) -> String {
 
 /// What is wrong with the directives in `source`, each with its line (from 1).
 fn directive_problems(source: &str, edition: syntax::Edition) -> Vec<(usize, String)> {
-  if !source.contains("mto") && !source.contains("MTO") {
+  if !syntax::marker::mentions(source) {
     return Vec::new();
   }
   let parsed = syntax::parse_cached(source, edition);

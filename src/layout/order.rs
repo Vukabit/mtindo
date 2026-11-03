@@ -23,7 +23,6 @@
 //! macro first; if even that moves one, the file is left alone.
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
 
 use super::Unit;
 use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
@@ -253,13 +252,13 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
   families.sort_by_key(|(_, kind)| kind_rank(kind, config));
   let mut free: Vec<Unit> = units.iter().filter(|u| !u.pinned).cloned().collect();
   free.sort_by(|a, b| compare(a, b, config, &families, macros_first));
-  let pinned: HashSet<usize> = units.iter().filter(|u| u.pinned).map(|u| u.index).collect();
+  // By position in `units`, which may be a run between held units: a unit's index is its
+  // position in the whole container.
   let mut free = free.into_iter();
   units
     .iter()
-    .enumerate()
-    .filter_map(|(position, unit)| {
-      if pinned.contains(&position) {
+    .filter_map(|unit| {
+      if unit.pinned {
         Some(unit.clone())
       } else {
         free.next()

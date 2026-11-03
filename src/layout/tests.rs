@@ -84,6 +84,18 @@ fn test_a_paragraph_ends_at_a_blank_line_even_below_a_comment() {
   assert_eq!(arranged_with(tight, &config), tight);
 }
 
+/// A pinned unit after a held one keeps its slot in its run: slots were matched by the
+/// unit's place in the whole file, so in a later run a pinned unit counted as free and was
+/// dropped (the verifier stopped the write). Found by `sections`, which cuts runs too.
+#[test]
+fn test_a_pinned_unit_after_a_held_one_keeps_its_slot() {
+  let source = "fn z() {}\n\nfn b() {}\n\nm!();\n\nfn a() {}\n";
+  let held: HashSet<usize> = [source.find("fn b").unwrap()].into();
+  let kept = layout_holding(source, &LayoutConfig::default(), &held).unwrap();
+  assert_eq!(kept.text, source);
+  assert!(crate::verify::verify_layout(source, &kept.text, kept.edition).is_empty());
+}
+
 /// An impl for a name two types share goes with the one placed first, whichever was
 /// written first, so a second run leaves it there. Found by the generated-code fuzz target.
 #[test]

@@ -236,6 +236,47 @@ fn names(a: &str, b: &str, config: &LayoutConfig) -> Ordering {
   }
 }
 
+/// `free` (sorted) with each helper lifted out and put directly above the unit that uses it
+/// (`keep_helpers_near`), several helpers of one unit in the order they sort in, so
+/// `#[cfg]` variants of one helper come out together. A helper whose user is not among
+/// `free` (pinned, or in another section) stays where it sorted.
+fn near_callers(free: Vec<Unit>) -> Vec<Unit> {
+  // A helper of an item with `#[cfg]` variants goes above whichever variant sorts first.
+  let keys: Vec<usize> = (0..free.len())
+    .map(|at| super::first_variant(&free, at))
+    .collect();
+  let present: std::collections::HashSet<usize> = keys.iter().copied().collect();
+  let mut helpers: std::collections::HashMap<usize, Vec<(Unit, usize)>> =
+    std::collections::HashMap::new();
+  let mut rest = Vec::with_capacity(free.len());
+  for (unit, key) in free.into_iter().zip(keys) {
+    match unit.caller {
+      Some(caller) if present.contains(&caller) => {
+        helpers.entry(caller).or_default().push((unit, key))
+      }
+      _ => rest.push((unit, key)),
+    }
+  }
+  fn place(
+    unit: Unit,
+    key: usize,
+    helpers: &mut std::collections::HashMap<usize, Vec<(Unit, usize)>>,
+    out: &mut Vec<Unit>,
+  ) {
+    if let Some(own) = helpers.remove(&key) {
+      for (helper, key) in own {
+        place(helper, key, helpers, out);
+      }
+    }
+    out.push(unit);
+  }
+  let mut out = Vec::with_capacity(rest.len());
+  for (unit, key) in rest {
+    place(unit, key, &mut helpers, &mut out);
+  }
+  out
+}
+
 fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit> {
   let mut families: Vec<(String, ItemKind)> = units
     .iter()
@@ -252,6 +293,9 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
   families.sort_by_key(|(_, kind)| kind_rank(kind, config));
   let mut free: Vec<Unit> = units.iter().filter(|u| !u.pinned).cloned().collect();
   free.sort_by(|a, b| compare(a, b, config, &families, macros_first));
+  if free.iter().any(|u| u.caller.is_some()) {
+    free = near_callers(free);
+  }
   // By position in `units`, which may be a run between held units: a unit's index is its
   // position in the whole container.
   let mut free = free.into_iter();

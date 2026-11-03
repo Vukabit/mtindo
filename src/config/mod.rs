@@ -148,6 +148,7 @@ impl Config {
     config.sort_alphabetically = flag("sort_alphabetically", config.sort_alphabetically);
     config.group_impls = flag("group_impls", config.group_impls);
     config.keep_paragraphs = flag("keep_paragraphs", config.keep_paragraphs);
+    config.keep_helpers_near = flag("keep_helpers_near", config.keep_helpers_near);
     config.sections = match self.get("sections").and_then(Value::as_text) {
       Some("comments") => Sections::Comments,
       Some("headings") => Sections::Headings,

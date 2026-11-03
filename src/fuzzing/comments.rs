@@ -35,7 +35,7 @@ pub(super) fn checked(data: &[u8]) {
   if source.contains('\r') || !parse(source, Edition::E2021).errors().is_empty() {
     return;
   }
-  let config = settings(head[0], head[1]);
+  let config = settings(head[0], head[1], head[2] >= 128);
   let (text, inserted) = with_comments(source, head[2], head[3]);
   if inserted.is_empty() || !parse(&text, Edition::E2021).errors().is_empty() {
     return;
@@ -72,8 +72,9 @@ pub(super) fn checked(data: &[u8]) {
   );
 }
 
-/// Layout settings from two bytes, so the fuzzer explores them as it explores the source.
-fn settings(a: u8, b: u8) -> LayoutConfig {
+/// Layout settings from two bytes and a bit, so the fuzzer explores them as it explores the
+/// source.
+fn settings(a: u8, b: u8, helpers: bool) -> LayoutConfig {
   let mut config = LayoutConfig {
     blank_lines_between_blocks: usize::from(a & 1),
     sort_alphabetically: a & 2 == 0,
@@ -100,6 +101,7 @@ fn settings(a: u8, b: u8) -> LayoutConfig {
     config.visibility_order.reverse();
   }
   config.keep_paragraphs = b & 32 != 0;
+  config.keep_helpers_near = helpers;
   config.sections = match b >> 6 {
     0 => Sections::Off,
     1 => Sections::Comments,

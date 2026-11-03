@@ -161,6 +161,23 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "keep_helpers_near",
+    file: File::Mto,
+    kind: Kind::Bool,
+    default: "false",
+    default_2024: None,
+    summary: "Keep a private item used by one sibling directly above it",
+    doc: "A private function, constant, static, type alias, struct, enum or union that \
+              exactly one other item in its file or module uses stays directly above that \
+              item and moves with it; a helper of a helper stays above the item it helps. \
+              Uses are found by name, without type checking, so an item whose name is \
+              ambiguous (defined twice, or a type with impls of its own) sorts as usual, \
+              as does one whose user is in another section or keeps its place.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "keep_paragraphs",
     file: File::Mto,
     kind: Kind::Bool,
@@ -266,9 +283,8 @@ pub(super) static SETTINGS: &[Setting] = &[
       ),
       choice(
         "headings",
-        "Heading-like loose comments start a section: one or two lines with blank \
-         lines around them, not code and not a TODO, FIXME, SAFETY or NOTE. Other loose \
-         comments keep their place.",
+        "Heading-like loose comments start a section: one or two lines, not code and \
+         not a TODO, FIXME, SAFETY or NOTE. Other loose comments keep their place.",
       ),
       choice(
         "markers",

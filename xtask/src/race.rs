@@ -118,6 +118,11 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "style_edition = \"2024\"",
   ),
   (
+    "layout + keep_helpers_near=true",
+    "keep_helpers_near = true",
+    "",
+  ),
+  (
     "layout + keep_paragraphs=true",
     "keep_paragraphs = true",
     "",

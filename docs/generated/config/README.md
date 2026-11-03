@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 122
-  mto: 20
+  total: 123
+  mto: 21
   formatting: 90
   user: 12
 in_mto:
-  supported: 64
+  supported: 65
   partial: 29
   missing: 12
   not_planned: 5
@@ -557,6 +557,13 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Write an item and its attribute on the same line if their combined width is
     below a threshold.</td>
+<td>supported</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#keep_helpers_near">
+<code>keep_helpers_near</code></a></td>
+<td>mto.toml</td>
+<td>Keep a private item used by one sibling directly above it</td>
 <td>supported</td>
 </tr>
 <tr>

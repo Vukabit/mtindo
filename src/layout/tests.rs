@@ -77,6 +77,73 @@ fn test_a_header_ending_in_a_comment_stays_apart() {
   assert_eq!(layout(source, &config).unwrap().text, source);
 }
 
+/// A comment right under an item, a blank line after it, is judged the same on the next
+/// run, when it has a blank line above too. Found on the corpus (`// generated end`).
+#[test]
+fn test_a_heading_right_under_an_item_settles() {
+  let config = with_sections(Sections::Headings);
+  let source = "fn d() {}\n// generated end\n\nfn c() {}\n\nfn a() {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "fn d() {}\n\n// generated end\n\nfn a() {}\n\nfn c() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+}
+
+/// A helper both `#[cfg]` variants of one item use, written apart, has one user: once the
+/// variants sort together they are one unit, and the helper must already be above them.
+/// Found on the corpus (syn's two `atom_expr`).
+#[test]
+fn test_a_helper_of_cfg_variants_settles_above_them() {
+  let config = with_helpers();
+  let source = "#[cfg(a)]\nfn atom() {\n    tuple();\n}\n\nfn b() {}\n\n#[cfg(not(a))]\nfn atom() {\n    tuple();\n}\n\nfn tuple() {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(arranged_with(&once, &config), once);
+  assert!(
+    once.contains("fn tuple() {}\n\n#[cfg(a)]\nfn atom()"),
+    "{}",
+    once
+  );
+}
+
+#[test]
+fn test_a_helper_stays_above_its_one_user() {
+  let config = with_helpers();
+  // Sorted alone, `zz` would go last.
+  let source = "fn beta() {\n    zz();\n}\n\nfn alpha() {}\n\nfn zz() {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "fn alpha() {}\n\nfn zz() {}\n\nfn beta() {\n    zz();\n}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+  assert!(arranged(source).ends_with("fn zz() {}\n"));
+  // A helper of a helper stays above the item it helps; two helpers sort among themselves.
+  let chain =
+    "pub fn run() {\n    b();\n    a();\n}\n\nfn c() {}\n\nfn a() {\n    c();\n}\n\nfn b() {}\n";
+  let laid = arranged_with(chain, &config);
+  assert_eq!(
+    laid,
+    "fn c() {}\n\nfn a() {\n    c();\n}\n\nfn b() {}\n\npub fn run() {\n    b();\n    a();\n}\n"
+  );
+  assert_eq!(arranged_with(&laid, &config), laid);
+}
+
+#[test]
+fn test_a_helper_whose_user_is_in_another_section_stays_in_its_own() {
+  let config = LayoutConfig {
+    keep_helpers_near: true,
+    sections: Sections::Comments,
+    ..LayoutConfig::default()
+  };
+  let source = "fn helper() {}\n\nfn b() {}\n\n// Rest\n\nfn a() {\n    helper();\n}\n";
+  assert_eq!(
+    arranged_with(source, &config),
+    source.replace("fn helper() {}\n\nfn b() {}", "fn b() {}\n\nfn helper() {}")
+  );
+}
+
 #[test]
 fn test_a_paragraph_ends_at_a_blank_line_even_below_a_comment() {
   let config = LayoutConfig {
@@ -144,6 +211,32 @@ fn test_cfg_variants_move_together() {
   let macros =
     "#[cfg(a)]\nmacro_rules! m { () => {} }\n#[cfg(not(a))]\nmacro_rules! m { () => {} }\n";
   assert_eq!(arranged(macros), macros);
+}
+
+/// `#[cfg]` variants of a helper written apart come out together above their user, and
+/// stay there: once adjacent they are one unit, which must land in the same place.
+#[test]
+fn test_cfg_variants_of_a_helper_settle_together() {
+  let config = with_helpers();
+  let source = "#[cfg(a)]\nconst S: u8 = 1;\n\n#[cfg(a)]\nconst H: u8 = 1;\n\n#[cfg(b)]\nconst S: u8 = 2;\n\n#[cfg(b)]\nconst H: u8 = 2;\n\nfn z() {}\n\nfn uses() -> u8 {\n    S + H\n}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(arranged_with(&once, &config), once);
+  // Written apart, each variant names the other, which is not a use.
+  assert_eq!(
+    layout(source, &config)
+      .unwrap()
+      .before
+      .iter()
+      .filter(|u| u.caller.is_some())
+      .count(),
+    4
+  );
+  assert!(
+    once.contains("const H: u8 = 1;\n\n#[cfg(b)]\nconst H: u8 = 2;")
+      && once.contains("const S: u8 = 2;\n\nfn uses()"),
+    "{}",
+    once
+  );
 }
 
 #[test]
@@ -565,6 +658,28 @@ fn test_items_stay_in_their_section() {
 }
 
 #[test]
+fn test_items_that_are_not_clearly_helpers_sort_as_usual() {
+  let config = with_helpers();
+  for source in [
+    // Used by two items.
+    "fn z() {\n    h();\n}\n\nfn y() {\n    h();\n}\n\nfn h() {}\n",
+    // Public.
+    "fn z() {\n    h();\n}\n\npub fn h() {}\n",
+    // A type with an impl of its own.
+    "fn z() -> H {\n    H\n}\n\nstruct H;\n\nimpl H {}\n",
+    // Used by nothing but itself.
+    "fn z() {}\n\nfn h() {\n    h();\n}\n",
+  ] {
+    assert_eq!(
+      arranged_with(source, &config),
+      arranged(source),
+      "{}",
+      source
+    );
+  }
+}
+
+#[test]
 fn test_modules_sort_as_the_standard_formatter_does() {
   // Without `r#`, by bytes; a test module declared last stands apart from the others.
   let source = "#[cfg(test)]\nmod tests;\nmod r#type;\nmod b;\nmod Z;\n";
@@ -837,6 +952,13 @@ fn test_unsorted_imports_keep_their_written_order() {
   };
   let source = "use foo::{bar};\nuse crate::x;\nuse foo::{\n    bar, // abc\n};\nuse std::a;\n";
   assert_eq!(layout(source, &config).unwrap().text, source);
+}
+
+fn with_helpers() -> LayoutConfig {
+  LayoutConfig {
+    keep_helpers_near: true,
+    ..LayoutConfig::default()
+  }
 }
 
 fn with_sections(sections: Sections) -> LayoutConfig {

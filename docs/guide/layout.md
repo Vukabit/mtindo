@@ -93,15 +93,30 @@ all off by default, keep that grouping:
   its own. Which comments cut:
 
   * `"comments"`: every such comment;
-  * `"headings"`: only heading-like ones, one or two lines with a blank line
-    above and below, that read as prose and not as code, and are not a
-    TODO, FIXME, SAFETY or NOTE. Other comments that stand on their own keep
-    their place instead of moving with the item below;
+  * `"headings"`: only heading-like ones, one or two lines that read as
+    prose and not as code, and are not a TODO, FIXME, SAFETY or NOTE. Other
+    comments that stand on their own keep their place instead of moving with
+    the item below;
   * `"markers"`: only `// mto: section` lines (a reason may follow
     ` -- `, as with every directive).
 
   Off by default: a comment set apart by a blank line moves with the item
   under it. A `#[cfg(test)]` module goes last in its section.
+* **`keep_helpers_near = true`:** a private function, constant, static, type
+  alias, struct, enum or union that exactly one other item uses stays
+  directly above that item and moves with it, instead of sorting off to its
+  own group:
+
+  ```rust
+  const LIMIT: usize = 8; // used only by `parse`: stays above it
+
+  pub fn parse() { /* uses LIMIT */ }
+  ```
+
+  A helper of a helper stays above the item it helps. Uses are found by name,
+  without type checking, so anything unclear sorts as usual: a name defined
+  twice, a type with impls of its own, an item used by two others, or one
+  whose user is in another section or keeps its place.
 
 ## What mto never moves
 

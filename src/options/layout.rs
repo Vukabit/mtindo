@@ -121,6 +121,8 @@ pub struct LayoutConfig {
   pub keep_paragraphs: bool,
   /// `sections`: which loose comments start a section.
   pub sections: Sections,
+  /// `keep_helpers_near`: a private item used by one sibling stays above it.
+  pub keep_helpers_near: bool,
   pub sort_imports: bool,
   pub import_grouping: bool,
   pub blank_lines_between_blocks: usize,
@@ -192,6 +194,7 @@ impl Default for LayoutConfig {
       group_impls: true,
       keep_paragraphs: false,
       sections: Sections::Off,
+      keep_helpers_near: false,
       sort_imports: true,
       import_grouping: true,
       blank_lines_between_blocks: 1,

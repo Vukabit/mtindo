@@ -86,6 +86,15 @@ sort runs only between them (`around_held`), at every level, and comment units
 are written with at least one blank line on each side, so they stay loose and
 the next run cuts the same sections (`test_items_stay_in_their_section`).
 
+With `keep_helpers_near`, `find_callers` gives each helper the one unit that
+uses it (`Unit::caller`), from identifier tokens in every unit's text, and
+`near_callers` in `order.rs` lifts helpers out of the sorted free units and puts
+each directly above its user, recursively, so pinned slots do not shift. A
+user's `#[cfg]` variants, written apart, are one user, and a helper's own
+variants are not users of it (`first_variant`): once sorted together they merge
+into one unit, which must land where its parts did
+(`test_a_helper_of_cfg_variants_settles_above_them`).
+
 ## Classification
 
 `classify::unit` gives each unit what the sort reads:

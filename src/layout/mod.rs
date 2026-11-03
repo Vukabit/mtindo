@@ -146,6 +146,11 @@ pub struct Unit {
   pub comments_only: bool,
   /// Starts a section (`sections`): no unit moves past it.
   pub boundary: bool,
+  /// Items written together, joined into one unit (`keep_paragraphs`).
+  pub paragraph: bool,
+  /// The index of the one unit that uses this one, which it stays above
+  /// (`keep_helpers_near`).
+  pub caller: Option<usize>,
 }
 
 /// The edition `config` names, read first by [`parse_any_edition`].
@@ -277,6 +282,21 @@ pub(super) fn around_held(
   Ok(out)
 }
 
+/// The first of the `#[cfg]` variants of the unit at `at` (units of one kind and name, each
+/// with a `#[cfg]`, however far apart), by index; `at` itself when it has none.
+pub(super) fn first_variant(units: &[Unit], at: usize) -> usize {
+  let unit = &units[at];
+  if !unit.cfg {
+    return units[at].index;
+  }
+  units
+    .iter()
+    .filter(|u| u.cfg && u.kind == unit.kind && u.identifier == unit.identifier)
+    .map(|u| u.index)
+    .min()
+    .unwrap_or(unit.index)
+}
+
 /// Whether `gap` holds a blank line: a line with nothing but whitespace between two line
 /// breaks.
 fn blank_line_in(gap: &str) -> bool {
@@ -364,15 +384,99 @@ fn cut_sections(
   *pending = heading_element;
 }
 
-/// Whether the comment run `run` reads as a heading (`sections = "headings"`): one or two
-/// lines, a blank line (or the container's start) above it, nothing that reads as code, and
-/// not a TODO, FIXME, SAFETY, NOTE, XXX or HACK note.
-fn heading(text: &str, run: &[(usize, usize)]) -> bool {
-  let before = text[..run[0].0].trim_end();
-  let gap = &text[before.len()..run[0].0];
-  if !(before.is_empty() || before.ends_with('{') || gap.matches('\n').count() >= 2) {
-    return false;
+/// Sets each helper's `caller` (`keep_helpers_near`): a private item of a kind used by
+/// name, used by exactly one other unit, which is free to move. Uses are identifier tokens
+/// naming it, anywhere in a unit's text (macro arguments included); `#[cfg]` variants of
+/// one item written apart are each a helper of the same user. Not a helper: a name defined
+/// by two units otherwise, a type with an impl of its own here (its impls go with it), a
+/// paragraph, or a unit whose helpers would lead back to itself.
+fn find_callers(units: &mut [Unit]) {
+  let helper_kind = |kind: &ItemKind| {
+    matches!(
+      kind,
+      ItemKind::FnDecl
+        | ItemKind::ConstDecl
+        | ItemKind::StaticDecl
+        | ItemKind::TypeAlias
+        | ItemKind::StructDecl
+        | ItemKind::EnumDecl
+        | ItemKind::Union
+    )
+  };
+  let names: Vec<HashSet<&str>> = units
+    .iter()
+    .map(|unit| {
+      let mut at = 0;
+      let mut found = HashSet::new();
+      for token in tokenize(&unit.text, Edition::E2021) {
+        let end = at + token.len as usize;
+        if matches!(token.kind, SyntaxKind::Ident | SyntaxKind::RawIdent) {
+          found.insert(unit.text[at..end].trim_start_matches("r#"));
+        }
+        at = end;
+      }
+      found
+    })
+    .collect();
+  let mut callers: Vec<Option<usize>> = vec![None; units.len()];
+  for (at, unit) in units.iter().enumerate() {
+    let name = unit.identifier.as_str();
+    let candidate = helper_kind(&unit.kind)
+      && unit.visibility == Visibility::Private
+      && !unit.pinned
+      && !unit.paragraph
+      && !name.is_empty()
+      && !units.iter().enumerate().any(|(other, u)| {
+        // `#[cfg]` variants of one item, written apart, are one name.
+        let variant = u.cfg && unit.cfg && u.kind == unit.kind;
+        other != at && ((u.identifier == name && !variant) || u.parent_target == name)
+      });
+    if !candidate {
+      continue;
+    }
+    // Its own `#[cfg]` variants name it too, but do not use it; the variants of one user
+    // are one user, the first written standing for them all.
+    let users: std::collections::BTreeSet<usize> = (0..units.len())
+      .filter(|&other| units[other].identifier != name && names[other].contains(name))
+      .map(|other| first_variant(units, other))
+      .collect();
+    let mut users = users.into_iter();
+    let (Some(user), None) = (users.next(), users.next()) else {
+      continue;
+    };
+    let caller = &units[user];
+    let movable = !caller.pinned
+      && !caller.comments_only
+      && !caller.module_declaration
+      && !matches!(
+        caller.kind,
+        ItemKind::UseDecl | ItemKind::MacroDecl | ItemKind::MacroDef
+      );
+    if movable {
+      callers[at] = Some(user);
+    }
   }
+  // A helper whose chain of callers comes back to it helps no one.
+  for (at, unit) in units.iter_mut().enumerate() {
+    let mut seen = HashSet::from([at]);
+    let mut next = callers[at];
+    let mut cycle = false;
+    while let Some(caller) = next {
+      if !seen.insert(caller) {
+        cycle = true;
+        break;
+      }
+      next = callers[caller];
+    }
+    unit.caller = if cycle { None } else { callers[at] };
+  }
+}
+
+/// Whether the comment run `run` reads as a heading (`sections = "headings"`): one or two
+/// lines, nothing that reads as code, and not a TODO, FIXME, SAFETY, NOTE, XXX or HACK
+/// note. What is above it does not count: a comment kept in place gets a blank line above
+/// it, so the next run must judge it the same without one.
+fn heading(text: &str, run: &[(usize, usize)]) -> bool {
   let body = &text[run[0].0..run.last().unwrap().1];
   let lines: Vec<&str> = body.lines().collect();
   if lines.is_empty() || lines.len() > 2 {
@@ -881,6 +985,7 @@ fn split_container(
       previous.text.push_str(&text[previous.span.1..unit_start]);
       previous.text.push_str(&unit.text);
       previous.span.1 = end;
+      previous.paragraph = true;
       last_item_end = Some(end);
       continue;
     }
@@ -895,6 +1000,9 @@ fn split_container(
       last_element_end,
       units.len(),
     ));
+  }
+  if config.keep_helpers_near {
+    find_callers(&mut units);
   }
   let tail = joined(text, &pending, apart, &loose);
   Ok(Split {

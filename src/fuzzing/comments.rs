@@ -99,6 +99,7 @@ fn settings(a: u8, b: u8) -> LayoutConfig {
   if b & 16 != 0 {
     config.visibility_order.reverse();
   }
+  config.keep_paragraphs = b & 32 != 0;
   config
 }
 

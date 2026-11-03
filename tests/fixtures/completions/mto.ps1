@@ -236,6 +236,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
         'impl_method_order' = @('written', 'trait')
         'import_grouping' = @('true', 'false')
         'import_sort' = @('style_edition', '2015', '2024')
+        'keep_paragraphs' = @('true', 'false')
         'layout' = @('true', 'false')
         'format' = @('true', 'false')
         'layout_generated_files' = @('true', 'false')

@@ -61,6 +61,7 @@ group_impls = true
 impl_method_order = "written"
 import_grouping = true
 import_sort = "style_edition"
+keep_paragraphs = false
 name_sort = "version"
 sort_alphabetically = true
 sort_imports = true

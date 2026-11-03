@@ -161,6 +161,21 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "keep_paragraphs",
+    file: File::Mto,
+    kind: Kind::Bool,
+    default: "false",
+    default_2024: None,
+    summary: "Keep items written with no blank line between them together",
+    doc: "Items written with no blank line between them form a paragraph that moves as \
+              one: it is placed by its first item, never sorted or split inside, and keeps \
+              its tight spacing. Imports, `mod name;` declarations, `#[cfg(test)]` modules, \
+              macro definitions and pinned items never join a paragraph.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "layout",
     file: File::Mto,
     kind: Kind::Bool,

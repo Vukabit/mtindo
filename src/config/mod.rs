@@ -145,6 +145,7 @@ impl Config {
       |name: &str, fallback: bool| self.get(name).and_then(Value::as_bool).unwrap_or(fallback);
     config.sort_alphabetically = flag("sort_alphabetically", config.sort_alphabetically);
     config.group_impls = flag("group_impls", config.group_impls);
+    config.keep_paragraphs = flag("keep_paragraphs", config.keep_paragraphs);
     config.sort_imports = flag("sort_imports", config.sort_imports);
     config.import_grouping = flag("import_grouping", config.import_grouping);
     let (lower, upper) = self.blank_line_bounds();

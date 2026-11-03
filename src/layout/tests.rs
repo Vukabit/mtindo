@@ -5,6 +5,10 @@ fn arranged(source: &str) -> String {
   layout(source, &LayoutConfig::default()).unwrap().text
 }
 
+fn arranged_with(source: &str, config: &LayoutConfig) -> String {
+  layout(source, config).unwrap().text
+}
+
 /// A comment between two items on one line belongs to neither, so it gets a line of its
 /// own with a blank line after it; at the start of the next item's line it would head that
 /// item. Found by the comment-insertion fuzz target.
@@ -61,6 +65,23 @@ fn test_a_header_ending_in_a_comment_stays_apart() {
   };
   let source = "/* a */ // b\n\nfn f() {}\n";
   assert_eq!(layout(source, &config).unwrap().text, source);
+}
+
+#[test]
+fn test_a_paragraph_ends_at_a_blank_line_even_below_a_comment() {
+  let config = LayoutConfig {
+    keep_paragraphs: true,
+    ..LayoutConfig::default()
+  };
+  // The comment touches `z`, but a blank line parts it from `a`: two units.
+  let source = "fn z() {}\n// note\n\nfn a() {}\n";
+  assert_eq!(
+    arranged_with(source, &config),
+    "// note\n\nfn a() {}\n\nfn z() {}\n"
+  );
+  // A comment heading the second item, with no blank line anywhere, is inside it.
+  let tight = "fn z() {}\n// note\nfn a() {}\n";
+  assert_eq!(arranged_with(tight, &config), tight);
 }
 
 /// An impl for a name two types share goes with the one placed first, whichever was
@@ -337,6 +358,26 @@ fn test_impls_under_a_type() {
 }
 
 #[test]
+fn test_imports_declarations_tests_and_pins_never_join_a_paragraph() {
+  let config = LayoutConfig {
+    keep_paragraphs: true,
+    ..LayoutConfig::default()
+  };
+  let imports = "use b::B;\nuse a::A;\n";
+  assert_eq!(arranged_with(imports, &config), "use a::A;\nuse b::B;\n");
+  let modules = "mod b;\nmod a;\n";
+  assert_eq!(arranged_with(modules, &config), "mod a;\nmod b;\n");
+  // Two definitions of one macro still refuse the file, written together or not.
+  let macros = "macro_rules! m { () => {} }\nmacro_rules! m { () => {} }\nfn a() {}\n";
+  assert!(layout(macros, &config).is_err());
+  // A pinned item keeps its slot; the item after it is free to move.
+  let pinned = "fn z() {}\n// mto: pin\nfn y() {}\nfn a() {}\n";
+  let once = arranged_with(pinned, &config);
+  assert!(once.starts_with("fn a() {}"), "{}", once);
+  assert_eq!(arranged_with(&once, &config), once);
+}
+
+#[test]
 fn test_imports_group_and_declarations_stay_together() {
   let source = "use crate::x;\nuse serde::Y;\nuse std::io;\nmod b;\nmod a;\n";
   assert_eq!(
@@ -542,6 +583,25 @@ fn test_nothing_moves_above_a_macro_call_that_defines_macros() {
   assert!(laid.text.find("fn b").unwrap() > call, "{}", laid.text);
   let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
   assert!(violations.is_empty(), "{:?}", violations);
+}
+
+#[test]
+fn test_paragraphs_move_whole_with_keep_paragraphs() {
+  let config = LayoutConfig {
+    keep_paragraphs: true,
+    ..LayoutConfig::default()
+  };
+  // `y` and `b` were written together: they stay so, placed by `y`, and keep their
+  // tight spacing; `a` and `z` are apart from everything and sort as usual.
+  let source = "fn z() {}\n\nfn y() {}\nfn b() {}\n\nfn a() {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(once, "fn a() {}\n\nfn y() {}\nfn b() {}\n\nfn z() {}\n");
+  assert_eq!(arranged_with(&once, &config), once);
+  // Off, the same file sorts item by item.
+  assert_eq!(
+    arranged(source),
+    "fn a() {}\n\nfn b() {}\n\nfn y() {}\n\nfn z() {}\n"
+  );
 }
 
 #[test]

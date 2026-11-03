@@ -51,6 +51,30 @@ The order itself is set by `type_order`, `visibility_order`, `name_sort`,
 `group_impls`, `trait_impl_sort`, `trait_impl_order` and `test_module`; every
 setting is listed in the [settings reference](../generated/config/README.md).
 
+## Keeping your own structure
+
+Sorting item by item can split up code you grouped on purpose. These settings,
+all off by default, keep that grouping:
+
+* **`keep_paragraphs = true`:** items written with no blank line between them
+  form a paragraph that moves as one. It is placed by its first item, never
+  sorted or split inside, and keeps its tight spacing:
+
+  ```rust
+  fn z() {}
+
+  fn parse() {}     // a paragraph:
+  fn parse_one() {} // these two stay together, placed as `parse`
+
+  fn a() {}
+  ```
+
+  becomes `a`, then the `parse` paragraph, then `z`. Imports, `mod name;`
+  declarations, `#[cfg(test)]` modules, macro definitions and pinned items
+  never join a paragraph. Turn it on before the first layout run: a run
+  without it puts blank lines between those items, and the paragraphs are
+  gone.
+
 ## What mto never moves
 
 Some items depend on their position in the file. `mto` keeps them in place:

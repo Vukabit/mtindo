@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 120
-  mto: 18
+  total: 121
+  mto: 19
   formatting: 90
   user: 12
 in_mto:
-  supported: 62
+  supported: 63
   partial: 29
   missing: 12
   not_planned: 5
@@ -557,6 +557,13 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Write an item and its attribute on the same line if their combined width is
     below a threshold.</td>
+<td>supported</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#keep_paragraphs">
+<code>keep_paragraphs</code></a></td>
+<td>mto.toml</td>
+<td>Keep items written with no blank line between them together</td>
 <td>supported</td>
 </tr>
 <tr>

@@ -51,6 +51,11 @@
       "enum": ["style_edition", "2015", "2024"],
       "default": "style_edition"
     },
+    "keep_paragraphs": {
+      "description": "Items written with no blank line between them form a paragraph that moves as one: it is placed by its first item, never sorted or split inside, and keeps its tight spacing. Imports, `mod name;` declarations, `#[cfg(test)]` modules, macro definitions and pinned items never join a paragraph.\n\nIn mto: supported.",
+      "type": "boolean",
+      "default": false
+    },
     "layout": {
       "description": "Turns layout on for the files this mto.toml applies to. Off by default, so mto moves no items until a project opts in; `mto init` writes an mto.toml with it on. An mto.toml without it may still set formatting and override the standard formatter's settings.\n\nIn mto: supported.",
       "type": "boolean",

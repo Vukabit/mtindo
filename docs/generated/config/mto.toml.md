@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 18
+  total: 19
 in_mto:
-  supported: 17
+  supported: 18
   partial: 1
   missing: 0
   not_planned: 0
@@ -120,6 +120,17 @@ orders to use when it should differ from the style edition in effect.
         `a10` comes before `a2`.
     *   `2024`: Version sorting, as from style edition 2024: numbers by value,
         so `u8` comes before `u16`, and uppercase before lowercase.
+
+### `keep_paragraphs`
+
+Items written with no blank line between them form a paragraph that moves as
+one: it is placed by its first item, never sorted or split inside, and keeps its
+tight spacing. Imports, `mod name;` declarations, `#[cfg(test)]` modules, macro
+definitions and pinned items never join a paragraph.
+
+*   Type: `true` or `false`.
+*   Default: `false`, in every style edition.
+*   In mto: supported.
 
 ### `layout`
 

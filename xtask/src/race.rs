@@ -117,6 +117,11 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "import_sort = \"2024\"",
     "style_edition = \"2024\"",
   ),
+  (
+    "layout + keep_paragraphs=true",
+    "keep_paragraphs = true",
+    "",
+  ),
   ("layout + name_sort=bytes", "name_sort = \"bytes\"", ""),
   (
     "layout + name_sort=case_insensitive",

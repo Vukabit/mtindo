@@ -371,6 +371,15 @@ orders to use when it should differ from the style edition in effect.
     *   `2024`: Version sorting, as from style edition 2024: numbers by value,
         so `u8` comes before `u16`, and uppercase before lowercase.
 
+#### `keep_paragraphs`
+Items written with no blank line between them form a paragraph that moves as
+one: it is placed by its first item, never sorted or split inside, and keeps its
+tight spacing. Imports, `mod name;` declarations, `#[cfg(test)]` modules, macro
+definitions and pinned items never join a paragraph.
+
+*   Type: `true` or `false`.
+*   Default: `false`.
+
 #### `layout`
 Turns layout on for the files this mto.toml applies to. Off by default, so mto
 moves no items until a project opts in; `mto init` writes an mto.toml with it

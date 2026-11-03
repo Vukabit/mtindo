@@ -66,6 +66,14 @@ move as one (`test_cfg_variants_move_together`). Two `#[cfg]` variants of one
 macro are therefore one unit, not a duplicate name. A loose comment between
 them keeps them apart.
 
+With `keep_paragraphs`, an item written with no blank line between it and the
+unit before (a comment heading it counts, a blank line below that comment does
+not) joins that unit, the gap kept as written: a paragraph sorts by its first
+item and keeps its tight spacing, so a second run finds the same paragraphs
+(`test_paragraphs_move_whole_with_keep_paragraphs`). Imports, `mod name;`
+declarations, `#[cfg(test)]` modules, macro definitions and pinned units never
+join one (`in_paragraph`): their order has rules of its own.
+
 ## Classification
 
 `classify::unit` gives each unit what the sort reads:

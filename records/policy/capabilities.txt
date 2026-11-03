@@ -213,6 +213,7 @@ mto     config:ignore_dirs                               supported    # tests/do
 mto     config:impl_method_order                         supported    # src/layout/tests.rs
 mto     config:import_grouping                           supported    # tests/domain_2_golden.rs
 mto     config:import_sort                               supported    # src/layout/tests.rs
+mto     config:keep_paragraphs                           supported    # src/layout/tests.rs
 mto     config:layout                                    supported    # tests/domain_8_cli.rs
 mto     config:layout_generated_files                    supported    # tests/domain_8_cli.rs
 mto     config:name_sort                                 supported    # src/layout/tests.rs

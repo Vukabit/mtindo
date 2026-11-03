@@ -273,6 +273,16 @@ pub(super) fn around_held(
   Ok(out)
 }
 
+/// Whether `gap` holds a blank line: a line with nothing but whitespace between two line
+/// breaks.
+fn blank_line_in(gap: &str) -> bool {
+  let lines: Vec<&str> = gap.split('\n').collect();
+  lines.len() > 2
+    && lines[1..lines.len() - 1]
+      .iter()
+      .any(|line| line.trim().is_empty())
+}
+
 /// Whether `next` is another `#[cfg]` variant of `previous`: both have a `#[cfg]`, the same
 /// kind and the same name, and neither is pinned.
 fn cfg_variants(previous: &Unit, next: &Unit) -> bool {
@@ -282,6 +292,18 @@ fn cfg_variants(previous: &Unit, next: &Unit) -> bool {
     && !next.pinned
     && previous.kind == next.kind
     && previous.identifier == next.identifier
+}
+
+/// Whether `unit` may be part of a paragraph (`keep_paragraphs`): not an import or a
+/// `mod name;` declaration, which the standard formatter sorts in runs of their own, not a
+/// `#[cfg(test)]` module, which has a place of its own, not a macro definition, whose
+/// order the macro rules keep, and not pinned.
+fn in_paragraph(unit: &Unit) -> bool {
+  unit.kind != ItemKind::UseDecl
+    && !unit.module_declaration
+    && !unit.test_module
+    && !unit.defines_macros
+    && !unit.pinned
 }
 
 /// The text of `pieces` (element ranges) in order. A gap of one line break or less is kept
@@ -735,6 +757,21 @@ fn split_container(
       // The variants render as one block, set apart like a module with a body
       // unless every variant is a `mod name;` declaration.
       previous.module_declaration &= unit.module_declaration;
+      previous.span.1 = end;
+      last_item_end = Some(end);
+      continue;
+    }
+    // A paragraph: written with no blank line after the unit before, it joins it, gap
+    // and all, so it keeps its place in the paragraph and its tight spacing.
+    if config.keep_paragraphs
+      && let Some(previous) = units.last_mut()
+      && last_item_end == Some(previous.span.1)
+      && in_paragraph(previous)
+      && in_paragraph(&unit)
+      && !blank_line_in(&text[previous.span.1..start])
+    {
+      previous.text.push_str(&text[previous.span.1..unit_start]);
+      previous.text.push_str(&unit.text);
       previous.span.1 = end;
       last_item_end = Some(end);
       continue;

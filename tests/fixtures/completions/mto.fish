@@ -96,10 +96,10 @@ function __mto_settings
             unstable_features use_field_init_shorthand use_small_heuristics \
             use_try_shorthand version where_single_line wrap_comments \
             blank_lines_between_blocks generated_markers group_impls \
-            ignore_dirs impl_method_order import_grouping import_sort layout \
-            format layout_generated_files name_sort sort_alphabetically \
-            sort_imports test_module trait_impl_order trait_impl_sort \
-            type_order visibility_order
+            ignore_dirs impl_method_order import_grouping import_sort \
+            keep_paragraphs layout format layout_generated_files name_sort \
+            sort_alphabetically sort_imports test_module trait_impl_order \
+            trait_impl_sort type_order visibility_order
             printf '%s%s=\n' "$head" $key
         end
     end
@@ -114,7 +114,7 @@ function __mto_setting_values
             printf '%s\n' AlwaysNextLine PreferSameLine SameLineWhere
         case color
             printf '%s\n' Always Never Auto
-        case combine_control_expr condense_wildcard_suffixes disable_all_formatting empty_item_single_line error_on_line_overflow error_on_unformatted fn_single_line force_explicit_abi force_multiline_blocks format_code_in_doc_comments format_generated_files format_macro_bodies format_macro_matchers format_strings hard_tabs make_backup match_arm_blocks match_arm_indent match_block_trailing_comma merge_derives normalize_comments normalize_doc_attributes overflow_delimited_expr remove_nested_parens reorder_impl_items reorder_imports reorder_modules show_parse_errors skip_children space_after_colon space_before_colon spaces_around_ranges struct_lit_single_line trailing_semicolon unstable_features use_field_init_shorthand use_try_shorthand where_single_line wrap_comments group_impls import_grouping layout format layout_generated_files sort_alphabetically sort_imports
+        case combine_control_expr condense_wildcard_suffixes disable_all_formatting empty_item_single_line error_on_line_overflow error_on_unformatted fn_single_line force_explicit_abi force_multiline_blocks format_code_in_doc_comments format_generated_files format_macro_bodies format_macro_matchers format_strings hard_tabs make_backup match_arm_blocks match_arm_indent match_block_trailing_comma merge_derives normalize_comments normalize_doc_attributes overflow_delimited_expr remove_nested_parens reorder_impl_items reorder_imports reorder_modules show_parse_errors skip_children space_after_colon space_before_colon spaces_around_ranges struct_lit_single_line trailing_semicolon unstable_features use_field_init_shorthand use_try_shorthand where_single_line wrap_comments group_impls import_grouping keep_paragraphs layout format layout_generated_files sort_alphabetically sort_imports
             printf '%s\n' true false
         case control_brace_style
             printf '%s\n' AlwaysSameLine ClosingNextLine AlwaysNextLine

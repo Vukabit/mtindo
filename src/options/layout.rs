@@ -104,6 +104,8 @@ pub struct LayoutConfig {
   pub sort_alphabetically: bool,
   pub type_order: Vec<ItemKind>,
   pub group_impls: bool,
+  /// `keep_paragraphs`: items written with no blank line between them move as one.
+  pub keep_paragraphs: bool,
   pub sort_imports: bool,
   pub import_grouping: bool,
   pub blank_lines_between_blocks: usize,
@@ -173,6 +175,7 @@ impl Default for LayoutConfig {
         ItemKind::Unknown,
       ],
       group_impls: true,
+      keep_paragraphs: false,
       sort_imports: true,
       import_grouping: true,
       blank_lines_between_blocks: 1,

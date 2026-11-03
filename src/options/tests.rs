@@ -90,6 +90,10 @@ fn test_mto_defaults_match_the_layout_config() {
   );
   assert_eq!(default("group_impls"), config.group_impls.to_string());
   assert_eq!(
+    default("keep_paragraphs"),
+    config.keep_paragraphs.to_string()
+  );
+  assert_eq!(
     default("import_grouping"),
     config.import_grouping.to_string()
   );

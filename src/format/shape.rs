@@ -322,7 +322,7 @@ impl Spacing {
       style_edition: self.style_edition,
       leading_pipes: self.leading_pipes,
       field_init_shorthand: self.field_init_shorthand,
-      ..FormatConfig::default()
+      ..FormatConfig::nested()
     }
   }
 }

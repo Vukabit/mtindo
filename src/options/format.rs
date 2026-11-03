@@ -293,8 +293,10 @@ impl FormatConfig {
   }
 }
 
-impl Default for FormatConfig {
-  fn default() -> Self {
+impl FormatConfig {
+  /// The defaults without the generated-file markers, which only a whole file reads:
+  /// for the settings a nested layout rebuilds, often, without allocating.
+  pub fn nested() -> Self {
     FormatConfig {
       max_width: 100,
       tab_spaces: 4,
@@ -315,7 +317,7 @@ impl Default for FormatConfig {
       match_arm_indent: true,
       format_generated_files: true,
       generated_marker_line_search_limit: 5,
-      generated_markers: vec!["@generated".to_string()],
+      generated_markers: Vec::new(),
       format_macro_bodies: true,
       match_block_trailing_comma: false,
       leading_pipes: LeadingPipes::Never,
@@ -366,6 +368,15 @@ impl Default for FormatConfig {
       trailing_comma_never: false,
       trailing_semicolon: true,
       combine_control_expr: true,
+    }
+  }
+}
+
+impl Default for FormatConfig {
+  fn default() -> Self {
+    FormatConfig {
+      generated_markers: vec!["@generated".to_string()],
+      ..FormatConfig::nested()
     }
   }
 }

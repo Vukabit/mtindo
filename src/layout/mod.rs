@@ -37,7 +37,7 @@ use std::collections::HashSet;
 
 pub use classify::import_group_of_text;
 
-use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Visibility};
+use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Sections, Visibility};
 use crate::syntax::ast::{Attr, Item};
 use crate::syntax::lexer::tokenize;
 use crate::syntax::marker::{self, Marker};
@@ -142,6 +142,10 @@ pub struct Unit {
   pub import_group: Option<ImportGroup>,
   /// For a `use`: its tree as the standard formatter sorts it.
   pub use_tree: Option<crate::order::UseTree>,
+  /// Holds nothing but comments: a section's start, or a loose comment kept in place.
+  pub comments_only: bool,
+  /// Starts a section (`sections`): no unit moves past it.
+  pub boundary: bool,
 }
 
 /// The edition `config` names, read first by [`parse_any_edition`].
@@ -186,7 +190,7 @@ pub fn layout_holding(
   }
   let after = around_held(
     &split.units,
-    |u| held.contains(&u.span.0),
+    |u| held.contains(&u.span.0) || u.boundary,
     |run| order::arrange(run, config),
   )?;
   moves.extend(moves_of(&after));
@@ -292,6 +296,105 @@ fn cfg_variants(previous: &Unit, next: &Unit) -> bool {
     && !next.pinned
     && previous.kind == next.kind
     && previous.identifier == next.identifier
+}
+
+/// With `sections` on, takes out of `pending` (the loose comments above the element at
+/// `next`) the runs that start a section, and in heading mode the other loose runs, as
+/// comment units of their own kept where they are; what is left heads the element. A run
+/// is consecutive comments with no blank line between; it is loose when a blank line
+/// follows it. A run holding `// mto: pin` always heads the element.
+fn cut_sections(
+  text: &str,
+  pending: &mut Vec<(usize, usize)>,
+  next: usize,
+  apart: &str,
+  loose: &HashSet<usize>,
+  config: &LayoutConfig,
+  units: &mut Vec<Unit>,
+) {
+  if config.sections == Sections::Off || pending.is_empty() {
+    return;
+  }
+  let mut runs: Vec<Vec<(usize, usize)>> = Vec::new();
+  for &piece in pending.iter() {
+    match runs.last_mut() {
+      Some(run) if !blank_line_in(&text[run.last().unwrap().1..piece.0]) => run.push(piece),
+      _ => runs.push(vec![piece]),
+    }
+  }
+  let says = |run: &[(usize, usize)], want: Marker| {
+    run
+      .iter()
+      .any(|&(s, e)| marker::at(text, s, e) == Some(want))
+  };
+  // Runs that head the element unless a kept run comes after them, which they stay above.
+  let mut heading_element: Vec<(usize, usize)> = Vec::new();
+  for (at, run) in runs.iter().enumerate() {
+    let after = runs.get(at + 1).map_or(next, |r| r[0].0);
+    let loose_after = blank_line_in(&text[run.last().unwrap().1..after]);
+    let section = says(run, Marker::Section);
+    let boundary = !says(run, Marker::Pin)
+      && match config.sections {
+        Sections::Off => false,
+        Sections::Markers => section,
+        Sections::Comments => section || loose_after,
+        Sections::Headings => section || (loose_after && heading(text, run)),
+      };
+    let kept =
+      boundary || (config.sections == Sections::Headings && loose_after && !says(run, Marker::Pin));
+    if !kept {
+      heading_element.extend(run);
+      continue;
+    }
+    for (pieces, boundary) in [
+      (std::mem::take(&mut heading_element), false),
+      (run.clone(), boundary),
+    ] {
+      if let (Some(first), Some(last)) = (pieces.first(), pieces.last()) {
+        let joined = joined(text, &pieces, apart, loose);
+        units.push(classify::comments(
+          joined,
+          (first.0, last.1),
+          units.len(),
+          boundary,
+        ));
+      }
+    }
+  }
+  *pending = heading_element;
+}
+
+/// Whether the comment run `run` reads as a heading (`sections = "headings"`): one or two
+/// lines, a blank line (or the container's start) above it, nothing that reads as code, and
+/// not a TODO, FIXME, SAFETY, NOTE, XXX or HACK note.
+fn heading(text: &str, run: &[(usize, usize)]) -> bool {
+  let before = text[..run[0].0].trim_end();
+  let gap = &text[before.len()..run[0].0];
+  if !(before.is_empty() || before.ends_with('{') || gap.matches('\n').count() >= 2) {
+    return false;
+  }
+  let body = &text[run[0].0..run.last().unwrap().1];
+  let lines: Vec<&str> = body.lines().collect();
+  if lines.is_empty() || lines.len() > 2 {
+    return false;
+  }
+  lines.iter().all(|line| {
+    let words = line
+      .trim()
+      .trim_start_matches("//")
+      .trim_start_matches("/*")
+      .trim_end_matches("*/")
+      .trim();
+    let upper = words.to_ascii_uppercase();
+    let note = ["TODO", "FIXME", "SAFETY", "NOTE", "XXX", "HACK"]
+      .iter()
+      .any(|word| upper.starts_with(word));
+    let code = words.ends_with([';', '{', '}', ')', ',', '='])
+      || ["fn ", "let ", "=>", " = "]
+        .iter()
+        .any(|bit| words.contains(bit));
+    !words.is_empty() && !note && !code
+  })
 }
 
 /// Whether `unit` may be part of a paragraph (`keep_paragraphs`): not an import or a
@@ -412,7 +515,7 @@ fn module_with_body_laid_out(
   }
   let arranged = around_held(
     &split.units,
-    |u| cx.holds(u.span.0),
+    |u| cx.holds(u.span.0) || u.boundary,
     |run| order::arrange(run, config),
   )
   .ok()?;
@@ -500,7 +603,10 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
       // formatter would sort it back among the declarations above it.
       let declarations = prev.module_declaration && unit.module_declaration;
       let both_declarations = declarations && prev.test_module == unit.test_module;
-      if (both_imports && !new_group) || both_declarations {
+      if prev.comments_only || unit.comments_only {
+        // A comment kept in place stays loose: touching an item, it would head it.
+        output.push_str(&parted);
+      } else if (both_imports && !new_group) || both_declarations {
         output.push_str(&line);
       } else if both_imports || declarations {
         // The standard formatter sorts imports, and `mod` declarations, within runs
@@ -658,6 +764,7 @@ fn split_container(
       continue;
     }
     if marker(Marker::Off) {
+      cut_sections(text, &mut pending, start, apart, &loose, config, &mut units);
       // The comments right above it describe the region, and go with it.
       region_start = Some(pending.first().map(|r| r.0).unwrap_or(start));
       pending.clear();
@@ -712,6 +819,7 @@ fn split_container(
       }
       return Err(format!("unexpected {:?} at the top level", kind));
     };
+    cut_sections(text, &mut pending, start, apart, &loose, config, &mut units);
     let pinned_by_comment = pending
       .iter()
       .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Pin));

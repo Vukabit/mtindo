@@ -427,6 +427,23 @@ they are always sorted exactly as the standard formatter sorts them.
     *   `case_insensitive`: Version sorting with case ignored (`alpha`, `Beta`,
         `gamma`), case deciding only between otherwise equal names.
 
+#### `sections`
+Cuts each file, module and impl body into sections at the comments this names:
+items are ordered within their section and never cross into another, and the
+comment stays where it was written, a blank line on each side. `#[cfg(test)]`
+modules go last in their section.
+
+*   Type: one of the values below, as a string.
+*   Default: `"off"`.
+*   Values:
+    *   `off`: No sections: a loose comment moves with the item below it.
+    *   `comments`: Every loose comment (a blank line after it) starts a
+        section.
+    *   `headings`: Heading-like loose comments start a section: one or two
+        lines with blank lines around them, not code and not a TODO, FIXME,
+        SAFETY or NOTE. Other loose comments keep their place.
+    *   `markers`: Only `// mto: section` comments start a section.
+
 #### `sort_alphabetically`
 Within each kind of `type_order`, items are ordered by `visibility_order`, then
 by name (see `name_sort`) when this is on. When off, items of the same kind and

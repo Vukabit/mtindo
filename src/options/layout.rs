@@ -60,6 +60,19 @@ pub enum NameSort {
   CaseInsensitive,
 }
 
+/// Which loose comments start a section items never leave (`sections`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sections {
+  /// None: a loose comment moves with the item below it.
+  Off,
+  /// Every loose comment.
+  Comments,
+  /// Heading-like loose comments; the other loose comments keep their place.
+  Headings,
+  /// Only `// mto: section` comments.
+  Markers,
+}
+
 /// How trait impls under one type are ordered (`trait_impl_sort`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraitImplSort {
@@ -106,6 +119,8 @@ pub struct LayoutConfig {
   pub group_impls: bool,
   /// `keep_paragraphs`: items written with no blank line between them move as one.
   pub keep_paragraphs: bool,
+  /// `sections`: which loose comments start a section.
+  pub sections: Sections,
   pub sort_imports: bool,
   pub import_grouping: bool,
   pub blank_lines_between_blocks: usize,
@@ -176,6 +191,7 @@ impl Default for LayoutConfig {
       ],
       group_impls: true,
       keep_paragraphs: false,
+      sections: Sections::Off,
       sort_imports: true,
       import_grouping: true,
       blank_lines_between_blocks: 1,

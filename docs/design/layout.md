@@ -74,6 +74,18 @@ item and keeps its tight spacing, so a second run finds the same paragraphs
 declarations, `#[cfg(test)]` modules, macro definitions and pinned units never
 join one (`in_paragraph`): their order has rules of its own.
 
+With `sections`, `cut_sections` takes the comment runs above an item (runs are
+comments with no blank line between them) out of the item's unit when they
+start a section, as comment units (`classify::comments`) marked `boundary`:
+every run followed by a blank line for `"comments"`, those `heading` accepts
+for `"headings"`, a run holding `// mto: section` for `"markers"`; a run holding
+`// mto: pin` always stays with its item. In `"headings"` mode a loose run that
+is not a heading becomes a comment unit too, pinned but not a boundary, so it
+keeps its slot. Boundaries are held like the build guard's held units: the
+sort runs only between them (`around_held`), at every level, and comment units
+are written with at least one blank line on each side, so they stay loose and
+the next run cuts the same sections (`test_items_stay_in_their_section`).
+
 ## Classification
 
 `classify::unit` gives each unit what the sort reads:

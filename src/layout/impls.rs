@@ -150,7 +150,7 @@ pub(super) fn impl_with_items_ordered(
   if !text[units.last()?.span.1..close_start].contains('\n') {
     return None;
   }
-  let arranged = around_held(&units, |u| cx.holds(u.span.0), arrange).ok()?;
+  let arranged = around_held(&units, |u| cx.holds(u.span.0) || u.boundary, arrange).ok()?;
   // A `macro_rules!` in the body is visible only below it: nothing after it moves up.
   if macro_moved_past_user(&arranged)
     || arranged

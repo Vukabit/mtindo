@@ -19,6 +19,20 @@ pub fn import_group_of_text(text: &str) -> ImportGroup {
     .unwrap_or(ImportGroup::External)
 }
 
+/// A run of loose comments kept where it was written (`sections`); `boundary` when it
+/// starts a section.
+pub(super) fn comments(text: String, span: (usize, usize), index: usize, boundary: bool) -> Unit {
+  Unit {
+    identifier: "Comments".to_string(),
+    text,
+    span,
+    defines_macros: false,
+    comments_only: true,
+    boundary,
+    ..pinned_region("", 0, 0, index)
+  }
+}
+
 /// A `// mto: off` ... `// mto: on` region, `text[start..end]`: never moved, never looked
 /// into.
 pub(super) fn pinned_region(text: &str, start: usize, end: usize, index: usize) -> Unit {
@@ -41,6 +55,8 @@ pub(super) fn pinned_region(text: &str, start: usize, end: usize, index: usize) 
     module_declaration: false,
     import_group: None,
     use_tree: None,
+    comments_only: false,
+    boundary: false,
   }
 }
 
@@ -124,6 +140,8 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
         config.version_sorted_imports(),
       )
     }),
+    comments_only: false,
+    boundary: false,
   }
 }
 

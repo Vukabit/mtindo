@@ -98,8 +98,8 @@ function __mto_settings
             blank_lines_between_blocks generated_markers group_impls \
             ignore_dirs impl_method_order import_grouping import_sort \
             keep_paragraphs layout format layout_generated_files name_sort \
-            sort_alphabetically sort_imports test_module trait_impl_order \
-            trait_impl_sort type_order visibility_order
+            sections sort_alphabetically sort_imports test_module \
+            trait_impl_order trait_impl_sort type_order visibility_order
             printf '%s%s=\n' "$head" $key
         end
     end
@@ -158,6 +158,8 @@ function __mto_setting_values
             printf '%s\n' style_edition 2015 2024
         case name_sort
             printf '%s\n' version bytes case_insensitive
+        case sections
+            printf '%s\n' off comments headings markers
         case test_module
             printf '%s\n' last in_place
         case trait_impl_sort

@@ -16,6 +16,8 @@ fn regions(text: &str) -> Vec<&str> {
 
 #[test]
 fn test_a_directive_is_the_whole_comment_or_a_reason_after_dashes() {
+  assert_eq!(parse("// mto: section"), Some(Marker::Section));
+  assert_eq!(parse("// mto: section -- helpers"), Some(Marker::Section));
   assert_eq!(parse("// mto: off"), Some(Marker::Off));
   assert_eq!(parse("// mto: on  "), Some(Marker::On));
   assert_eq!(parse("// mto: pin -- keeps main first"), Some(Marker::Pin));

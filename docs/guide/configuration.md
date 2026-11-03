@@ -63,6 +63,7 @@ import_grouping = true
 import_sort = "style_edition"
 keep_paragraphs = false
 name_sort = "version"
+sections = "off"
 sort_alphabetically = true
 sort_imports = true
 test_module = "last"

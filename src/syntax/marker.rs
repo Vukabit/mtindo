@@ -1,6 +1,6 @@
 //! mto's directives, written as line comments: `// mto: off` and `// mto: on` around
-//! code mto leaves exactly as written, and `// mto: pin` above an item layout keeps in its
-//! place.
+//! code mto leaves exactly as written, `// mto: pin` above an item layout keeps in its
+//! place, and `// mto: section`, where a section starts when `sections = "markers"`.
 //!
 //! A directive is a line comment alone on its line whose whole text is the directive, with
 //! nothing after it but whitespace, or ` -- ` and a reason (`// mto: off -- aligned by
@@ -21,6 +21,7 @@ pub enum Marker {
   Off,
   On,
   Pin,
+  Section,
 }
 
 /// What a file's directives say: the regions left as written (byte ranges of the source),
@@ -62,6 +63,7 @@ pub fn parse(comment: &str) -> Option<Marker> {
     "off" => Some(Marker::Off),
     "on" => Some(Marker::On),
     "pin" => Some(Marker::Pin),
+    "section" => Some(Marker::Section),
     _ => None,
   }
 }
@@ -98,6 +100,7 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
     let here = open.iter().position(|(b, _)| *b == block);
     match (marker, here) {
       (Marker::Pin, _) => found.pins.push(start),
+      (Marker::Section, _) => {}
       (Marker::Off, None) => open.push((block, start)),
       (Marker::Off, Some(_)) => found.warnings.push((
         start,
@@ -131,7 +134,7 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
 }
 
 /// The directive a comment's text seems meant as, written loosely: `mto` in any case, an
-/// optional colon, then `off` (or `of`), `on` or `pin`, as a word of its own.
+/// optional colon, then `off` (or `of`), `on`, `pin` or `section`, as a word of its own.
 fn directive_word(body: &str) -> Option<&'static str> {
   // Asked of every comment, so nothing is copied: the words are ASCII.
   let rest = body
@@ -143,7 +146,7 @@ fn directive_word(body: &str) -> Option<&'static str> {
     .find(|c: char| !c.is_ascii_alphanumeric())
     .unwrap_or(rest.len());
   let word = &rest[..end];
-  ["off", "of", "on", "pin"]
+  ["off", "of", "on", "pin", "section"]
     .into_iter()
     .find(|w| word.eq_ignore_ascii_case(w))
     .map(|w| if w == "of" { "off" } else { w })

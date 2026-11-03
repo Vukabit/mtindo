@@ -10,7 +10,7 @@
 
 use crate::LayoutConfig;
 use crate::layout::layout;
-use crate::options::layout::{NameSort, TraitImplSort};
+use crate::options::layout::{NameSort, Sections, TraitImplSort};
 use crate::syntax::lexer::tokenize;
 use crate::syntax::{Edition, SyntaxKind, parse};
 use crate::verify::verify_layout;
@@ -100,6 +100,12 @@ fn settings(a: u8, b: u8) -> LayoutConfig {
     config.visibility_order.reverse();
   }
   config.keep_paragraphs = b & 32 != 0;
+  config.sections = match b >> 6 {
+    0 => Sections::Off,
+    1 => Sections::Comments,
+    2 => Sections::Headings,
+    _ => Sections::Markers,
+  };
   config
 }
 

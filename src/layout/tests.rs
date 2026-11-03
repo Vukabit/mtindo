@@ -1,5 +1,5 @@
 use super::*;
-use crate::options::layout::{NameSort, TraitImplSort};
+use crate::options::layout::{NameSort, Sections, TraitImplSort};
 
 fn arranged(source: &str) -> String {
   layout(source, &LayoutConfig::default()).unwrap().text
@@ -20,6 +20,16 @@ fn test_a_comment_between_items_on_one_line_stays_loose() {
   let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
   assert!(violations.is_empty(), "{:?}", violations);
   assert_eq!(arranged(&laid.text), laid.text);
+}
+
+#[test]
+fn test_a_comment_touching_its_item_still_heads_it_with_sections() {
+  let config = with_sections(Sections::Comments);
+  let source = "fn b() {}\n\n// about a\nfn a() {}\n";
+  assert_eq!(
+    arranged_with(source, &config),
+    "// about a\nfn a() {}\n\nfn b() {}\n"
+  );
 }
 
 #[test]
@@ -94,6 +104,16 @@ fn test_a_pinned_unit_after_a_held_one_keeps_its_slot() {
   let kept = layout_holding(source, &LayoutConfig::default(), &held).unwrap();
   assert_eq!(kept.text, source);
   assert!(crate::verify::verify_layout(source, &kept.text, kept.edition).is_empty());
+}
+
+#[test]
+fn test_a_test_module_goes_last_in_its_section() {
+  let config = with_sections(Sections::Comments);
+  let source = "#[cfg(test)]\nmod tests {}\n\nfn b() {}\n\n// Rest\n\nfn a() {}\n";
+  assert_eq!(
+    arranged_with(source, &config),
+    "fn b() {}\n\n#[cfg(test)]\nmod tests {}\n\n// Rest\n\nfn a() {}\n"
+  );
 }
 
 /// An impl for a name two types share goes with the one placed first, whichever was
@@ -237,6 +257,34 @@ fn test_header_stays_first_byte_for_byte() {
     arranged(source),
     "#!/usr/bin/env rust\n//! Docs with a trailing space \n#![allow(x)]\n\n// Licence\n\nfn a() {}\n\nfn b() {}\n"
   );
+}
+
+#[test]
+fn test_headings_start_sections_and_other_loose_comments_keep_their_place() {
+  let config = with_sections(Sections::Headings);
+  let source =
+    "fn d() {}\n\n// TODO: split this\n\nfn c() {}\n\n// Parsing\n\nfn b() {}\n\nfn a() {}\n";
+  let once = arranged_with(source, &config);
+  // The TODO keeps its slot among the first section's units; `// Parsing` cuts.
+  assert_eq!(
+    once,
+    "fn c() {}\n\n// TODO: split this\n\nfn d() {}\n\n// Parsing\n\nfn a() {}\n\nfn b() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+  for not_heading in [
+    "// let x = 1;",
+    "// SAFETY: checked above",
+    "// one\n// two\n// three",
+  ] {
+    let text = format!("fn b() {{}}\n\n{}\n\nfn a() {{}}\n", not_heading);
+    let laid = arranged_with(&text, &config);
+    assert!(
+      laid.starts_with("fn a()"),
+      "{:?} cut a section: {}",
+      not_heading,
+      laid
+    );
+  }
 }
 
 /// A held unit keeps its place, as if pinned, while what is inside it is still laid out;
@@ -500,6 +548,23 @@ fn test_items_compare_as_one_order_under_any_type_order() {
 }
 
 #[test]
+fn test_items_stay_in_their_section() {
+  let source = "fn d() {}\n\nfn c() {}\n\n// Helpers\n\nfn b() {}\n\nfn a() {}\n";
+  let config = with_sections(Sections::Comments);
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "fn c() {}\n\nfn d() {}\n\n// Helpers\n\nfn a() {}\n\nfn b() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+  // Off, the comment moves with the item under it.
+  assert_eq!(
+    arranged(source),
+    "fn a() {}\n\n// Helpers\n\nfn b() {}\n\nfn c() {}\n\nfn d() {}\n"
+  );
+}
+
+#[test]
 fn test_modules_sort_as_the_standard_formatter_does() {
   // Without `r#`, by bytes; a test module declared last stands apart from the others.
   let source = "#[cfg(test)]\nmod tests;\nmod r#type;\nmod b;\nmod Z;\n";
@@ -595,6 +660,21 @@ fn test_nothing_moves_above_a_macro_call_that_defines_macros() {
   assert!(laid.text.find("fn b").unwrap() > call, "{}", laid.text);
   let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
   assert!(violations.is_empty(), "{:?}", violations);
+}
+
+#[test]
+fn test_only_markers_start_sections_in_marker_mode() {
+  let source =
+    "fn d() {}\n\n// note\n\nfn c() {}\n\n// mto: section -- helpers\n\nfn b() {}\n\nfn a() {}\n";
+  let once = arranged_with(source, &with_sections(Sections::Markers));
+  assert_eq!(
+    once,
+    "// note\n\nfn c() {}\n\nfn d() {}\n\n// mto: section -- helpers\n\nfn a() {}\n\nfn b() {}\n"
+  );
+  assert_eq!(
+    arranged_with(&once, &with_sections(Sections::Markers)),
+    once
+  );
 }
 
 #[test]
@@ -757,4 +837,11 @@ fn test_unsorted_imports_keep_their_written_order() {
   };
   let source = "use foo::{bar};\nuse crate::x;\nuse foo::{\n    bar, // abc\n};\nuse std::a;\n";
   assert_eq!(layout(source, &config).unwrap().text, source);
+}
+
+fn with_sections(sections: Sections) -> LayoutConfig {
+  LayoutConfig {
+    sections,
+    ..LayoutConfig::default()
+  }
 }

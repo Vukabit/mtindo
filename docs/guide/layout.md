@@ -74,6 +74,34 @@ all off by default, keep that grouping:
   never join a paragraph. Turn it on before the first layout run: a run
   without it puts blank lines between those items, and the paragraphs are
   gone.
+* **`sections`:** cuts a file (and each module and impl body) into sections
+  at comments that stand on their own, with a blank line after them. Items
+  are ordered within their section and never cross into another, and the
+  comment stays where it was written:
+
+  ```rust
+  fn parse() {}
+  fn lex() {}
+
+  // Helpers
+
+  fn skip_spaces() {}
+  fn is_digit() {}
+  ```
+
+  keeps `skip_spaces` and `is_digit` below `// Helpers`, each part sorted on
+  its own. Which comments cut:
+
+  * `"comments"`: every such comment;
+  * `"headings"`: only heading-like ones, one or two lines with a blank line
+    above and below, that read as prose and not as code, and are not a
+    TODO, FIXME, SAFETY or NOTE. Other comments that stand on their own keep
+    their place instead of moving with the item below;
+  * `"markers"`: only `// mto: section` lines (a reason may follow
+    ` -- `, as with every directive).
+
+  Off by default: a comment set apart by a blank line moves with the item
+  under it. A `#[cfg(test)]` module goes last in its section.
 
 ## What mto never moves
 

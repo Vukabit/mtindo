@@ -77,6 +77,12 @@
       "enum": ["version", "bytes", "case_insensitive"],
       "default": "version"
     },
+    "sections": {
+      "description": "Cuts each file, module and impl body into sections at the comments this names: items are ordered within their section and never cross into another, and the comment stays where it was written, a blank line on each side. `#[cfg(test)]` modules go last in their section.\n\nIn mto: supported.",
+      "type": "string",
+      "enum": ["off", "comments", "headings", "markers"],
+      "default": "off"
+    },
     "sort_alphabetically": {
       "description": "Within each kind of `type_order`, items are ordered by `visibility_order`, then by name (see `name_sort`) when this is on. When off, items of the same kind and visibility keep their original order.\n\nIn mto: supported.",
       "type": "boolean",

@@ -253,6 +253,40 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "sections",
+    file: File::Mto,
+    kind: Kind::Choice(&[
+      choice(
+        "off",
+        "No sections: a loose comment moves with the item below it.",
+      ),
+      choice(
+        "comments",
+        "Every loose comment (a blank line after it) starts a section.",
+      ),
+      choice(
+        "headings",
+        "Heading-like loose comments start a section: one or two lines with blank \
+         lines around them, not code and not a TODO, FIXME, SAFETY or NOTE. Other loose \
+         comments keep their place.",
+      ),
+      choice(
+        "markers",
+        "Only `// mto: section` comments start a section.",
+      ),
+    ]),
+    default: "\"off\"",
+    default_2024: None,
+    summary: "Comments that start a section items never leave",
+    doc: "Cuts each file, module and impl body into sections at the comments this names: \
+              items are ordered within their section and never cross into another, and \
+              the comment stays where it was written, a blank line on each side. \
+              `#[cfg(test)]` modules go last in their section.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "sort_alphabetically",
     file: File::Mto,
     kind: Kind::Bool,

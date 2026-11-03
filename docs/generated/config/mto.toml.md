@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 19
+  total: 20
 in_mto:
-  supported: 18
+  supported: 19
   partial: 1
   missing: 0
   not_planned: 0
@@ -188,6 +188,25 @@ they are always sorted exactly as the standard formatter sorts them.
     *   `bytes`: Byte by byte, so `a10` comes before `a2`.
     *   `case_insensitive`: Version sorting with case ignored (`alpha`, `Beta`,
         `gamma`), case deciding only between otherwise equal names.
+
+### `sections`
+
+Cuts each file, module and impl body into sections at the comments this names:
+items are ordered within their section and never cross into another, and the
+comment stays where it was written, a blank line on each side. `#[cfg(test)]`
+modules go last in their section.
+
+*   Type: one of the values below, as a string.
+*   Default: `"off"`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `off`: No sections: a loose comment moves with the item below it.
+    *   `comments`: Every loose comment (a blank line after it) starts a
+        section.
+    *   `headings`: Heading-like loose comments start a section: one or two
+        lines with blank lines around them, not code and not a TODO, FIXME,
+        SAFETY or NOTE. Other loose comments keep their place.
+    *   `markers`: Only `// mto: section` comments start a section.
 
 ### `sort_alphabetically`
 

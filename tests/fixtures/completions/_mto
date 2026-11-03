@@ -32,8 +32,9 @@ _mto_settings() {
     use_try_shorthand version where_single_line wrap_comments
     blank_lines_between_blocks generated_markers group_impls ignore_dirs
     impl_method_order import_grouping import_sort keep_paragraphs layout
-    format layout_generated_files name_sort sort_alphabetically sort_imports
-    test_module trait_impl_order trait_impl_sort type_order visibility_order
+    format layout_generated_files name_sort sections sort_alphabetically
+    sort_imports test_module trait_impl_order trait_impl_sort type_order
+    visibility_order
   )
   compset -P '*,'
   if compset -P '*='; then
@@ -72,6 +73,7 @@ _mto_setting_values() {
     (impl_method_order) compadd -- written trait ;;
     (import_sort) compadd -- style_edition 2015 2024 ;;
     (name_sort) compadd -- version bytes case_insensitive ;;
+    (sections) compadd -- off comments headings markers ;;
     (test_module) compadd -- last in_place ;;
     (trait_impl_sort) compadd -- name original ;;
   esac

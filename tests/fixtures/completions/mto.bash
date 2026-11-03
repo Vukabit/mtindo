@@ -86,8 +86,8 @@ _mto_settings() {
         version where_single_line wrap_comments blank_lines_between_blocks \
         generated_markers group_impls ignore_dirs impl_method_order \
         import_grouping import_sort keep_paragraphs layout format \
-        layout_generated_files name_sort sort_alphabetically sort_imports \
-        test_module trait_impl_order trait_impl_sort type_order \
+        layout_generated_files name_sort sections sort_alphabetically \
+        sort_imports test_module trait_impl_order trait_impl_sort type_order \
         visibility_order; do
         case "$1$head$key=" in
           "$_mto_cur"*) COMPREPLY+=("$1$head$key=") ;;
@@ -125,6 +125,7 @@ _mto_setting_values() {
     impl_method_order) echo written trait ;;
     import_sort) echo style_edition 2015 2024 ;;
     name_sort) echo version bytes case_insensitive ;;
+    sections) echo off comments headings markers ;;
     test_module) echo last in_place ;;
     trait_impl_sort) echo name original ;;
   esac

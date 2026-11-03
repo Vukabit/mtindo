@@ -123,6 +123,7 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "",
   ),
   ("layout + name_sort=bytes", "name_sort = \"bytes\"", ""),
+  ("layout + sections=headings", "sections = \"headings\"", ""),
   (
     "layout + name_sort=case_insensitive",
     "name_sort = \"case_insensitive\"",

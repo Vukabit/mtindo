@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 121
-  mto: 19
+  total: 122
+  mto: 20
   formatting: 90
   user: 12
 in_mto:
-  supported: 63
+  supported: 64
   partial: 29
   missing: 12
   not_planned: 5
@@ -745,6 +745,13 @@ behavior, so the column does not apply to them.
 <td>config.toml</td>
 <td>How much each write makes last at once</td>
 <td>n/a</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#sections">
+<code>sections</code></a></td>
+<td>mto.toml</td>
+<td>Comments that start a section items never leave</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#short_array_element_width_threshold">

@@ -38,7 +38,9 @@ pub use files::Environment;
 pub use value::Value;
 
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
-use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
+use crate::options::layout::{
+  ItemKind, LayoutConfig, NameSort, Sections, TraitImplSort, Visibility,
+};
 use crate::options::{self, Channels, File, Setting, Stability};
 use crate::syntax::Edition;
 
@@ -146,6 +148,12 @@ impl Config {
     config.sort_alphabetically = flag("sort_alphabetically", config.sort_alphabetically);
     config.group_impls = flag("group_impls", config.group_impls);
     config.keep_paragraphs = flag("keep_paragraphs", config.keep_paragraphs);
+    config.sections = match self.get("sections").and_then(Value::as_text) {
+      Some("comments") => Sections::Comments,
+      Some("headings") => Sections::Headings,
+      Some("markers") => Sections::Markers,
+      _ => Sections::Off,
+    };
     config.sort_imports = flag("sort_imports", config.sort_imports);
     config.import_grouping = flag("import_grouping", config.import_grouping);
     let (lower, upper) = self.blank_line_bounds();

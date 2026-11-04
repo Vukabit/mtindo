@@ -1,5 +1,5 @@
 use super::*;
-use crate::options::layout::{NameSort, Sections, TraitImplSort};
+use crate::options::layout::{NameSort, OrderKey, Sections, TraitImplSort};
 
 fn arranged(source: &str) -> String {
   layout(source, &LayoutConfig::default()).unwrap().text
@@ -92,42 +92,64 @@ fn test_a_heading_right_under_an_item_settles() {
 }
 
 /// A helper both `#[cfg]` variants of one item use, written apart, has one user: once the
-/// variants sort together they are one unit, and the helper must already be above them.
-/// Found on the corpus (syn's two `atom_expr`).
+/// variants sort together they are one unit, and the helper must already be beside them,
+/// below the last as it was written below. Found on the corpus (syn's two `atom_expr`).
 #[test]
-fn test_a_helper_of_cfg_variants_settles_above_them() {
+fn test_a_helper_of_cfg_variants_settles_beside_them() {
   let config = with_helpers();
   let source = "#[cfg(a)]\nfn atom() {\n    tuple();\n}\n\nfn b() {}\n\n#[cfg(not(a))]\nfn atom() {\n    tuple();\n}\n\nfn tuple() {}\n";
   let once = arranged_with(source, &config);
   assert_eq!(arranged_with(&once, &config), once);
   assert!(
-    once.contains("fn tuple() {}\n\n#[cfg(a)]\nfn atom()"),
+    once.contains("#[cfg(not(a))]\nfn atom() {\n    tuple();\n}\n\nfn tuple() {}"),
     "{}",
     once
   );
 }
 
 #[test]
-fn test_a_helper_stays_above_its_one_user() {
+fn test_a_helper_stays_next_to_its_one_user_on_its_written_side() {
   let config = with_helpers();
-  // Sorted alone, `zz` would go last.
-  let source = "fn beta() {\n    zz();\n}\n\nfn alpha() {}\n\nfn zz() {}\n";
-  let once = arranged_with(source, &config);
+  // Written above its user: sorted alone `zz` would go last; it stays above `beta`.
+  let above = "fn zz() {}\n\nfn beta() {\n    zz();\n}\n\nfn alpha() {}\n";
+  let once = arranged_with(above, &config);
   assert_eq!(
     once,
     "fn alpha() {}\n\nfn zz() {}\n\nfn beta() {\n    zz();\n}\n"
   );
   assert_eq!(arranged_with(&once, &config), once);
-  assert!(arranged(source).ends_with("fn zz() {}\n"));
-  // A helper of a helper stays above the item it helps; two helpers sort among themselves.
+  assert!(arranged(above).ends_with("fn zz() {}\n"));
+  // Written below its user: sorted alone `aa` would go first; it stays below `zeta`.
+  let below = "fn zeta() {\n    aa();\n}\n\nfn mid() {}\n\nfn aa() {}\n";
+  let once = arranged_with(below, &config);
+  assert_eq!(
+    once,
+    "fn mid() {}\n\nfn zeta() {\n    aa();\n}\n\nfn aa() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+  // A helper of a helper stays next to the item it helps; two helpers sort among
+  // themselves, each on its own side.
   let chain =
     "pub fn run() {\n    b();\n    a();\n}\n\nfn c() {}\n\nfn a() {\n    c();\n}\n\nfn b() {}\n";
   let laid = arranged_with(chain, &config);
   assert_eq!(
     laid,
-    "fn c() {}\n\nfn a() {\n    c();\n}\n\nfn b() {}\n\npub fn run() {\n    b();\n    a();\n}\n"
+    "pub fn run() {\n    b();\n    a();\n}\n\nfn c() {}\n\nfn a() {\n    c();\n}\n\nfn b() {}\n"
   );
   assert_eq!(arranged_with(&laid, &config), laid);
+}
+
+/// A private type with impls of its own, used by one item, moves with its impls.
+#[test]
+fn test_a_helper_type_moves_with_its_impls() {
+  let config = with_helpers();
+  let source = "pub fn table() -> Vec<Entry> {\n    vec![Entry::new()]\n}\n\nfn alpha() {}\n\nstruct Entry;\n\nimpl Entry {\n    fn new() -> Self {\n        Entry\n    }\n}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "pub fn table() -> Vec<Entry> {\n    vec![Entry::new()]\n}\n\nstruct Entry;\n\nimpl Entry {\n    fn new() -> Self {\n        Entry\n    }\n}\n\nfn alpha() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
 }
 
 #[test]
@@ -597,14 +619,15 @@ fn test_inspect_names_the_rule_behind_each_move() {
     keep_helpers_near: true,
     ..LayoutConfig::default()
   };
-  let used = "fn beta() {\n    zz();\n}\n\nfn alpha() {}\n\nfn zz() {}\n";
-  let rules: Vec<Rule> = inspect(used, &helper)
+  // Only `zz` is out of order: the rest keep theirs.
+  let used = "fn zz() {}\n\nfn a1() {}\n\nfn a2() {}\n\nfn a3() {}\n\nfn beta() {\n    zz();\n}\n";
+  let moves: Vec<(String, Rule)> = inspect(used, &helper)
     .unwrap()
     .moves
     .iter()
-    .map(|m| m.rule)
+    .map(|m| (m.name.clone(), m.rule))
     .collect();
-  assert!(rules.contains(&Rule::Helper), "{:?}", rules);
+  assert_eq!(moves, [("zz".to_string(), Rule::Helper)]);
 }
 
 #[test]
@@ -631,7 +654,7 @@ fn test_inspect_says_why_each_unit_was_cut_so() {
   assert!(notes_of("std::fmt").contains("import group: standard library"));
   assert!(notes_of("// Parsing").contains("starts a section"));
   assert!(notes_of("parse").contains("a paragraph"));
-  assert!(notes_of("step").contains("helper: stays above `parse`"));
+  assert!(notes_of("step").contains("helper: stays below `parse`"));
   assert!(notes_of("shared").contains("not a helper: used by 2 items: one, two"));
   assert!(notes_of("kept").contains("pinned, keeps its slot: `// mto: pin`"));
   let parse = units.iter().find(|u| u.name == "parse").unwrap();
@@ -721,8 +744,6 @@ fn test_items_that_are_not_clearly_helpers_sort_as_usual() {
     "fn z() {\n    h();\n}\n\nfn y() {\n    h();\n}\n\nfn h() {}\n",
     // Public.
     "fn z() {\n    h();\n}\n\npub fn h() {}\n",
-    // A type with an impl of its own.
-    "fn z() -> H {\n    H\n}\n\nstruct H;\n\nimpl H {}\n",
     // Used by nothing but itself.
     "fn z() {}\n\nfn h() {\n    h();\n}\n",
   ] {
@@ -814,6 +835,18 @@ fn test_name_sort_and_visibility_order() {
     layout(source, &config).unwrap().text,
     "fn a() {}\n\npub fn b() {}\n\npub(crate) fn c() {}\n"
   );
+}
+
+#[test]
+fn test_no_order_keys_keeps_the_written_order() {
+  let config = with_keys(Vec::new());
+  let source = "use z;\nuse a;\n\n#[cfg(test)]\nmod tests {}\n\nconst ZZ: u8 = 1;\n\nfn timer() {}\n\nstruct S;\n\nfn double_fault() {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "use a;\nuse z;\n\nconst ZZ: u8 = 1;\n\nfn timer() {}\n\nstruct S;\n\nfn double_fault() {}\n\n#[cfg(test)]\nmod tests {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
 }
 
 /// Functions first must not lift a function above the macro call that defines the macro
@@ -1010,9 +1043,38 @@ fn test_unsorted_imports_keep_their_written_order() {
   assert_eq!(layout(source, &config).unwrap().text, source);
 }
 
+#[test]
+fn test_visibility_first_puts_the_public_items_first_with_their_impls() {
+  let config = with_keys(vec![OrderKey::Visibility, OrderKey::Kind, OrderKey::Name]);
+  let source = "use std::fmt;\n\nfn helper() {}\n\nstruct Inner;\n\npub fn api() {}\n\npub struct Outer;\n\nimpl Outer {}\n\nimpl Inner {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "use std::fmt;\n\npub struct Outer;\n\nimpl Outer {}\n\npub fn api() {}\n\nstruct Inner;\n\nimpl Inner {}\n\nfn helper() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+  // Without `kind`, imports and modules still come first; the rest by visibility, name.
+  let no_kind = with_keys(vec![OrderKey::Visibility, OrderKey::Name]);
+  let laid = arranged_with(source, &no_kind);
+  // By name across kinds: `Outer` before `api`, as version sort orders them.
+  assert!(
+    laid.starts_with("use std::fmt;\n\npub struct Outer;\n\nimpl Outer {}\n\npub fn api() {}"),
+    "{}",
+    laid
+  );
+  assert_eq!(arranged_with(&laid, &no_kind), laid);
+}
+
 fn with_helpers() -> LayoutConfig {
   LayoutConfig {
     keep_helpers_near: true,
+    ..LayoutConfig::default()
+  }
+}
+
+fn with_keys(keys: Vec<OrderKey>) -> LayoutConfig {
+  LayoutConfig {
+    order_keys: keys,
     ..LayoutConfig::default()
   }
 }

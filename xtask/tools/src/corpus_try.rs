@@ -39,7 +39,11 @@ pub fn run(root: &Path, args: &[String]) -> ExitCode {
         at += 1;
       }
       "--each" => {
-        each.extend(value.split(',').map(str::to_string));
+        each.extend(
+          pairs(&value)
+            .into_iter()
+            .map(|(k, v)| format!("{}={}", k, v)),
+        );
         at += 1;
       }
       "--runs" => {
@@ -174,10 +178,24 @@ fn describe(outcome: &Outcome) -> String {
   }
 }
 
-/// `key=value,...` as pairs.
+/// `key=value,...` as pairs; a comma inside `[...]` belongs to a list value.
 fn pairs(text: &str) -> Vec<(String, String)> {
-  text
-    .split(',')
+  let mut parts = Vec::new();
+  let (mut depth, mut start) = (0i32, 0);
+  for (at, c) in text.char_indices() {
+    match c {
+      '[' => depth += 1,
+      ']' => depth -= 1,
+      ',' if depth == 0 => {
+        parts.push(&text[start..at]);
+        start = at + 1;
+      }
+      _ => {}
+    }
+  }
+  parts.push(&text[start..]);
+  parts
+    .into_iter()
     .filter_map(|pair| pair.split_once('='))
     .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
     .collect()

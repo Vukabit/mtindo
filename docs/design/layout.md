@@ -89,7 +89,10 @@ the next run cuts the same sections (`test_items_stay_in_their_section`).
 With `keep_helpers_near`, `find_callers` gives each helper the one unit that
 uses it (`Unit::caller`), from identifier tokens in every unit's text, and
 `near_callers` in `order.rs` lifts helpers out of the sorted free units and puts
-each directly above its user, recursively, so pinned slots do not shift. A
+each directly next to its user, recursively, so pinned slots do not shift: above
+it, or below it when it was written below (`Unit::below`; a type's impls on the
+type's side, below the last of a user's `#[cfg]` variants). A private type's own
+impls are not its users; they follow it to its user. A
 user's `#[cfg]` variants, written apart, are one user, and a helper's own
 variants are not users of it (`first_variant`): once sorted together they merge
 into one unit, which must land where its parts did

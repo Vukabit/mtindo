@@ -59,6 +59,9 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
   (result): the first layout settings tried on the whole corpus, alone and
   together. Written by `cargo xtask corpus try --each ... --record first-slice`;
   read by people.
+- **[results/toggles/order-keys.txt](results/toggles/order-keys.txt)** (result):
+  order_keys, empty and visibility first, tried on the whole corpus. Written by
+  `cargo xtask corpus try --each ... --record order-keys`; read by people.
 - **[archive/2026-10-optimization.txt](archive/2026-10-optimization.txt)**
   (archive): every figure before the October optimization rounds. Read by `cargo
   xtask metrics compare`.

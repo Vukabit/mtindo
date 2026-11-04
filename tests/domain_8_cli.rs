@@ -2757,6 +2757,24 @@ fn test_reports_are_pruned_by_folder_and_removed_by_id() {
   assert!(listed.starts_with("no bug reports"), "{}", listed);
 }
 
+/// A settings file from outside the project gives a warning; `root = true` in the
+/// project's mto.toml keeps it out, the standard formatter's file included.
+#[test]
+fn test_root_keeps_settings_from_outside_the_project_out() {
+  let env = TestEnvironment::new();
+  env.write_file("rustfmt.toml", "max_width = 40\n");
+  env.write_file("proj/.git/HEAD", "ref: refs/heads/main\n");
+  let long = "fn main() {\n    let total = first_value + second_value + third_value;\n}\n";
+  env.write_file("proj/a.rs", long);
+  let (code, _, said) = mto(&env, &["--no-history", "--check", "proj/a.rs"]);
+  assert_eq!(code, 1, "{}", said);
+  assert!(said.contains("which it is outside of"), "{}", said);
+  env.write_file("proj/mto.toml", "root = true\n");
+  let (code, _, said) = mto(&env, &["--no-history", "--check", "proj/a.rs"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(!said.contains("outside"), "{}", said);
+}
+
 /// `--strict`: a configuration warning, such as a mistyped key, is an error with exit
 /// code 2, so it cannot pass a CI check unnoticed.
 #[test]

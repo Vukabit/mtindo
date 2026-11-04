@@ -313,7 +313,8 @@ fn notes(units: &[Unit], names: &[HashSet<&str>], at: usize, config: &LayoutConf
   if config.keep_helpers_near {
     match (unit.caller, helper_verdict(units, names, at)) {
       (Some(caller), _) => notes.push(format!(
-        "helper: stays above `{}`, its one user",
+        "helper: stays {} `{}`, its one user",
+        if unit.below { "below" } else { "above" },
         units[caller].identifier
       )),
       (None, Ok(_)) => notes.push("not a helper: its helpers lead back to it".to_string()),

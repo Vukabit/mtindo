@@ -12,11 +12,17 @@ For each folder it formats, the settings come from, lowest precedence first:
 2. The nearest `.rustfmt.toml` or `rustfmt.toml`, found as the standard
    formatter finds it: the folder, each parent folder, the home folder, then
    the formatter's folder in the user's configuration folder. Only that one
-   file is used.
+   file is used. Below an `mto.toml` with `root = true`, the search stops at
+   that file's folder and the home and user folders are not looked in.
 3. Every `.mto.toml` or `mto.toml` from the outermost folder down; a nearer
    file wins key by key, and a file with `root = true` stops the search
    upwards. An `mto.toml` may also set the formatting settings, and wins over
    `rustfmt.toml` with a warning when they disagree.
+
+A file found outside the project (the nearest folder above holding `.git`),
+such as a `rustfmt.toml` in the home folder, gives a warning: it changes one
+person's output and not another's. `root = true` in the project's `mto.toml`
+keeps such files out, so everyone gets the same bytes.
 4. The package edition in the nearest `Cargo.toml` (or the workspace's, with
    `edition.workspace = true`), as `cargo fmt` passes it.
 5. The command line: `--config`, `--edition`, `--style-edition`.
@@ -47,8 +53,9 @@ Schema of `mto.toml` for editors, and in the
 
 ## mto.toml
 
-`mto init` writes an `mto.toml` with layout on and mto's other settings at
-their defaults, each with a comment; without the comments:
+`mto init` writes an `mto.toml` with layout on, `keep_paragraphs` on (a run
+without it loses the paragraphs for good), and mto's other settings at their
+defaults, each with a comment; without the comments:
 
 ```toml
 layout = true
@@ -62,9 +69,10 @@ impl_method_order = "written"
 import_grouping = true
 import_sort = "style_edition"
 keep_helpers_near = false
-keep_paragraphs = false
+keep_paragraphs = true
 mto_version = "*"
 name_sort = "version"
+order_keys = ["kind", "visibility", "name"]
 sections = "off"
 sort_alphabetically = true
 sort_imports = true

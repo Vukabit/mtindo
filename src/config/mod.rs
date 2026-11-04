@@ -40,7 +40,7 @@ pub use value::Value;
 
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
 use crate::options::layout::{
-  ItemKind, LayoutConfig, NameSort, Sections, TraitImplSort, Visibility,
+  ItemKind, LayoutConfig, NameSort, OrderKey, Sections, TraitImplSort, Visibility,
 };
 use crate::options::{self, Channels, File, Setting, Stability};
 use crate::syntax::Edition;
@@ -150,6 +150,9 @@ impl Config {
     config.group_impls = flag("group_impls", config.group_impls);
     config.keep_paragraphs = flag("keep_paragraphs", config.keep_paragraphs);
     config.keep_helpers_near = flag("keep_helpers_near", config.keep_helpers_near);
+    if let Some(keys) = self.get("order_keys").and_then(Value::as_list) {
+      config.order_keys = keys.iter().filter_map(|k| OrderKey::named(k)).collect();
+    }
     config.sections = match self.get("sections").and_then(Value::as_text) {
       Some("comments") => Sections::Comments,
       Some("headings") => Sections::Headings,
@@ -679,10 +682,9 @@ impl Resolver {
     if let Some(explicit) = &self.explicit {
       layers.push((FileKind::Explicit, Rc::clone(explicit)));
     } else {
-      if let Some(path) = self.standard_file(dir) {
-        layers.push((FileKind::Standard, self.load(&path, FileKind::Standard)?));
-      }
+      // The mto.toml files first: one with `root = true` ends both searches.
       let mut mto_files = Vec::new();
+      let mut root_folder = None;
       for folder in dir.ancestors() {
         let found = self.folder(folder);
         let Some(path) = found.mto else {
@@ -700,11 +702,28 @@ impl Resolver {
         let root = loaded.root;
         mto_files.push(loaded);
         if root {
+          root_folder = Some(folder.to_path_buf());
           break;
         }
       }
+      if let Some(path) = self.standard_file(dir, root_folder.as_deref()) {
+        layers.push((FileKind::Standard, self.load(&path, FileKind::Standard)?));
+      }
       for loaded in mto_files.into_iter().rev() {
         layers.push((FileKind::Mto, loaded));
+      }
+      // A file from outside the project changes one person's output and not another's.
+      if let Some(project) = dir.ancestors().find(|folder| folder.join(".git").exists()) {
+        for (_, loaded) in &layers {
+          if !loaded.path.starts_with(project) && !loaded.values.is_empty() {
+            self.warn(format!(
+              "{}: its settings apply in {}, which it is outside of; `root = true` in \
+               the project's mto.toml keeps them out",
+              loaded.path.display(),
+              project.display()
+            ));
+          }
+        }
       }
     }
     let cargo = match self.cargo_edition(dir) {
@@ -1005,10 +1024,15 @@ impl Resolver {
   /// The `rustfmt.toml` the standard formatter would use for `dir`: the nearest in `dir`
   /// or a parent, else in the home folder, else in its folder in the user's configuration
   /// folder.
-  fn standard_file(&mut self, dir: &Path) -> Option<PathBuf> {
+  /// The `rustfmt.toml` for `dir`: the nearest above it, no higher than `root` (the
+  /// folder of an mto.toml with `root = true`), else the user's own when there is no root.
+  fn standard_file(&mut self, dir: &Path, root: Option<&Path>) -> Option<PathBuf> {
     for folder in dir.ancestors() {
       if let Some(found) = self.folder(folder).standard {
         return Some(found);
+      }
+      if Some(folder) == root {
+        return None;
       }
     }
     let fallbacks = [

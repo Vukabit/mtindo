@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 124
-  mto: 22
+  total: 125
+  mto: 23
   formatting: 90
   user: 12
 in_mto:
-  supported: 67
+  supported: 68
   partial: 29
   missing: 11
   not_planned: 5
@@ -563,7 +563,7 @@ behavior, so the column does not apply to them.
 <td><a href="mto.toml.md#keep_helpers_near">
 <code>keep_helpers_near</code></a></td>
 <td>mto.toml</td>
-<td>Keep a private item used by one sibling directly above it</td>
+<td>Keep a private item used by one sibling directly next to it</td>
 <td>supported</td>
 </tr>
 <tr>
@@ -678,6 +678,13 @@ behavior, so the column does not apply to them.
 <code>normalize_doc_attributes</code></a></td>
 <td>rustfmt.toml</td>
 <td>Normalize doc attributes as doc comments.</td>
+<td>supported</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#order_keys">
+<code>order_keys</code></a></td>
+<td>mto.toml</td>
+<td>What items are ordered by, in turn; none keeps the written order</td>
 <td>supported</td>
 </tr>
 <tr>

@@ -154,9 +154,11 @@ pub struct Unit {
   pub boundary: bool,
   /// Items written together, joined into one unit (`keep_paragraphs`).
   pub paragraph: bool,
-  /// The index of the one unit that uses this one, which it stays above
+  /// The index of the one unit that uses this one, which it stays next to
   /// (`keep_helpers_near`).
   pub caller: Option<usize>,
+  /// Written after its user, so it stays below it rather than above.
+  pub below: bool,
 }
 
 /// The edition `config` names, read first by [`parse_any_edition`].
@@ -398,9 +400,23 @@ fn cut_sections(
 /// paragraph, or a unit whose helpers would lead back to itself.
 fn find_callers(units: &mut [Unit]) {
   let names = names_used(units);
-  let callers: Vec<Option<usize>> = (0..units.len())
+  let mut callers: Vec<Option<usize>> = (0..units.len())
     .map(|at| helper_verdict(units, &names, at).ok())
     .collect();
+  // A helper type's own impls go with it, to the same user.
+  for at in 0..units.len() {
+    if units[at].kind != ItemKind::ImplBlock || callers[at].is_some() {
+      continue;
+    }
+    let own_type = (0..units.len()).find(|&t| {
+      units[t].kind != ItemKind::ImplBlock
+        && units[t].identifier == units[at].parent_target
+        && callers[t].is_some()
+    });
+    if let Some(own_type) = own_type {
+      callers[at] = callers[own_type];
+    }
+  }
   // A helper whose chain of callers comes back to it helps no one.
   for (at, unit) in units.iter_mut().enumerate() {
     let mut seen = HashSet::from([at]);
@@ -414,6 +430,24 @@ fn find_callers(units: &mut [Unit]) {
       next = callers[caller];
     }
     unit.caller = if cycle { None } else { callers[at] };
+  }
+  // Each stays on the side of its user it was written on; a type's impls on the type's.
+  for at in 0..units.len() {
+    let Some(caller) = units[at].caller else {
+      continue;
+    };
+    let decider = if units[at].kind == ItemKind::ImplBlock {
+      (0..units.len())
+        .find(|&t| {
+          units[t].kind != ItemKind::ImplBlock
+            && units[t].identifier == units[at].parent_target
+            && units[t].caller == Some(caller)
+        })
+        .unwrap_or(at)
+    } else {
+      at
+    };
+    units[at].below = units[decider].index > caller;
   }
 }
 
@@ -479,17 +513,19 @@ fn helper_verdict(units: &[Unit], names: &[HashSet<&str>], at: usize) -> Result<
   for (other, u) in units.iter().enumerate() {
     // `#[cfg]` variants of one item, written apart, are one name.
     let variant = u.cfg && unit.cfg && u.kind == unit.kind;
-    if other != at && u.identifier == name && !variant {
+    // A type's own impls carry its name; they move with it.
+    if other != at && u.identifier == name && !variant && u.kind != ItemKind::ImplBlock {
       return Err(format!("`{}` is defined twice here", name));
-    }
-    if other != at && u.parent_target == name {
-      return Err("has impls of its own".to_string());
     }
   }
   // Its own `#[cfg]` variants name it too, but do not use it; the variants of one user
   // are one user, the first written standing for them all.
   let users: std::collections::BTreeSet<usize> = (0..units.len())
-    .filter(|&other| units[other].identifier != name && names[other].contains(name))
+    .filter(|&other| {
+      units[other].identifier != name
+        && units[other].parent_target != name
+        && names[other].contains(name)
+    })
     .map(|other| first_variant(units, other))
     .collect();
   let user = match users.len() {

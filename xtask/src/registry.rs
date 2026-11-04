@@ -105,6 +105,14 @@ pub const ENTRIES: &[Entry] = &[
     shown_in: "—",
   },
   Entry {
+    path: "records/results/toggles/order-keys.txt",
+    kind: Kind::Result,
+    holds: "order_keys, empty and visibility first, tried on the whole corpus",
+    written_by: "`cargo xtask corpus try --each ... --record order-keys`",
+    read_by: "people",
+    shown_in: "—",
+  },
+  Entry {
     path: "records/archive/2026-10-optimization.txt",
     kind: Kind::Archive,
     holds: "every figure before the October optimization rounds",

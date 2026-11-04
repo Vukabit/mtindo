@@ -10,7 +10,7 @@
 
 use crate::LayoutConfig;
 use crate::layout::layout;
-use crate::options::layout::{NameSort, Sections, TraitImplSort};
+use crate::options::layout::{NameSort, OrderKey, Sections, TraitImplSort};
 use crate::syntax::lexer::tokenize;
 use crate::syntax::{Edition, SyntaxKind, parse};
 use crate::verify::verify_layout;
@@ -35,7 +35,13 @@ pub(super) fn checked(data: &[u8]) {
   if source.contains('\r') || !parse(source, Edition::E2021).errors().is_empty() {
     return;
   }
-  let config = settings(head[0], head[1], head[2] >= 128);
+  let mut config = settings(head[0], head[1], head[2] >= 128);
+  config.order_keys = match (head[2] >> 4) & 3 {
+    0 => config.order_keys,
+    1 => Vec::new(),
+    2 => vec![OrderKey::Visibility, OrderKey::Kind, OrderKey::Name],
+    _ => vec![OrderKey::Visibility, OrderKey::Name],
+  };
   let (text, inserted) = with_comments(source, head[2], head[3]);
   if inserted.is_empty() || !parse(&text, Edition::E2021).errors().is_empty() {
     return;

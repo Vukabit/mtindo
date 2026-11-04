@@ -60,6 +60,28 @@ pub enum NameSort {
   CaseInsensitive,
 }
 
+/// What items are ordered by, in turn (`order_keys`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderKey {
+  /// The order of kinds, `type_order`, an impl beside its type with `group_impls`.
+  Kind,
+  /// The order of visibilities, `visibility_order`.
+  Visibility,
+  /// Names, by `name_sort`, when `sort_alphabetically` is on.
+  Name,
+}
+
+impl OrderKey {
+  pub fn named(name: &str) -> Option<OrderKey> {
+    match name {
+      "kind" => Some(OrderKey::Kind),
+      "visibility" => Some(OrderKey::Visibility),
+      "name" => Some(OrderKey::Name),
+      _ => None,
+    }
+  }
+}
+
 /// Which loose comments start a section items never leave (`sections`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sections {
@@ -123,6 +145,8 @@ pub struct LayoutConfig {
   pub sections: Sections,
   /// `keep_helpers_near`: a private item used by one sibling stays above it.
   pub keep_helpers_near: bool,
+  /// `order_keys`: what items are ordered by, in turn; none keeps the written order.
+  pub order_keys: Vec<OrderKey>,
   pub sort_imports: bool,
   pub import_grouping: bool,
   pub blank_lines_between_blocks: usize,
@@ -195,6 +219,7 @@ impl Default for LayoutConfig {
       keep_paragraphs: false,
       sections: Sections::Off,
       keep_helpers_near: false,
+      order_keys: vec![OrderKey::Kind, OrderKey::Visibility, OrderKey::Name],
       sort_imports: true,
       import_grouping: true,
       blank_lines_between_blocks: 1,

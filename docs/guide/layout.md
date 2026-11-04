@@ -71,9 +71,9 @@ all off by default, keep that grouping:
 
   becomes `a`, then the `parse` paragraph, then `z`. Imports, `mod name;`
   declarations, `#[cfg(test)]` modules, macro definitions and pinned items
-  never join a paragraph. Turn it on before the first layout run: a run
-  without it puts blank lines between those items, and the paragraphs are
-  gone.
+  never join a paragraph. `mto init` turns it on, as it must be on before the
+  first layout run: a run without it puts blank lines between those items,
+  and the paragraphs are gone.
 * **`sections`:** cuts a file (and each module and impl body) into sections
   at comments that stand on their own, with a blank line after them. Items
   are ordered within their section and never cross into another, and the
@@ -104,8 +104,8 @@ all off by default, keep that grouping:
   under it. A `#[cfg(test)]` module goes last in its section.
 * **`keep_helpers_near = true`:** a private function, constant, static, type
   alias, struct, enum or union that exactly one other item uses stays
-  directly above that item and moves with it, instead of sorting off to its
-  own group:
+  directly next to that item and moves with it, on the side it was written
+  on, instead of sorting off to its own group:
 
   ```rust
   const LIMIT: usize = 8; // used only by `parse`: stays above it
@@ -113,10 +113,26 @@ all off by default, keep that grouping:
   pub fn parse() { /* uses LIMIT */ }
   ```
 
-  A helper of a helper stays above the item it helps. Uses are found by name,
-  without type checking, so anything unclear sorts as usual: a name defined
-  twice, a type with impls of its own, an item used by two others, or one
-  whose user is in another section or keeps its place.
+  A private type takes its impls along, and a helper of a helper stays next to
+  the item it helps. Uses are found by name, without type checking, so
+  anything unclear sorts as usual: a name defined twice, an item used by two
+  others, or one whose user is in another section or keeps its place.
+
+## Choosing what decides the order
+
+`order_keys` names what items are ordered by, in turn; each key breaks the
+ties the one before it leaves. The default, `["kind", "visibility", "name"]`,
+is the order described above.
+
+* `["visibility", "kind", "name"]` puts the public items first: the API, then
+  what it is built from. An impl goes with its type, at the type's visibility.
+  Unless `kind` comes first, imports, `mod` declarations and macros still come
+  first, each kind with its own rules.
+* `[]` keeps the order the items were written in. Only runs of imports and of
+  `mod name;` declarations written together are sorted where they stand, and
+  `#[cfg(test)]` modules go last; `sections`, `keep_paragraphs` and
+  `keep_helpers_near` still apply. Use it to take only the parts of layout a
+  project wants.
 
 ## What mto never moves
 

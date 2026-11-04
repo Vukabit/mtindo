@@ -582,9 +582,16 @@ pub fn init_template() -> String {
   let others = options::all()
     .filter(|s| s.file == options::File::Mto && s.name != "layout" && !FIRST.contains(&s.name));
   for setting in first.chain(others) {
+    // On from the start, unlike its default: a run without it puts blank lines between
+    // items written together, and the paragraphs cannot be found again.
+    let value = if setting.name == "keep_paragraphs" {
+      "true"
+    } else {
+      setting.default
+    };
     out.push_str(&format!(
       "\n# {}\n{} = {}\n",
-      setting.summary, setting.name, setting.default
+      setting.summary, setting.name, value
     ));
   }
   out

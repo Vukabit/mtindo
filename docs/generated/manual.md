@@ -422,11 +422,12 @@ orders to use when it should differ from the style edition in effect.
 
 #### `keep_helpers_near`
 A private function, constant, static, type alias, struct, enum or union that
-exactly one other item in its file or module uses stays directly above that item
-and moves with it; a helper of a helper stays above the item it helps. Uses are
-found by name, without type checking, so an item whose name is ambiguous
-(defined twice, or a type with impls of its own) sorts as usual, as does one
-whose user is in another section or keeps its place.
+exactly one other item in its file or module uses stays directly next to that
+item and moves with it: above it, or below it when written below it. A type
+takes its own impls along, and a helper of a helper stays next to the item it
+helps. Uses are found by name, without type checking, so an item whose name is
+ambiguous (defined twice) sorts as usual, as does one whose user is in another
+section or keeps its place.
 
 *   Type: `true` or `false`.
 *   Default: `false`.
@@ -495,6 +496,23 @@ they are always sorted exactly as the standard formatter sorts them.
     *   `bytes`: Byte by byte, so `a10` comes before `a2`.
     *   `case_insensitive`: Version sorting with case ignored (`alpha`, `Beta`,
         `gamma`), case deciding only between otherwise equal names.
+
+#### `order_keys`
+What items are ordered by, the first deciding and the next breaking its ties.
+`["visibility", "kind", "name"]` puts the public items first. Unless `kind`
+comes first, imports, `mod` declarations and macros still come first, each kind
+with its own rules, and an impl goes with its type. `[]` keeps the written
+order: only runs of imports and of `mod` declarations are sorted where they
+stand, `#[cfg(test)]` modules go last, and the settings that keep structure
+(`sections`, `keep_paragraphs`, `keep_helpers_near`) still apply.
+
+*   Type: an array of the values below, each at most once.
+*   Default: `["kind", "visibility", "name"]`.
+*   Values:
+    *   `kind`: The order of kinds, `type_order`; an impl beside its type with
+        `group_impls`.
+    *   `visibility`: The order of visibilities, `visibility_order`.
+    *   `name`: Names, by `name_sort`, when `sort_alphabetically` is on.
 
 #### `sections`
 Cuts each file, module and impl body into sections at the comments this names:

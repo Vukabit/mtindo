@@ -779,6 +779,8 @@ pub fn joins(block: &SyntaxNode) -> bool {
           SyntaxKind::LetStmt
             | SyntaxKind::ArgList
             | SyntaxKind::RecordExprField
+            // A struct literal's base, after `..`: an expression too.
+            | SyntaxKind::RecordExprFieldList
             | SyntaxKind::Const
             | SyntaxKind::Static
         )

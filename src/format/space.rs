@@ -401,7 +401,11 @@ fn separate_when_joined(a: &SyntaxToken, b: &SyntaxToken, edition: Edition) -> b
       a.kind() == K::Gt && b.kind() == K::Gt && pa != K::BinExpr && pb != K::BinExpr;
     let references =
       a.kind() == K::Amp && b.kind() == K::Amp && is_prefix(K::Amp, pa) && is_prefix(K::Amp, pb);
-    return generic_ends || references;
+    // Rust has no `--`: two negations read as two (`--x` is `-(-x)`), as the standard
+    // formatter writes them.
+    let negations =
+      a.kind() == K::Minus && b.kind() == K::Minus && pa == K::PrefixExpr && pb == K::PrefixExpr;
+    return generic_ends || references || negations;
   }
   // A number before a field or method: `1.into()` and `x.0.f()` read as written, but a
   // number would swallow the dot before digits.

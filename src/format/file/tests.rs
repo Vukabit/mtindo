@@ -322,6 +322,29 @@ fn test_arms_keep_their_doc_comments() {
   );
 }
 
+/// Found by the bug hunt of 2026-11-04 against the standard formatter: two negations
+/// written together (Rust has no `--`), a block as a struct literal's base kept on one line
+/// as any expression's, and a struct variant beside a variant with a comment inside one line.
+#[test]
+fn test_as_the_standard_formatter_writes_them_found_by_the_hunt() {
+  assert_eq!(
+    formatted("fn f(x: i32) -> i32 { - - -x }\n"),
+    "fn f(x: i32) -> i32 {\n    ---x\n}\n"
+  );
+  assert_eq!(
+    formatted("fn f(x: i32) -> i32 { x - - 1 }\n"),
+    "fn f(x: i32) -> i32 {\n    x - -1\n}\n"
+  );
+  assert_eq!(
+    formatted("fn f(){let s = S { a: 1, ..unsafe { mem::zeroed() } };}\n"),
+    "fn f() {\n    let s = S {\n        a: 1,\n        ..unsafe { mem::zeroed() }\n    };\n}\n"
+  );
+  assert_eq!(
+    formatted("enum E{B(i32,/*x*/i64),C{x:u8,y:u8},}\n"),
+    "enum E {\n    B(i32, /*x*/ i64),\n    C { x: u8, y: u8 },\n}\n"
+  );
+}
+
 #[test]
 fn test_attribute_arguments_and_doc_comments() {
   // Keywords are names among an attribute's arguments, `true` a value; a doc comment after

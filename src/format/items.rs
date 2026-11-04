@@ -2682,10 +2682,14 @@ fn macros_in_types(node: &SyntaxNode) -> bool {
 fn mixed_variants(list: &SyntaxNode, indent: usize, config: &FormatConfig) -> bool {
   let spacing = Spacing::of(config);
   let one_line = |variant: &SyntaxNode| {
-    // Attributes, doc comments or comments anywhere in it put it on several lines.
-    let attributed = variant.subtree_has(|kind| {
-      kind == K::Attr || is_doc(kind) || matches!(kind, K::LineComment | K::BlockComment)
-    });
+    // Attributes, doc comments or a comment ending its line anywhere in it put it on
+    // several lines; a block comment within a line does not (`B(i32, /* x */ i64)`), as
+    // the standard formatter tells by the line breaks in the variant it wrote.
+    let attributed = variant
+      .subtree_has(|kind| kind == K::Attr || is_doc(kind) || kind == K::LineComment)
+      || variant
+        .token_texts()
+        .any(|(kind, text, _)| kind == K::BlockComment && text.contains('\n'));
     let fields_fit = variant
       .children_iter()
       .filter(|c| c.kind() == K::RecordFieldList)

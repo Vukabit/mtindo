@@ -489,8 +489,8 @@ Use tab characters for indentation, spaces for alignment
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
 *   In mto: partial. Laid out as with spaces, indentation in tabs; differs where
-    the standard formatter counts a tab as one column, and in code blocks of doc
-    comments.
+    the standard formatter leaves a statement it cannot fit as written (its
+    spaces kept), and where it measures a tab as narrower than tab_spaces.
 
 ### `hex_literal_case`
 

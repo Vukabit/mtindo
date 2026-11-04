@@ -1073,9 +1073,14 @@ fn test_line_endings_and_tabs() {
     format_file("fn f() {}\r\n", Edition::E2021, &unix),
     "fn f() {}\n"
   );
-  // A string spanning lines keeps the file's endings, which are part of it.
+  // A string spanning lines takes the style too, as the standard formatter writes it: rustc
+  // reads every `\r\n` as `\n`, in strings as well, so no string's value changes (bug
+  // hunt, 2026-11-04).
   let crlf_string = "fn f() {\r\n    g(\"a\r\nb\");\r\n}\r\n";
-  assert_eq!(format_file(crlf_string, Edition::E2021, &unix), crlf_string);
+  assert_eq!(
+    format_file(crlf_string, Edition::E2021, &unix),
+    "fn f() {\n    g(\"a\nb\");\n}\n"
+  );
   let windows = FormatConfig {
     newline_style: NewlineStyle::Windows,
     tab_spaces: 2,

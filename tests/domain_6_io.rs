@@ -104,6 +104,30 @@ fn test_restore_never_writes_through_a_link_put_there_since() {
   assert_eq!(fs::read_to_string(&precious).unwrap(), "precious\n");
 }
 
+/// A run made through a link above the project (a temporary folder on macOS, a short name on
+/// Windows) restores as any: only a link below the folder the run ran in is refused.
+#[cfg(unix)]
+#[test]
+fn test_restore_works_through_a_link_above_the_project() {
+  let env = TestEnvironment::new();
+  let outside = TestEnvironment::new();
+  let alias = outside.dir.path().join("alias");
+  std::os::unix::fs::symlink(env.dir.path(), &alias).unwrap();
+  env.write_file("src/a.rs", "fn  a() {}\n");
+  let run = |args: &[&str]| {
+    env
+      .mto_cmd()
+      .current_dir(&alias)
+      .args(args)
+      .output()
+      .unwrap()
+  };
+  assert_eq!(run(&["src"]).status.code(), Some(0));
+  let output = run(&["restore", "last"]);
+  assert_eq!(output.status.code(), Some(0), "{:?}", output);
+  assert_eq!(env.read_file("src/a.rs"), "fn  a() {}\n");
+}
+
 /// A temporary file a run cut short left behind goes with the next run that writes, once it
 /// is too old to be another run's; a check leaves it.
 #[test]

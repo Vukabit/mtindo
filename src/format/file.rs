@@ -1738,16 +1738,9 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
     } else {
       body
     };
-  // Line endings inside a multi-line string are part of the string: a file whose strings
-  // hold line breaks keeps its own endings.
-  let strings_span_lines = root
-    .token_texts()
-    .any(|(kind, text, _)| kind.is_literal() && text.contains('\n'));
-  let newline = if strings_span_lines {
-    if first_crlf { "\r\n" } else { "\n" }
-  } else {
-    newline
-  };
+  // Every line ending in the file, inside a string spanning lines too: rustc reads each
+  // `\r\n` as `\n` before anything else, strings included, so the style changes no
+  // string's value, and the standard formatter applies it so.
   let body = if newline == "\n" {
     body
   } else {

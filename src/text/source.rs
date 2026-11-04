@@ -32,6 +32,14 @@ impl Normalized {
   }
 }
 
+/// The line of the first carriage return in `text` that does not start a `\r\n`, if any.
+/// Formatting does not take such a file, which it then leaves as written.
+pub fn lone_carriage_return(text: &str) -> Option<usize> {
+  let bytes = text.as_bytes();
+  let at = (0..bytes.len()).find(|&i| bytes[i] == b'\r' && bytes.get(i + 1) != Some(&b'\n'))?;
+  Some(1 + bytes[..at].iter().filter(|&&b| b == b'\n').count())
+}
+
 /// Splits off a byte-order mark and normalizes `\r\n` to `\n`.
 ///
 /// Fails on mixed line endings, because restoring a single style would change the lines

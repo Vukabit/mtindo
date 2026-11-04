@@ -917,9 +917,11 @@ pub fn run_file(
   opts: &RunOptions,
   ctx: WriteContext,
 ) -> FileReport {
-  let shown = file_path.display().to_string();
+  // As messages name it, a line feed or escape in it shown; JSON gives the name itself.
+  let name = file_path.display().to_string();
+  let shown = text::terminal::name_shown(&name).into_owned();
   let mut report = FileReport {
-    file: shown.clone(),
+    file: name,
     ..FileReport::default()
   };
   // Layout, formatting and the verifiers parse the same few texts; each is parsed once.
@@ -948,6 +950,29 @@ pub fn run_file(
     with_modules = settings.clone();
     note_macro_use_modules(&mut with_modules, file_path, &source);
     settings = &with_modules;
+  }
+  // Formatting leaves a file holding a carriage return of its own as written: said, never
+  // passed off as formatted.
+  if settings.format.is_some()
+    && let Some(line) = text::source::lone_carriage_return(&source)
+  {
+    let reason = format!(
+      "a carriage return not followed by a line feed, on line {}: formatting leaves such a \
+       file as written",
+      line
+    );
+    report.stderr = format!(
+      "{}Skipped {}: {}{}\n",
+      c_yellow(true),
+      shown,
+      reason,
+      c_reset(true)
+    );
+    report.say("note", "skipped", Some((line, 1)), &reason);
+    if opts.emit == Emit::Stdout {
+      emit_stdout(&mut report, &shown, &source, opts, settings.edition);
+    }
+    return report.with(Outcome::Skipped);
   }
   let shaped = match caught(&shown, &source, settings, || {
     shape(&source, settings, &held)

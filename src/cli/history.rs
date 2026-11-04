@@ -440,10 +440,10 @@ pub fn restore(
     .map(|h| h.recorder(&command_line(), &cwd, Some(&id)));
   let mut skipped = 0;
   for entry in run.entries.iter().filter(|e| wanted.contains(&e.path)) {
-    let shown = entry.path.display();
+    let shown = crate::text::terminal::name_shown(&entry.path.display().to_string()).into_owned();
     // A run records each file where it really was; a link put there since (the file, or a
     // folder above it) would carry the write somewhere else: never, even forced.
-    if let Some(why) = led_elsewhere(&entry.path) {
+    if let Some(why) = led_elsewhere(&entry.path, &run.cwd) {
       errln!(
         "{}Skipped {}: {}; mto writes only where the run wrote{}",
         c_yellow(true),
@@ -614,7 +614,7 @@ pub fn show(history: &History, spec: &str) -> Result<String, String> {
     };
     out.push_str(&format!(
       "  {}  {}\n",
-      entry.path.display(),
+      crate::text::terminal::name_shown(&entry.path.display().to_string()),
       paint(on, tone, &format!("({})", state))
     ));
   }
@@ -712,21 +712,23 @@ fn is_under(path: &Path, root: &Path) -> bool {
   matches!((path, resolved(root)), (Some(path), Some(root)) if path.starts_with(&root))
 }
 
-/// Why writing `path` (recorded with every link resolved) would now land elsewhere: it is a
-/// link itself, or a folder above it leads to another place; `None` when it would not.
-fn led_elsewhere(path: &Path) -> Option<String> {
-  if fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+/// Why writing `path` would now land somewhere else than where the run wrote: it is a link
+/// itself, or a folder between it and `cwd`, the folder the run ran in (below what the two
+/// share), is one, so a link put there since would carry the write out of the project.
+/// Links above that were there when the run wrote (`/var` on macOS). `None` when there is
+/// none.
+fn led_elsewhere(path: &Path, cwd: &Path) -> Option<String> {
+  let link = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+  if link(path) {
     return Some("it is now a symbolic link".to_string());
   }
-  let folder = path.ancestors().skip(1).find(|a| a.exists())?;
-  match crate::real_path(folder) {
-    Ok(real) if real != folder => Some(format!(
-      "{} now leads to {}",
-      folder.display(),
-      real.display()
-    )),
-    _ => None,
-  }
+  let shared = path.ancestors().find(|a| cwd.starts_with(a))?;
+  path
+    .ancestors()
+    .skip(1)
+    .take_while(|a| *a != shared)
+    .find(|a| link(a))
+    .map(|folder| format!("{} is now a symbolic link", folder.display()))
 }
 
 /// A run's command, folder, what it restored and each file with where it stands.

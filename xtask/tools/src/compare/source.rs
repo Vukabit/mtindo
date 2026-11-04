@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::options::format::{FormatConfig, NewlineStyle};
-use mtindo::syntax::{Edition, SyntaxElement, parse};
+use mtindo::syntax::Edition;
 use xtask_core::harness;
 
 use super::*;
@@ -214,13 +214,14 @@ pub fn test_pair(tests: &Path, relative: &Path, expected: String) -> Pair {
   // the crate the suite sits in has nothing to do with it.
   let edition = header_edition(&input).unwrap_or(Edition::E2015);
   // The pairs are stored with `\n` endings whatever the header asks for; the
-  // standard formatter's own test runner ignores endings.
-  let expected =
-    if format.newline_style == NewlineStyle::Windows && !strings_span_lines(&expected, edition) {
-      expected.replace("\r\n", "\n").replace('\n', "\r\n")
-    } else {
-      expected
-    };
+  // standard formatter's own test runner ignores endings. It writes the style everywhere,
+  // in strings spanning lines too (rustc reads `\r\n` there as `\n`), so the expected file
+  // takes it everywhere.
+  let expected = if format.newline_style == NewlineStyle::Windows {
+    expected.replace("\r\n", "\n").replace('\n', "\r\n")
+  } else {
+    expected
+  };
   Pair {
     input,
     expected,
@@ -503,18 +504,6 @@ pub(crate) fn pair_cases(crates: &[(String, PathBuf)], seed: u64, files: usize) 
     }
   }
   cases
-}
-
-/// Whether a string literal holds a line break: line endings inside it are its contents.
-pub(crate) fn strings_span_lines(text: &str, edition: Edition) -> bool {
-  parse(text, edition)
-    .syntax_node()
-    .descendants_with_tokens()
-    .iter()
-    .any(|e| match e {
-      SyntaxElement::Token(t) => t.kind().is_literal() && t.text().contains('\n'),
-      SyntaxElement::Node(_) => false,
-    })
 }
 
 /// The `.rs` files under `path` (or `path` itself), skipping build output (a `target`

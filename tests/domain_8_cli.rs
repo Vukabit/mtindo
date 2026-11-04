@@ -662,6 +662,23 @@ fn test_cli_a_file_with_syntax_errors_exits_three() {
   assert_eq!(env.read_file("main.rs"), broken);
 }
 
+/// A file holding a carriage return of its own is left as written, and said to be: never
+/// passed off as formatted, or as checked (bug hunt, 2026-11-04).
+#[test]
+fn test_cli_a_lone_carriage_return_is_reported_not_passed_over() {
+  let env = TestEnvironment::new();
+  env.write_file("a.rs", "fn  a(){\n  let x=1; // note\rmore\n}\n");
+  let (code, _, said) = mto(&env, &["--check", "a.rs"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(
+    said.contains("Skipped a.rs: a carriage return not followed by a line feed, on line 2"),
+    "{}",
+    said
+  );
+  let (_, out, _) = mto(&env, &["a.rs", "--message-format", "json"]);
+  assert!(out.contains("\"outcome\":\"skipped\""), "{}", out);
+}
+
 #[test]
 fn test_cli_bare_invocation_ignores_piped_stdin() {
   let env = TestEnvironment::new();

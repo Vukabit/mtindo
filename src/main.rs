@@ -3285,7 +3285,11 @@ fn verify_commit(
         .with("detail", said.as_str()),
     );
     if !json {
-      outln!("{}  {}", file.path, paint(on, tone_of, &said));
+      outln!(
+        "{}  {}",
+        mtindo::text::terminal::name_shown(&file.path),
+        paint(on, tone_of, &said)
+      );
     }
   }
   let verified = safe + unverified + not_safe == 0;

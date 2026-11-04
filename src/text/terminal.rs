@@ -89,6 +89,28 @@ pub fn code_in_color() -> bool {
   Stream::Out.is_terminal() && color_enabled(false)
 }
 
+/// A file's name as a message names it: every control character shown, a line feed and a
+/// tab too (`^J`, `^I`), wherever the message goes. A name is one line; a line feed in one
+/// would let it write a line of its own, such as a verdict that is not mto's.
+pub fn name_shown(name: &str) -> Cow<'_, str> {
+  if !name.chars().any(|c| controls(c) || c == '\n' || c == '\t') {
+    return Cow::Borrowed(name);
+  }
+  let mut out = String::with_capacity(name.len() + 8);
+  for c in name.chars() {
+    match c {
+      '\0'..='\x1f' => {
+        out.push('^');
+        out.push((c as u8 + b'@') as char);
+      }
+      '\x7f' => out.push_str("^?"),
+      _ if controls(c) => out.push_str(&format!("<U+{:04X}>", c as u32)),
+      _ => out.push(c),
+    }
+  }
+  Cow::Owned(out)
+}
+
 /// `text` with every character that could control a terminal shown instead, but for the
 /// color codes in `COLORS` when `color` is on. Lines and tabs are kept; a carriage return
 /// is kept only before a line end, since alone it lets a line write over the one shown.
@@ -177,6 +199,19 @@ fn controls(c: char) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  /// A file's name is one line: a line feed or tab in it is shown, as every other control
+  /// (bug hunt, 2026-11-04).
+  #[test]
+  fn test_a_name_shows_every_control() {
+    assert_eq!(name_shown("plain.rs"), "plain.rs");
+    assert_eq!(
+      name_shown("ok.rs  reproduced\nnew.rs"),
+      "ok.rs  reproduced^Jnew.rs"
+    );
+    assert_eq!(name_shown("e\x1b]0;x\x07.rs\t"), "e^[]0;x^G.rs^I");
+    assert_eq!(name_shown("a\u{202e}b"), "a<U+202E>b");
+  }
 
   #[test]
   fn test_controls_are_shown_and_mtos_colors_kept() {

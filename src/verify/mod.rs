@@ -307,6 +307,18 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
       ),
     );
   }
+  let below = moved_below_definitions(&old.sequence, &new.sequence);
+  if !below.is_empty() {
+    add(
+      Rule::MacroUserMoved,
+      format!(
+        "{} item(s) moved below a macro definition they came before, whose name they call: \
+         {}",
+        below.len(),
+        describe_list(&below)
+      ),
+    );
+  }
   violations
 }
 
@@ -452,7 +464,7 @@ fn collect(container: &SyntaxNode, scope: &str, source: &str, parts: &mut Parts)
             format!("{}{}", shell_text, suffix),
             format!("{}{}", shell_core, suffix),
           ));
-          let macro_use = item.attrs().iter().any(|a| a.path() == "macro_use");
+          let macro_use = item.is_macro_use();
           let inner_scope = if macro_use {
             format!("{}{}", inner_scope, MACRO_USE)
           } else {
@@ -492,6 +504,13 @@ fn core_text<'a>(node: &SyntaxNode, text: &'a str) -> (usize, &'a str) {
   (from, &text[from..to])
 }
 
+/// Whether `word` is an identifier.
+fn is_identifier(word: &str) -> bool {
+  let word = word.trim_start_matches("r#");
+  word.starts_with(|c: char| c.is_alphabetic() || c == '_')
+    && word.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
 fn line_endings(text: &str) -> LineEndings {
   let bytes = text.as_bytes();
   let lf = bytes.iter().filter(|&&b| b == b'\n').count();
@@ -507,6 +526,30 @@ fn line_endings(text: &str) -> LineEndings {
     (c, l) if c == l => LineEndings::Crlf,
     _ => LineEndings::Mixed,
   }
+}
+
+/// The macros `text` calls: each name followed by `!`, but `macro_rules` itself.
+fn macros_called(text: &str) -> Vec<String> {
+  significant_words(text)
+    .windows(2)
+    .filter(|w| w[1] == "!" && w[0] != "macro_rules" && is_identifier(w[0]))
+    .map(|w| w[0].trim_start_matches("r#").to_string())
+    .collect()
+}
+
+/// The macros `text` defines, or `None` when none can be read there.
+fn macros_defined(text: &str) -> Option<Vec<String>> {
+  let names: Vec<String> = significant_words(text)
+    .windows(3)
+    .filter_map(|w| match (w[0], w[1]) {
+      ("macro_rules", "!") if is_identifier(w[2]) => {
+        Some(w[2].trim_start_matches("r#").to_string())
+      }
+      ("macro", name) if is_identifier(name) => Some(name.trim_start_matches("r#").to_string()),
+      _ => None,
+    })
+    .collect();
+  (!names.is_empty()).then_some(names)
 }
 
 /// The `{ ... }` body of an inline module or an impl block: a scope of its own.
@@ -560,6 +603,63 @@ fn moved_above_definitions(
   moved
 }
 
+/// The items that came before a macro-defining item in the input, come after it in the
+/// output, and call a macro it may define: their calls would reach that definition instead
+/// (a `macro_rules! vec` shadowing std's). A definer whose names cannot be read (a
+/// `#[macro_use] mod name;`) may define any macro.
+fn moved_below_definitions(
+  old: &[(String, String, bool)],
+  new: &[(String, String, bool)],
+) -> Vec<String> {
+  if !old.iter().any(|(_, _, defines)| *defines) {
+    return Vec::new();
+  }
+  let numbered = |sequence: &[(String, String, bool)]| -> Vec<(String, String, usize, bool)> {
+    let mut seen: HashMap<(String, String), usize> = HashMap::new();
+    sequence
+      .iter()
+      .map(|(scope, text, definer)| {
+        let n = seen.entry((scope.clone(), text.clone())).or_default();
+        *n += 1;
+        (scope.clone(), text.clone(), *n, *definer)
+      })
+      .collect()
+  };
+  let (old, new) = (numbered(old), numbered(new));
+  let position: HashMap<(&str, &str, usize), usize> = new
+    .iter()
+    .enumerate()
+    .map(|(i, (scope, text, n, _))| ((scope.as_str(), text.as_str(), *n), i))
+    .collect();
+  let at = |item: &(String, String, usize, bool)| {
+    position
+      .get(&(item.0.as_str(), item.1.as_str(), item.2))
+      .copied()
+  };
+  let mut moved = Vec::new();
+  for (i, definer) in old.iter().enumerate() {
+    let Some(definer_at) = at(definer).filter(|_| definer.3) else {
+      continue;
+    };
+    let names = macros_defined(&definer.1);
+    for earlier in &old[..i] {
+      let calls = macros_called(&earlier.1);
+      let reaches = match &names {
+        Some(names) => calls.iter().any(|c| names.contains(c)),
+        None => !calls.is_empty(),
+      };
+      if earlier.0 == definer.0
+        && reaches
+        && at(earlier).is_some_and(|p| p > definer_at)
+        && !moved.contains(&earlier.1)
+      {
+        moved.push(earlier.1.clone());
+      }
+    }
+  }
+  moved
+}
+
 /// The parts of a file. Line endings are compared by their own rule, so here every
 /// `\r\n` reads as `\n` and one changed line ending is not also every item changed.
 fn parts(text: &str, edition: Edition) -> Parts {
@@ -583,6 +683,20 @@ fn parts(text: &str, edition: Edition) -> Parts {
   }
   collect(&tree, "", &text, &mut parts);
   parts
+}
+
+/// The tokens of `text` that are not whitespace or comments.
+fn significant_words(text: &str) -> Vec<&str> {
+  let mut at = 0;
+  let mut out = Vec::new();
+  for token in crate::syntax::lexer::tokenize(text, Edition::E2021) {
+    let end = at + token.len as usize;
+    if !token.kind.is_trivia() {
+      out.push(&text[at..end]);
+    }
+    at = end;
+  }
+  out
 }
 
 /// The scopes a macro defined in `scope` is visible in: its own, and its parents' for as

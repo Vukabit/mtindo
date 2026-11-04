@@ -95,6 +95,25 @@ fn test_inline_modules_are_scopes_of_their_own() {
   );
 }
 
+/// An item that came before a macro definition and calls a macro of that name may not move
+/// below it: its call would reach that definition, not std's (bug hunt, 2026-11-04).
+#[test]
+fn test_items_stay_above_a_definition_of_a_macro_they_call() {
+  let input =
+    "fn count() -> usize { vec![1].len() }\nmacro_rules! vec { ($($t:tt)*) => { [0u8; 5] }; }\n";
+  let moved =
+    "macro_rules! vec { ($($t:tt)*) => { [0u8; 5] }; }\nfn count() -> usize { vec![1].len() }\n";
+  assert_eq!(rules(input, moved), vec![Rule::MacroUserMoved]);
+  // One that calls no macro of that name may move.
+  let free = "fn count() -> usize { 1 }\nmacro_rules! vec { () => {}; }\n";
+  let freed = "macro_rules! vec { () => {}; }\nfn count() -> usize { 1 }\n";
+  assert_eq!(rules(free, freed), vec![]);
+  // `#[cfg_attr(.., macro_use)]` exports the module's macros as `#[macro_use]` does.
+  let input = "#[cfg_attr(all(), macro_use)]\nmod a {\n    macro_rules! two { () => { 2 } }\n}\nfn main() { two!(); }\n";
+  let moved = "fn main() { two!(); }\n#[cfg_attr(all(), macro_use)]\nmod a {\n    macro_rules! two { () => { 2 } }\n}\n";
+  assert_eq!(rules(input, moved), vec![Rule::MacroUserMoved]);
+}
+
 /// A macro defined inside an item macro call (`cfg_if! { macro_rules! m {...} }`) is as
 /// order-sensitive as one written plainly: what came after the call may not move above it.
 /// Found by laying out tokio with functions first, which then failed to compile.

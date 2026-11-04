@@ -635,6 +635,25 @@ pub fn json_messages() -> bool {
   JSON_MESSAGES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// `path` absolute with symlinks resolved, as [`fs::canonicalize`] gives it, but on Windows
+/// without the `\\?\` prefix when the plain path names the same file: mto shows these paths,
+/// and `\\?\C:\src` is not how anyone writes one.
+/// `settings` told which modules the file at `path` (its text `source`) declares whose own
+/// files make them `#[macro_use]` from inside (`#![macro_use]`): neither layout nor import
+/// sorting moves those, as the macros they export are visible only after them.
+pub fn note_macro_use_modules(settings: &mut Settings, path: &Path, source: &str) {
+  let found = cli::modules::macro_use_modules(path, source);
+  if found.is_empty() {
+    return;
+  }
+  if let Some(layout) = settings.layout.as_mut() {
+    layout.macro_use_modules = found.clone();
+  }
+  if let Some(format) = settings.format.as_mut() {
+    format.macro_use_modules = found;
+  }
+}
+
 /// Reads the layout settings of one file, as `--config-path` does: no other file is searched
 /// for.
 pub fn parse_toml_config(path: &Path) -> Result<LayoutConfig, MtoError> {
@@ -720,9 +739,12 @@ pub fn process_stdin(
     }
     report.with(outcome)
   };
-  let Some(settings) = settings else {
+  let Some(mut settings) = settings else {
     return Ok(unchanged(report, Outcome::LayoutOff));
   };
+  if let Some(name) = name {
+    note_macro_use_modules(&mut settings, name, &source);
+  }
   // The edits the build guard holds back for this file, as a run that writes it keeps
   // them: an editor formatting through stdin must not make an edit the build rejected.
   let held = match name {
@@ -816,9 +838,6 @@ pub fn process_stdin(
   Ok(report.with(Outcome::Changed))
 }
 
-/// `path` absolute with symlinks resolved, as [`fs::canonicalize`] gives it, but on Windows
-/// without the `\\?\` prefix when the plain path names the same file: mto shows these paths,
-/// and `\\?\C:\src` is not how anyone writes one.
 pub fn real_path(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
   let real = fs::canonicalize(path)?;
   Ok(if cfg!(windows) {
@@ -904,6 +923,13 @@ pub fn run_file(
     .holds
     .map(|holds| holds.held_for(&std::path::absolute(file_path).unwrap_or_default()))
     .unwrap_or_default();
+  let mut with_modules;
+  let mut settings = settings;
+  if cli::modules::declares_macro_use(&source) {
+    with_modules = settings.clone();
+    note_macro_use_modules(&mut with_modules, file_path, &source);
+    settings = &with_modules;
+  }
   let shaped = match caught(&shown, &source, settings, || {
     shape(&source, settings, &held)
   }) {

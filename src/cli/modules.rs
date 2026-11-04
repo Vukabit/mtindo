@@ -56,6 +56,49 @@ pub fn crate_skips(text: &str) -> (Vec<String>, Vec<String>) {
   (macros, attributes)
 }
 
+/// Whether `file` may declare a module whose own file starts with `#![macro_use]`: it
+/// declares a module, cheaply told from its text, so most files read no other.
+pub fn declares_macro_use(text: &str) -> bool {
+  text.contains("mod ")
+}
+
+/// The modules `file` (its text `text`) declares without a body whose own files start
+/// with `#![macro_use]`: their macros are visible after the declaration, as a `#[macro_use]`
+/// module's are, which nothing in `file` itself shows.
+pub fn macro_use_modules(file: &Path, text: &str) -> Vec<String> {
+  if !declares_macro_use(text) {
+    return Vec::new();
+  }
+  let parent = file.parent().unwrap_or(Path::new(""));
+  let owned = match file.file_stem() {
+    Some(stem) if parent.join(stem).is_dir() => parent.join(stem),
+    _ => parent.to_path_buf(),
+  };
+  let (_, parsed) = parse_any_edition(text, Edition::E2021);
+  let mut found = Vec::new();
+  declared(&parsed.syntax_node(), &owned, parent, &mut found);
+  let mut names = Vec::new();
+  for (name, candidates, _) in found {
+    let Some(text) = candidates
+      .iter()
+      .find(|c| c.is_file())
+      .and_then(|path| fs::read_to_string(path).ok())
+    else {
+      continue;
+    };
+    if !text.contains("macro_use") {
+      continue;
+    }
+    let (_, parsed) = parse_any_edition(&text, Edition::E2021);
+    let macro_use = crate::syntax::ast::SourceFile::cast(parsed.syntax_node())
+      .is_some_and(|source| source.attrs().iter().any(|a| a.is_macro_use()));
+    if macro_use && !names.contains(&name) {
+      names.push(name);
+    }
+  }
+  names
+}
+
 /// Every file `root` reaches, `root` first, each once (one that cannot be read too); and
 /// the modules whose files could not be found.
 pub fn module_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {

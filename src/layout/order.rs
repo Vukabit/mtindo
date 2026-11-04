@@ -22,8 +22,11 @@
 //! A `macro_rules!` is only visible below its definition, and so are the macros of a
 //! `#[macro_use]` module and of an item macro call that holds definitions (`cfg_if! {
 //! macro_rules! m { ... } }`), so no unit that came after a definition may move in front of
-//! it. If the sort would do that, it is redone with every
-//! macro first; if even that moves one, the file is left alone.
+//! it; and a unit that came before one and calls a macro of that name must not move below
+//! it, where its call would reach that definition instead of the one it reached (std's
+//! `vec!`, an earlier one). If the sort would do either, it is redone with every macro
+//! first, then with each definition held where it is; if even that moves one, the file is
+//! left alone.
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -130,14 +133,25 @@ impl Rule {
 
 /// The units in their new order.
 pub(super) fn arrange(units: &[Unit], config: &LayoutConfig) -> Result<Vec<Unit>, String> {
-  let mut arranged = sorted(units, config, false);
-  if macro_moved_past_user(&arranged) {
-    arranged = sorted(units, config, true);
+  let kept = |arranged: &[Unit]| !macro_moved_past_user(arranged) && !macro_shadows_user(arranged);
+  let arranged = sorted(units, config, false);
+  if kept(&arranged) {
+    return Ok(arranged);
   }
-  if macro_moved_past_user(&arranged) {
-    return Err("cannot keep macro definitions ahead of the items after them".to_string());
+  let first = sorted(units, config, true);
+  if kept(&first) {
+    return Ok(first);
   }
-  Ok(arranged)
+  // Each definition where it was written: nothing crosses one, either way.
+  let held = super::around_held(
+    units,
+    |u| u.defines_macros,
+    |run| Ok(sorted(run, config, false)),
+  )?;
+  if kept(&held) {
+    return Ok(held);
+  }
+  Err("cannot keep macro definitions where every call reaches the same macro".to_string())
 }
 
 pub(super) fn compare(
@@ -274,6 +288,34 @@ pub(super) fn macro_moved_past_user(units: &[Unit]) -> bool {
     latest = latest.max(Some(unit.index));
   }
   false
+}
+
+/// True if a unit that came before a macro definition now comes after it, and calls a macro
+/// that definition may define: there its call would reach the definition, not the one it
+/// reached before (std's, an earlier module's). Names are read from the units' tokens; a
+/// definition whose names cannot be read (a `#[macro_use] mod name;`, its file out of
+/// sight) may define any macro.
+pub(super) fn macro_shadows_user(units: &[Unit]) -> bool {
+  if !units.iter().any(defines_macros) {
+    return false;
+  }
+  let calls: Vec<HashSet<String>> = units.iter().map(macros_called).collect();
+  units.iter().enumerate().any(|(at, definer)| {
+    if !defines_macros(definer) {
+      return false;
+    }
+    let names = macros_defined(definer);
+    units[at + 1..]
+      .iter()
+      .zip(&calls[at + 1..])
+      .any(|(unit, called)| {
+        unit.index < definer.index
+          && match &names {
+            Some(names) => called.iter().any(|name| names.contains(name)),
+            None => !called.is_empty(),
+          }
+      })
+  })
 }
 
 /// The rule that put `unit` where it is in `arranged`, at `at`: above its user, by a pin,
@@ -613,6 +655,13 @@ fn impls(a: &Unit, b: &Unit, config: &LayoutConfig) -> Ordering {
     .then_with(|| a.index.cmp(&b.index))
 }
 
+/// Whether `word` is an identifier.
+fn is_name(word: &str) -> bool {
+  let word = word.trim_start_matches("r#");
+  word.starts_with(|c: char| c.is_alphabetic() || c == '_')
+    && word.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
 /// A kind's place in `type_order`. Kinds left out of the list go after the listed ones, in
 /// their default order: no two kinds share a rank, as the rules within a kind (imports or
 /// macros as written) would not be one order with a rule across kinds.
@@ -711,6 +760,34 @@ fn kind_step(
     return Some((impls(a, b, config), Rule::ImplsOfOneType));
   }
   kind_rules(a, b, config)
+}
+
+/// The macros `unit` calls: each name followed by `!`, but `macro_rules` itself.
+fn macros_called(unit: &Unit) -> HashSet<String> {
+  let words = words(&unit.text);
+  words
+    .windows(2)
+    .filter(|pair| pair[1] == "!" && pair[0] != "macro_rules" && is_name(&pair[0]))
+    .map(|pair| pair[0].trim_start_matches("r#").to_string())
+    .collect()
+}
+
+/// The macros `unit` defines (`macro_rules! name`, `macro name`), or `None` when they cannot
+/// be read: a module declared without a body, or a definer whose names are not in sight.
+fn macros_defined(unit: &Unit) -> Option<HashSet<String>> {
+  if unit.module_declaration {
+    return None;
+  }
+  let words = words(&unit.text);
+  let names: HashSet<String> = words
+    .windows(3)
+    .filter_map(|w| match (w[0].as_str(), w[1].as_str()) {
+      ("macro_rules", "!") if is_name(&w[2]) => Some(w[2].trim_start_matches("r#").to_string()),
+      ("macro", name) if is_name(name) => Some(name.trim_start_matches("r#").to_string()),
+      _ => None,
+    })
+    .collect();
+  (!names.is_empty()).then_some(names)
 }
 
 /// Two names in the order of `name_sort`.
@@ -836,4 +913,18 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
     sort_runs(&mut filled, config, &families);
   }
   filled
+}
+
+/// The tokens of `text` that are not whitespace or comments.
+fn words(text: &str) -> Vec<String> {
+  let mut at = 0;
+  let mut out = Vec::new();
+  for token in crate::syntax::lexer::tokenize(text, crate::syntax::Edition::E2021) {
+    let end = at + token.len as usize;
+    if !token.kind.is_trivia() {
+      out.push(text[at..end].to_string());
+    }
+    at = end;
+  }
+  out
 }

@@ -1,5 +1,7 @@
 use super::*;
-use crate::options::layout::{Flow, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort};
+use crate::options::layout::{
+  Flow, ItemKind, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort,
+};
 
 fn arranged(source: &str) -> String {
   layout(source, &LayoutConfig::default()).unwrap().text
@@ -179,6 +181,27 @@ fn test_a_hold_directive_keeps_the_item_between_its_neighbours() {
     arranged(&pinned),
     "fn a() {}\n\n// mto: pin -- moving it breaks the build: E0433\nmod generated {}\n\nfn z() {}\n"
   );
+}
+
+/// A `macro_rules!` shadows a macro of its name (std's `vec!`, one before it) for what
+/// comes after it: an item written before it that calls that name may not move below it,
+/// nor may the definition move above that item. Found by the bug hunt of 2026-11-04.
+#[test]
+fn test_a_macro_definition_never_changes_which_macro_a_call_reaches() {
+  let config = LayoutConfig::default();
+  // `fn count` calls std's `vec!`; the sort puts macros before functions.
+  let shadow = "fn count() -> usize {\n    vec![1, 2, 3].len()\n}\n\nmacro_rules! vec {\n    ($($t:tt)*) => {\n        [0u8; 5]\n    };\n}\n\nfn main() {\n    let _ = vec![9];\n}\n";
+  let laid = arranged_with(shadow, &config);
+  assert!(
+    laid.find("fn count").unwrap() < laid.find("macro_rules! vec").unwrap(),
+    "{}",
+    laid
+  );
+  assert_eq!(arranged_with(&laid, &config), laid);
+  // A definition whose name nothing before it calls still sorts first.
+  let free = "fn count() -> usize {\n    3\n}\n\nmacro_rules! other {\n    () => {};\n}\n";
+  let laid = arranged_with(free, &config);
+  assert!(laid.starts_with("macro_rules! other"), "{}", laid);
 }
 
 #[test]
@@ -844,6 +867,31 @@ fn test_items_that_are_not_clearly_helpers_sort_as_usual() {
       arranged(source),
       "{}",
       source
+    );
+  }
+}
+
+/// `#[cfg_attr(.., macro_use)]` and an inner `#![macro_use]` export a module's macros as
+/// `#[macro_use]` does, so its users stay below it and it keeps its place among modules.
+#[test]
+fn test_macro_use_in_cfg_attr_or_inside_counts() {
+  let config = LayoutConfig {
+    type_order: vec![ItemKind::FnDecl, ItemKind::ModDecl],
+    ..LayoutConfig::default()
+  };
+  for attr in [
+    "#[cfg_attr(all(), macro_use)]\nmod a {",
+    "mod a {\n    #![macro_use]\n",
+  ] {
+    let source = format!(
+      "{}\n    macro_rules! two {{\n        () => {{\n            2\n        }};\n    }}\n}}\n\nfn main() {{\n    let _ = two!();\n}}\n",
+      attr
+    );
+    let laid = arranged_with(&source, &config);
+    assert!(
+      laid.find("mod a").unwrap() < laid.find("fn main").unwrap(),
+      "{}",
+      laid
     );
   }
 }

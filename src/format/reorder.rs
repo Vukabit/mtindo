@@ -709,7 +709,11 @@ pub fn granular_imports(
   let containers = |kind| matches!(kind, K::SourceFile | K::ItemList | K::BlockExpr);
   let mut changes: Vec<(usize, usize, String)> = Vec::new();
   for node in nodes.of(root, containers) {
-    for run in runs(node, config.blank_lines_upper_bound > 0) {
+    for run in runs(
+      node,
+      config.blank_lines_upper_bound > 0,
+      &config.macro_use_modules,
+    ) {
       if run[0].kind() != K::Use {
         continue;
       }
@@ -1233,7 +1237,11 @@ pub fn reorder(
   let mut moves: Vec<(usize, usize, String)> = Vec::new();
   let containers = |kind| matches!(kind, K::SourceFile | K::ItemList | K::BlockExpr);
   for node in nodes.of(root, containers) {
-    for run in runs(node, config.blank_lines_upper_bound > 0) {
+    for run in runs(
+      node,
+      config.blank_lines_upper_bound > 0,
+      &config.macro_use_modules,
+    ) {
       let start = run[0].text_range().start as usize;
       let end = run[run.len() - 1].text_range().end as usize;
       if run.len() < 2 || has_comment(&run) {
@@ -1886,6 +1894,22 @@ fn control_gaps(
   }
 }
 
+/// The runs of a container: declarations of one sortable kind, one after another with no
+/// blank line between them. With blank lines removed (`blank_lines_upper_bound = 0`) they
+/// end no run, so that a second run sorts nothing more.
+/// A module whose macros are visible after it, beyond what the standard formatter sees
+/// (`#[cfg_attr(.., macro_use)]`, or a file starting with `#![macro_use]`, named in
+/// `macro_use`): moving it would change which macro a call reaches, so it stays put.
+fn exports_macros(node: &SyntaxNode, macro_use: &[String]) -> bool {
+  node.kind() == K::Module
+    && crate::syntax::ast::Item::cast(node.clone()).is_some_and(|item| {
+      item.is_macro_use()
+        || item
+          .name()
+          .is_some_and(|name| macro_use.iter().any(|m| m == name.trim_start_matches("r#")))
+    })
+}
+
 /// [`aligned_fields`]'s pads (where, how many spaces) and commas in `root`, whose text is
 /// `text`, at `text`'s offsets moved by `shift`; into macros' arguments that read as a
 /// call's too, as [`control_gaps`] goes.
@@ -2240,10 +2264,11 @@ fn plain_block_body(arm: &SyntaxNode) -> bool {
     })
 }
 
-/// The runs of a container: declarations of one sortable kind, one after another with no
-/// blank line between them. With blank lines removed (`blank_lines_upper_bound = 0`) they
-/// end no run, so that a second run sorts nothing more.
-fn runs(container: &SyntaxNode, blank_ends_run: bool) -> Vec<Vec<SyntaxNode>> {
+fn runs(
+  container: &SyntaxNode,
+  blank_ends_run: bool,
+  macro_use: &[String],
+) -> Vec<Vec<SyntaxNode>> {
   let mut runs: Vec<Vec<SyntaxNode>> = Vec::new();
   let mut current: Vec<SyntaxNode> = Vec::new();
   for element in container.children_with_tokens_iter() {
@@ -2259,7 +2284,7 @@ fn runs(container: &SyntaxNode, blank_ends_run: bool) -> Vec<Vec<SyntaxNode>> {
         runs.push(std::mem::take(&mut current));
       }
       SyntaxElement::Token(t) if t.kind().is_trivia() => {}
-      SyntaxElement::Node(n) if sortable(n) => {
+      SyntaxElement::Node(n) if sortable(n) && !exports_macros(n, macro_use) => {
         // A comment on a line of its own before it ends the run before.
         if current.first().is_some_and(|f| f.kind() != n.kind()) || own_line_comment(n) {
           runs.push(std::mem::take(&mut current));

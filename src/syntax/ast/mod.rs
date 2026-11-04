@@ -78,6 +78,42 @@ impl Attr {
     }
   }
 
+  /// `#[macro_use]`, also among the attributes of a `cfg_attr` (`#[cfg_attr(unix,
+  /// macro_use)]`), which applies it whenever its predicate holds: the module's macros may
+  /// be visible after it either way.
+  pub fn is_macro_use(&self) -> bool {
+    match self.path().as_str() {
+      "macro_use" => true,
+      "cfg_attr" => {
+        let text: String = significant_text(&self.0);
+        let Some((_, inner)) = text.split_once("cfg_attr(") else {
+          return false;
+        };
+        // The attributes after the predicate, split at commas outside parentheses.
+        let mut depth = 0usize;
+        let mut parts = vec![String::new()];
+        for c in inner.chars() {
+          match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' if depth == 0 => break,
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+              parts.push(String::new());
+              continue;
+            }
+            _ => {}
+          }
+          parts.last_mut().unwrap().push(c);
+        }
+        parts
+          .iter()
+          .skip(1)
+          .any(|part| part == "macro_use" || part.starts_with("macro_use("))
+      }
+      _ => false,
+    }
+  }
+
   /// The attribute's path without spaces, such as `derive` or `cfg_attr`.
   pub fn path(&self) -> String {
     let meta = child(&self.0, SyntaxKind::Meta);
@@ -208,7 +244,7 @@ impl Item {
   pub fn defines_macros(&self) -> bool {
     match self.kind() {
       ItemKind::MacroRules | ItemKind::MacroDef => true,
-      ItemKind::Module => self.attrs().iter().any(|a| a.path() == "macro_use"),
+      ItemKind::Module => self.is_macro_use(),
       ItemKind::MacroCall => {
         let words: Vec<&str> = self
           .0
@@ -223,6 +259,24 @@ impl Item {
       }
       _ => false,
     }
+  }
+
+  /// A module whose macros are visible after it: `#[macro_use]` outside (in a `cfg_attr`
+  /// too), or `#![macro_use]` at the top of its body. A file module's own `#![macro_use]`
+  /// is in its file, out of sight here.
+  pub fn is_macro_use(&self) -> bool {
+    self.kind() == ItemKind::Module
+      && (self.attrs().iter().any(Attr::is_macro_use)
+        || self
+          .0
+          .children_iter()
+          .find(|c| c.kind() == SyntaxKind::ItemList)
+          .is_some_and(|body| {
+            body
+              .children_iter()
+              .filter_map(Attr::cast)
+              .any(|a| a.is_inner() && a.is_macro_use())
+          }))
   }
 
   /// An `impl` view, if this item is one.

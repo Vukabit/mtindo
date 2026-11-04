@@ -2128,6 +2128,47 @@ fn test_cli_message_format_json_streams_files_messages_and_a_summary() {
   assert_eq!(code, 2);
 }
 
+/// A `mod name;` whose file starts with `#![macro_use]` exports its macros: a run reads
+/// the module's file and keeps the declaration where it is, so the macro a call reaches
+/// stays the same (bug hunt, 2026-11-04).
+#[test]
+fn test_cli_modules_made_macro_use_inside_their_files_keep_their_place() {
+  let env = TestEnvironment::new();
+  env.write_file("mto.toml", "layout = true\n");
+  env.write_file(
+    "src/z.rs",
+    "#![macro_use]\n\nmacro_rules! val {\n    () => {\n        1\n    };\n}\n",
+  );
+  env.write_file(
+    "src/a.rs",
+    "#![macro_use]\n\nmacro_rules! val {\n    () => {\n        2\n    };\n}\n",
+  );
+  let main = "mod z;\nmod a;\n\nfn main() {\n    let _ = val!();\n}\n";
+  env.write_file("src/main.rs", main);
+  let (code, _, said) = mto(
+    &env,
+    &[
+      "--no-history",
+      "--unguarded",
+      "--allow-dirty",
+      "src/main.rs",
+    ],
+  );
+  assert_eq!(code, 0, "{}", said);
+  assert_eq!(
+    std::fs::read_to_string(env.dir.path().join("src/main.rs")).unwrap(),
+    main
+  );
+  // Over stdin, with the file's path, too.
+  let output = env
+    .mto_cmd()
+    .args(["-", "--stdin-filepath", "src/main.rs"])
+    .write_stdin(main)
+    .output()
+    .unwrap();
+  assert_eq!(String::from_utf8_lossy(&output.stdout), main);
+}
+
 #[test]
 fn test_cli_options_without_a_path_are_an_error() {
   let env = TestEnvironment::new();

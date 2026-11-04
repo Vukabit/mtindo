@@ -186,6 +186,9 @@ pub struct LayoutConfig {
   /// Folders skipped by path (`ignore_dirs` entries with a `/`), made absolute from the
   /// folder of the file that set them.
   pub ignore_paths: Vec<std::path::PathBuf>,
+  /// The modules a file declares without a body whose files start with `#![macro_use]`,
+  /// found by the run for each file (`cli::modules::macro_use_modules`): not a setting.
+  pub macro_use_modules: Vec<String>,
   /// Whether a generated file's items are laid out (`layout_generated_files`).
   pub layout_generated_files: bool,
   /// The texts that mark a file as generated near its top (`generated_markers`).
@@ -264,6 +267,7 @@ impl Default for LayoutConfig {
         ".venv".to_string(),
       ],
       ignore_paths: Vec::new(),
+      macro_use_modules: Vec::new(),
       layout_generated_files: false,
       generated_markers: vec!["@generated".to_string()],
       generated_marker_line_search_limit: 5,

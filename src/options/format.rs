@@ -233,6 +233,9 @@ pub struct FormatConfig {
   pub import_sort: Option<u16>,
   /// Whether runs of `mod name;` declarations are sorted.
   pub reorder_modules: bool,
+  /// The modules a file declares without a body whose files start with `#![macro_use]`,
+  /// found by the run for each file (`cli::modules::macro_use_modules`): not a setting.
+  pub macro_use_modules: Vec<String>,
   /// Whether `extern` alone is written `extern "C"`.
   pub force_explicit_abi: bool,
   /// Whether runs of `#[derive(..)]` attributes are merged into one.
@@ -364,6 +367,7 @@ impl FormatConfig {
       reorder_imports: true,
       import_sort: None,
       reorder_modules: true,
+      macro_use_modules: Vec::new(),
       force_explicit_abi: true,
       merge_derives: true,
       remove_nested_parens: true,

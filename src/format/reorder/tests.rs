@@ -231,6 +231,22 @@ fn test_module_declarations_are_sorted() {
   );
 }
 
+/// A module whose macros are visible after it stays where it is among `mod` declarations:
+/// one `#[cfg_attr(.., macro_use)]`, which the standard formatter would sort, and one whose
+/// file starts with `#![macro_use]`, as the run finds.
+#[test]
+fn test_modules_exporting_macros_keep_their_place() {
+  let config = FormatConfig::default();
+  let cfg_attr = "#[cfg_attr(all(), macro_use)]\nmod z;\nmod a;\n";
+  assert_eq!(formatted(cfg_attr, &config), cfg_attr);
+  let files = FormatConfig {
+    macro_use_modules: vec!["z".to_string()],
+    ..FormatConfig::default()
+  };
+  assert_eq!(formatted("mod z;\nmod a;\n", &files), "mod z;\nmod a;\n");
+  assert_eq!(formatted("mod z;\nmod a;\n", &config), "mod a;\nmod z;\n");
+}
+
 /// Number literals as `hex_literal_case` and `float_literal_trailing_zero` write them, in
 /// macro arguments too; a tuple field's index is left alone, and a float left ending in `.`
 /// before a method or a range is kept apart from it.

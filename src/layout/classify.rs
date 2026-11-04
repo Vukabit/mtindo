@@ -131,8 +131,8 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
     index,
     cfg: attrs.iter().any(|a| a.path() == "cfg"),
     test_module: is_module && attrs.iter().any(|a| attr_body(a) == "cfg(test)"),
-    macro_use: is_module && attrs.iter().any(|a| a.path() == "macro_use"),
-    defines_macros: item.defines_macros(),
+    macro_use: item.is_macro_use() || declared_macro_use(item, config),
+    defines_macros: item.defines_macros() || declared_macro_use(item, config),
     module_declaration: is_module && ends_with_semicolon(item.syntax()),
     import_group: item
       .as_use()
@@ -161,6 +161,22 @@ fn attr_body(attr: &Attr) -> String {
     .trim_start_matches('[')
     .trim_end_matches(']')
     .to_string()
+}
+
+/// A module declared without a body whose file starts with `#![macro_use]`, as the run
+/// found (`LayoutConfig::macro_use_modules`).
+fn declared_macro_use(item: &Item, config: &LayoutConfig) -> bool {
+  item.kind() == ast::ItemKind::Module
+    && !config.macro_use_modules.is_empty()
+    && !item
+      .syntax()
+      .children_iter()
+      .any(|c| c.kind() == crate::syntax::SyntaxKind::ItemList)
+    && item.name().is_some_and(|name| {
+      config
+        .macro_use_modules
+        .contains(&name.trim_start_matches("r#").to_string())
+    })
 }
 
 fn ends_with_semicolon(node: &SyntaxNode) -> bool {

@@ -66,7 +66,7 @@ const TRIED: &str = "# The report did not say the edition: this is the first one
                      under.\n";
 
 /// Fields only the walk reads, which a replay neither writes nor compares.
-const WALK_ONLY: &[&str] = &["ignore_dirs", "ignore_paths"];
+const WALK_ONLY: &[&str] = &["ignore_dirs", "ignore_paths", "macro_use_modules"];
 
 /// How a bug fails, as two of its sightings compare: a panic by what it said, not where
 /// (the line moves from build to build); a verifier stop by the rules broken.

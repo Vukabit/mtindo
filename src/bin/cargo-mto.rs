@@ -312,9 +312,15 @@ fn private_file(text: &str) -> std::io::Result<std::path::PathBuf> {
       stamp,
       attempt
     ));
-    let mut builder = std::fs::DirBuilder::new();
+    // Readable by its owner only, where the system says so in a folder's mode.
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    let builder = {
+      let mut builder = std::fs::DirBuilder::new();
+      std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+      builder
+    };
+    #[cfg(not(unix))]
+    let builder = std::fs::DirBuilder::new();
     match builder.create(&folder) {
       Ok(()) => {}
       Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,

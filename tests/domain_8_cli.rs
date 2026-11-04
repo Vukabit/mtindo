@@ -2338,7 +2338,7 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
   env.git(".", &["commit", "-qam", "lay out"]);
   let (code, out, said) = mto(&env, &["verify", "HEAD"]);
   assert_eq!(code, 0, "{}{}", out, said);
-  assert!(out.contains("src/lib.rs  mto gives these bytes"), "{}", out);
+  assert!(out.contains("src/lib.rs  reproduced"), "{}", out);
   assert!(
     out.contains("verified, every Rust file reproduced"),
     "{}",
@@ -2360,6 +2360,10 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
   env.git(".", &["commit", "-qam", "settings"]);
   let (code, out, said) = mto(&env, &["verify", "HEAD~2"]);
   assert_eq!(code, 0, "{}{}", out, said);
+  // A commit changing only settings changes nothing mto cannot account for.
+  let (code, out, said) = mto(&env, &["verify", "HEAD"]);
+  assert_eq!(code, 0, "{}{}", out, said);
+  assert!(out.contains("mto.toml  settings"), "{}", out);
   // Settings a commit holds that cannot be read are an error, not "layout off".
   env.write_file("mto.toml", "layout = true\nlayout = false\n");
   env.write_file("src/lib.rs", "fn a() {}\n");
@@ -2367,6 +2371,29 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
   let (code, _, said) = mto(&env, &["verify", "HEAD"]);
   assert_eq!(code, 2, "{}", said);
   assert!(said.contains("defined twice"), "{}", said);
+  // A file nothing can be proved about could not be verified; a deleted Rust file is
+  // NOT SAFE, as mto never deletes one.
+  env.write_file("mto.toml", "layout = true\n");
+  env.write_file("README.md", "notes\n");
+  env.write_file("src/gone.rs", "fn g() {}\n");
+  env.git(".", &["add", "."]);
+  env.git(".", &["commit", "-qm", "fixed"]);
+  env.write_file("README.md", "other notes\n");
+  env.git(".", &["rm", "-q", "src/gone.rs"]);
+  env.git(".", &["commit", "-qam", "readme"]);
+  let (code, out, said) = mto(&env, &["verify", "HEAD"]);
+  assert_eq!(code, 1, "{}{}", out, said);
+  assert!(
+    out.contains("README.md  could not verify: not a Rust file"),
+    "{}",
+    out
+  );
+  assert!(out.contains("src/gone.rs  NOT SAFE: deleted"), "{}", out);
+  assert!(
+    out.contains("not verified: 1 NOT SAFE, 1 could not be verified"),
+    "{}",
+    out
+  );
 }
 
 #[test]

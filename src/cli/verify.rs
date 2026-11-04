@@ -10,15 +10,17 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{Committed, Resolver, is_settings_file};
+use crate::config::{Committed, Resolver, is_format_settings_file, is_settings_file};
 use crate::settle::{Verdict, verdict};
 
 /// What was found for one file.
 pub enum Found {
   Verdict(Verdict),
-  /// Not a Rust file: not mto's to check.
+  /// An mto.toml or the standard formatter's file: a layout commit may change them.
+  Settings,
+  /// Not a Rust file: what changed in it cannot be proved either way.
   NotRust,
-  /// Deleted: no layout or formatting deletes a file.
+  /// A Rust file deleted: no layout or formatting deletes a file.
   Deleted,
 }
 
@@ -71,7 +73,10 @@ pub fn verify(
     let [status, path] = pair else {
       continue;
     };
-    let found = if !path.ends_with(".rs") {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let found = if is_format_settings_file(name) {
+      Found::Settings
+    } else if !path.ends_with(".rs") {
       Found::NotRust
     } else if status.starts_with('D') {
       Found::Deleted

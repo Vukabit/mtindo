@@ -109,8 +109,14 @@ impl Folder {
   }
 }
 
+/// Whether a file of this name holds only layout and formatting settings: an mto.toml or
+/// the standard formatter's file.
+pub fn is_format_settings_file(name: &str) -> bool {
+  MTO_NAMES.contains(&name) || STANDARD_NAMES.contains(&name)
+}
+
 /// Whether a file of this name is one the settings are read from: an mto.toml, the
 /// standard formatter's file, or a `Cargo.toml` (for the edition).
 pub fn is_settings_file(name: &str) -> bool {
-  MTO_NAMES.contains(&name) || STANDARD_NAMES.contains(&name) || name == "Cargo.toml"
+  is_format_settings_file(name) || name == "Cargo.toml"
 }

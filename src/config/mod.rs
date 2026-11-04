@@ -35,7 +35,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-pub use files::{Environment, is_settings_file};
+pub use files::{Environment, is_format_settings_file, is_settings_file};
 pub use value::Value;
 
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};

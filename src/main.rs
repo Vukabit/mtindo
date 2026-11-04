@@ -2666,45 +2666,55 @@ fn run_verify(rev: &str, json: bool) -> i32 {
     Err(why) => return report_error(&MtoError::Usage(why)),
   };
   let on = mtindo::color_enabled(false);
-  let mut all_reproduced = true;
+  let (mut safe, mut unverified, mut not_safe) = (0, 0, 0);
   let mut entries = Vec::new();
   for file in &checked {
+    // NOT SAFE only where the checks know: a change mto never makes. What cannot be
+    // judged either way could not be verified.
     let (id, said, tone_of) = match &file.found {
       Found::Verdict(Verdict::Reproduced) => (
         "reproduced",
-        "mto gives these bytes, its checks passing".to_string(),
+        "reproduced: mto gives these bytes, its checks passing".to_string(),
         tone::GOOD,
       ),
+      Found::Settings => (
+        "settings",
+        "settings: a layout commit may change them".to_string(),
+        tone::QUIET,
+      ),
       Found::Verdict(Verdict::Safe(how)) => {
-        all_reproduced = false;
+        safe += 1;
         (
           "safe",
-          format!("{}, but mto gives other bytes", how),
+          format!("safe: {}, but mto gives other bytes", how),
+          tone::WARN,
+        )
+      }
+      Found::Verdict(Verdict::LeftAlone(why)) => {
+        unverified += 1;
+        (
+          "unverified",
+          format!("could not verify: mto leaves it alone ({})", why),
+          tone::WARN,
+        )
+      }
+      Found::NotRust => {
+        unverified += 1;
+        (
+          "unverified",
+          "could not verify: not a Rust file".to_string(),
           tone::WARN,
         )
       }
       Found::Verdict(Verdict::Unsafe(why)) => {
-        all_reproduced = false;
+        not_safe += 1;
         ("not_safe", format!("NOT SAFE: {}", why.join("; ")), "1;31")
       }
-      Found::Verdict(Verdict::LeftAlone(why)) => {
-        all_reproduced = false;
-        (
-          "left_alone",
-          format!("mto leaves it alone: {}", why),
-          tone::WARN,
-        )
-      }
-      Found::NotRust => (
-        "not_rust",
-        "not a Rust file: not checked".to_string(),
-        tone::QUIET,
-      ),
       Found::Deleted => {
-        all_reproduced = false;
+        not_safe += 1;
         (
-          "deleted",
-          "deleted: layout and formatting delete nothing".to_string(),
+          "not_safe",
+          "NOT SAFE: deleted, and mto never deletes a file".to_string(),
           "1;31",
         )
       }
@@ -2719,31 +2729,39 @@ fn run_verify(rev: &str, json: bool) -> i32 {
       outln!("{}  {}", file.path, paint(on, tone_of, &said));
     }
   }
+  let verified = safe + unverified + not_safe == 0;
+  let short = &commit[..10.min(commit.len())];
   if json {
     outln!(
       "{}",
       Json::output("verify")
         .with("commit", commit.as_str())
-        .with("verified", all_reproduced)
+        .with("verified", verified)
         .with("files", entries)
         .text()
     );
-  } else if all_reproduced {
+  } else if verified {
     outln!(
       "{}",
       paint(
         on,
         tone::GOOD,
-        &format!(
-          "{}: verified, every Rust file reproduced",
-          &commit[..10.min(commit.len())]
-        )
+        &format!("{}: verified, every Rust file reproduced", short)
       )
     );
   } else {
-    outln!("{}: not verified", &commit[..10.min(commit.len())]);
+    let counts: Vec<String> = [
+      (not_safe, "NOT SAFE"),
+      (unverified, "could not be verified"),
+      (safe, "safe but not reproduced"),
+    ]
+    .iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, what)| format!("{} {}", count, what))
+    .collect();
+    outln!("{}: not verified: {}", short, counts.join(", "));
   }
-  if all_reproduced { 0 } else { 1 }
+  if verified { 0 } else { 1 }
 }
 
 /// A section heading with the command its flags follow: `layout: (mto <PATH>...)`.

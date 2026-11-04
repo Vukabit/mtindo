@@ -476,16 +476,18 @@ fn flow_run(
       (false, super::first_variant(units, at).to_string())
     }
   };
-  // Nodes: units next to each other with one key.
+  // Nodes: units of one key, wherever they stand in the run (a type and its impls written
+  // apart, as the written order leaves them), each placed where its first unit is. Only
+  // next to each other they would be one node in a second run and two in the first.
   let mut nodes: Vec<Vec<usize>> = Vec::new();
-  let mut last_key = None;
+  let mut node_of: HashMap<(bool, String), usize> = HashMap::new();
   for at in range {
-    let key = node_key(at);
-    if last_key.as_ref() == Some(&key) {
-      nodes.last_mut().unwrap().push(at);
-    } else {
-      nodes.push(vec![at]);
-      last_key = Some(key);
+    match node_of.entry(node_key(at)) {
+      std::collections::hash_map::Entry::Occupied(found) => nodes[*found.get()].push(at),
+      std::collections::hash_map::Entry::Vacant(free) => {
+        free.insert(nodes.len());
+        nodes.push(vec![at]);
+      }
     }
   }
   // The names each node defines; a name two nodes define decides nothing. A helper kept
@@ -570,7 +572,8 @@ fn flow_run(
 /// `free` (sorted) with `flow` applied: in each run of units of one rank (one kind, an impl
 /// at its type's; every unit but imports, modules and macros when `kind` is not a key), a
 /// unit above the units it uses (`top_down`) or below them (`bottom_up`). A type and its
-/// impls are one node, and so are `#[cfg]` variants; nodes that use each other in a circle
+/// impls are one node, and so are `#[cfg]` variants, written together or apart, and come
+/// out together; nodes that use each other in a circle
 /// keep the sorted order among themselves, and wherever no use decides, the sorted order
 /// does: of the nodes free to go next, the one sorted first goes. So an order that already
 /// follows the uses is kept as it is, and a second run changes nothing.

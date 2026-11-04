@@ -25,6 +25,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// What a record holds in place of the contents before for a file that did not exist: putting
+/// it back removes the file.
+pub const ABSENT: &str = "absent";
+
 /// Pruning never removes contents or temporary files younger than this: a run going on at
 /// the same time may have stored them without recording them yet.
 pub const GRACE: Duration = Duration::from_secs(10 * 60);
@@ -50,7 +54,8 @@ pub enum State {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
   pub path: PathBuf,
-  /// The SHA-256 of the contents before the run.
+  /// The SHA-256 of the contents before the run; [`ABSENT`] for a file the run created
+  /// (a forced restore of one that was gone).
   pub before: String,
   /// The SHA-256 of what the run wrote.
   pub after: String,
@@ -468,6 +473,8 @@ impl Run {
   /// Where `entry` stands now.
   pub fn state(entry: &Entry) -> State {
     match fs::read(&entry.path) {
+      Err(_) if entry.before == ABSENT => State::AsBefore,
+      Err(_) if entry.after == ABSENT => State::AsWritten,
       Ok(contents) => {
         let hash = sha256::hex(&contents);
         if hash == entry.after {

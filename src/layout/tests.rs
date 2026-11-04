@@ -345,6 +345,23 @@ fn test_crlf_and_bom_come_back() {
   assert_eq!(arranged(source), "\u{feff}fn a() {}\r\n\r\nfn b() {}\r\n");
 }
 
+/// A directive after an item's doc comment or an attribute reads as written above the item:
+/// a pin keeps its slot, nothing crosses a hold, an off region starts with the item (bug
+/// hunt, 2026-11-04).
+#[test]
+fn test_directives_after_a_doc_comment_or_attribute_count() {
+  let config = LayoutConfig::default();
+  let source = "fn zeta() {}\n\n/// Must stay second.\n// mto: pin\nfn mike() {}\n\n#[inline]\n// mto: hold\nfn charlie() {}\n\nfn alpha() {}\n";
+  assert_eq!(arranged_with(source, &config), source);
+  let off = "fn zeta() {}\n\n/// Doc.\n// mto: off\nfn mike( a:u8 ) {}\nfn   bravo() {}\n// mto: on\n\nfn alpha() {}\n";
+  let laid = arranged_with(off, &config);
+  assert!(
+    laid.contains("// mto: off\nfn mike( a:u8 ) {}\nfn   bravo() {}\n// mto: on"),
+    "{}",
+    laid
+  );
+}
+
 #[test]
 fn test_every_item_kind_has_its_place() {
   let source =
@@ -435,6 +452,22 @@ fn test_flow_orders_items_by_their_uses() {
     "fn a() {}\n\nfn c() {\n    a();\n}\n\nfn b() {\n    c();\n}\n\nfn d() {}\n\nfn even() {\n    odd();\n}\n\nfn odd() {\n    even();\n}\n"
   );
   assert_eq!(arranged_with(&once, &bottom_up), once);
+}
+
+/// With `order_keys = []` a type and its impls may stand apart; `flow` takes them as one
+/// node all the same, so a second run finds what the first did (bug hunt, 2026-11-04).
+#[test]
+fn test_flow_settles_with_the_written_order() {
+  let source = "fn main() {\n    let _ = Args::parse();\n}\n\nstruct Args {\n    layer: Layer,\n}\n\nenum Layer {\n    Fg,\n}\n\nimpl Args {\n    fn parse() -> Args {\n        Args { layer: Layer::Fg }\n    }\n}\n";
+  for flow in [Flow::TopDown, Flow::BottomUp] {
+    let config = LayoutConfig {
+      flow,
+      order_keys: Vec::new(),
+      ..LayoutConfig::default()
+    };
+    let once = arranged_with(source, &config);
+    assert_eq!(arranged_with(&once, &config), once, "{:?}", flow);
+  }
 }
 
 /// Blank lines between a section comment and its item follow the configured spacing, so a

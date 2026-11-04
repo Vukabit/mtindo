@@ -240,6 +240,13 @@ pub fn keep(settings: &Settings, resolver: &mut Resolver, which: &str, here: &Pa
     return format!("nothing was kept: {}\n", why);
   }
   let check = settings.guard(here, None, true).check;
+  // The lines it writes are a run of its own, recorded as any write is, so `mto restore
+  // last` takes them out again.
+  let history = crate::cli::history::Settings::read(resolver, false).ok();
+  let mut recorder = history
+    .as_ref()
+    .and_then(|h| h.history.as_ref())
+    .map(|h| h.recorder(&crate::cli::history::command_line(), here, None));
   let mut out = String::new();
   let mut kept = Vec::new();
   for at in picked {
@@ -256,7 +263,7 @@ pub fn keep(settings: &Settings, resolver: &mut Resolver, which: &str, here: &Pa
       ));
       continue;
     };
-    match keep_move(resolver, &hold.path, id, &check, &holds) {
+    match keep_move(resolver, &hold.path, id, &check, &holds, recorder.as_mut()) {
       Ok(reason) => {
         out.push_str(&format!(
           "{}. {}: {}\n    confirmed (the build failed twice with it moved); wrote \
@@ -282,6 +289,9 @@ pub fn keep(settings: &Settings, resolver: &mut Resolver, which: &str, here: &Pa
   }
   if let Err(e) = holds.save() {
     out.push_str(&format!("cannot update the holds: {}\n", e));
+  }
+  if let (Some(recorder), Some(history)) = (recorder.as_mut(), &history) {
+    crate::cli::history::finish_record(recorder, history.limits, false);
   }
   out
 }
@@ -584,6 +594,7 @@ fn keep_move(
   id: &crate::doctor::MoveId,
   check: &Check,
   holds: &Holds,
+  recorder: Option<&mut crate::history::Recorder>,
 ) -> Result<String, String> {
   let source = std::fs::read_to_string(path).map_err(|e| format!("cannot read it: {}", e))?;
   let dir = path.parent().unwrap_or(Path::new("."));
@@ -638,7 +649,24 @@ fn keep_move(
     .unwrap_or_default();
   let directive = format!("{}// mto: hold -- {}{}", indent, reason, ending);
   lines.insert(line.min(lines.len()), &directive);
-  crate::write_atomic(path, &lines.concat()).map_err(|e| format!("cannot write it: {}", e))?;
+  let text = lines.concat();
+  // Recorded before it is written, as a run records every file.
+  if let Some(recorder) = recorder {
+    let before = recorder
+      .history()
+      .store(source.as_bytes())
+      .map_err(|e| format!("cannot record it in history: {}", e))?;
+    let entry = crate::history::Entry {
+      path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()),
+      before,
+      after: crate::history::sha256::hex(text.as_bytes()),
+    };
+    recorder
+      .record(&entry)
+      .and_then(|_| recorder.order())
+      .map_err(|e| format!("cannot record it in history: {}", e))?;
+  }
+  crate::write_atomic(path, &text).map_err(|e| format!("cannot write it: {}", e))?;
   Ok(reason)
 }
 

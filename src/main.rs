@@ -2643,8 +2643,27 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       None => {}
     }
   }
+  // The guard builds the project the run writes in, with that project's command: the one
+  // the paths are in, wherever the run starts.
   let cwd = env::current_dir().unwrap_or_default();
-  let doctor = doctor_cli::Settings::read(&resolver).with_project(&mut resolver, &cwd);
+  let mut projects: Vec<PathBuf> = paths
+    .iter()
+    .map(|p| {
+      let folder = if p.is_dir() {
+        p.as_path()
+      } else {
+        p.parent().unwrap_or(Path::new("."))
+      };
+      history::project_root(folder)
+    })
+    .collect();
+  projects.sort();
+  projects.dedup();
+  let project = match projects.as_slice() {
+    [one] => one.clone(),
+    _ => cwd.clone(),
+  };
+  let doctor = doctor_cli::Settings::read(&resolver).with_project(&mut resolver, &project);
   let mut guarded = None;
   if writing {
     if let Some(store) = &settings.history {
@@ -2658,6 +2677,16 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
     }
     // Editors name a single file; those runs are not guarded.
     let single = paths.len() == 1 && paths[0].is_file();
+    if doctor.enabled && !opts.unguarded && !single && projects.len() > 1 {
+      errln!(
+        "{}doctor: the paths are in {} projects, and the guard builds one; nothing was \
+         written. Run mto in each project, or pass --unguarded.{}",
+        c_red(),
+        projects.len(),
+        c_reset(true)
+      );
+      return 6;
+    }
     if doctor.enabled && !opts.unguarded && !single {
       // A command the project asks for runs only once trusted; until then nothing is
       // written, rather than the run looking guarded by another command.
@@ -2672,7 +2701,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
         );
         return 6;
       }
-      let guard = doctor.guard(&cwd, None, opts.quiet);
+      let guard = doctor.guard(&project, None, opts.quiet);
       let check = guard.check.clone();
       // The check before runs while the files are laid out in memory.
       guarded = Some((guard, std::thread::spawn(move || check.run())));

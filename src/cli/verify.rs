@@ -222,14 +222,16 @@ pub fn verify(rev: &str, resolver: &mut Resolver, here: &Path) -> Result<Verifie
     }
     text
   };
+  // Folders as the commit names them, from the repository's resolved top: never through
+  // the working tree, where one may since be renamed, or a link.
   let mut config_of = |path: &str| -> Result<Option<crate::Settings>, String> {
-    let folder = root
+    let folder = real_root
       .join(path)
       .parent()
       .map(Path::to_path_buf)
-      .unwrap_or(root.clone());
+      .unwrap_or(real_root.clone());
     let config = resolver
-      .config_for(&folder)
+      .config_for_absolute(folder)
       .map_err(|e| named(format!("{}: the settings {} holds: {}", path, short, e)))?;
     Ok(crate::Settings::of(&config))
   };

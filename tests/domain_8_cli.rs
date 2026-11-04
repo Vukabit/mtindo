@@ -1209,6 +1209,41 @@ fn test_cli_debug_units_moves_and_settle() {
   assert_eq!(code, 2, "{}", said);
 }
 
+/// The guard builds the project the run writes in, with that project's command, wherever
+/// the run starts; paths in two projects are not guarded by one build (bug hunt,
+/// 2026-11-04).
+#[test]
+fn test_cli_doctor_guards_the_project_the_paths_are_in() {
+  const LIB: &str = "struct A;\nfn b() {}\nmod generated {}\n";
+  let env = TestEnvironment::new();
+  env.write_file("a/Cargo.toml", "[package]\nname = \"a\"\n");
+  env.write_file("a/src/lib.rs", "fn  z() {}\n");
+  env.write_file("b/Cargo.toml", "[package]\nname = \"b\"\n");
+  env.write_file("b/src/lib.rs", LIB);
+  env.write_file("b/doctor-check", "order");
+  let words = check_words();
+  let mut on = vec!["doctor", "on", "--"];
+  on.extend(words.iter().map(String::as_str));
+  assert_eq!(mto(&env, &on).0, 0);
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("a"))
+    .args(["../b"])
+    .output()
+    .unwrap();
+  let said = printed(&output.stderr);
+  assert_eq!(output.status.code(), Some(0), "{}", said);
+  assert!(said.contains("held back 1 edit"), "{}", said);
+  assert!(env.read_file("b/src/lib.rs").contains("mod generated"));
+  let output = env.mto_cmd().args(["a", "b"]).output().unwrap();
+  assert_eq!(output.status.code(), Some(6));
+  assert!(
+    printed(&output.stderr).contains("the paths are in 2 projects"),
+    "{}",
+    printed(&output.stderr)
+  );
+}
+
 /// The build guard: off, mto runs nothing; on, it checks before and after a run, holds
 /// back the one move that breaks a pretend build (a script that reads the order of
 /// `src/lib.rs`), writes the rest and remembers the hold; `--unguarded` skips the checks.
@@ -1354,6 +1389,9 @@ fn test_cli_doctor_keep_writes_a_confirmed_hold_into_the_file() {
   );
   let (_, holds, _) = mto(&env, &["doctor", "holds"]);
   assert!(holds.contains("No edits are held back"), "{}", holds);
+  // Its line is a run of its own, recorded, so it can be undone (bug hunt, 2026-11-04).
+  let (_, listed, _) = mto(&env, &["history"]);
+  assert!(listed.contains("mto doctor keep 1"), "{}", listed);
   // The directive holds it now, guard or no guard.
   let (code, _, _) = mto(&env, &[".", "--unguarded"]);
   assert_eq!(code, 0);
@@ -2330,6 +2368,24 @@ fn test_cli_quiet_verbose_color_and_unstable_features() {
   assert_eq!(output.status.code(), Some(0));
   assert!(output.stdout.is_empty() && output.stderr.is_empty());
   assert_eq!(env.read_file("main.rs"), "fn a() {}\n\nfn b() {}\n");
+}
+
+/// A forced restore that makes a gone file again is recorded like any other, and undoing it
+/// removes the file again (bug hunt, 2026-11-04).
+#[test]
+fn test_cli_restore_force_recreates_a_file_and_records_it() {
+  let env = TestEnvironment::new();
+  env.write_file("src/b.rs", "fn  b() {}\n");
+  assert_eq!(mto(&env, &["src"]).0, 0);
+  std::fs::remove_file(env.dir.path().join("src/b.rs")).unwrap();
+  let (code, _, said) = mto(&env, &["restore", "last", "--force"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(said.contains("Recorded as run"), "{}", said);
+  assert_eq!(env.read_file("src/b.rs"), "fn  b() {}\n");
+  let (code, out, said) = mto(&env, &["restore", "last"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(out.contains("Removed"), "{}", out);
+  assert!(!env.dir.path().join("src/b.rs").exists());
 }
 
 #[test]

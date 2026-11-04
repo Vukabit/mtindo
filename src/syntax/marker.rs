@@ -100,6 +100,33 @@ pub fn exceptions(root: &SyntaxNode, text: &str) -> Vec<Exception> {
   all
 }
 
+/// The directives among an item's leading part: the comments between its doc comments and
+/// attributes, before the item itself, each with where it starts. They read as written
+/// above the item, and are taken so.
+pub fn leading(item: &SyntaxNode, text: &str) -> Vec<(Marker, usize)> {
+  let mut found = Vec::new();
+  for element in item.children_with_tokens_iter() {
+    match &element {
+      SyntaxElement::Node(node) if node.kind() == SyntaxKind::Attr => {}
+      SyntaxElement::Token(token) => match token.kind() {
+        SyntaxKind::LineComment => {
+          let range = token.text_range();
+          if let Some(marker) = at(text, range.start as usize, range.end as usize) {
+            found.push((marker, range.start as usize));
+          }
+        }
+        SyntaxKind::Whitespace
+        | SyntaxKind::BlockComment
+        | SyntaxKind::OuterLineDoc
+        | SyntaxKind::OuterBlockDoc => {}
+        _ => break,
+      },
+      _ => break,
+    }
+  }
+  found
+}
+
 /// Whether `text` holds `mto` in any case, as every directive and near miss does.
 pub fn mentions(text: &str) -> bool {
   text
@@ -161,7 +188,19 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
       }
       continue;
     };
-    let block = token.parent();
+    // One in an item's leading part (after its doc comment or an attribute) is the
+    // container's, and its region starts with the item: as it reads.
+    let mut block = token.parent();
+    let mut start = start;
+    if crate::syntax::ast::Item::cast(block.clone()).is_some()
+      && leading(&block, text).iter().any(|&(_, at)| at == start)
+      && let Some(container) = block.parent()
+    {
+      if marker == Marker::Off {
+        start = block.text_range().start as usize;
+      }
+      block = container;
+    }
     let here = open.iter().position(|(b, _)| *b == block);
     match (marker, here) {
       (Marker::Pin, _) => found.pins.push(start),

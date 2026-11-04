@@ -81,6 +81,20 @@ fn test_a_region_ends_with_its_block() {
   assert_eq!(found.warnings.len(), 2, "{:?}", found.warnings);
 }
 
+/// `// mto: off` after an item's doc comment or attribute opens a region of the item's
+/// container, from the item's start: an `// mto: on` after the item closes it, and neither
+/// is warned of (bug hunt, 2026-11-04).
+#[test]
+fn test_an_off_after_a_doc_comment_starts_with_its_item() {
+  let text = "/// doc\n// mto: off\nfn  a(){}\n// mto: on\nfn  b(){}\n";
+  let found = directives(text);
+  assert!(found.warnings.is_empty(), "{:?}", found.warnings);
+  assert_eq!(
+    regions(text),
+    ["/// doc\n// mto: off\nfn  a(){}\n// mto: on"]
+  );
+}
+
 #[test]
 fn test_markers_without_a_partner_are_reported_and_do_nothing() {
   let found =

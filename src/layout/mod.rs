@@ -1002,13 +1002,24 @@ fn split_container(
       }
       return Err(format!("unexpected {:?} at the top level", kind));
     };
+    // Directives after the item's doc comment or an attribute read as written above it.
+    let inside = marker::leading(item.syntax(), text);
+    let says_inside = |want: Marker| inside.iter().any(|&(m, _)| m == want);
+    if says_inside(Marker::Off) {
+      cut_sections(text, &mut pending, start, apart, &loose, config, &mut units);
+      region_start = Some(pending.first().map(|r| r.0).unwrap_or(start));
+      pending.clear();
+      continue;
+    }
     cut_sections(text, &mut pending, start, apart, &loose, config, &mut units);
-    let pinned_by_comment = pending
-      .iter()
-      .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Pin));
-    let held_by_comment = pending
-      .iter()
-      .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Hold));
+    let pinned_by_comment = says_inside(Marker::Pin)
+      || pending
+        .iter()
+        .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Pin));
+    let held_by_comment = says_inside(Marker::Hold)
+      || pending
+        .iter()
+        .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Hold));
     let loose_comments = !pending.is_empty();
     let mut pieces = std::mem::take(&mut pending);
     pieces.push((start, end));

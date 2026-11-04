@@ -483,6 +483,42 @@ pub fn restore(
         continue;
       }
     }
+    // A file the run created (restoring one that was gone): putting back is removing it.
+    if entry.before == history::ABSENT {
+      let now = fs::read(&entry.path).ok();
+      if let (Some(recorder), Some(now)) = (recorder.as_mut(), &now) {
+        let now_hash = recorder
+          .history()
+          .store(now)
+          .map_err(|e| format!("cannot record {} in history: {}", shown, e))?;
+        let record = Entry {
+          path: entry.path.clone(),
+          before: now_hash,
+          after: history::ABSENT.to_string(),
+        };
+        if let Err(e) = recorder.record(&record) {
+          errln!(
+            "{}warning: cannot add {} to the history record: {}{}",
+            c_yellow(true),
+            shown,
+            e,
+            c_reset(true)
+          );
+        }
+      }
+      if let Err(e) = fs::remove_file(&entry.path) {
+        errln!("{}Cannot remove {}: {}{}", c_red(), shown, e, c_reset(true));
+        return Ok(3);
+      }
+      outln!(
+        "{}Removed{} {}, which run {} created",
+        c_green(),
+        c_reset(false),
+        shown,
+        handle
+      );
+      continue;
+    }
     let before = history
       .load(&entry.before)
       .map_err(|e| format!("run {} lost {}'s contents: {}", handle, shown, e))?;
@@ -502,6 +538,12 @@ pub fn restore(
           after: entry.before.clone(),
         })
       }
+      // Gone, and made again by this restore: undoing it removes it.
+      (Some(_), None) => Some(Entry {
+        path: entry.path.clone(),
+        before: history::ABSENT.to_string(),
+        after: entry.before.clone(),
+      }),
       _ => None,
     };
     if let Some(parent) = entry.path.parent() {

@@ -2352,6 +2352,21 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
   let (code, out, _) = mto(&env, &["verify", "HEAD~1", "--json"]);
   assert_eq!(code, 0, "{}", out);
   assert!(out.contains("\"verified\":true"), "{}", out);
+  // The settings are the ones the commit holds: changed since, in the working tree or in a
+  // later commit, the layout commit still verifies.
+  env.write_file("mto.toml", "layout = true\nsort_alphabetically = false\n");
+  let (code, out, said) = mto(&env, &["verify", "HEAD~1"]);
+  assert_eq!(code, 0, "{}{}", out, said);
+  env.git(".", &["commit", "-qam", "settings"]);
+  let (code, out, said) = mto(&env, &["verify", "HEAD~2"]);
+  assert_eq!(code, 0, "{}{}", out, said);
+  // Settings a commit holds that cannot be read are an error, not "layout off".
+  env.write_file("mto.toml", "layout = true\nlayout = false\n");
+  env.write_file("src/lib.rs", "fn a() {}\n");
+  env.git(".", &["commit", "-qam", "broken"]);
+  let (code, _, said) = mto(&env, &["verify", "HEAD"]);
+  assert_eq!(code, 2, "{}", said);
+  assert!(said.contains("defined twice"), "{}", said);
 }
 
 #[test]

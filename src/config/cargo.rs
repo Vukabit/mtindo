@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use super::Committed;
 use crate::config::toml::{self, Table, Value};
 
 /// Where an edition was read.
@@ -21,16 +22,33 @@ pub(super) struct Edition {
 /// Every manifest read in a run, each read and parsed once: a workspace's root manifest is
 /// asked for by each of its packages that inherits its edition.
 #[derive(Debug, Default)]
-pub(super) struct Manifests(HashMap<PathBuf, Result<Option<Rc<Table>>, String>>);
+pub(super) struct Manifests {
+  read: HashMap<PathBuf, Result<Option<Rc<Table>>, String>>,
+  /// The manifests a commit holds, read in place of the working tree's inside it.
+  committed: Option<Rc<Committed>>,
+}
 
 impl Manifests {
+  /// Manifests read from `committed` inside its tree.
+  pub(super) fn committed(committed: Rc<Committed>) -> Manifests {
+    Manifests {
+      read: HashMap::new(),
+      committed: Some(committed),
+    }
+  }
+
   /// The parsed manifest at `path`, or `None` if there is none.
   fn get(&mut self, path: &Path) -> Result<Option<Rc<Table>>, String> {
-    if let Some(found) = self.0.get(path) {
+    if let Some(found) = self.read.get(path) {
       return found.clone();
     }
-    let found = read(path).map(|table| table.map(Rc::new));
-    self.0.insert(path.to_path_buf(), found.clone());
+    let found = match &self.committed {
+      Some(committed) if committed.holds(path) => {
+        parse(path, committed.text(path)).map(|table| table.map(Rc::new))
+      }
+      _ => read(path).map(|table| table.map(Rc::new)),
+    };
+    self.read.insert(path.to_path_buf(), found.clone());
     found
   }
 }
@@ -86,6 +104,16 @@ pub(super) fn manifest_edition(
   Ok(Some(found))
 }
 
+/// The manifest `text` read from `path`, parsed; `None` when there is no text.
+fn parse(path: &Path, text: Option<&str>) -> Result<Option<Table>, String> {
+  let Some(text) = text else {
+    return Ok(None);
+  };
+  toml::parse(text)
+    .map(Some)
+    .map_err(|e| format!("{}:{}:{}: {}", path.display(), e.line, e.column, e.message))
+}
+
 /// The parsed manifest at `path`, or `None` if there is none.
 fn read(path: &Path) -> Result<Option<Table>, String> {
   if !path.is_file() {
@@ -93,9 +121,7 @@ fn read(path: &Path) -> Result<Option<Table>, String> {
   }
   let text =
     fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
-  toml::parse(&text)
-    .map(Some)
-    .map_err(|e| format!("{}:{}:{}: {}", path.display(), e.line, e.column, e.message))
+  parse(path, Some(&text))
 }
 
 /// `workspace.package.edition` of the nearest workspace manifest above `package_dir`.

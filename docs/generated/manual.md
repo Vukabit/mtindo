@@ -141,7 +141,8 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     setting at its default, each with its summary, into DIR (default: the
     current directory). An existing file is never overwritten.
 *   `mto verify <REV>`: Checks the commit REV names against its parent, Rust
-    file by Rust file, with the project's settings as they are now: `reproduced`
+    file by Rust file, with the settings the commit holds (its mto.toml,
+    rustfmt.toml and Cargo.toml files, not the working tree's): `reproduced`
     when mto, run on the file before, gives the commit's text, its checks
     passing on the way; `safe` when mto gives other bytes but the change only
     moves whole items, or only changes what formatting may; `NOT SAFE` with what

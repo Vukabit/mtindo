@@ -108,3 +108,9 @@ impl Folder {
     }
   }
 }
+
+/// Whether a file of this name is one the settings are read from: an mto.toml, the
+/// standard formatter's file, or a `Cargo.toml` (for the edition).
+pub fn is_settings_file(name: &str) -> bool {
+  MTO_NAMES.contains(&name) || STANDARD_NAMES.contains(&name) || name == "Cargo.toml"
+}

@@ -131,7 +131,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     args: "<REV>",
     summary: "Prove a commit is mto's work: only moves and formatting, as mto writes them",
     about: "Checks the commit REV names against its parent, Rust file by Rust file, with \
-                the project's settings as they are now: `reproduced` when mto, run on the \
+                the settings the commit holds (its mto.toml, rustfmt.toml and Cargo.toml \
+                files, not the working tree's): `reproduced` when mto, run on the \
                 file before, gives the commit's text, its checks passing on the way; `safe` \
                 when mto gives other bytes but the change only moves whole items, or only \
                 changes what formatting may; `NOT SAFE` with what the checks found otherwise. \

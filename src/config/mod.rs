@@ -35,7 +35,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-pub use files::Environment;
+pub use files::{Environment, is_settings_file};
 pub use value::Value;
 
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
@@ -104,6 +104,36 @@ impl fmt::Display for Source {
       Source::CommandLine => write!(f, "command line"),
       Source::Derived(from) => write!(f, "from {}", from),
     }
+  }
+}
+
+/// The configuration files a commit holds (`mto verify`): inside the commit's tree they are
+/// read from here, not from the working tree, which may have changed since.
+#[derive(Debug, Default)]
+pub struct Committed {
+  root: PathBuf,
+  texts: HashMap<PathBuf, String>,
+}
+
+impl Committed {
+  /// The files in `files`, each a path from `root` with its text.
+  pub fn new(root: &Path, files: Vec<(String, String)>) -> Committed {
+    let root = absolute(root);
+    let texts = files
+      .into_iter()
+      .map(|(path, text)| (root.join(path), text))
+      .collect();
+    Committed { root, texts }
+  }
+
+  /// Inside the commit's tree, where only what it holds is read.
+  fn holds(&self, path: &Path) -> bool {
+    path.starts_with(&self.root)
+  }
+
+  /// The text the commit holds at `path`.
+  fn text(&self, path: &Path) -> Option<&str> {
+    self.texts.get(path).map(String::as_str)
   }
 }
 
@@ -575,6 +605,8 @@ pub struct Resolver {
   warned: HashSet<String>,
   /// `--strict`: warnings are errors.
   strict: bool,
+  /// Files read from a commit rather than the working tree.
+  committed: Option<Rc<Committed>>,
 }
 
 impl Resolver {
@@ -593,6 +625,7 @@ impl Resolver {
       warnings: Vec::new(),
       warned: HashSet::new(),
       strict: overrides.strict,
+      committed: None,
     };
     let mut settings: Vec<(&str, &str, &str)> = overrides
       .settings
@@ -661,6 +694,18 @@ impl Resolver {
     Ok(config)
   }
 
+  /// From now on, reads the configuration files inside `committed`'s tree as it holds
+  /// them; what was read before is forgotten.
+  pub fn read_committed(&mut self, committed: Committed) {
+    let committed = Rc::new(committed);
+    self.loaded.clear();
+    self.configs.clear();
+    self.folders.clear();
+    self.editions.clear();
+    self.manifests = cargo::Manifests::committed(Rc::clone(&committed));
+    self.committed = Some(committed);
+  }
+
   /// The environment the resolver reads.
   pub fn env(&self) -> &Environment {
     &self.env
@@ -686,8 +731,12 @@ impl Resolver {
     if let Some(loaded) = self.loaded.get(path) {
       return Ok(Rc::clone(loaded));
     }
-    let text = fs::read_to_string(path)
-      .map_err(|e| Error::new(format!("cannot read {}: {}", path.display(), e)))?;
+    let committed = self.committed.as_ref().and_then(|c| c.text(path));
+    let text = match committed {
+      Some(text) => text.to_string(),
+      None => fs::read_to_string(path)
+        .map_err(|e| Error::new(format!("cannot read {}: {}", path.display(), e)))?,
+    };
     let loaded = Rc::new(read(path, &text, kind)?);
     for warning in &loaded.warnings {
       self.warn(warning.clone());
@@ -1015,7 +1064,12 @@ impl Resolver {
     if let Some(found) = self.folders.get(folder) {
       return found.clone();
     }
-    let found = files::Folder::scan(folder);
+    let found = match &self.committed {
+      Some(committed) if committed.holds(folder) => {
+        files::Folder::with(folder, |name| committed.text(&folder.join(name)).is_some())
+      }
+      _ => files::Folder::scan(folder),
+    };
     self.folders.insert(folder.to_path_buf(), found.clone());
     found
   }

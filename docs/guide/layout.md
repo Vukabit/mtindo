@@ -228,8 +228,10 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 A commit `git blame` looks past is a good place to hide a change, so a
 reviewer, or CI, can check one: `mto verify REV` runs `mto` on each Rust file
 the commit changed, from its parent, and passes only when every one comes out
-byte for byte as committed, its checks passing on the way. CI can run it for
-each commit listed in `.git-blame-ignore-revs`.
+byte for byte as committed, its checks passing on the way. It uses the
+settings the commit holds, not today's, so an old layout commit still verifies
+after `mto.toml` changes. CI can run it for each commit listed in
+`.git-blame-ignore-revs`.
 
 `mto restore last` undoes the run if the result is not what you want; see
 [Safety and history](safety.md). How layout works inside is described in the

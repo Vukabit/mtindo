@@ -2,13 +2,15 @@
 //! in `.git-blame-ignore-revs`) is mto's work and nothing else. Each Rust file it changed is
 //! taken from the commit's parent and run through mto with the project's settings: the
 //! commit's text is reproduced, the checks passing on the way, or at least the change is
-//! one layout or formatting may make. git is asked for the commit and its files; without
-//! git, nothing can be verified.
+//! one layout or formatting may make. The settings are the ones the commit holds (its
+//! mto.toml, rustfmt.toml and Cargo.toml files), not the working tree's, which may have
+//! changed since. git is asked for the commit and its files; without git, nothing can be
+//! verified.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::Resolver;
+use crate::config::{Committed, Resolver, is_settings_file};
 use crate::settle::{Verdict, verdict};
 
 /// What was found for one file.
@@ -52,6 +54,17 @@ pub fn verify(
       &commit,
     ],
   )?;
+  // The settings as the commit holds them.
+  let tree = git(&root, &["ls-tree", "-r", "-z", "--name-only", &commit])?;
+  let mut settings_files = Vec::new();
+  for path in tree.split('\0').filter(|p| !p.is_empty()) {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if is_settings_file(name) {
+      let text = git(&root, &["show", &format!("{}:{}", commit, path)])?;
+      settings_files.push((path.to_string(), text));
+    }
+  }
+  resolver.read_committed(Committed::new(&root, settings_files));
   let fields: Vec<&str> = listed.split('\0').filter(|f| !f.is_empty()).collect();
   let mut checked = Vec::new();
   for pair in fields.chunks(2) {
@@ -75,10 +88,10 @@ pub fn verify(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or(root.clone());
-      let settings = resolver
+      let config = resolver
         .config_for(&folder)
-        .ok()
-        .and_then(|config| crate::Settings::of(&config));
+        .map_err(|e| format!("{}: the settings {} holds: {}", path, &commit[..10], e))?;
+      let settings = crate::Settings::of(&config);
       Found::Verdict(match settings {
         Some(settings) => verdict(&before, &after, &settings),
         None => Verdict::LeftAlone("layout and formatting are both off here".into()),

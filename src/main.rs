@@ -1560,6 +1560,7 @@ fn run_completions(
         Ok((path, done)) => {
           let did = match done {
             Installed::Wrote => "wrote",
+            Installed::Replaced => "replaced",
             Installed::Current => "already current:",
             Installed::WouldWrite => "would write",
           };
@@ -1569,6 +1570,19 @@ fn run_completions(
             "{}",
             completions::next_step(shell, &path, dir.is_some(), &folders)
           );
+          // Whether the shell is set up cannot be seen from here, nor which open shells
+          // loaded an older script, even one since removed: each is told how to reload.
+          if matches!(done, Installed::Replaced | Installed::Wrote) {
+            out!(
+              "\n  {}\n  To reload them in one, run this there, or open a new shell:\n\n    {}\n",
+              if done == Installed::Replaced {
+                "Shells already open keep the completions they loaded."
+              } else {
+                "A shell that had mto's completions before keeps the ones it loaded."
+              },
+              completions::reload(shell, &path, &folders)
+            );
+          }
           0
         }
         Err(e) => failed(e),
@@ -1591,7 +1605,7 @@ fn run_completions(
             Shell::Fish => None,
           };
           if let Some(file) = startup
-            && matches!(state, State::Current | State::Stale(_))
+            && matches!(state, State::Current(_) | State::Stale(_))
           {
             outln!("\n  Remove the line you added to {} for it, if any.", file);
           }
@@ -1612,9 +1626,20 @@ fn run_completions(
         };
         use mtindo::text::color::{paint, tone};
         let on = mtindo::color_enabled(false);
-        let state = match completions::state_of(&path) {
+        let state = match completions::state_of(shell, &path) {
           State::Missing => paint(on, tone::QUIET, "not installed"),
-          State::Current => paint(on, tone::GOOD, &format!("current (mto {})", version)),
+          State::Current(by) if by == version => {
+            paint(on, tone::GOOD, &format!("current (mto {})", version))
+          }
+          State::Current(by) => format!(
+            "{} {}",
+            paint(on, tone::GOOD, "current"),
+            paint(
+              on,
+              tone::QUIET,
+              &format!("(the same as this mto's; written by mto {})", by)
+            )
+          ),
           State::Stale(old) => format!(
             "{}: run `mto completions install {}`",
             paint(on, tone::WARN, &format!("stale (mto {})", old)),
@@ -1631,6 +1656,25 @@ fn run_completions(
           outln!(
             "              {}",
             paint(on, tone::QUIET, &path.display().to_string())
+          );
+        }
+        // Current is the file; a shell opened before it was written still has the old one.
+        let written = std::fs::metadata(&path)
+          .and_then(|m| m.modified())
+          .ok()
+          .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+        if let (State::Current(_), Some(written)) = (completions::state_of(shell, &path), written) {
+          outln!(
+            "              {}",
+            paint(
+              on,
+              tone::QUIET,
+              &format!(
+                "written {} UTC; a shell opened before then keeps the old completions: {}",
+                history::utc(written.as_millis() as u64),
+                completions::reload(shell, &path, &folders)
+              )
+            )
           );
         }
       }

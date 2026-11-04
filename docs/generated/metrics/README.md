@@ -36,7 +36,7 @@ on the machine it names).
 | test pairs with settings | 431 of 559 files (77.1%) |
 | corpus as fetched, lines | 100.00% |
 | corpus scrambled, lines | 99.93% |
-| options honored | 45 of 90; 28 in part, 12 missing, 5 not planned |
+| options honored | 46 of 90; 28 in part, 11 missing, 5 not planned |
 | standard outputs changing meaning | 21 listed |
 | answer-key disagreements | 25, 0 to triage |
 | fuzz targets, kept inputs | 8, 178 |

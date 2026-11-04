@@ -261,6 +261,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
         'layout' = @('true', 'false')
         'format' = @('true', 'false')
         'layout_generated_files' = @('true', 'false')
+        'mto_version' = @()
         'name_sort' = @('version', 'bytes', 'case_insensitive')
         'sections' = @('off', 'comments', 'headings', 'markers')
         'sort_alphabetically' = @('true', 'false')

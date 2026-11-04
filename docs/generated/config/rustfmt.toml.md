@@ -12,9 +12,9 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 45
+  supported: 46
   partial: 28
-  missing: 12
+  missing: 11
   not_planned: 5
 ---
 
@@ -791,7 +791,7 @@ specific version of the formatter is used in your CI, use this option.
 *   Default: `"1.10.0"`; from style edition 2024: `"1.10.0"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: missing.
+*   In mto: supported.
 
 ### `short_array_element_width_threshold`
 

@@ -153,12 +153,11 @@ These views are for people and may change.
 
 ## JSON output
 
-`mto debug units`, `moves` and `settle`, `mto history` (and `history show`),
-`mto doctor` and `mto config print`, `path` and `options` take `--json`. Each
-prints one JSON object on one line whose first field is `"version"` and second
-`"kind"`. Within a version fields are only added; a field renamed, removed or
-given another meaning raises the version. `--emit json` is separate: it keeps
-the standard formatter's own shape.
+A command whose help lists `--json` prints, with it, one JSON object on one
+line whose first field is `"version"` and second `"kind"`. Within a version
+fields are only added; a field renamed, removed or given another meaning
+raises the version. `--emit json` is separate: it keeps the standard
+formatter's own shape.
 
 `--message-format json` makes a whole run speak JSON Lines, for editors and
 CI: one object per line for each file (`"kind":"file"`, with its outcome), each

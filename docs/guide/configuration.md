@@ -63,6 +63,7 @@ import_grouping = true
 import_sort = "style_edition"
 keep_helpers_near = false
 keep_paragraphs = false
+mto_version = "*"
 name_sort = "version"
 sections = "off"
 sort_alphabetically = true
@@ -91,6 +92,15 @@ The settings for what mto leaves alone come first:
 `reorder_impl_items` is honored inside impl blocks, exactly as the standard
 formatter applies it. `tab_width` was renamed `tab_spaces`, the standard
 name.
+
+## Pinning versions
+
+So that everyone on a team gets the same bytes, a project can pin the versions
+it is formatted with. `mto_version` in `mto.toml` pins mto itself, and
+`required_version` (in `rustfmt.toml` or `mto.toml`) pins the version of the
+standard formatter whose output mto reproduces. Both take a version
+requirement as Cargo writes them (`0.1`, `>=0.1.2`, `=0.1.0`). A pin that is
+not met stops the run with exit code 2 before any file is touched.
 
 ## The user config
 

@@ -76,6 +76,11 @@
       "type": "boolean",
       "default": false
     },
+    "mto_version": {
+      "description": "A version requirement for mto itself, as Cargo writes them (`0.1`, `>=0.1.2`, `=0.1.0`): any other mto refuses to run here, with exit code 2, so two people on different builds never rewrite each other's files. `required_version` pins the standard formatter's version mto reproduces in the same way.\n\nIn mto: supported.",
+      "type": "string",
+      "default": "*"
+    },
     "name_sort": {
       "description": "How `sort_alphabetically` compares names. Imports and modules are not affected: they are always sorted exactly as the standard formatter sorts them.\n\nIn mto: supported.",
       "type": "string",
@@ -472,7 +477,7 @@
       "default": true
     },
     "required_version": {
-      "description": "Require a specific version of the formatter. If you want to make sure that the specific version of the formatter is used in your CI, use this option.\n\nIn mto: missing.",
+      "description": "Require a specific version of the formatter. If you want to make sure that the specific version of the formatter is used in your CI, use this option.\n\nIn mto: supported.",
       "type": "string",
       "default": "1.10.0"
     },

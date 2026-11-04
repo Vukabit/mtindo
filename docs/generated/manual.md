@@ -471,6 +471,15 @@ instead.
 *   Type: `true` or `false`.
 *   Default: `false`.
 
+#### `mto_version`
+A version requirement for mto itself, as Cargo writes them (`0.1`, `>=0.1.2`,
+`=0.1.0`): any other mto refuses to run here, with exit code 2, so two people on
+different builds never rewrite each other's files. `required_version` pins the
+standard formatter's version mto reproduces in the same way.
+
+*   Type: a string.
+*   Default: `"*"`.
+
 #### `name_sort`
 How `sort_alphabetically` compares names. Imports and modules are not affected:
 they are always sorted exactly as the standard formatter sorts them.

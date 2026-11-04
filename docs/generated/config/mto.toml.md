@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 21
+  total: 22
 in_mto:
-  supported: 20
+  supported: 21
   partial: 1
   missing: 0
   not_planned: 0
@@ -185,6 +185,17 @@ instead.
 
 *   Type: `true` or `false`.
 *   Default: `false`, in every style edition.
+*   In mto: supported.
+
+### `mto_version`
+
+A version requirement for mto itself, as Cargo writes them (`0.1`, `>=0.1.2`,
+`=0.1.0`): any other mto refuses to run here, with exit code 2, so two people on
+different builds never rewrite each other's files. `required_version` pins the
+standard formatter's version mto reproduces in the same way.
+
+*   Type: a string.
+*   Default: `"*"`, in every style edition.
 *   In mto: supported.
 
 ### `name_sort`

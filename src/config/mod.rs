@@ -23,6 +23,7 @@
 mod cargo;
 pub mod env;
 mod files;
+mod requirement;
 pub mod toml;
 pub mod user;
 mod value;
@@ -822,11 +823,12 @@ impl Resolver {
     if !layout_on {
       for (name, (_, source)) in &values {
         let setting = options::find(name);
-        // `format`, `ignore_dirs` and `generated_markers` matter without layout too.
+        // `format`, `ignore_dirs`, `generated_markers` and `mto_version` matter without
+        // layout too.
         let layout_key = setting.is_some_and(|s| s.file == File::Mto)
           && !matches!(
             *name,
-            "layout" | "format" | "ignore_dirs" | "generated_markers"
+            "layout" | "format" | "ignore_dirs" | "generated_markers" | "mto_version"
           );
         if layout_key && !matches!(source, Source::Default) {
           self.warn(format!(
@@ -837,6 +839,31 @@ impl Resolver {
       }
     }
 
+    // A version pin that is not met stops the run before anything is touched: two builds
+    // that disagree would rewrite each other's files.
+    for (name, version, what) in [
+      (
+        "required_version",
+        crate::options::RUSTFMT_VERSION,
+        "the standard formatter's version mto reproduces",
+      ),
+      ("mto_version", crate::version::VERSION, "this mto's version"),
+    ] {
+      if let Some((Value::Text(wanted), source)) = values.get(name)
+        && !matches!(source, Source::Default | Source::Derived(_))
+      {
+        match requirement::meets(wanted, version) {
+          Ok(true) => {}
+          Ok(false) => {
+            return Err(Error::new(format!(
+              "{}: `{} = \"{}\"` is not met: {} is {}, so nothing was done",
+              source, name, wanted, what, version
+            )));
+          }
+          Err(why) => return Err(Error::new(format!("{}: `{}`: {}", source, name, why))),
+        }
+      }
+    }
     // A setting of the standard formatter's that mto does not honor yet is ignored: said
     // once, when it is set to anything but its default and formatting is on.
     let format_on = values

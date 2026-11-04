@@ -70,7 +70,7 @@ option  remove_nested_parens                             supported    # with for
 option  reorder_impl_items                               supported    # as rustfmt nightly applies it (src/layout/tests.rs; corpus check agreement)
 option  reorder_imports                                  partial      # with format = true, runs of use items sorted as the standard formatter sorts them; a run holding a comment keeps its order, and lists inside an item are not sorted yet (src/format/reorder/tests.rs)
 option  reorder_modules                                  partial      # with format = true, runs of `mod name;` sorted by name; a run holding a comment keeps its order (src/format/reorder/tests.rs)
-option  required_version                                 missing
+option  required_version                                 supported    # tests/domain_8_cli.rs
 option  short_array_element_width_threshold              partial      # with format = true, for the statements laid out so far (calls, chains, struct literals, arrays, tuples) and attributes (src/format/stmt/tests.rs)
 option  show_parse_errors                                missing
 option  single_line_if_else_max_width                    partial      # with format = true, for an `if` with one-expression branches as a value or a block's tail (src/format/stmt/tests.rs); not yet in match arms
@@ -217,6 +217,7 @@ mto     config:keep_helpers_near                         supported    # src/layo
 mto     config:keep_paragraphs                           supported    # src/layout/tests.rs
 mto     config:layout                                    supported    # tests/domain_8_cli.rs
 mto     config:layout_generated_files                    supported    # tests/domain_8_cli.rs
+mto     config:mto_version                               supported    # tests/domain_8_cli.rs
 mto     config:name_sort                                 supported    # src/layout/tests.rs
 mto     config:sections                                  supported    # src/layout/tests.rs
 mto     config:sort_alphabetically                       supported    # tests/domain_11_matrix.rs

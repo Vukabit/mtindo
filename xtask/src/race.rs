@@ -89,6 +89,8 @@ const LAYOUT_EXEMPT: &[&str] = &[
   "format",
   "generated_markers",
   "layout_generated_files",
+  // A version pin: it changes no output, so there is nothing to time.
+  "mto_version",
 ];
 
 /// The layout rows after the first: (label, the `mto.toml` lines it adds to `layout = true`,

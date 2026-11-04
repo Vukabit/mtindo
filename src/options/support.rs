@@ -77,7 +77,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("reorder_impl_items", "supported"),
   ("reorder_imports", "partial"),
   ("reorder_modules", "partial"),
-  ("required_version", "missing"),
+  ("required_version", "supported"),
   ("short_array_element_width_threshold", "partial"),
   ("show_parse_errors", "missing"),
   ("single_line_if_else_max_width", "partial"),

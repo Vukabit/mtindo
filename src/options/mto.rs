@@ -245,6 +245,21 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "mto_version",
+    file: File::Mto,
+    kind: Kind::Text,
+    default: "\"*\"",
+    default_2024: None,
+    summary: "The mto versions this project's files are laid out and formatted with",
+    doc: "A version requirement for mto itself, as Cargo writes them (`0.1`, `>=0.1.2`, \
+              `=0.1.0`): any other mto refuses to run here, with exit code 2, so two people \
+              on different builds never rewrite each other's files. `required_version` pins \
+              the standard formatter's version mto reproduces in the same way.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "name_sort",
     file: File::Mto,
     kind: Kind::Choice(&[

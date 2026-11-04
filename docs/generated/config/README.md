@@ -9,14 +9,14 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 123
-  mto: 21
+  total: 124
+  mto: 22
   formatting: 90
   user: 12
 in_mto:
-  supported: 65
+  supported: 67
   partial: 29
-  missing: 12
+  missing: 11
   not_planned: 5
 ---
 
@@ -646,6 +646,13 @@ behavior, so the column does not apply to them.
 <td>not planned</td>
 </tr>
 <tr>
+<td><a href="mto.toml.md#mto_version">
+<code>mto_version</code></a></td>
+<td>mto.toml</td>
+<td>The mto versions this project's files are laid out and formatted with</td>
+<td>supported</td>
+</tr>
+<tr>
 <td><a href="mto.toml.md#name_sort">
 <code>name_sort</code></a></td>
 <td>mto.toml</td>
@@ -737,7 +744,7 @@ behavior, so the column does not apply to them.
 <code>required_version</code></a></td>
 <td>rustfmt.toml</td>
 <td>Require a specific version of the standard formatter.</td>
-<td>missing</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="config.toml.md#safetyallow_dirty">

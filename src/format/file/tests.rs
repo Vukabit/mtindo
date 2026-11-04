@@ -959,6 +959,18 @@ fn test_hard_tabs_lay_out_as_spaces_do() {
     ),
     "fn f() {\n\tlet s = some_function_name(\n\t\t\"a\n    b\",\n\t\targument_two,\n\t\tthree,\n\t);\n}\n"
   );
+  // A doc comment written as a block is re-indented as any block comment, with tabs too.
+  assert_eq!(
+    formatted_with(
+      "/*!\n    inner\n*/\nmod m {\n/**\n    doc\n*/\nfn a(){}\n}\n",
+      &tabs
+    ),
+    "/*!\n\tinner\n*/\nmod m {\n\t/**\n\t\tdoc\n\t*/\n\tfn a() {}\n}\n"
+  );
+  assert_eq!(
+    formatted("mod m {\n/**\n    doc\n*/\nfn a(){}\n}\n"),
+    "mod m {\n    /**\n        doc\n    */\n    fn a() {}\n}\n"
+  );
   let derive = "#[derive(\n/*\n    Some comment\n*/\nDebug, Clone,\n)]\nstruct Bar;\n";
   let once = formatted_with(derive, &tabs);
   assert_eq!(formatted_with(&once, &tabs), once);

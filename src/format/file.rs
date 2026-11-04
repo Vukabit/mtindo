@@ -3717,7 +3717,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           tok.kind,
           SyntaxKind::OuterLineDoc | SyntaxKind::InnerLineDoc
         ) && !tok.text.ends_with("  "));
-    if tok.kind == SyntaxKind::BlockComment && tok.text.contains('\n') && !in_verbatim(tok.start) {
+    // A doc comment written as a block (`/** */`, `/*! */`) too: the standard formatter's
+    // `identify_comment` takes it as any block comment.
+    if matches!(
+      tok.kind,
+      SyntaxKind::BlockComment | SyntaxKind::OuterBlockDoc | SyntaxKind::InnerBlockDoc
+    ) && tok.text.contains('\n')
+      && !in_verbatim(tok.start)
+    {
       // Its later lines re-indented from its column, as the standard formatter writes it;
       // after code on its line, from the 2024 style, from the line's indentation.
       let line = &out[out.rfind('\n').map_or(0, |i| i + 1)..];

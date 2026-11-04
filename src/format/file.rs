@@ -601,7 +601,11 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
     if keep {
       out.push_str(line);
     } else if !line.trim().is_empty() {
-      out.push_str(&" ".repeat(indent + leading(line).saturating_sub(least)));
+      // In tabs with `hard_tabs`, as the standard formatter's `Indent::to_string` writes.
+      out.push_str(&indentation(
+        indent + leading(line).saturating_sub(least),
+        config,
+      ));
       // A line ending inside a string keeps its end, which is the string's.
       out.push_str(if ends_in {
         line.trim_start()
@@ -792,7 +796,7 @@ fn align_list_comments(
       match crate::format::items::header_start(item) {
         Some(code) if code > start && attributed => {
           let attributes = item.text().to_string()[..code - start].trim().to_string();
-          format!("{}\n{}{}", attributes, " ".repeat(indent), text)
+          format!("{}\n{}{}", attributes, indentation(indent, config), text)
         }
         _ => text,
       }

@@ -2724,6 +2724,38 @@ fn test_completions_the_same_script_from_another_build_is_current() {
   assert_eq!(env.read_file("comp/_mto"), older);
 }
 
+/// `mto config mirror`: mto.toml's formatting settings the standard formatter's stable
+/// release takes, written into a rustfmt.toml beside it; the rest named; a rustfmt.toml
+/// mto did not write is never overwritten.
+#[test]
+fn test_config_mirror_writes_what_the_standard_formatter_takes() {
+  let env = TestEnvironment::new();
+  env.write_file(
+    "mto.toml",
+    "layout = true\nmax_width = 90\nimports_granularity = \"Crate\"\n",
+  );
+  let (code, out, said) = mto(&env, &["config", "mirror"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(
+    out.contains("left out") && out.contains("imports_granularity"),
+    "{}",
+    out
+  );
+  let written = env.read_file("rustfmt.toml");
+  assert!(
+    written.starts_with("# Written by `mto config mirror` from mto.toml;"),
+    "{}",
+    written
+  );
+  assert!(written.ends_with("\nmax_width = 90\n"), "{}", written);
+  let (code, _, _) = mto(&env, &["config", "mirror"]);
+  assert_eq!(code, 0);
+  env.write_file("rustfmt.toml", "max_width = 70\n");
+  let (code, _, said) = mto(&env, &["config", "mirror"]);
+  assert_eq!(code, 3, "{}", said);
+  assert_eq!(env.read_file("rustfmt.toml"), "max_width = 70\n");
+}
+
 /// `prune --under` removes the reports seen only in files under a folder; `remove` removes
 /// those named.
 #[test]

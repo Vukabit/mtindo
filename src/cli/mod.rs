@@ -5,6 +5,7 @@ pub mod debug;
 pub mod doctor;
 pub mod history;
 pub mod manual;
+pub mod mirror;
 pub mod modules;
 pub mod options;
 pub mod replay;

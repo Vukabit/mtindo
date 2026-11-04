@@ -106,6 +106,7 @@ _mto_config_subcommands() {
     'path:List the configuration files that apply, and the history folder'
     'print:Show every setting in effect, with where it came from'
     'options:List every setting a configuration file may hold'
+    'mirror:Write mto.toml'\''s formatting settings into a rustfmt.toml beside it'
   )
   _describe -t subcommands subcommand subcommands
 }
@@ -156,6 +157,11 @@ _mto_config() {
             '--toml[As a commented file, every setting at its default]' \
             '--json[As JSON, whose shape keeps its version]' \
             '*: : ' && ret=0
+          ;;
+        (mirror)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '*: :_files -/' && ret=0
           ;;
       esac
       ;;

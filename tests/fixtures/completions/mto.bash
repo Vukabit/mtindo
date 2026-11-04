@@ -156,6 +156,7 @@ _mto_flags() {
     "config path") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
     "config print") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
     "config options") _mto_words "" -h --help --toml --json ;;
+    "config mirror") _mto_words "" -h --help ;;
     "history ") _mto_words "" -h --help --all --json ;;
     "history show") _mto_words "" -h --help ;;
     "history prune") _mto_words "" -h --help --keep --older-than ;;
@@ -189,7 +190,7 @@ _mto_flags() {
 # The subcommands of command $1.
 _mto_subcommands() {
   case "$1" in
-    config) _mto_words "" path print options ;;
+    config) _mto_words "" path print options mirror ;;
     history) _mto_words "" show prune ;;
     doctor) _mto_words "" on off holds release ;;
     report) _mto_words "" show save send recheck remove prune ;;
@@ -201,7 +202,7 @@ _mto_subcommands() {
 # Completes an argument of command $1 and subcommand $2; $3 is the argument so far.
 _mto_operand() {
   case "$1 $2" in
-    "init "|"config path"|"config print") _mto_paths "" "$3" dirs ;;
+    "init "|"config path"|"config print"|"config mirror") _mto_paths "" "$3" dirs ;;
     "restore "|"report save"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle") _mto_paths "" "$3" ;;
     "completions "|"completions install"|"completions uninstall"|"completions status") _mto_words "" bash zsh fish powershell ;;
   esac
@@ -286,7 +287,7 @@ _mto_is_command() {
 # Whether $2 is a subcommand of command $1.
 _mto_is_subcommand() {
   case "$1 $2" in
-    "config path"|"config print"|"config options"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
+    "config path"|"config print"|"config options"|"config mirror"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
   esac
   return 1
 }

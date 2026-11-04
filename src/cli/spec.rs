@@ -128,17 +128,23 @@ pub const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "config",
-    args: "path|print|options [DIR]",
+    args: "path|print|options|mirror [DIR]",
     summary: "Show the configuration that applies in a folder, or every setting",
     about: "`path` lists the configuration files that apply in DIR (default: the current \
                 directory), and the history folder. `print` shows every setting in effect with \
                 where it came from, in sections: layout, then formatting. `options` lists \
                 every setting a configuration file may hold, by file, with its values and \
-                default, and for the standard formatter's settings whether mto honors it yet.",
+                default, and for the standard formatter's settings whether mto honors it yet. \
+                `mirror` writes the formatting settings DIR's mto.toml holds into a \
+                rustfmt.toml beside it (only those the standard formatter's stable release \
+                takes; the rest are named), so tools that run the standard formatter agree \
+                with mto while a project moves to it; it writes again only a rustfmt.toml it \
+                wrote.",
     usage: &[
       "mto config path [DIR]",
       "mto config print [OPTIONS] [DIR]",
       "mto config options [--toml|--json]",
+      "mto config mirror [--dry-run] [DIR]",
     ],
     options: &[
       ("views", "mto config options", &[Flag::Toml, Flag::Json]),
@@ -180,6 +186,11 @@ pub const COMMANDS: &[CommandSpec] = &[
         word: "options",
         summary: "List every setting a configuration file may hold",
         operand: Complete::Nothing,
+      },
+      Subcommand {
+        word: "mirror",
+        summary: "Write mto.toml's formatting settings into a rustfmt.toml beside it",
+        operand: Complete::Dirs,
       },
     ],
     examples: &[

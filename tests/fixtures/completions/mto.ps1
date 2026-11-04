@@ -13,6 +13,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags['config path'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
     $flags['config print'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
     $flags['config options'] = @('-h', '--help', '--toml', '--json')
+    $flags['config mirror'] = @('-h', '--help')
     $flags['history'] = @('-h', '--help', '--all', '--json')
     $flags['history show'] = @('-h', '--help')
     $flags['history prune'] = @('-h', '--help', '--keep', '--older-than')
@@ -96,6 +97,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['config path'] = 'List the configuration files that apply, and the history folder'
     $help['config print'] = 'Show every setting in effect, with where it came from'
     $help['config options'] = 'List every setting a configuration file may hold'
+    $help['config mirror'] = 'Write mto.toml''s formatting settings into a rustfmt.toml beside it'
     $help['history'] = 'List, show or prune the runs that wrote files'
     $help['history show'] = 'List one run''s files and where each stands now'
     $help['history prune'] = 'Remove old runs'
@@ -141,7 +143,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $commands = @('init', 'config', 'history', 'restore', 'doctor', 'report', 'debug', 'completions')
     # Each command's subcommands.
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-    $subcommands['config'] = @('path', 'print', 'options')
+    $subcommands['config'] = @('path', 'print', 'options', 'mirror')
     $subcommands['history'] = @('show', 'prune')
     $subcommands['doctor'] = @('on', 'off', 'holds', 'release')
     $subcommands['report'] = @('show', 'save', 'send', 'recheck', 'remove', 'prune')
@@ -152,6 +154,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $operandPaths['init'] = 'dirs'
     $operandPaths['config path'] = 'dirs'
     $operandPaths['config print'] = 'dirs'
+    $operandPaths['config mirror'] = 'dirs'
     $operandPaths['restore'] = 'files'
     $operandPaths['report save'] = 'files'
     $operandPaths['debug tokens'] = 'files'

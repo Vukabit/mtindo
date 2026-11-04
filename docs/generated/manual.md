@@ -140,12 +140,16 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `mto init [DIR]`: Writes an mto.toml with layout turned on and every mto
     setting at its default, each with its summary, into DIR (default: the
     current directory). An existing file is never overwritten.
-*   `mto config path|print|options [DIR]`: `path` lists the configuration files
-    that apply in DIR (default: the current directory), and the history folder.
-    `print` shows every setting in effect with where it came from, in sections:
-    layout, then formatting. `options` lists every setting a configuration file
-    may hold, by file, with its values and default, and for the standard
-    formatter's settings whether mto honors it yet.
+*   `mto config path|print|options|mirror [DIR]`: `path` lists the configuration
+    files that apply in DIR (default: the current directory), and the history
+    folder. `print` shows every setting in effect with where it came from, in
+    sections: layout, then formatting. `options` lists every setting a
+    configuration file may hold, by file, with its values and default, and for
+    the standard formatter's settings whether mto honors it yet. `mirror` writes
+    the formatting settings DIR's mto.toml holds into a rustfmt.toml beside it
+    (only those the standard formatter's stable release takes; the rest are
+    named), so tools that run the standard formatter agree with mto while a
+    project moves to it; it writes again only a rustfmt.toml it wrote.
     *   `--toml` (after `mto config options`): As a commented file, every
         setting at its default.
     *   `--json` (after `mto config options`): As JSON, whose shape keeps its

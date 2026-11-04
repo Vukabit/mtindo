@@ -8,8 +8,8 @@ function __mto_state
         --print-config --style-edition --color --keep --dir --message-format \
         --runs --under --older-than
     set -l commands init config history restore doctor report debug completions
-    set -l subcommands 'config path' 'config print' 'config options' 'history show' \
-        'history prune' 'doctor on' 'doctor off' 'doctor holds' \
+    set -l subcommands 'config path' 'config print' 'config options' 'config mirror' \
+        'history show' 'history prune' 'doctor on' 'doctor off' 'doctor holds' \
         'doctor release' 'report show' 'report save' 'report send' \
         'report recheck' 'report remove' 'report prune' 'debug tokens' \
         'debug tree' 'debug kept' 'debug units' 'debug moves' 'debug settle' \
@@ -218,6 +218,7 @@ complete -c mto -n '__mto_at config -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at config - 0' -a path -d 'List the configuration files that apply, and the history folder'
 complete -c mto -n '__mto_at config - 0' -a print -d 'Show every setting in effect, with where it came from'
 complete -c mto -n '__mto_at config - 0' -a options -d 'List every setting a configuration file may hold'
+complete -c mto -n '__mto_at config - 0' -a mirror -d 'Write mto.toml\'s formatting settings into a rustfmt.toml beside it'
 
 # mto config path
 complete -c mto -n '__mto_at config path' -s h -l help -d 'Show this help and exit'
@@ -249,6 +250,10 @@ complete -c mto -n '__mto_at config print' -a '(__fish_complete_directories (com
 complete -c mto -n '__mto_at config options' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at config options' -l toml -d 'As a commented file, every setting at its default'
 complete -c mto -n '__mto_at config options' -l json -d 'As JSON, whose shape keeps its version'
+
+# mto config mirror
+complete -c mto -n '__mto_at config mirror' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at config mirror' -a '(__fish_complete_directories (commandline -ct))'
 
 # mto history
 complete -c mto -n '__mto_at history -' -s h -l help -d 'Show this help and exit'

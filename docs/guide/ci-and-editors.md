@@ -74,3 +74,23 @@ path.
 **Other editors:** any formatter setting that takes a command can use
 `mto - --stdin-filepath FILE`, with the editor's placeholder for the file's
 path in place of `FILE`.
+
+## Switching from the standard formatter
+
+`mto` formats as the standard formatter does and reads its `rustfmt.toml`, so a
+project can switch one tool at a time. While some tools still run the
+standard formatter (an editor not yet pointed at `mto`, a script calling `cargo
+fmt`), they must agree with `mto`, which they do when the formatting settings
+are where both look:
+
+* Keep the formatting settings in `rustfmt.toml`, and `mto`'s own (layout) in
+  `mto.toml`. Both tools read `rustfmt.toml`, so nothing differs.
+* Or keep everything in `mto.toml`, and run `mto config mirror` after changing
+  a formatting setting: it writes the ones the standard formatter's stable
+  release takes into a `rustfmt.toml` beside it, names the rest, and never
+  overwrites a `rustfmt.toml` it did not write.
+
+`mto` warns when both files set a key to different values, and uses
+`mto.toml`'s. Once every tool runs `mto` (editors as above, `cargo mto` in
+place of `cargo fmt` in CI and scripts, hooks calling `mto`), `mto.toml` alone
+is enough and the mirrored `rustfmt.toml` can go.

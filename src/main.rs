@@ -100,6 +100,8 @@ enum CliAction {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ConfigView {
   Path,
+  /// `mirror`, with `--dry-run` when true.
+  Mirror(bool),
   /// Every setting a file may hold; as a commented file when true.
   Options(bool),
   Default,
@@ -924,6 +926,7 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
     }
     Some("path") => ConfigView::Path,
     Some("print") => ConfigView::Current,
+    Some("mirror") => ConfigView::Mirror(false),
     _ => return usage(),
   };
   let mut dir = None;
@@ -937,7 +940,10 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
           i += 1;
           config_flag(spec, args.get(i), &mut overrides)?;
         }
-        Flag::Default | Flag::Current | Flag::Minimal | Flag::User if view != ConfigView::Path => {
+        Flag::DryRun if matches!(view, ConfigView::Mirror(_)) => view = ConfigView::Mirror(true),
+        Flag::Default | Flag::Current | Flag::Minimal | Flag::User
+          if !matches!(view, ConfigView::Path | ConfigView::Mirror(_)) =>
+        {
           view = match spec.flag {
             Flag::Default => ConfigView::Default,
             Flag::Minimal => ConfigView::Minimal,
@@ -1709,6 +1715,32 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides, js
     Err(e) => return report_error(&e.into()),
   };
   print_warnings(&mut resolver);
+  if let ConfigView::Mirror(dry_run) = view {
+    return match mtindo::cli::mirror::mirror(&config, dir, dry_run) {
+      Ok(done) => {
+        outln!(
+          "{} {} ({} setting(s))",
+          if dry_run { "would write" } else { "wrote" },
+          done.path.display(),
+          done.written.len()
+        );
+        for line in &done.written {
+          outln!("  {}", line);
+        }
+        if !done.left_out.is_empty() {
+          outln!("left out, as the standard formatter's stable release does not take them:");
+          for line in &done.left_out {
+            outln!("  {}", line);
+          }
+        }
+        0
+      }
+      Err((message, code)) => {
+        errln!("{}Error: {}{}", c_red(), message, c_reset(true));
+        code
+      }
+    };
+  }
   if json {
     outln!("{}", config_json(view, &config).text());
     return 0;
@@ -2635,6 +2667,7 @@ mod tests {
       &["config", "path"],
       &["config", "print", "--minimal"],
       &["config", "options", "--toml"],
+      &["config", "mirror", "--dry-run", "src"],
       &["history"],
       &["history", "--all"],
       &["history", "show", "last"],

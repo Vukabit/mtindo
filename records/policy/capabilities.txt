@@ -235,6 +235,7 @@ mto     config:type_order                                supported    # tests/do
 mto     config:visibility_order                          supported    # src/layout/tests.rs
 mto     flag:--all                                       supported    # tests/domain_8_cli.rs
 mto     flag:--allow-dirty                               supported    # tests/domain_8_cli.rs
+mto     flag:--changed                                   supported    # tests/domain_8_cli.rs
 mto     flag:--check                                     supported    # tests/domain_8_cli.rs
 mto     flag:--color                                     supported    # tests/domain_8_cli.rs
 mto     flag:--config                                    supported    # tests/domain_8_cli.rs
@@ -263,11 +264,14 @@ mto     flag:--print-config                              supported    # tests/do
 mto     flag:--quiet                                     supported    # tests/domain_8_cli.rs
 mto     flag:--recursive                                 supported    # tests/domain_12_scale.rs
 mto     flag:--runs                                      supported    # tests/domain_8_cli.rs
+mto     flag:--since                                     supported    # tests/domain_8_cli.rs
 mto     flag:--skip-children                             supported    # tests/domain_8_cli.rs
+mto     flag:--staged                                    supported    # tests/domain_8_cli.rs
 mto     flag:--stdin-filepath                            supported    # tests/domain_8_cli.rs
 mto     flag:--strict                                    supported    # tests/domain_8_cli.rs
 mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs
 mto     flag:--toml                                      supported    # src/cli/options/tests.rs, tests/domain_8_cli.rs
+mto     flag:--tracked                                   supported    # tests/domain_8_cli.rs
 mto     flag:--under                                     supported    # tests/domain_8_cli.rs
 mto     flag:--unguarded                                 supported    # tests/domain_8_cli.rs
 mto     flag:--unstable-features                         supported    # tests/domain_8_cli.rs

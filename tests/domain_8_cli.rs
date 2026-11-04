@@ -1721,6 +1721,88 @@ fn test_cli_generated_files_are_not_laid_out() {
   );
 }
 
+/// `--changed`, `--staged`, `--since` and `--tracked` take the files git names, from the
+/// files the run would find; nothing to take says so and exits 0, and outside a repository
+/// nothing runs.
+#[test]
+fn test_cli_git_flags_take_the_files_git_names() {
+  let env = TestEnvironment::new();
+  env.git_init(".");
+  env.write_file(".gitignore", "ignored/\n");
+  for name in ["a", "b", "c", "d"] {
+    env.write_file(
+      &format!("src/{}.rs", name),
+      &format!("fn {}() {{}}\n", name),
+    );
+  }
+  env.git(".", &["add", "."]);
+  env.git(".", &["commit", "-qm", "start"]);
+  env.git(".", &["branch", "base"]);
+  let listed = |args: &[&str]| -> (i32, Vec<String>, String) {
+    let mut all = vec!["--check", "-l", "--no-history"];
+    all.extend(args);
+    let (code, out, said) = mto(&env, &all);
+    let mut files: Vec<String> = out
+      .lines()
+      .filter(|l| l.ends_with(".rs"))
+      .map(|l| l.trim_start_matches("./").to_string())
+      .collect();
+    files.sort();
+    (code, files, said)
+  };
+  let (code, files, said) = listed(&["--changed"]);
+  assert_eq!((code, files.len()), (0, 0), "{}", said);
+  assert!(
+    said.contains("nothing to do: no Rust file changed"),
+    "{}",
+    said
+  );
+  env.write_file("src/a.rs", "fn  a() {}\n");
+  env.write_file("src/b.rs", "fn  b() {}\n");
+  env.git(".", &["add", "src/b.rs"]);
+  env.write_file("src/c.rs", "fn  c() {}\n");
+  env.git(".", &["add", "src/c.rs"]);
+  env.write_file("src/c.rs", "fn  c() {}\nfn  c2() {}\n");
+  env.write_file("src/new.rs", "fn  new() {}\n");
+  env.write_file("ignored/x.rs", "fn  x() {}\n");
+  let (code, files, said) = listed(&["--changed"]);
+  assert_eq!(code, 1, "{}", said);
+  assert_eq!(files, ["src/a.rs", "src/b.rs", "src/c.rs", "src/new.rs"]);
+  // A staged file with changes not staged as well is left alone, with a warning.
+  let (_, files, said) = listed(&["--staged"]);
+  assert_eq!(files, ["src/b.rs"]);
+  assert!(
+    said.contains("src/c.rs: staged, with changes not staged"),
+    "{}",
+    said
+  );
+  let (_, files, _) = listed(&["--tracked", "."]);
+  assert_eq!(files, ["src/a.rs", "src/b.rs", "src/c.rs"]);
+  env.git(".", &["commit", "-qm", "more"]);
+  let (_, files, _) = listed(&["--since", "base"]);
+  assert_eq!(files, ["src/a.rs", "src/b.rs", "src/c.rs", "src/new.rs"]);
+  // Committed since and staged; `src/c.rs` still has changes not staged.
+  let (_, files, _) = listed(&["--since", "base", "--staged"]);
+  assert_eq!(files, ["src/b.rs"]);
+  // From a folder below, the whole repository.
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("src"))
+    .args(["--check", "-l", "--no-history", "--changed"])
+    .output()
+    .unwrap();
+  let out = printed(&output.stdout);
+  assert!(out.contains("../src/a.rs"), "{}", out);
+  let (code, _, said) = mto(&env, &["--since", "nowhere", "--check"]);
+  assert_eq!(code, 2, "{}", said);
+  let (code, _, said) = mto(&env, &["--changed", "--staged"]);
+  assert_eq!(code, 2, "{}", said);
+  let outside = TestEnvironment::new();
+  let (code, _, said) = mto(&outside, &["--changed", "--check"]);
+  assert_eq!(code, 2, "{}", said);
+  assert!(said.contains("not in a git repository"), "{}", said);
+}
+
 #[test]
 fn test_cli_help_color_follows_no_color_and_force_color() {
   let env = TestEnvironment::new();

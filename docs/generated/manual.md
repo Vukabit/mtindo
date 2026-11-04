@@ -89,10 +89,17 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     instead of showing how.
 
 ### Files (`mto <PATH>...`)
+*   `--changed`: Only the files git sees changed: modified, staged or untracked.
 *   `--follow-links`: Also follow symlinked files and directories.
 *   `-R, --recursive`: Format every .rs file under the current directory.
+*   `--since <REV>`: Only the files changed since REV (its merge base with
+    HEAD), committed or not.
 *   `--skip-children`: A file argument is that file alone, not the modules it
     declares.
+*   `--staged`: Only the files staged for the next commit; one with unstaged
+    changes is left alone.
+*   `--tracked`: A folder walk takes only the files git tracks, so .gitignore is
+    respected.
 
 ### Stdin (`mto -`)
 *   `--stdin-filepath <PATH>`: With -: where the source belongs, for its

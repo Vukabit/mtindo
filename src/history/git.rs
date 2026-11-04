@@ -51,26 +51,11 @@ pub fn dirty(files: &[PathBuf]) -> Dirty {
   out
 }
 
-/// Reads `git status --porcelain=v1 -z`: `XY PATH`, each ended by NUL; a rename or copy is
-/// followed by its old path, which is skipped.
-fn parse_status(root: &Path, out: &[u8]) -> Vec<PathBuf> {
-  let mut paths = Vec::new();
-  let mut fields = out.split(|b| *b == 0);
-  while let Some(field) = fields.next() {
-    if field.len() < 4 {
-      continue;
-    }
-    let path = String::from_utf8_lossy(&field[3..]).to_string();
-    paths.push(root.join(path));
-    if matches!(field[0], b'R' | b'C') {
-      fields.next();
-    }
-  }
-  paths
-}
-
 /// The repository `folder` is in, remembered per folder on the way up.
-fn repository_of(folder: &Path, roots: &mut HashMap<PathBuf, Option<PathBuf>>) -> Option<PathBuf> {
+pub(crate) fn repository_of(
+  folder: &Path,
+  roots: &mut HashMap<PathBuf, Option<PathBuf>>,
+) -> Option<PathBuf> {
   let mut seen = Vec::new();
   let mut current = Some(folder);
   let found = loop {
@@ -93,7 +78,7 @@ fn repository_of(folder: &Path, roots: &mut HashMap<PathBuf, Option<PathBuf>>) -
 }
 
 /// The files `git status` lists in the repository at `root`.
-fn status(root: &Path) -> io::Result<Vec<PathBuf>> {
+pub(crate) fn status(root: &Path) -> io::Result<Vec<PathBuf>> {
   let output = Command::new("git")
     .arg("-C")
     .arg(root)
@@ -105,6 +90,24 @@ fn status(root: &Path) -> io::Result<Vec<PathBuf>> {
     ));
   }
   Ok(parse_status(root, &output.stdout))
+}
+
+/// Reads `git status --porcelain=v1 -z`: `XY PATH`, each ended by NUL; a rename or copy is
+/// followed by its old path, which is skipped.
+fn parse_status(root: &Path, out: &[u8]) -> Vec<PathBuf> {
+  let mut paths = Vec::new();
+  let mut fields = out.split(|b| *b == 0);
+  while let Some(field) = fields.next() {
+    if field.len() < 4 {
+      continue;
+    }
+    let path = String::from_utf8_lossy(&field[3..]).to_string();
+    paths.push(root.join(path));
+    if matches!(field[0], b'R' | b'C') {
+      fields.next();
+    }
+  }
+  paths
 }
 
 #[cfg(test)]

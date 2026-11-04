@@ -7,7 +7,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # The flags that may come before any command (''), after a command, and after a
     # subcommand.
     $flags = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--strict', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
+    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--changed', '--staged', '--since', '--tracked', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--strict', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
     $flags['init'] = @('-h', '--help')
     $flags['verify'] = @('-h', '--help', '--json')
     $flags['pins'] = @('-h', '--help', '--json')
@@ -58,6 +58,10 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['-R'] = 'Format every .rs file under the current directory'
     $help['--recursive'] = 'Format every .rs file under the current directory'
     $help['--skip-children'] = 'A file argument is that file alone, not the modules it declares'
+    $help['--changed'] = 'Only the files git sees changed: modified, staged or untracked'
+    $help['--staged'] = 'Only the files staged for the next commit; one with unstaged changes is left alone'
+    $help['--since'] = 'Only the files changed since REV (its merge base with HEAD), committed or not'
+    $help['--tracked'] = 'A folder walk takes only the files git tracks, so .gitignore is respected'
     $help['--stdin-filepath'] = 'With -: where the source belongs, for its settings and in messages'
     $help['--config'] = 'Set settings for this run, over every file'
     $help['--config-path'] = 'Use only this configuration file; search for no other'
@@ -136,7 +140,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['completions uninstall'] = 'Remove the script mto wrote'
     $help['completions status'] = 'Say where each shell''s script is, and whether it is current'
     # The flags followed by a value, and what the value completes to.
-    $takesValue = @('--emit', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--color', '--keep', '--dir', '--message-format', '--runs', '--under', '--older-than')
+    $takesValue = @('--emit', '--since', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--color', '--keep', '--dir', '--message-format', '--runs', '--under', '--older-than')
     # A flag's values, when they are a fixed set.
     $values = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $values['--emit'] = @('files', 'stdout', 'json')

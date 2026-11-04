@@ -4,7 +4,7 @@
 # Prints the command and the subcommand given so far (- for none), then how many
 # arguments followed them (-1 after `--`).
 function __mto_state
-    set -l takes_value --emit --stdin-filepath --config --config-path --edition \
+    set -l takes_value --emit --since --stdin-filepath --config --config-path --edition \
         --print-config --style-edition --color --keep --dir --message-format \
         --runs --under --older-than
     set -l commands init verify pins config history restore doctor report debug \
@@ -189,6 +189,10 @@ complete -c mto -n '__mto_at - -' -s l -l files-with-diff -d 'Name the files tha
 complete -c mto -n '__mto_at - -' -l follow-links -d 'Also follow symlinked files and directories'
 complete -c mto -n '__mto_at - -' -s R -l recursive -d 'Format every .rs file under the current directory'
 complete -c mto -n '__mto_at - -' -l skip-children -d 'A file argument is that file alone, not the modules it declares'
+complete -c mto -n '__mto_at - -' -l changed -d 'Only the files git sees changed: modified, staged or untracked'
+complete -c mto -n '__mto_at - -' -l staged -d 'Only the files staged for the next commit; one with unstaged changes is left alone'
+complete -c mto -n '__mto_at - -' -l since -x -d 'Only the files changed since REV (its merge base with HEAD), committed or not'
+complete -c mto -n '__mto_at - -' -l tracked -d 'A folder walk takes only the files git tracks, so .gitignore is respected'
 complete -c mto -n '__mto_at - -' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at - -' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
 complete -c mto -n '__mto_at - -' -l config-path -r -F -d 'Use only this configuration file; search for no other'

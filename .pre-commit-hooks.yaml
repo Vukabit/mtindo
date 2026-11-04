@@ -1,0 +1,28 @@
+# Hooks for the pre-commit framework (https://pre-commit.com). It passes the files being
+# committed (or pushed), so each hook takes those files alone (`--skip-children`).
+- id: mto
+  name: mto
+  description: Lay out and format the Rust files being committed.
+  entry: mto --skip-children
+  language: rust
+  types: [rust]
+- id: mto-check
+  name: mto --check
+  description: Refuse a commit or a push while a Rust file would change.
+  entry: mto --check --skip-children
+  language: rust
+  types: [rust]
+  stages: [pre-commit, pre-push]
+- id: mto-system
+  name: mto (installed)
+  description: The mto hook, with the mto already installed on the machine.
+  entry: mto --skip-children
+  language: system
+  types: [rust]
+- id: mto-check-system
+  name: mto --check (installed)
+  description: The mto-check hook, with the mto already installed on the machine.
+  entry: mto --check --skip-children
+  language: system
+  types: [rust]
+  stages: [pre-commit, pre-push]

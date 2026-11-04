@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use mtindo::cli::completions::{self, Folders, Found, Installed, Shell, State};
 use mtindo::cli::debug as debug_cli;
 use mtindo::cli::doctor as doctor_cli;
+use mtindo::cli::git_files::{Ask as GitAsk, Keep, Selection};
 use mtindo::cli::history::{self, PruneArgs};
 use mtindo::cli::spec::{
   COMMANDS, CommandSpec, EXAMPLES, EXIT_CODES, FLAGS, Flag, FlagSpec, Group, SHELLS, USAGE_LINES,
@@ -46,6 +47,8 @@ enum CliAction {
     paths: Vec<PathBuf>,
     overrides: Overrides,
     opts: RunOptions,
+    /// `--changed`, `--staged`, `--since`, `--tracked`.
+    git: GitAsk,
   },
   Stdin {
     overrides: Overrides,
@@ -592,7 +595,8 @@ fn main() {
       paths,
       overrides,
       opts,
-    } => run_format(&paths, &overrides, &opts),
+      git,
+    } => run_format(&paths, &overrides, &opts, &git),
   });
   // Whatever was written is made to last before mto says it is done.
   let code = match mtindo::durable::settle() {
@@ -633,6 +637,28 @@ fn nested_note(nested: &[PathBuf], verbose: bool) -> String {
   )
 }
 
+/// What the walk noted, before any file's report: modules whose files are missing, and
+/// folders passed over.
+/// A run git left nothing to take: said even under `-q`, so a hook or a CI log shows the
+/// run looked and found nothing, and not an error: exit code 0.
+fn nothing_from_git(git: &GitAsk, opts: &RunOptions) -> i32 {
+  if mtindo::json_messages() {
+    let message = mtindo::Message {
+      level: "note",
+      code: "nothing_from_git",
+      at: None,
+      text: git.nothing().to_string(),
+    };
+    outln!("{}", mtindo::json_message(None, &message));
+    return finish(&[], opts);
+  }
+  errln!("{}", git.nothing());
+  if opts.emit == Emit::Json {
+    outln!("[]");
+  }
+  0
+}
+
 fn parse_args() -> Result<Option<CliAction>, ()> {
   let args: Vec<String> = env::args().skip(1).collect();
   if args.is_empty() {
@@ -656,6 +682,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   let mut overrides = Overrides::default();
   let mut recursive = false;
   let mut opts = RunOptions::default();
+  let mut git = GitAsk::default();
   let mut i = 0;
   while i < args.len() {
     let arg = args[i].as_str();
@@ -691,6 +718,13 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::Recursive => recursive = true,
         Flag::FilesWithDiff => opts.files_with_diff = true,
         Flag::SkipChildren => opts.skip_children = true,
+        Flag::Changed => git.changed = true,
+        Flag::Staged => git.staged = true,
+        Flag::Tracked => git.tracked = true,
+        Flag::Since => match value(&mut i) {
+          Some(rev) if !rev.starts_with('-') => git.since = Some(rev),
+          _ => return usage_error("--since needs a <REV>: a commit, branch or tag"),
+        },
         Flag::Quiet => opts.quiet = true,
         Flag::Verbose => opts.verbose = true,
         Flag::UnstableFeatures => {}
@@ -815,6 +849,12 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
       overrides,
     }));
   }
+  if git.any() && (read_stdin || print_config.is_some()) {
+    return usage_error("--changed, --staged, --since and --tracked choose files to run on");
+  }
+  if git.changed && git.staged {
+    return usage_error("--changed takes every change and --staged only the staged ones; give one");
+  }
   if read_stdin {
     if !paths.is_empty() {
       return usage_error("- reads stdin; it cannot be combined with paths");
@@ -831,6 +871,19 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   if recursive && paths.is_empty() {
     paths.push(PathBuf::from("."));
   }
+  // Asking git with no path takes the whole repository.
+  if git.any() && paths.is_empty() {
+    let here = env::current_dir().unwrap_or_default();
+    match mtindo::cli::git_files::repository_folder(&here) {
+      Some(folder) => paths.push(folder),
+      None => {
+        return usage_error(
+          "not in a git repository: --changed, --staged, --since and --tracked ask git which \
+           files to take",
+        );
+      }
+    }
+  }
   if paths.is_empty() {
     return usage_error(
       "no path given: pass files or directories, -R for the current directory, or - to read stdin",
@@ -840,6 +893,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
     paths,
     overrides,
     opts,
+    git,
   }))
 }
 
@@ -2244,7 +2298,7 @@ fn run_doctor_run(
   }
 }
 
-fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i32 {
+fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: &GitAsk) -> i32 {
   let mut resolver = match resolver(overrides) {
     Ok(resolver) => resolver,
     Err(e) => return report_error(&e),
@@ -2255,6 +2309,31 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
       missing.display()
     )));
   }
+  // The files git names, when asked: the run finds its files as always, and only those go
+  // on.
+  let real = |p: &Path| mtindo::real_path(p).unwrap_or_else(|_| p.to_path_buf());
+  let selection = if git.any() {
+    let named: Vec<PathBuf> = paths.iter().map(|p| real(p)).collect();
+    match Selection::ask(git.clone(), &named) {
+      Ok(selection) => Some(selection),
+      Err(why) => return report_error(&MtoError::Usage(why)),
+    }
+  } else {
+    None
+  };
+  let folders: Vec<PathBuf> = paths
+    .iter()
+    .filter(|p| p.is_dir())
+    .map(|p| real(p))
+    .collect();
+  let keep = |job: &mtindo::Job| -> Keep {
+    let Some(selection) = &selection else {
+      return Keep::Yes;
+    };
+    let file = real(&job.0);
+    let walked = folders.iter().any(|folder| file.starts_with(folder));
+    selection.keeps(&file, walked)
+  };
   let writing = opts.emit == Emit::Files && !opts.check && !opts.dry_run;
   // A run that writes nothing lays files out while the walk is still finding them; one
   // that writes walks first, so that a folder's bad configuration stops it before any file
@@ -2269,18 +2348,31 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
       reports: mtindo::cli::report::store(&resolver),
       ..Writes::default()
     };
-    let (_, collected, done) = run_jobs_walking(
+    let (jobs, (collected, unstaged), done) = run_jobs_walking(
       opts,
       &mut writes,
-      |found| collect_jobs_into(paths, &mut resolver, opts, found),
-      |collected| match collected {
+      |found| {
+        let mut unstaged = Vec::new();
+        let collected =
+          collect_jobs_into(paths, &mut resolver, opts, &mut |job| match keep(&job) {
+            Keep::Yes => found(job),
+            Keep::Unstaged => unstaged.push(job.0),
+            Keep::No => {}
+          });
+        (collected, unstaged)
+      },
+      |(collected, unstaged)| match collected {
         Ok(collected) => {
           walk_notes(collected, opts);
+          unstaged_notes(unstaged);
           true
         }
         Err(_) => false,
       },
     );
+    if collected.is_ok() && jobs.is_empty() && unstaged.is_empty() && git.any() {
+      return nothing_from_git(git, opts);
+    }
     return match collected {
       Ok(_) => finish(&done, opts),
       Err(e) => report_error(&e),
@@ -2291,7 +2383,19 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
     Err(e) => return report_error(&e),
   };
   walk_notes(&collected, opts);
-  let jobs = collected.jobs;
+  let mut unstaged = Vec::new();
+  let mut jobs = Vec::new();
+  for job in collected.jobs.iter().cloned() {
+    match keep(&job) {
+      Keep::Yes => jobs.push(job),
+      Keep::Unstaged => unstaged.push(job.0),
+      Keep::No => {}
+    }
+  }
+  unstaged_notes(&unstaged);
+  if jobs.is_empty() && unstaged.is_empty() && git.any() {
+    return nothing_from_git(git, opts);
+  }
   let settings = match history::Settings::read(&resolver, opts.no_history) {
     Ok(settings) => settings,
     Err(e) => return report_error(&MtoError::Usage(e)),
@@ -2338,7 +2442,15 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
             c_reset(true)
           );
         }
-        writes.dirty = Some(dirty.files);
+        let mut dirty_files = dirty.files;
+        // A staged file with no other changes is in the index as it is now: git can give it
+        // back, so it is not work only this run could lose.
+        if git.staged {
+          for (path, _) in &jobs {
+            dirty_files.remove(&mtindo::real_path(path).unwrap_or_else(|_| path.clone()));
+          }
+        }
+        writes.dirty = Some(dirty_files);
       }
       None => {}
     }
@@ -2796,6 +2908,28 @@ fn split_pairs(text: &str) -> Vec<&str> {
   pairs.into_iter().filter(|p| !p.trim().is_empty()).collect()
 }
 
+/// The warning for each staged file left alone because it has changes not staged as well.
+fn unstaged_notes(unstaged: &[PathBuf]) {
+  for path in unstaged {
+    let text = format!(
+      "{}: staged, with changes not staged as well; left alone, so the commit gets what \
+       was staged",
+      path.display()
+    );
+    if mtindo::json_messages() {
+      let message = mtindo::Message {
+        level: "warning",
+        code: "unstaged_changes",
+        at: None,
+        text,
+      };
+      outln!("{}", mtindo::json_message(None, &message));
+    } else {
+      errln!("{}warning: {}{}", c_yellow(true), text, c_reset(true));
+    }
+  }
+}
+
 /// `usage:` and its lines, aligned.
 fn usage_block(p: &HelpPalette, lines: &[&str]) -> String {
   let mut out = String::new();
@@ -2817,8 +2951,6 @@ fn usage_error<T>(message: &str) -> Result<T, ()> {
   Err(())
 }
 
-/// What the walk noted, before any file's report: modules whose files are missing, and
-/// folders passed over.
 fn walk_notes(collected: &mtindo::Collected, opts: &RunOptions) {
   if mtindo::json_messages() {
     for problem in &collected.problems {

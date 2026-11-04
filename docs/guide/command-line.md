@@ -46,6 +46,10 @@ directory is walked.
 * `-l, --files-with-diff`: Name the files that change, or would with
   `--check`, instead of showing how.
 * `--skip-children`: A file argument is that file alone.
+* `--changed`, `--staged`, `--since <REV>`, `--tracked`: Take only the files
+  git names: changed, staged, changed since `REV`, or tracked. With no path,
+  the whole repository. See
+  [Only the files git names](ci-and-editors.md#only-the-files-git-names).
 * `--config <KEY=VALUE,...>`: Set settings for this run:
   `--config max_width=80,hard_tabs=true`.
 * `--config-path <FILE>`: Use only this configuration file.

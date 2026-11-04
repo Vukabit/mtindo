@@ -682,6 +682,42 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "A file argument is that file alone, not the modules it declares",
   },
   FlagSpec {
+    flag: Flag::Changed,
+    group: Group::Files,
+    short: None,
+    long: "--changed",
+    value: "",
+    values: &[],
+    help: "Only the files git sees changed: modified, staged or untracked",
+  },
+  FlagSpec {
+    flag: Flag::Staged,
+    group: Group::Files,
+    short: None,
+    long: "--staged",
+    value: "",
+    values: &[],
+    help: "Only the files staged for the next commit; one with unstaged changes is left alone",
+  },
+  FlagSpec {
+    flag: Flag::Since,
+    group: Group::Files,
+    short: None,
+    long: "--since",
+    value: "<REV>",
+    values: &[],
+    help: "Only the files changed since REV (its merge base with HEAD), committed or not",
+  },
+  FlagSpec {
+    flag: Flag::Tracked,
+    group: Group::Files,
+    short: None,
+    long: "--tracked",
+    value: "",
+    values: &[],
+    help: "A folder walk takes only the files git tracks, so .gitignore is respected",
+  },
+  FlagSpec {
     flag: Flag::StdinFilepath,
     group: Group::Stdin,
     short: None,
@@ -1046,6 +1082,10 @@ pub enum Complete {
 /// cannot be accepted without being documented.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Flag {
+  Changed,
+  Since,
+  Staged,
+  Tracked,
   Check,
   Color,
   Emit,

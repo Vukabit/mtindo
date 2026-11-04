@@ -34,14 +34,110 @@ When `CI` is set, `mto` does not create the user config it would otherwise
 write on a first run. Exit codes are listed in the
 [command line guide](command-line.md#exit-codes).
 
-## A git hook
+## Only the files git names
 
-A pre-commit hook that refuses a commit while any file would change:
+These flags ask git which files to take, so a hook or a CI job on a large
+project runs on what changed instead of everything. The run finds its files
+as always (ignored folders, settings, modules), and only those git names go
+on:
+
+* `--changed`: files with changes not committed: modified, staged or
+  untracked.
+* `--staged`: files staged for the next commit.
+* `--since REV`: files changed since `REV` (where `HEAD` left it), committed
+  or not; with `--staged`, the committed and the staged ones.
+* `--tracked`: in a folder walk, only the files git tracks, so `.gitignore`
+  is respected.
+
+```bash
+mto --changed            # before committing
+mto --check --since main # in CI, on a pull request's branch
+mto --tracked .          # every tracked file, none git ignores
+```
+
+With no path, a run with one of these flags takes the whole repository, from
+any folder in it. A run git leaves nothing to take says so, even under `-q`,
+and exits `0`. Outside a repository, or without git installed, nothing runs
+and the exit code is `2`. With `--staged`, a file with changes that are not
+staged as well is left alone, with a warning, so the commit gets what was
+staged; a staged file is written even with history off, as git keeps it
+as staged.
+
+## Git hooks
+
+A plain pre-commit hook that refuses a commit while a staged file would
+change:
 
 ```bash
 #!/bin/sh
 # .git/hooks/pre-commit (make it executable)
-exec cargo mto --check -q
+exec mto --check --staged -q
+```
+
+or that lays them out, and refuses the commit so you can look and stage the
+result:
+
+```bash
+#!/bin/sh
+# .git/hooks/pre-commit (make it executable)
+mto --staged -q -l | grep . && exit 1
+exit 0
+```
+
+A pre-push hook checking what the branch adds:
+
+```bash
+#!/bin/sh
+# .git/hooks/pre-push (make it executable)
+exec mto --check --since origin/main -q
+```
+
+**pre-commit** ([pre-commit.com](https://pre-commit.com)): this repository
+publishes hooks, `mto` (lays out and formats the files committed; the
+framework fails the commit when one changes) and `mto-check` (`--check`, at
+commit and at push), each built from source; `mto-system` and
+`mto-check-system` use the `mto` already installed. In
+`.pre-commit-config.yaml`:
+
+```yaml
+default_install_hook_types: [pre-commit, pre-push]
+repos:
+  - repo: https://github.com/Vukabit/mtindo
+    rev: vX.Y.Z  # a release tag
+    hooks:
+      - id: mto
+      - id: mto-check
+        stages: [pre-push]
+```
+
+The framework passes the files itself, those a push carries included, so the
+hooks need no git flag.
+
+**lefthook** (`lefthook.yml`):
+
+```yaml
+pre-commit:
+  commands:
+    mto:
+      glob: "*.rs"
+      run: mto --skip-children {staged_files}
+      stage_fixed: true
+```
+
+**husky** (`.husky/pre-commit`):
+
+```bash
+mto --check --staged -q
+```
+
+**GitHub Actions**, on a pull request:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0  # --since needs the history
+- run: cargo install mtindo
+- run: mto --check --since origin/${{ github.base_ref }}
 ```
 
 ## Editors

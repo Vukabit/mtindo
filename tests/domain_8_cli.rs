@@ -1859,6 +1859,8 @@ fn test_cli_message_format_json_streams_files_messages_and_a_summary() {
     ],
   );
   assert_eq!(code, 3, "{}", said);
+  // JSON writes a Windows path's `\` as `\\`, which `printed` makes `//`.
+  let out = out.replace("//", "/");
   let lines: Vec<&str> = out.lines().collect();
   assert!(
     lines
@@ -2699,7 +2701,9 @@ fn test_completions_match_their_snapshots() {
 #[test]
 fn test_completions_the_same_script_from_another_build_is_current() {
   let env = TestEnvironment::new();
-  let (_, script, _) = mto(&env, &["completions", "zsh"]);
+  // As printed, byte for byte: `printed` would turn the script's own `\` into `/`.
+  let output = env.mto_cmd().args(["completions", "zsh"]).output().unwrap();
+  let script = String::from_utf8(output.stdout).unwrap();
   let older: String = script
     .lines()
     .map(|line| match line.split_once(" completions for zsh") {

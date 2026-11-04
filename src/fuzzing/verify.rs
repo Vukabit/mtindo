@@ -34,7 +34,7 @@ pub(super) fn checked(data: &[u8]) {
     );
   }
 
-  if let Ok(output) = try_reorganize(text, &LayoutConfig::default(), false) {
+  if let Ok(output) = try_reorganize(text, &LayoutConfig::default()) {
     let _ = verify_layout(text, &output, edition);
   }
 }

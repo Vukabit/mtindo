@@ -548,7 +548,7 @@ pub fn empty_uses(
     return None;
   }
   let global = edition >= Edition::E2018;
-  let version = config.style_edition >= 2024;
+  let version = config.version_sorted_imports();
   let mut cut: Vec<(usize, usize)> = Vec::new();
   for node in nodes.of(root, |kind| kind == K::Use) {
     let Some(tree) = node.children_iter().find(|c| c.kind() == K::UseTree) else {
@@ -704,7 +704,7 @@ pub fn granular_imports(
     return None;
   }
   let off = off_regions(root);
-  let version = config.style_edition >= 2024;
+  let version = config.version_sorted_imports();
   let global_paths = edition >= Edition::E2018;
   let containers = |kind| matches!(kind, K::SourceFile | K::ItemList | K::BlockExpr);
   let mut changes: Vec<(usize, usize, String)> = Vec::new();
@@ -1246,7 +1246,7 @@ pub fn reorder(
       let mut order: Vec<usize> = (0..run.len()).collect();
       match run[0].kind() {
         K::Use if config.reorder_imports => {
-          let version = config.style_edition >= 2024;
+          let version = config.version_sorted_imports();
           let global_paths = edition >= Edition::E2018;
           let trees: Vec<UseTree> = run
             .iter()

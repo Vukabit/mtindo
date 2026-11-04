@@ -82,6 +82,7 @@ const LAYERS: &[(&str, u8)] = &[
   ("format", 3),
   ("config", 4),
   ("doctor", 5),
+  ("settle", 5),
   ("fuzzing", 6),
   ("cli", 6),
 ];

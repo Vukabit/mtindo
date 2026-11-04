@@ -33,12 +33,43 @@ mto report                     # every report, the latest first
 mto report show 7f3a2c         # one report, as it would be filed
 mto report save 7f3a2c bug.md  # --with-file adds the whole file
 mto report send 7f3a2c         # a new issue, filled in, in the browser
-mto report prune               # remove them all
+mto report recheck --dry-run   # which bugs this mto still shows
+mto report remove 7f3a2c       # remove one
+mto report prune               # remove them all; --under PATH: those seen there
 ```
 
 `mto report send` opens the issue for you to read over and submit: `mto`
 itself sends nothing. `save = false` under `[report]` in the user config
-prints the whole report instead and keeps none.
+prints the whole report instead and keeps none; `--no-report` does the same
+for one run, naming each bug in one line instead of printing its report.
+
+### Running a bug again
+
+Beside each report, `mto` keeps what runs its bug again: the smallest part of
+the file that still fails as `input.rs`, and the settings it failed with as
+`replay.toml`, written as an `mto.toml` holds them (the edition included) and
+kept only when reading it back gives the very same settings. To run one by
+hand, from the report's folder:
+
+```bash
+mto --config-path replay.toml --emit stdout input.rs
+```
+
+`mto report recheck` does that for every report, or those named, under the
+`mto` at hand, and sorts them:
+
+* **reproduces**: it fails as it did. It is kept, marked with when it was
+  rechecked and by which build.
+* **differs**: it still fails, another way. It is kept the same way.
+* **fixed**: it passes. It is removed.
+* **cannot replay**: it cannot be run again exactly, so it is kept as it is.
+
+`--dry-run` lists the same without changing anything. A report kept before
+reports held their replay is run from what it shows: its smallest part, and
+its settings when every line of them maps to a setting and reads back the
+same. It is then given its replay. When it does not show the edition, it is
+run under every edition, and found fixed only when it passes under all of
+them.
 
 ## How a write happens
 

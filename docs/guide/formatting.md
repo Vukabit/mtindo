@@ -34,7 +34,7 @@ on:
 * a file with syntax errors, which is reported and left unchanged, and one
   nesting more than 1024 levels deep.
 
-`mto debug layout FILE` lists each place in a file left as written, and why.
+`mto debug kept FILE` lists each place in a file left as written, and why.
 
 ## Leaving code as written
 

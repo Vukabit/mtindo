@@ -188,7 +188,7 @@ fn test_out_of_checks_files_are_held_back_whole() {
 fn test_remembered_holds_are_found_by_content() {
   let source = "struct A;\nfn b() {}\nmod generated {}\n";
   let settings = layout_only();
-  let free = shape(source, &settings, &Held::default(), None).unwrap();
+  let free = shape(source, &settings, &Held::default()).unwrap();
   let moved = free
     .moves
     .iter()
@@ -198,11 +198,11 @@ fn test_remembered_holds_are_found_by_content() {
     move_ids: vec![move_id(source, moved)],
     ..Held::default()
   };
-  let kept = shape(source, &settings, &held, None).unwrap();
+  let kept = shape(source, &settings, &held).unwrap();
   assert_eq!(kept.found.len(), 1);
   assert!(kept.text.find("struct A") < kept.text.find("mod generated"));
   // Its text changed: the hold is not found, so it lapses.
-  let changed = shape(&source.replace("{}", "{ }"), &settings, &held, None).unwrap();
+  let changed = shape(&source.replace("{}", "{ }"), &settings, &held).unwrap();
   assert!(changed.found.is_empty());
 }
 

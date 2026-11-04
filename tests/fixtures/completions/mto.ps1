@@ -7,17 +7,17 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # The flags that may come before any command (''), after a command, and after a
     # subcommand.
     $flags = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--color', '--dbg', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version')
+    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version')
     $flags['init'] = @('-h', '--help')
     $flags['config'] = @('-h', '--help')
-    $flags['config path'] = @('-h', '--help', '--config', '--config-path', '--edition', '--style-edition')
-    $flags['config print'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--config', '--config-path', '--edition', '--style-edition')
-    $flags['config options'] = @('-h', '--help', '--toml')
-    $flags['history'] = @('-h', '--help', '--all')
+    $flags['config path'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
+    $flags['config print'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
+    $flags['config options'] = @('-h', '--help', '--toml', '--json')
+    $flags['history'] = @('-h', '--help', '--all', '--json')
     $flags['history show'] = @('-h', '--help')
     $flags['history prune'] = @('-h', '--help', '--keep', '--older-than')
     $flags['restore'] = @('-h', '--help', '--force')
-    $flags['doctor'] = @('-h', '--help')
+    $flags['doctor'] = @('-h', '--help', '--json')
     $flags['doctor on'] = @('-h', '--help')
     $flags['doctor off'] = @('-h', '--help')
     $flags['doctor holds'] = @('-h', '--help')
@@ -26,11 +26,16 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags['report show'] = @('-h', '--help')
     $flags['report save'] = @('-h', '--help', '--with-file')
     $flags['report send'] = @('-h', '--help')
-    $flags['report prune'] = @('-h', '--help')
+    $flags['report recheck'] = @('-h', '--help', '-d', '--dry-run')
+    $flags['report remove'] = @('-h', '--help')
+    $flags['report prune'] = @('-h', '--help', '--under')
     $flags['debug'] = @('-h', '--help')
-    $flags['debug tokens'] = @('-h', '--help', '--edition')
-    $flags['debug tree'] = @('-h', '--help', '--edition')
-    $flags['debug layout'] = @('-h', '--help', '--edition')
+    $flags['debug tokens'] = @('-h', '--help', '--config', '--config-path', '--edition', '--stdin-filepath', '--json', '--runs', '--diff', '--layout-only')
+    $flags['debug tree'] = @('-h', '--help', '--config', '--config-path', '--edition', '--stdin-filepath', '--json', '--runs', '--diff', '--layout-only')
+    $flags['debug kept'] = @('-h', '--help', '--config', '--config-path', '--edition', '--stdin-filepath', '--json', '--runs', '--diff', '--layout-only')
+    $flags['debug units'] = @('-h', '--help', '--config', '--config-path', '--edition', '--stdin-filepath', '--json', '--runs', '--diff', '--layout-only')
+    $flags['debug moves'] = @('-h', '--help', '--config', '--config-path', '--edition', '--stdin-filepath', '--json', '--runs', '--diff', '--layout-only')
+    $flags['debug settle'] = @('-h', '--help', '--config', '--config-path', '--edition', '--stdin-filepath', '--json', '--runs', '--diff', '--layout-only')
     $flags['completions'] = @('-h', '--help')
     $flags['completions install'] = @('-h', '--help', '--dir', '-d', '--dry-run')
     $flags['completions uninstall'] = @('-h', '--help', '--dir', '-d', '--dry-run')
@@ -57,8 +62,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--allow-dirty'] = 'With history off, rewrite files that have uncommitted changes'
     $help['--unguarded'] = 'Do not check this run with the build guard, nor hold back the edits it holds'
     $help['--no-history'] = 'Do not record this run in history (it cannot be restored)'
+    $help['--no-report'] = 'Keep no bug report: name each bug mto finds in itself in one line'
     $help['--color'] = 'Color the output (default: auto, only on a terminal)'
-    $help['--dbg'] = 'Print how each file was split into items'
     $help['-q'] = 'Print only errors and what was asked for'
     $help['--quiet'] = 'Print only errors and what was asked for'
     $help['-v'] = 'Name each file as it is formatted'
@@ -78,6 +83,11 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--keep'] = 'Keep only the newest N runs'
     $help['--with-file'] = 'Add the whole file the bug was found in'
     $help['--dir'] = 'Use this folder instead of the shell''s own'
+    $help['--json'] = 'As JSON, whose shape keeps its version'
+    $help['--runs'] = 'How many runs a file goes through (default 2)'
+    $help['--diff'] = 'Show what a run changed again, for a file that does not settle'
+    $help['--layout-only'] = 'Lay out without formatting'
+    $help['--under'] = 'Only the reports seen in files under PATH'
     $help['--older-than'] = 'Remove runs this old: 30 (days), 2w, 12h'
     $help['init'] = 'Write a default mto.toml'
     $help['config'] = 'Show the configuration that applies in a folder, or every setting'
@@ -97,17 +107,22 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['report show'] = 'Print one report'
     $help['report save'] = 'Write one report to a file'
     $help['report send'] = 'Open a new issue filled in with one report'
-    $help['report prune'] = 'Remove every report'
-    $help['debug'] = 'Print what mto sees in a file, or where and why it leaves code as written'
+    $help['report recheck'] = 'Run each report''s bug again; remove those it no longer shows'
+    $help['report remove'] = 'Remove the reports named'
+    $help['report prune'] = 'Remove every report, or those seen under a folder'
+    $help['debug'] = 'Show what mto sees in a file and why it does what it does; nothing is written'
     $help['debug tokens'] = 'Print the tokens of a file'
     $help['debug tree'] = 'Print the syntax tree of a file'
-    $help['debug layout'] = 'Say where the formatter leaves code as written, and why'
+    $help['debug kept'] = 'Say where formatting leaves code as written, and why'
+    $help['debug units'] = 'Show how layout cuts a file into items, and why'
+    $help['debug moves'] = 'List the items that move, and the rule behind each'
+    $help['debug settle'] = 'Run files through mto in memory, check them, run again, count outcomes'
     $help['completions'] = 'Print or install the completions for a shell'
     $help['completions install'] = 'Write the script where the shell loads completions from'
     $help['completions uninstall'] = 'Remove the script mto wrote'
     $help['completions status'] = 'Say where each shell''s script is, and whether it is current'
     # The flags followed by a value, and what the value completes to.
-    $takesValue = @('--emit', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--color', '--keep', '--dir', '--older-than')
+    $takesValue = @('--emit', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--color', '--keep', '--dir', '--runs', '--under', '--older-than')
     # A flag's values, when they are a fixed set.
     $values = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $values['--emit'] = @('files', 'stdout', 'json')
@@ -126,8 +141,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $subcommands['config'] = @('path', 'print', 'options')
     $subcommands['history'] = @('show', 'prune')
     $subcommands['doctor'] = @('on', 'off', 'holds', 'release')
-    $subcommands['report'] = @('show', 'save', 'send', 'prune')
-    $subcommands['debug'] = @('tokens', 'tree', 'layout')
+    $subcommands['report'] = @('show', 'save', 'send', 'recheck', 'remove', 'prune')
+    $subcommands['debug'] = @('tokens', 'tree', 'kept', 'units', 'moves', 'settle')
     $subcommands['completions'] = @('install', 'uninstall', 'status')
     # What a command's arguments complete to, after any subcommand.
     $operandPaths = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
@@ -138,7 +153,10 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $operandPaths['report save'] = 'files'
     $operandPaths['debug tokens'] = 'files'
     $operandPaths['debug tree'] = 'files'
-    $operandPaths['debug layout'] = 'files'
+    $operandPaths['debug kept'] = 'files'
+    $operandPaths['debug units'] = 'files'
+    $operandPaths['debug moves'] = 'files'
+    $operandPaths['debug settle'] = 'files'
     $operandWords = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $operandWords['completions'] = @('bash', 'zsh', 'fish', 'powershell')
     $operandWords['completions install'] = @('bash', 'zsh', 'fish', 'powershell')

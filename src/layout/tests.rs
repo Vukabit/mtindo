@@ -582,6 +582,62 @@ fn test_inline_modules_are_laid_out_at_every_level() {
   assert_eq!(arranged(closed), closed);
 }
 
+#[test]
+fn test_inspect_names_the_rule_behind_each_move() {
+  let source = "fn b() {}\n\nstruct A;\n\npub fn c() {}\n";
+  let seen = inspect(source, &LayoutConfig::default()).unwrap();
+  let moves: Vec<(&str, Rule)> = seen
+    .moves
+    .iter()
+    .map(|m| (m.name.as_str(), m.rule))
+    .collect();
+  // The fewest units out of order move: `b`, below `pub fn c` by visibility.
+  assert_eq!(moves, [("b", Rule::Visibility)]);
+  let helper = LayoutConfig {
+    keep_helpers_near: true,
+    ..LayoutConfig::default()
+  };
+  let used = "fn beta() {\n    zz();\n}\n\nfn alpha() {}\n\nfn zz() {}\n";
+  let rules: Vec<Rule> = inspect(used, &helper)
+    .unwrap()
+    .moves
+    .iter()
+    .map(|m| m.rule)
+    .collect();
+  assert!(rules.contains(&Rule::Helper), "{:?}", rules);
+}
+
+#[test]
+fn test_inspect_says_why_each_unit_was_cut_so() {
+  let config = LayoutConfig {
+    keep_paragraphs: true,
+    keep_helpers_near: true,
+    sections: Sections::Comments,
+    ..LayoutConfig::default()
+  };
+  let source = "use std::fmt;\n\n// Parsing\n\nfn parse() {\n    step();\n}\nfn parse_all() {}\n\nfn step() {}\n\nfn shared() {}\n\nfn one() {\n    shared();\n}\n\nfn two() {\n    shared();\n}\n\n// mto: pin\nfn kept() {}\n\nmod inner {\n    fn b() {}\n\n    fn a() {}\n}\n";
+  let seen = inspect(source, &config).unwrap();
+  assert_eq!(seen.containers.len(), 2);
+  assert_eq!(seen.containers[1].path, "mod inner");
+  let units = &seen.containers[0].units;
+  let notes_of = |name: &str| {
+    units
+      .iter()
+      .find(|u| u.name == name)
+      .unwrap_or_else(|| panic!("no unit {}", name))
+      .notes
+      .join("; ")
+  };
+  assert!(notes_of("std::fmt").contains("import group: standard library"));
+  assert!(notes_of("// Parsing").contains("starts a section"));
+  assert!(notes_of("parse").contains("a paragraph"));
+  assert!(notes_of("step").contains("helper: stays above `parse`"));
+  assert!(notes_of("shared").contains("not a helper: used by 2 items: one, two"));
+  assert!(notes_of("kept").contains("pinned, keeps its slot: `// mto: pin`"));
+  let parse = units.iter().find(|u| u.name == "parse").unwrap();
+  assert_eq!((parse.kind, parse.lines), ("fn", (5, 8)));
+}
+
 /// Items compared under any `type_order` (empty, partial, full) and the settings that keep
 /// some kinds as written are one order: never `a < b < c < a`, which made sorting panic. An
 /// import among constants, below the others, with `type_order = []` and

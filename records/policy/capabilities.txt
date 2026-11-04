@@ -233,8 +233,8 @@ mto     flag:--color                                     supported    # tests/do
 mto     flag:--config                                    supported    # tests/domain_8_cli.rs
 mto     flag:--config-path                               supported    # tests/domain_8_cli.rs
 mto     flag:--current                                   supported    # tests/domain_8_cli.rs
-mto     flag:--dbg                                       supported    # tests/domain_8_cli.rs
 mto     flag:--default                                   supported    # tests/domain_8_cli.rs
+mto     flag:--diff                                      supported    # tests/domain_8_cli.rs
 mto     flag:--dir                                       supported    # tests/domain_8_cli.rs
 mto     flag:--dry-run                                   supported    # tests/domain_8_cli.rs
 mto     flag:--edition                                   supported    # tests/domain_8_cli.rs
@@ -243,18 +243,23 @@ mto     flag:--files-with-diff                           supported    # tests/do
 mto     flag:--follow-links                              supported    # tests/domain_10_polyrepo.rs
 mto     flag:--force                                     supported    # tests/domain_8_cli.rs
 mto     flag:--help                                      supported    # tests/domain_8_cli.rs
+mto     flag:--json                                      supported    # tests/domain_8_cli.rs
 mto     flag:--keep                                      supported    # tests/domain_8_cli.rs
+mto     flag:--layout-only                               supported    # tests/domain_8_cli.rs
 mto     flag:--man                                       supported    # tests/domain_8_cli.rs
 mto     flag:--minimal                                   supported    # tests/domain_8_cli.rs
 mto     flag:--no-history                                supported    # tests/domain_8_cli.rs
+mto     flag:--no-report                                 supported    # tests/domain_8_cli.rs
 mto     flag:--older-than                                supported    # tests/domain_8_cli.rs
 mto     flag:--print-config                              supported    # tests/domain_8_cli.rs
 mto     flag:--quiet                                     supported    # tests/domain_8_cli.rs
 mto     flag:--recursive                                 supported    # tests/domain_12_scale.rs
+mto     flag:--runs                                      supported    # tests/domain_8_cli.rs
 mto     flag:--skip-children                             supported    # tests/domain_8_cli.rs
 mto     flag:--stdin-filepath                            supported    # tests/domain_8_cli.rs
 mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs
 mto     flag:--toml                                      supported    # src/cli/options/tests.rs, tests/domain_8_cli.rs
+mto     flag:--under                                     supported    # tests/domain_8_cli.rs
 mto     flag:--unguarded                                 supported    # tests/domain_8_cli.rs
 mto     flag:--unstable-features                         supported    # tests/domain_8_cli.rs
 mto     flag:--user                                      supported    # tests/domain_8_cli.rs

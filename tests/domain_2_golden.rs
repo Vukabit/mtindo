@@ -16,10 +16,10 @@ fn a() {}
     ..LayoutConfig::default()
   };
 
-  let pass_1 = reorganize_file(input.to_string(), &config, false);
+  let pass_1 = reorganize_file(input.to_string(), &config);
   assert_eq!(pass_1, expected);
 
-  let pass_2 = reorganize_file(pass_1.clone(), &config, false);
+  let pass_2 = reorganize_file(pass_1.clone(), &config);
   assert_eq!(pass_2, expected);
 }
 
@@ -38,10 +38,10 @@ pub(in crate::x) fn e_in() {}
 
   let config = LayoutConfig::default();
 
-  let pass_1 = reorganize_file(input.to_string(), &config, false);
+  let pass_1 = reorganize_file(input.to_string(), &config);
   assert_eq!(pass_1, expected);
 
-  let pass_2 = reorganize_file(pass_1.clone(), &config, false);
+  let pass_2 = reorganize_file(pass_1.clone(), &config);
   assert_eq!(pass_2, expected);
 }
 
@@ -59,10 +59,10 @@ struct Alpha {}
     ..LayoutConfig::default()
   };
 
-  let pass_1 = reorganize_file(input.to_string(), &config, false);
+  let pass_1 = reorganize_file(input.to_string(), &config);
   assert_eq!(pass_1, expected);
 
-  let pass_2 = reorganize_file(pass_1.clone(), &config, false);
+  let pass_2 = reorganize_file(pass_1.clone(), &config);
   assert_eq!(pass_2, expected);
 }
 
@@ -85,10 +85,10 @@ use serde::Deserialize;
     ..LayoutConfig::default()
   };
 
-  let pass_1 = reorganize_file(input.to_string(), &config, false);
+  let pass_1 = reorganize_file(input.to_string(), &config);
   assert_eq!(pass_1, expected);
 
-  let pass_2 = reorganize_file(pass_1.clone(), &config, false);
+  let pass_2 = reorganize_file(pass_1.clone(), &config);
   assert_eq!(pass_2, expected);
 }
 
@@ -111,10 +111,10 @@ pub fn c() {}
 
   let config = LayoutConfig::default();
 
-  let pass_1 = reorganize_file(input.to_string(), &config, false);
+  let pass_1 = reorganize_file(input.to_string(), &config);
   assert_eq!(pass_1, expected);
 
-  let pass_2 = reorganize_file(pass_1.clone(), &config, false);
+  let pass_2 = reorganize_file(pass_1.clone(), &config);
   assert_eq!(pass_2, expected);
 }
 
@@ -131,10 +131,10 @@ struct Real {}
 
   let config = LayoutConfig::default();
 
-  let pass_1 = reorganize_file(input.to_string(), &config, false);
+  let pass_1 = reorganize_file(input.to_string(), &config);
   assert_eq!(pass_1, expected);
 
-  let pass_2 = reorganize_file(pass_1.clone(), &config, false);
+  let pass_2 = reorganize_file(pass_1.clone(), &config);
   assert_eq!(pass_2, expected);
 }
 
@@ -155,9 +155,9 @@ impl Default for Alpha {}
     ..LayoutConfig::default()
   };
 
-  let pass_1 = reorganize_file(input.to_string(), &config, false);
+  let pass_1 = reorganize_file(input.to_string(), &config);
   assert_eq!(pass_1, expected);
 
-  let pass_2 = reorganize_file(pass_1.clone(), &config, false);
+  let pass_2 = reorganize_file(pass_1.clone(), &config);
   assert_eq!(pass_2, expected);
 }

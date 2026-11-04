@@ -8,12 +8,17 @@
 //! - `mto report send ID`: opens a new issue on mto's repository in the browser, filled in
 //!   with the report, to read over and submit; one too long for a link goes on the
 //!   clipboard instead, to paste. mto itself sends nothing.
-//! - `mto report prune`: removes every report.
+//! - `mto report prune [--under PATH]`: removes every report, or those seen only in files
+//!   under PATH.
+//! - `mto report remove ID...`: removes these reports.
+//! - `mto report recheck [ID...] [--dry-run]`: runs each report's bug again under this build:
+//!   one that no longer fails goes; `--dry-run` only says which.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use super::replay::{self, Verdict};
 use crate::config::{Resolver, user};
 use crate::history::sha256;
 use crate::report::{Entry, Store};
@@ -111,6 +116,136 @@ pub fn prune(store: &Store) -> Result<String, String> {
     .clear()
     .map_err(|e| format!("cannot remove reports: {}", e))?;
   Ok(format!("removed {} report(s)\n", removed))
+}
+
+/// `mto report prune --under PATH`: removes the reports whose bug was seen only in files
+/// under `under`; one seen on stdin stays.
+pub fn prune_under(store: &Store, under: &Path) -> Result<String, String> {
+  let absolute = std::path::absolute(under).unwrap_or_else(|_| under.to_path_buf());
+  let real = crate::real_path(under).ok();
+  let inside = |path: &Path| {
+    path.starts_with(&absolute) || real.as_ref().is_some_and(|real| path.starts_with(real))
+  };
+  let mut removed = 0;
+  for entry in store.list() {
+    let only_under = !entry.files.is_empty()
+      && entry
+        .files
+        .iter()
+        .all(|seen| seen.path.as_deref().is_some_and(inside));
+    if only_under {
+      store
+        .remove(&entry)
+        .map_err(|e| format!("cannot remove report {}: {}", &entry.id[..6], e))?;
+      removed += 1;
+    }
+  }
+  Ok(format!(
+    "removed {} report(s) seen only under {}\n",
+    removed,
+    under.display()
+  ))
+}
+
+/// `mto report recheck [ID...] [--dry-run]`: runs the bug of each report named (every
+/// report when none is) again under this build, giving each its row as it is found, and
+/// says what was found. One that still fails is kept and marked rechecked, with what runs
+/// it again when it lacked that; one that passes is removed; one that cannot be run again
+/// with certainty is left as it is. With `dry_run`, nothing changes.
+pub fn recheck(
+  store: &Store,
+  ids: &[String],
+  dry_run: bool,
+  row: &mut dyn FnMut(String),
+) -> Result<String, String> {
+  let entries = if ids.is_empty() {
+    store.list()
+  } else {
+    ids
+      .iter()
+      .map(|id| store.find(id))
+      .collect::<Result<Vec<_>, _>>()?
+  };
+  if entries.is_empty() {
+    return Ok("no bug reports to recheck\n".to_string());
+  }
+  let on = crate::color_enabled(false);
+  row(format!(
+    "{}\n",
+    paint(
+      on,
+      tone::HEADING,
+      &format!("{:<8} {:<13}  {}", "REPORT", "NOW", "WHAT")
+    )
+  ));
+  // Reproduce, fail differently, fixed, cannot replay.
+  let mut counts = [0usize; 4];
+  for entry in &entries {
+    let rechecked = replay::recheck(entry);
+    let (slot, now, note) = match &rechecked.verdict {
+      Verdict::Reproduces => (0, "reproduces", String::new()),
+      Verdict::Differs(what) => (1, "differs", format!(" (now {})", what)),
+      Verdict::Fixed => (2, "fixed", String::new()),
+      Verdict::CannotReplay(why) => (3, "cannot replay", format!(" ({})", why)),
+    };
+    counts[slot] += 1;
+    if !dry_run {
+      let done = match rechecked.verdict {
+        Verdict::Reproduces | Verdict::Differs(_) => {
+          store.rechecked(entry, rechecked.replay.as_ref())
+        }
+        Verdict::Fixed => store.remove(entry),
+        Verdict::CannotReplay(_) => Ok(()),
+      };
+      done.map_err(|e| format!("cannot update report {}: {}", &entry.id[..6], e))?;
+    }
+    let note = if note.is_empty() {
+      entry
+        .files
+        .first()
+        .map_or(String::new(), |seen| format!(" ({})", seen.shown))
+    } else {
+      note
+    };
+    row(format!(
+      "{} {:<13}  {}{}\n",
+      paint(on, tone::ID, &format!("{:<8}", &entry.id[..6])),
+      now,
+      entry.title,
+      paint(on, tone::QUIET, &note)
+    ));
+  }
+  let [reproduce, differ, fixed, cannot] = counts;
+  Ok(format!(
+    "{} report(s): {} reproduce, {} fail differently, {} fixed{}, {} cannot be replayed \
+     (kept as they are)\n",
+    entries.len(),
+    reproduce,
+    differ,
+    fixed,
+    match (dry_run, fixed) {
+      (_, 0) => "",
+      (true, _) => " (--dry-run: none removed)",
+      (false, _) => " and removed",
+    },
+    cannot
+  ))
+}
+
+/// `mto report remove ID...`: removes these reports, once every id names one.
+pub fn remove(store: &Store, ids: &[String]) -> Result<String, String> {
+  let entries = ids
+    .iter()
+    .map(|id| store.find(id))
+    .collect::<Result<Vec<_>, _>>()?;
+  let mut out = String::new();
+  for entry in &entries {
+    store
+      .remove(entry)
+      .map_err(|e| format!("cannot remove report {}: {}", &entry.id[..6], e))?;
+    out.push_str(&format!("removed report {}\n", &entry.id[..6]));
+  }
+  Ok(out)
 }
 
 /// `mto report save ID FILE [--with-file]`: the report into `file`, with the whole file it

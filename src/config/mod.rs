@@ -341,6 +341,10 @@ impl Config {
     config.single_line_let_else_max_width = width("single_line_let_else_max_width", 50);
     config.style_edition = self.style_edition();
     config.reorder_imports = flag("reorder_imports", true);
+    config.import_sort = self
+      .get("import_sort")
+      .and_then(Value::as_text)
+      .and_then(|year| year.parse().ok());
     config.reorder_modules = flag("reorder_modules", true);
     config.force_explicit_abi = flag("force_explicit_abi", true);
     config.merge_derives = flag("merge_derives", true);
@@ -1012,6 +1016,23 @@ pub fn layout_from_settings(pairs: &[(&str, &str)]) -> Result<LayoutConfig, Erro
     files: Vec::new(),
   };
   Ok(config.layout())
+}
+
+/// The settings a bug report's replay file gives (`mto report recheck`): `text` read as
+/// `--config-path` reads a file, with nothing else found, neither a user config nor a
+/// `Cargo.toml`. A warning (an unknown key, a key in the wrong file) is an error here: the
+/// settings would not be the ones the file was written from.
+pub fn replayed(text: &str) -> Result<Config, Error> {
+  let loaded = read(Path::new("replay.toml"), text, FileKind::Explicit)?;
+  if let Some(warning) = loaded.warnings.first() {
+    return Err(Error::new(warning.clone()));
+  }
+  let mut resolver = Resolver::new(&Overrides::default(), Environment::default())?;
+  resolver.explicit = Some(Rc::new(loaded));
+  // No package edition: its lookup is answered before it asks the file system.
+  let dir = PathBuf::from("replay");
+  resolver.editions.insert(dir.clone(), Ok(None));
+  resolver.resolve(&dir)
 }
 
 /// `dir` made absolute with symlinks resolved, so every spelling of a folder shares one

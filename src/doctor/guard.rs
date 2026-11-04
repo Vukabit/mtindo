@@ -354,7 +354,7 @@ fn count(n: usize, thing: &str) -> String {
 /// How many edits the run makes to a file: units moved, and runs of lines formatting
 /// changed.
 fn edits_of(file: &Planned) -> usize {
-  let Ok(shaped) = crate::shape(&file.source, &file.settings, &file.held, None) else {
+  let Ok(shaped) = crate::shape(&file.source, &file.settings, &file.held) else {
     return 0;
   };
   shaped.moves.len() + super::hunks(&shaped.laid_out, &shaped.text).len()

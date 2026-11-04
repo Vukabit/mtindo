@@ -4,7 +4,7 @@
 # Whether flag $1 is followed by its value.
 _mto_takes_value() {
   case "$1" in
-    --emit|--stdin-filepath|--config|--config-path|--edition|--print-config|--style-edition|--color|--keep|--dir|--older-than) return 0 ;;
+    --emit|--stdin-filepath|--config|--config-path|--edition|--print-config|--style-edition|--color|--keep|--dir|--runs|--under|--older-than) return 0 ;;
   esac
   return 1
 }
@@ -149,17 +149,17 @@ _mto_value() {
 # The flags that may follow command $1 and subcommand $2 (either may be empty).
 _mto_flags() {
   case "$1 $2" in
-    " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --stdin-filepath --config --config-path --edition --print-config --style-edition --unstable-features --allow-dirty --unguarded --no-history --color --dbg -q --quiet -v --verbose -h --help --man -V --version ;;
+    " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --stdin-filepath --config --config-path --edition --print-config --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-report --color -q --quiet -v --verbose -h --help --man -V --version ;;
     "init ") _mto_words "" -h --help ;;
     "config ") _mto_words "" -h --help ;;
-    "config path") _mto_words "" -h --help --config --config-path --edition --style-edition ;;
-    "config print") _mto_words "" -h --help --current --default --minimal --user --config --config-path --edition --style-edition ;;
-    "config options") _mto_words "" -h --help --toml ;;
-    "history ") _mto_words "" -h --help --all ;;
+    "config path") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
+    "config print") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
+    "config options") _mto_words "" -h --help --toml --json ;;
+    "history ") _mto_words "" -h --help --all --json ;;
     "history show") _mto_words "" -h --help ;;
     "history prune") _mto_words "" -h --help --keep --older-than ;;
     "restore ") _mto_words "" -h --help --force ;;
-    "doctor ") _mto_words "" -h --help ;;
+    "doctor ") _mto_words "" -h --help --json ;;
     "doctor on") _mto_words "" -h --help ;;
     "doctor off") _mto_words "" -h --help ;;
     "doctor holds") _mto_words "" -h --help ;;
@@ -168,11 +168,16 @@ _mto_flags() {
     "report show") _mto_words "" -h --help ;;
     "report save") _mto_words "" -h --help --with-file ;;
     "report send") _mto_words "" -h --help ;;
-    "report prune") _mto_words "" -h --help ;;
+    "report recheck") _mto_words "" -h --help -d --dry-run ;;
+    "report remove") _mto_words "" -h --help ;;
+    "report prune") _mto_words "" -h --help --under ;;
     "debug ") _mto_words "" -h --help ;;
-    "debug tokens") _mto_words "" -h --help --edition ;;
-    "debug tree") _mto_words "" -h --help --edition ;;
-    "debug layout") _mto_words "" -h --help --edition ;;
+    "debug tokens") _mto_words "" -h --help --config --config-path --edition --stdin-filepath --json --runs --diff --layout-only ;;
+    "debug tree") _mto_words "" -h --help --config --config-path --edition --stdin-filepath --json --runs --diff --layout-only ;;
+    "debug kept") _mto_words "" -h --help --config --config-path --edition --stdin-filepath --json --runs --diff --layout-only ;;
+    "debug units") _mto_words "" -h --help --config --config-path --edition --stdin-filepath --json --runs --diff --layout-only ;;
+    "debug moves") _mto_words "" -h --help --config --config-path --edition --stdin-filepath --json --runs --diff --layout-only ;;
+    "debug settle") _mto_words "" -h --help --config --config-path --edition --stdin-filepath --json --runs --diff --layout-only ;;
     "completions ") _mto_words "" -h --help ;;
     "completions install") _mto_words "" -h --help --dir -d --dry-run ;;
     "completions uninstall") _mto_words "" -h --help --dir -d --dry-run ;;
@@ -186,8 +191,8 @@ _mto_subcommands() {
     config) _mto_words "" path print options ;;
     history) _mto_words "" show prune ;;
     doctor) _mto_words "" on off holds release ;;
-    report) _mto_words "" show save send prune ;;
-    debug) _mto_words "" tokens tree layout ;;
+    report) _mto_words "" show save send recheck remove prune ;;
+    debug) _mto_words "" tokens tree kept units moves settle ;;
     completions) _mto_words "" install uninstall status ;;
   esac
 }
@@ -196,7 +201,7 @@ _mto_subcommands() {
 _mto_operand() {
   case "$1 $2" in
     "init "|"config path"|"config print") _mto_paths "" "$3" dirs ;;
-    "restore "|"report save"|"debug tokens"|"debug tree"|"debug layout") _mto_paths "" "$3" ;;
+    "restore "|"report save"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle") _mto_paths "" "$3" ;;
     "completions "|"completions install"|"completions uninstall"|"completions status") _mto_words "" bash zsh fish powershell ;;
   esac
 }
@@ -280,7 +285,7 @@ _mto_is_command() {
 # Whether $2 is a subcommand of command $1.
 _mto_is_subcommand() {
   case "$1 $2" in
-    "config path"|"config print"|"config options"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor release"|"report show"|"report save"|"report send"|"report prune"|"debug tokens"|"debug tree"|"debug layout"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
+    "config path"|"config print"|"config options"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
   esac
   return 1
 }

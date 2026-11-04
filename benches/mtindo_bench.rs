@@ -6,7 +6,7 @@ fn bench_reorganize(c: &mut Criterion) {
   let config = LayoutConfig::default();
 
   c.bench_function("reorganize_10000_structs", |b| {
-    b.iter(|| reorganize_file(black_box(source.clone()), black_box(&config), false))
+    b.iter(|| reorganize_file(black_box(source.clone()), black_box(&config)))
   });
 }
 

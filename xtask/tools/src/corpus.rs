@@ -311,7 +311,7 @@ pub fn speed(args: &[String]) -> ExitCode {
     };
     bytes += text.len();
     let started = Instant::now();
-    let _ = try_reorganize(&text, &LayoutConfig::default(), false);
+    let _ = try_reorganize(&text, &LayoutConfig::default());
     time += started.elapsed();
   }
   let speed = bytes as f64 / time.as_secs_f64().max(1e-9) / 1_000_000.0;
@@ -335,7 +335,7 @@ fn agree(
   if rustfmt_stdout(&formatted, edition, scratch, rustfmt).as_deref() != Some(formatted.as_str()) {
     return Agreement::RustfmtUnstable;
   }
-  let again = match try_reorganize(&formatted, &config(edition), false) {
+  let again = match try_reorganize(&formatted, &config(edition)) {
     Ok(again) => again,
     Err(_) => return Agreement::Agrees,
   };
@@ -407,7 +407,7 @@ fn check_file(path: &Path, shown: &str, totals: &mut Totals) {
   // The verifier on what layout would write.
   let config = config_for(edition);
   let started = Instant::now();
-  let laid_out = try_reorganize(&text, &config, false);
+  let laid_out = try_reorganize(&text, &config);
   totals.layout_time += started.elapsed();
   if let Ok(output) = laid_out
     && output != text
@@ -424,7 +424,7 @@ fn check_file(path: &Path, shown: &str, totals: &mut Totals) {
         .push(format!("{}: {}", shown, violation.detail));
     }
     // A second run must change nothing.
-    if try_reorganize(&output, &config, false).as_deref() != Ok(output.as_str()) {
+    if try_reorganize(&output, &config).as_deref() != Ok(output.as_str()) {
       totals
         .verify_findings
         .entry("not-stable")
@@ -434,7 +434,7 @@ fn check_file(path: &Path, shown: &str, totals: &mut Totals) {
     // With ordering inside impl blocks on too: verified, and checked against rustfmt
     // nightly's `reorder_impl_items` below.
     let impls = impl_config(edition);
-    if let Ok(with_impls) = try_reorganize(&text, &impls, false)
+    if let Ok(with_impls) = try_reorganize(&text, &impls)
       && with_impls != output
     {
       for violation in verify_layout(&text, &with_impls, edition) {
@@ -444,7 +444,7 @@ fn check_file(path: &Path, shown: &str, totals: &mut Totals) {
           .or_default()
           .push(format!("{} (impl options): {}", shown, violation.detail));
       }
-      if try_reorganize(&with_impls, &impls, false).as_deref() != Ok(with_impls.as_str()) {
+      if try_reorganize(&with_impls, &impls).as_deref() != Ok(with_impls.as_str()) {
         totals
           .verify_findings
           .entry("not-stable")

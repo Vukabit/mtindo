@@ -8,10 +8,17 @@
 //! build (`version::details`). One report per distinct bug: the same failure on the same
 //! smallest input under the same build is counted, not kept again.
 //!
+//! What runs the bug again is kept beside it (see `crate::cli::replay`): the smallest failing part,
+//! and the settings as a configuration file holds them. `mto report recheck` runs each
+//! report's bug again under the build at hand, and removes those it no longer shows.
+//!
 //! ```text
 //! <state>/mtindo/reports/<id>/
-//!     report.md   the report, as an issue's body
-//!     meta        count, first and last seen (ms), and each file it was seen in
+//!     report.md     the report, as an issue's body
+//!     meta          count, first and last seen (ms), each file it was seen in, and when
+//!                   it was last rechecked, and by which build
+//!     input.rs      the smallest part of the file that still fails
+//!     replay.toml   the settings, as `--config-path` reads them
 //! ```
 
 use std::fs;
@@ -26,11 +33,17 @@ use crate::version;
 /// Reports not seen again for this long go when another is saved.
 pub const KEEP_DAYS: u64 = 90;
 
+/// The file a report keeps its smallest failing part in, to run again.
+const INPUT: &str = "input.rs";
+
 /// The most lines the smallest failing part may have to be shown open in a report.
 const OPEN_LINES: usize = 30;
 
 /// The most files a report remembers it was seen in.
 const SEEN_IN: usize = 10;
+
+/// The file a report keeps its settings in, to run again.
+const SETTINGS: &str = "replay.toml";
 
 /// The longest title, in characters.
 const TITLE: usize = 100;
@@ -42,6 +55,21 @@ pub enum Failure {
   Panicked { said: String },
   /// The verifier stopped the write: the rules the new text broke.
   Verifier { violations: Vec<Violation> },
+}
+
+impl Failure {
+  /// A line naming the failure, for a list and an issue's title.
+  pub fn title(&self) -> String {
+    let what = match self {
+      Failure::Panicked { said } => format!("panic: {}", said),
+      Failure::Verifier { violations } => {
+        let mut rules: Vec<&str> = violations.iter().map(|v| v.rule.name()).collect();
+        rules.dedup();
+        format!("verifier: {}", rules.join(", "))
+      }
+    };
+    shorten(&what, TITLE)
+  }
 }
 
 /// One bug, as found on one file.
@@ -63,6 +91,9 @@ pub struct Bug {
   pub settings: String,
   /// The command line.
   pub command: String,
+  /// What runs the bug again; `None` when no smallest part was found, or the settings
+  /// cannot be written so that they read back the same.
+  pub replay: Option<Replay>,
 }
 
 impl Bug {
@@ -84,12 +115,7 @@ impl Bug {
   pub fn key(&self) -> String {
     let failure = match &self.failure {
       Failure::Panicked { said } => format!("panic {}", said),
-      Failure::Verifier { violations } => {
-        let mut rules: Vec<&str> = violations.iter().map(|v| v.rule.name()).collect();
-        rules.sort_unstable();
-        rules.dedup();
-        format!("verifier {}", rules.join(" "))
-      }
+      Failure::Verifier { violations } => format!("verifier {}", rules(violations).join(" ")),
     };
     let minimal = self.minimal.as_deref().unwrap_or("");
     sha256::hex(format!("{}\n{}\n{}", version::FULL, failure, minimal).as_bytes())
@@ -97,15 +123,7 @@ impl Bug {
 
   /// A line naming the bug, for a list and an issue's title.
   pub fn title(&self) -> String {
-    let what = match &self.failure {
-      Failure::Panicked { said } => format!("panic: {}", said),
-      Failure::Verifier { violations } => {
-        let mut rules: Vec<&str> = violations.iter().map(|v| v.rule.name()).collect();
-        rules.dedup();
-        format!("verifier: {}", rules.join(", "))
-      }
-    };
-    shorten(&what, TITLE)
+    self.failure.title()
   }
 
   /// The report as Markdown, ready to be an issue's body.
@@ -177,6 +195,8 @@ pub struct Entry {
   pub last: u64,
   /// The files it was seen in, the first first.
   pub files: Vec<Seen>,
+  /// When `mto report recheck` last found it still failing (ms), and under which build.
+  pub rechecked: Option<(u64, String)>,
   pub dir: PathBuf,
 }
 
@@ -185,6 +205,23 @@ impl Entry {
   pub fn read(&self) -> io::Result<String> {
     fs::read_to_string(self.dir.join("report.md"))
   }
+
+  /// What runs the bug again, when the report keeps it.
+  pub fn replay(&self) -> Option<Replay> {
+    Some(Replay {
+      input: fs::read_to_string(self.dir.join(INPUT)).ok()?,
+      settings: fs::read_to_string(self.dir.join(SETTINGS)).ok()?,
+    })
+  }
+}
+
+/// What runs a report's bug again: the smallest part of the file that still fails, and the
+/// settings it fails with, as a configuration file (`--config-path`) holds them, edition
+/// included.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Replay {
+  pub input: String,
+  pub settings: String,
 }
 
 /// A file a bug was seen in: as the run named it, where it is (`None` for stdin), and the
@@ -230,6 +267,7 @@ impl Store {
       first: now,
       last: now,
       files: Vec::new(),
+      rechecked: None,
       dir: dir.clone(),
     });
     entry.count += 1;
@@ -244,6 +282,9 @@ impl Store {
     fs::create_dir_all(&dir)?;
     if entry.count == 1 {
       fs::write(dir.join("report.md"), bug.markdown())?;
+      if let Some(replay) = &bug.replay {
+        write_replay(&dir, replay)?;
+      }
     }
     fs::write(dir.join("meta"), meta_text(&entry))?;
     self.prune_older(now.saturating_sub(KEEP_DAYS * 24 * 60 * 60 * 1000));
@@ -290,6 +331,24 @@ impl Store {
     Ok(entries.len())
   }
 
+  /// Removes one report.
+  pub fn remove(&self, entry: &Entry) -> io::Result<()> {
+    fs::remove_dir_all(&entry.dir)
+  }
+
+  /// Notes that `mto report recheck` found `entry` still failing under this build, and
+  /// keeps `replay` with it when given (a report kept before replays were).
+  pub fn rechecked(&self, entry: &Entry, replay: Option<&Replay>) -> io::Result<()> {
+    let _one = self.saving.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(replay) = replay {
+      write_replay(&entry.dir, replay)?;
+    }
+    // Read again: a run may have seen it since it was listed.
+    let mut entry = read_entry(&entry.dir).unwrap_or_else(|| entry.clone());
+    entry.rechecked = Some((now_millis(), version::FULL.to_string()));
+    fs::write(entry.dir.join("meta"), meta_text(&entry))
+  }
+
   /// Removes the reports last seen before `cutoff` (ms).
   fn prune_older(&self, cutoff: u64) {
     for entry in self.list() {
@@ -298,6 +357,15 @@ impl Store {
       }
     }
   }
+}
+
+/// The names of the rules `violations` break, sorted, each once: what makes two verifier
+/// stops the same bug.
+pub fn rules(violations: &[Violation]) -> Vec<&'static str> {
+  let mut rules: Vec<&str> = violations.iter().map(|v| v.rule.name()).collect();
+  rules.sort_unstable();
+  rules.dedup();
+  rules
 }
 
 fn meta_text(entry: &Entry) -> String {
@@ -316,6 +384,9 @@ fn meta_text(entry: &Entry) -> String {
       .map_or("-".to_string(), |p| p.display().to_string());
     out.push_str(&format!("file {}\t{}\t{}\n", seen.hash, path, seen.shown));
   }
+  if let Some((at, build)) = &entry.rechecked {
+    out.push_str(&format!("rechecked {} {}\n", at, build));
+  }
   out
 }
 
@@ -329,6 +400,7 @@ fn read_entry(dir: &Path) -> Option<Entry> {
     first: 0,
     last: 0,
     files: Vec::new(),
+    rechecked: None,
     dir: dir.to_path_buf(),
   };
   for line in text.lines() {
@@ -346,6 +418,10 @@ fn read_entry(dir: &Path) -> Option<Entry> {
           path: (path != "-").then(|| PathBuf::from(path)),
           hash: hash.to_string(),
         });
+      }
+      "rechecked" => {
+        let (at, build) = value.split_once(' ')?;
+        entry.rechecked = Some((at.parse().ok()?, build.to_string()));
       }
       _ => {}
     }
@@ -370,6 +446,12 @@ fn shorten(what: &str, limit: usize) -> String {
   out.push('…');
   out.push_str(place);
   out
+}
+
+/// Keeps `replay` in a report's folder.
+fn write_replay(dir: &Path, replay: &Replay) -> io::Result<()> {
+  fs::write(dir.join(INPUT), &replay.input)?;
+  fs::write(dir.join(SETTINGS), &replay.settings)
 }
 
 #[cfg(test)]

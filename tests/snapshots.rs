@@ -38,8 +38,8 @@ fn run_fixture(dir: &Path, bless: bool) -> Result<(), String> {
   } else {
     LayoutConfig::default()
   };
-  let output = reorganize_file(input.clone(), &config, false);
-  let second = reorganize_file(output.clone(), &config, false);
+  let output = reorganize_file(input.clone(), &config);
+  let second = reorganize_file(output.clone(), &config);
   if second != output {
     return Err(format!(
       "not idempotent:\n--- first pass\n{}\n--- second pass\n{}",

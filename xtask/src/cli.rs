@@ -512,6 +512,31 @@ fn corpus() -> Command {
           "Record parsing speed in records/results/baseline.txt",
         )),
     )
+    .subcommand(
+      Command::new("try")
+        .about(
+          "Settings tried on every corpus file, as a run would apply them, then run again: \
+           each outcome counted apart",
+        )
+        .arg(option(
+          "config",
+          "KEY=VALUE,...",
+          "The settings tried, over each crate's own (layout=true unless given)",
+        ))
+        .arg(option(
+          "each",
+          "KEY=VALUE,...",
+          "Try each of these alone, then all together",
+        ))
+        .arg(option("runs", "N", "Runs a file goes through (default 2)"))
+        .arg(flag("layout-only", "Formatting off"))
+        .arg(option(
+          "record",
+          "NAME",
+          "Write the totals to records/results/toggles/NAME.txt",
+        ))
+        .arg(with_rust()),
+    )
 }
 
 /// [`corpus`] with `bench`, which `speed throughput` runs.

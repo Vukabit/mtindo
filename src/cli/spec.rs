@@ -138,14 +138,20 @@ pub const COMMANDS: &[CommandSpec] = &[
     usage: &[
       "mto config path [DIR]",
       "mto config print [OPTIONS] [DIR]",
-      "mto config options [--toml]",
+      "mto config options [--toml|--json]",
     ],
     options: &[
-      ("views", "mto config options", &[Flag::Toml]),
+      ("views", "mto config options", &[Flag::Toml, Flag::Json]),
       (
         "views",
-        "mto config print",
-        &[Flag::Current, Flag::Default, Flag::Minimal, Flag::User],
+        "mto config path|print",
+        &[
+          Flag::Current,
+          Flag::Default,
+          Flag::Minimal,
+          Flag::User,
+          Flag::Json,
+        ],
       ),
       (
         "configuration",
@@ -197,12 +203,12 @@ pub const COMMANDS: &[CommandSpec] = &[
                 `last` or `last~N`, counted among this project's runs, or a handle from the \
                 list, which names its run anywhere.",
     usage: &[
-      "mto history [--all]",
+      "mto history [--all] [--json]",
       "mto history show <RUN>",
       "mto history prune [--older-than DAYS] [--keep N]",
     ],
     options: &[
-      ("options", "mto history", &[Flag::All]),
+      ("options", "mto history", &[Flag::All, Flag::Json]),
       (
         "options",
         "mto history prune",
@@ -264,7 +270,7 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto doctor release <N|all>",
       "mto doctor <RUN> [-- <COMMAND>...]",
     ],
-    options: &[],
+    options: &[("options", "mto doctor", &[Flag::Json])],
     operand: Complete::Nothing,
     subcommands: &[
       Subcommand {
@@ -298,27 +304,38 @@ pub const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "report",
-    args: "[show|save|send|prune]",
+    args: "[show|save|send|recheck|remove|prune]",
     summary: "The bug reports mto keeps when it finds a bug in itself",
     about: "When the verifier stops a write, or laying out a file fails, mto keeps a report \
                 beside history and names it in one line (`report.save = false` in the user \
                 config prints the whole report instead). A report holds what failed, the \
                 smallest part of the file that still fails (never the whole file), the \
                 command, the settings that differ from the defaults and the build; the same \
-                bug seen again is counted. With no argument, lists the reports. `show` prints \
-                one. `save` writes one to FILE; --with-file adds the whole file it was found \
-                in. `send` opens a new issue on mto's repository in the browser, filled in \
-                with the report, to read over and submit: mto itself sends nothing. `prune` \
-                removes them all; a report not seen for 90 days goes by itself. ID is a \
-                report's id from the list, or its start.",
+                bug seen again is counted. Beside it, a report keeps what runs the bug again: \
+                the smallest part, and the settings as an mto.toml holds them. With no \
+                argument, lists the reports. `show` prints one. `save` writes one to FILE; \
+                --with-file adds the whole file it was found in. `send` opens a new issue on \
+                mto's repository in the browser, filled in with the report, to read over and \
+                submit: mto itself sends nothing. `recheck` runs each report's bug (or those \
+                named) again under this mto: one that no longer fails is removed, and one \
+                that cannot be run again exactly is kept as it is; --dry-run only lists what \
+                it finds. `remove` removes the reports named. `prune` removes them all, or \
+                with --under only those seen in files under PATH; a report not seen for 90 \
+                days goes by itself. ID is a report's id from the list, or its start.",
     usage: &[
       "mto report",
       "mto report show <ID>",
       "mto report save <ID> <FILE> [--with-file]",
       "mto report send <ID>",
-      "mto report prune",
+      "mto report recheck [<ID>...] [--dry-run]",
+      "mto report remove <ID>...",
+      "mto report prune [--under PATH]",
     ],
-    options: &[("options", "mto report save <ID> <FILE>", &[Flag::WithFile])],
+    options: &[
+      ("options", "mto report save <ID> <FILE>", &[Flag::WithFile]),
+      ("options", "mto report recheck", &[Flag::DryRun]),
+      ("options", "mto report prune", &[Flag::Under]),
+    ],
     operand: Complete::Nothing,
     subcommands: &[
       Subcommand {
@@ -337,8 +354,18 @@ pub const COMMANDS: &[CommandSpec] = &[
         operand: Complete::Nothing,
       },
       Subcommand {
+        word: "recheck",
+        summary: "Run each report's bug again; remove those it no longer shows",
+        operand: Complete::Nothing,
+      },
+      Subcommand {
+        word: "remove",
+        summary: "Remove the reports named",
+        operand: Complete::Nothing,
+      },
+      Subcommand {
         word: "prune",
-        summary: "Remove every report",
+        summary: "Remove every report, or those seen under a folder",
         operand: Complete::Nothing,
       },
     ],
@@ -347,21 +374,44 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto report show 7f3a2c",
       "mto report save 7f3a2c bug.md --with-file",
       "mto report send 7f3a2c",
+      "mto report recheck --dry-run",
+      "mto report remove 7f3a2c 0b19e4",
+      "mto report prune --under compat/cache",
     ],
   },
   CommandSpec {
     name: "debug",
-    args: "tokens|tree|layout <FILE>",
-    summary: "Print what mto sees in a file, or where and why it leaves code as written",
-    about: "Prints the tokens or the syntax tree of FILE as mto reads it, or (layout) each \
-                place the formatter leaves code as written in it and why, with the settings \
-                that apply to FILE and formatting on; nothing is written. The output is not stable; it is meant \
-                for bug reports and for finding why code was not formatted.",
-    usage: &["mto debug tokens|tree|layout <FILE> [--edition YEAR]"],
+    args: "tokens|tree|kept|units|moves|settle <FILE|->",
+    summary: "Show what mto sees in a file and why it does what it does; nothing is written",
+    about: "Shows what mto sees in FILE (or stdin, `-`), with the settings that apply to it and \
+                any given here; nothing is written. `tokens` and `tree` print the tokens or the \
+                syntax tree. `kept` lists each place formatting leaves code as written, and why. \
+                `units` shows how layout cuts the file into items, each with why it was cut and \
+                classed so (pinned, a paragraph, a section's start, a helper and its user). \
+                `moves` lists the items that move and the rule behind each. `settle` takes \
+                files or folders through a real run in memory, checks the result as a write \
+                would, runs again over its own output, and counts every outcome apart: as \
+                written, settled, left alone, the check failing, a panic, or a run changing the \
+                output again; it exits 4 when a check fails or a panic, 1 when one does not \
+                settle. The views are for people and are not stable; `--json` gives \
+                `units`, `moves` and `settle` as JSON whose shape keeps its `version`.",
+    usage: &[
+      "mto debug tokens|tree|kept|units|moves <FILE|-> [--json] [--config KEY=VALUE,...]",
+      "mto debug settle <PATH|->... [--runs N] [--diff] [--layout-only] [--json]",
+    ],
     options: &[(
       "options",
-      "mto debug tokens|tree|layout <FILE>",
-      &[Flag::Edition],
+      "mto debug tokens|tree|kept|units|moves|settle",
+      &[
+        Flag::Config,
+        Flag::ConfigPath,
+        Flag::Edition,
+        Flag::StdinFilepath,
+        Flag::Json,
+        Flag::Runs,
+        Flag::Diff,
+        Flag::LayoutOnly,
+      ],
     )],
     operand: Complete::Nothing,
     subcommands: &[
@@ -376,12 +426,31 @@ pub const COMMANDS: &[CommandSpec] = &[
         operand: Complete::Files,
       },
       Subcommand {
-        word: "layout",
-        summary: "Say where the formatter leaves code as written, and why",
+        word: "kept",
+        summary: "Say where formatting leaves code as written, and why",
+        operand: Complete::Files,
+      },
+      Subcommand {
+        word: "units",
+        summary: "Show how layout cuts a file into items, and why",
+        operand: Complete::Files,
+      },
+      Subcommand {
+        word: "moves",
+        summary: "List the items that move, and the rule behind each",
+        operand: Complete::Files,
+      },
+      Subcommand {
+        word: "settle",
+        summary: "Run files through mto in memory, check them, run again, count outcomes",
         operand: Complete::Files,
       },
     ],
-    examples: &["mto debug tree src/lib.rs", "mto debug layout src/lib.rs"],
+    examples: &[
+      "mto debug units src/lib.rs --config keep_helpers_near=true",
+      "mto debug moves src/lib.rs",
+      "mto debug settle src/ --config layout=true,sections=headings",
+    ],
   },
   CommandSpec {
     name: "completions",
@@ -623,6 +692,15 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Do not record this run in history (it cannot be restored)",
   },
   FlagSpec {
+    flag: Flag::NoReport,
+    group: Group::History,
+    short: None,
+    long: "--no-report",
+    value: "",
+    values: &[],
+    help: "Keep no bug report: name each bug mto finds in itself in one line",
+  },
+  FlagSpec {
     flag: Flag::Color,
     group: Group::Output,
     short: None,
@@ -630,15 +708,6 @@ pub const FLAGS: &[FlagSpec] = &[
     value: "",
     values: &["always", "never", "auto"],
     help: "Color the output (default: auto, only on a terminal)",
-  },
-  FlagSpec {
-    flag: Flag::Dbg,
-    group: Group::Output,
-    short: None,
-    long: "--dbg",
-    value: "",
-    values: &[],
-    help: "Print how each file was split into items",
   },
   FlagSpec {
     flag: Flag::Quiet,
@@ -776,6 +845,51 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Use this folder instead of the shell's own",
   },
   FlagSpec {
+    flag: Flag::Json,
+    group: Group::Command,
+    short: None,
+    long: "--json",
+    value: "",
+    values: &[],
+    help: "As JSON, whose shape keeps its version",
+  },
+  FlagSpec {
+    flag: Flag::Runs,
+    group: Group::Command,
+    short: None,
+    long: "--runs",
+    value: "<N>",
+    values: &[],
+    help: "How many runs a file goes through (default 2)",
+  },
+  FlagSpec {
+    flag: Flag::Diff,
+    group: Group::Command,
+    short: None,
+    long: "--diff",
+    value: "",
+    values: &[],
+    help: "Show what a run changed again, for a file that does not settle",
+  },
+  FlagSpec {
+    flag: Flag::LayoutOnly,
+    group: Group::Command,
+    short: None,
+    long: "--layout-only",
+    value: "",
+    values: &[],
+    help: "Lay out without formatting",
+  },
+  FlagSpec {
+    flag: Flag::Under,
+    group: Group::Command,
+    short: None,
+    long: "--under",
+    value: "<PATH>",
+    values: &[],
+    help: "Only the reports seen in files under PATH",
+  },
+  FlagSpec {
     flag: Flag::OlderThan,
     group: Group::Command,
     short: None,
@@ -846,17 +960,21 @@ pub enum Flag {
   Config,
   ConfigPath,
   Current,
-  Dbg,
   Default,
+  Diff,
   Dir,
   DryRun,
   Edition,
   FollowLinks,
   Help,
+  Json,
+  LayoutOnly,
   Man,
   Minimal,
   Recursive,
+  Runs,
   NoHistory,
+  NoReport,
   AllowDirty,
   Unguarded,
   Force,
@@ -866,6 +984,7 @@ pub enum Flag {
   All,
   Toml,
   StyleEdition,
+  Under,
   User,
   Version,
 }

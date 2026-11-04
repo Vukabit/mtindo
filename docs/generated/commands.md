@@ -121,7 +121,7 @@ cargo xtask compare [SOURCE...] [ARGS...]
 The pinned real-world corpus (records/pins/corpus.txt)
 
 ```text
-cargo xtask corpus update|fetch|check
+cargo xtask corpus update|fetch|check|try
 ```
 
 ## `cargo xtask corpus update`
@@ -152,6 +152,24 @@ cargo xtask corpus check [--with-rust] [--baseline]
 
 - `--with-rust`: Also the opt-in repositories (rust-lang/rust)
 - `--baseline`: Record parsing speed in records/results/baseline.txt
+
+## `cargo xtask corpus try`
+
+Settings tried on every corpus file, as a run would apply them, then run again:
+each outcome counted apart
+
+```text
+cargo xtask corpus try [--config KEY=VALUE,...] [--each KEY=VALUE,...] [--runs
+    N] [--layout-only] [--record NAME] [--with-rust]
+```
+
+- `--config KEY=VALUE,...`: The settings tried, over each crate's own
+  (layout=true unless given)
+- `--each KEY=VALUE,...`: Try each of these alone, then all together
+- `--runs N`: Runs a file goes through (default 2)
+- `--layout-only`: Formatting off
+- `--record NAME`: Write the totals to records/results/toggles/NAME.txt
+- `--with-rust`: Also the opt-in repositories (rust-lang/rust)
 
 ## `cargo xtask docs`
 

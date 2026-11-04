@@ -9,6 +9,7 @@ use crate::config::{Resolver, user};
 use crate::history::{self, Entry, History, Limits, Run, State, id};
 use crate::options::user::bytes;
 use crate::text::color::{paint, tone};
+use crate::text::json::Json;
 use crate::{c_green, c_red, c_reset, c_yellow, errln, outln, write_atomic};
 
 /// What `mto history prune` was asked to keep, over the user config.
@@ -297,6 +298,29 @@ pub fn list(history: &History, here: Option<&Path>) -> Result<String, String> {
   Ok(out)
 }
 
+/// `mto history --json`: every run, the newest first, with its handle, time, command,
+/// folder and files.
+pub fn list_json(history: &History) -> Result<Json, String> {
+  let ids = history
+    .ids()
+    .map_err(|e| format!("cannot read history: {}", e))?;
+  let runs: Vec<Json> = ids
+    .iter()
+    .rev()
+    .map(|full| {
+      let run = Json::object()
+        .with("id", full.as_str())
+        .with("handle", id::handle(full, &ids))
+        .with("when_ms", id::millis(full));
+      match history.read(full) {
+        Ok(read) => run_fields(run, &read, &ids),
+        Err(e) => run.with("unreadable", e.to_string()),
+      }
+    })
+    .collect();
+  Ok(Json::output("history").with("runs", runs))
+}
+
 /// The project a folder belongs to: the nearest folder at or above it holding `.git`, else
 /// the nearest holding `Cargo.toml`, else the folder itself.
 pub fn project_root(dir: &Path) -> PathBuf {
@@ -524,6 +548,18 @@ pub fn show(history: &History, spec: &str) -> Result<String, String> {
   Ok(out)
 }
 
+/// `mto history show RUN --json`.
+pub fn show_json(history: &History, spec: &str) -> Result<Json, String> {
+  let full = resolve_here(history, spec)?;
+  let run = history.read(&full).map_err(|e| e.to_string())?;
+  let ids = history.ids().unwrap_or_default();
+  let head = Json::output("run")
+    .with("id", full.as_str())
+    .with("handle", id::handle(&full, &ids))
+    .with("when_ms", id::millis(&full));
+  Ok(run_fields(head, &run, &ids))
+}
+
 /// `YYYY-MM-DD HH:MM:SS` in UTC, for milliseconds since the Unix epoch.
 pub fn utc(millis: u64) -> String {
   let secs = millis / 1000;
@@ -601,6 +637,33 @@ fn is_under(path: &Path, root: &Path) -> bool {
     .and_then(resolved)
     .map(|parent| parent.join(path.file_name().unwrap_or_default()));
   matches!((path, resolved(root)), (Some(path), Some(root)) if path.starts_with(&root))
+}
+
+/// A run's command, folder, what it restored and each file with where it stands.
+fn run_fields(json: Json, run: &Run, ids: &[String]) -> Json {
+  let files: Vec<Json> = run
+    .entries
+    .iter()
+    .map(|entry| {
+      let state = match Run::state(entry) {
+        State::AsWritten => "as_written",
+        State::AsBefore => "as_before",
+        State::Changed => "changed",
+        State::Missing => "missing",
+      };
+      Json::object()
+        .with("path", entry.path.display().to_string())
+        .with("state", state)
+    })
+    .collect();
+  json
+    .with("command", run.command.as_str())
+    .with("cwd", run.cwd.display().to_string())
+    .with(
+      "restores",
+      run.restore_of.as_ref().map(|of| id::handle(of, ids)),
+    )
+    .with("files", files)
 }
 
 /// `text` cut to `width` characters, with `...` when cut.

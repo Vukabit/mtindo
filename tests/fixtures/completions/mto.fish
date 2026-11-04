@@ -5,12 +5,14 @@
 # arguments followed them (-1 after `--`).
 function __mto_state
     set -l takes_value --emit --stdin-filepath --config --config-path --edition \
-        --print-config --style-edition --color --keep --dir --older-than
+        --print-config --style-edition --color --keep --dir --runs --under \
+        --older-than
     set -l commands init config history restore doctor report debug completions
     set -l subcommands 'config path' 'config print' 'config options' 'history show' \
         'history prune' 'doctor on' 'doctor off' 'doctor holds' \
         'doctor release' 'report show' 'report save' 'report send' \
-        'report prune' 'debug tokens' 'debug tree' 'debug layout' \
+        'report recheck' 'report remove' 'report prune' 'debug tokens' \
+        'debug tree' 'debug kept' 'debug units' 'debug moves' 'debug settle' \
         'completions install' 'completions uninstall' 'completions status'
     set -l words (commandline -opc)
     set -e words[1]
@@ -188,8 +190,8 @@ complete -c mto -n '__mto_at - -' -l unstable-features -d 'Accepted for compatib
 complete -c mto -n '__mto_at - -' -l allow-dirty -d 'With history off, rewrite files that have uncommitted changes'
 complete -c mto -n '__mto_at - -' -l unguarded -d 'Do not check this run with the build guard, nor hold back the edits it holds'
 complete -c mto -n '__mto_at - -' -l no-history -d 'Do not record this run in history (it cannot be restored)'
+complete -c mto -n '__mto_at - -' -l no-report -d 'Keep no bug report: name each bug mto finds in itself in one line'
 complete -c mto -n '__mto_at - -' -l color -x -a 'always never auto' -d 'Color the output (default: auto, only on a terminal)'
-complete -c mto -n '__mto_at - -' -l dbg -d 'Print how each file was split into items'
 complete -c mto -n '__mto_at - -' -s q -l quiet -d 'Print only errors and what was asked for'
 complete -c mto -n '__mto_at - -' -s v -l verbose -d 'Name each file as it is formatted'
 complete -c mto -n '__mto_at - -' -s h -l help -d 'Show this help and exit'
@@ -201,7 +203,7 @@ complete -c mto -n '__mto_at - - 0' -a history -d 'List, show or prune the runs 
 complete -c mto -n '__mto_at - - 0' -a restore -d 'Undo a run'
 complete -c mto -n '__mto_at - - 0' -a doctor -d 'Guard the build against mto\'s edits, or find the edit that broke it'
 complete -c mto -n '__mto_at - - 0' -a report -d 'The bug reports mto keeps when it finds a bug in itself'
-complete -c mto -n '__mto_at - - 0' -a debug -d 'Print what mto sees in a file, or where and why it leaves code as written'
+complete -c mto -n '__mto_at - - 0' -a debug -d 'Show what mto sees in a file and why it does what it does; nothing is written'
 complete -c mto -n '__mto_at - - 0' -a completions -d 'Print or install the completions for a shell'
 complete -c mto -n '__mto_at - -' -a '(__fish_complete_suffix .rs)'
 
@@ -217,6 +219,11 @@ complete -c mto -n '__mto_at config - 0' -a options -d 'List every setting a con
 
 # mto config path
 complete -c mto -n '__mto_at config path' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at config path' -l current -d 'Every setting in effect, with its source (the default)'
+complete -c mto -n '__mto_at config path' -l default -d 'Every setting at its default'
+complete -c mto -n '__mto_at config path' -l minimal -d 'Only the settings that differ from their defaults'
+complete -c mto -n '__mto_at config path' -l user -d 'The user config\'s settings'
+complete -c mto -n '__mto_at config path' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at config path' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
 complete -c mto -n '__mto_at config path' -l config-path -r -F -d 'Use only this configuration file; search for no other'
 complete -c mto -n '__mto_at config path' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
@@ -229,6 +236,7 @@ complete -c mto -n '__mto_at config print' -l current -d 'Every setting in effec
 complete -c mto -n '__mto_at config print' -l default -d 'Every setting at its default'
 complete -c mto -n '__mto_at config print' -l minimal -d 'Only the settings that differ from their defaults'
 complete -c mto -n '__mto_at config print' -l user -d 'The user config\'s settings'
+complete -c mto -n '__mto_at config print' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at config print' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
 complete -c mto -n '__mto_at config print' -l config-path -r -F -d 'Use only this configuration file; search for no other'
 complete -c mto -n '__mto_at config print' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
@@ -238,10 +246,12 @@ complete -c mto -n '__mto_at config print' -a '(__fish_complete_directories (com
 # mto config options
 complete -c mto -n '__mto_at config options' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at config options' -l toml -d 'As a commented file, every setting at its default'
+complete -c mto -n '__mto_at config options' -l json -d 'As JSON, whose shape keeps its version'
 
 # mto history
 complete -c mto -n '__mto_at history -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at history -' -l all -d 'List every project\'s runs'
+complete -c mto -n '__mto_at history -' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at history - 0' -a show -d 'List one run\'s files and where each stands now'
 complete -c mto -n '__mto_at history - 0' -a prune -d 'Remove old runs'
 
@@ -260,6 +270,7 @@ complete -c mto -n '__mto_at restore -' -a '(__fish_complete_suffix .rs)'
 
 # mto doctor
 complete -c mto -n '__mto_at doctor -' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at doctor -' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at doctor - 0' -a on -d 'Turn the build guard on'
 complete -c mto -n '__mto_at doctor - 0' -a off -d 'Turn the build guard off'
 complete -c mto -n '__mto_at doctor - 0' -a holds -d 'List the edits the guard holds back'
@@ -282,7 +293,9 @@ complete -c mto -n '__mto_at report -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at report - 0' -a show -d 'Print one report'
 complete -c mto -n '__mto_at report - 0' -a save -d 'Write one report to a file'
 complete -c mto -n '__mto_at report - 0' -a send -d 'Open a new issue filled in with one report'
-complete -c mto -n '__mto_at report - 0' -a prune -d 'Remove every report'
+complete -c mto -n '__mto_at report - 0' -a recheck -d 'Run each report\'s bug again; remove those it no longer shows'
+complete -c mto -n '__mto_at report - 0' -a remove -d 'Remove the reports named'
+complete -c mto -n '__mto_at report - 0' -a prune -d 'Remove every report, or those seen under a folder'
 
 # mto report show
 complete -c mto -n '__mto_at report show' -s h -l help -d 'Show this help and exit'
@@ -295,29 +308,97 @@ complete -c mto -n '__mto_at report save' -a '(__fish_complete_suffix .rs)'
 # mto report send
 complete -c mto -n '__mto_at report send' -s h -l help -d 'Show this help and exit'
 
+# mto report recheck
+complete -c mto -n '__mto_at report recheck' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at report recheck' -s d -l dry-run -d 'List the files that would change, without writing'
+
+# mto report remove
+complete -c mto -n '__mto_at report remove' -s h -l help -d 'Show this help and exit'
+
 # mto report prune
 complete -c mto -n '__mto_at report prune' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at report prune' -l under -x -d 'Only the reports seen in files under PATH'
 
 # mto debug
 complete -c mto -n '__mto_at debug -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at debug - 0' -a tokens -d 'Print the tokens of a file'
 complete -c mto -n '__mto_at debug - 0' -a tree -d 'Print the syntax tree of a file'
-complete -c mto -n '__mto_at debug - 0' -a layout -d 'Say where the formatter leaves code as written, and why'
+complete -c mto -n '__mto_at debug - 0' -a kept -d 'Say where formatting leaves code as written, and why'
+complete -c mto -n '__mto_at debug - 0' -a units -d 'Show how layout cuts a file into items, and why'
+complete -c mto -n '__mto_at debug - 0' -a moves -d 'List the items that move, and the rule behind each'
+complete -c mto -n '__mto_at debug - 0' -a settle -d 'Run files through mto in memory, check them, run again, count outcomes'
 
 # mto debug tokens
 complete -c mto -n '__mto_at debug tokens' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at debug tokens' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
+complete -c mto -n '__mto_at debug tokens' -l config-path -r -F -d 'Use only this configuration file; search for no other'
 complete -c mto -n '__mto_at debug tokens' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
+complete -c mto -n '__mto_at debug tokens' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
+complete -c mto -n '__mto_at debug tokens' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at debug tokens' -l runs -x -d 'How many runs a file goes through (default 2)'
+complete -c mto -n '__mto_at debug tokens' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug tokens' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug tokens' -a '(__fish_complete_suffix .rs)'
 
 # mto debug tree
 complete -c mto -n '__mto_at debug tree' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at debug tree' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
+complete -c mto -n '__mto_at debug tree' -l config-path -r -F -d 'Use only this configuration file; search for no other'
 complete -c mto -n '__mto_at debug tree' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
+complete -c mto -n '__mto_at debug tree' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
+complete -c mto -n '__mto_at debug tree' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at debug tree' -l runs -x -d 'How many runs a file goes through (default 2)'
+complete -c mto -n '__mto_at debug tree' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug tree' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug tree' -a '(__fish_complete_suffix .rs)'
 
-# mto debug layout
-complete -c mto -n '__mto_at debug layout' -s h -l help -d 'Show this help and exit'
-complete -c mto -n '__mto_at debug layout' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
-complete -c mto -n '__mto_at debug layout' -a '(__fish_complete_suffix .rs)'
+# mto debug kept
+complete -c mto -n '__mto_at debug kept' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at debug kept' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
+complete -c mto -n '__mto_at debug kept' -l config-path -r -F -d 'Use only this configuration file; search for no other'
+complete -c mto -n '__mto_at debug kept' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
+complete -c mto -n '__mto_at debug kept' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
+complete -c mto -n '__mto_at debug kept' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at debug kept' -l runs -x -d 'How many runs a file goes through (default 2)'
+complete -c mto -n '__mto_at debug kept' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug kept' -l layout-only -d 'Lay out without formatting'
+complete -c mto -n '__mto_at debug kept' -a '(__fish_complete_suffix .rs)'
+
+# mto debug units
+complete -c mto -n '__mto_at debug units' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at debug units' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
+complete -c mto -n '__mto_at debug units' -l config-path -r -F -d 'Use only this configuration file; search for no other'
+complete -c mto -n '__mto_at debug units' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
+complete -c mto -n '__mto_at debug units' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
+complete -c mto -n '__mto_at debug units' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at debug units' -l runs -x -d 'How many runs a file goes through (default 2)'
+complete -c mto -n '__mto_at debug units' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug units' -l layout-only -d 'Lay out without formatting'
+complete -c mto -n '__mto_at debug units' -a '(__fish_complete_suffix .rs)'
+
+# mto debug moves
+complete -c mto -n '__mto_at debug moves' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at debug moves' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
+complete -c mto -n '__mto_at debug moves' -l config-path -r -F -d 'Use only this configuration file; search for no other'
+complete -c mto -n '__mto_at debug moves' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
+complete -c mto -n '__mto_at debug moves' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
+complete -c mto -n '__mto_at debug moves' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at debug moves' -l runs -x -d 'How many runs a file goes through (default 2)'
+complete -c mto -n '__mto_at debug moves' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug moves' -l layout-only -d 'Lay out without formatting'
+complete -c mto -n '__mto_at debug moves' -a '(__fish_complete_suffix .rs)'
+
+# mto debug settle
+complete -c mto -n '__mto_at debug settle' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at debug settle' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
+complete -c mto -n '__mto_at debug settle' -l config-path -r -F -d 'Use only this configuration file; search for no other'
+complete -c mto -n '__mto_at debug settle' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
+complete -c mto -n '__mto_at debug settle' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
+complete -c mto -n '__mto_at debug settle' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at debug settle' -l runs -x -d 'How many runs a file goes through (default 2)'
+complete -c mto -n '__mto_at debug settle' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug settle' -l layout-only -d 'Lay out without formatting'
+complete -c mto -n '__mto_at debug settle' -a '(__fish_complete_suffix .rs)'
 
 # mto completions
 complete -c mto -n '__mto_at completions -' -s h -l help -d 'Show this help and exit'

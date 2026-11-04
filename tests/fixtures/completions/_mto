@@ -88,7 +88,7 @@ _mto_commands() {
     'restore:Undo a run'
     'doctor:Guard the build against mto'\''s edits, or find the edit that broke it'
     'report:The bug reports mto keeps when it finds a bug in itself'
-    'debug:Print what mto sees in a file, or where and why it leaves code as written'
+    'debug:Show what mto sees in a file and why it does what it does; nothing is written'
     'completions:Print or install the completions for a shell'
   )
   _describe -t commands command commands
@@ -125,6 +125,11 @@ _mto_config() {
         (path)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--current[Every setting in effect, with its source (the default)]' \
+            '--default[Every setting at its default]' \
+            '--minimal[Only the settings that differ from their defaults]' \
+            '--user[The user config'\''s settings]' \
+            '--json[As JSON, whose shape keeps its version]' \
             '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
             '--config-path=[Use only this configuration file; search for no other]:file:_files' \
             '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
@@ -138,6 +143,7 @@ _mto_config() {
             '--default[Every setting at its default]' \
             '--minimal[Only the settings that differ from their defaults]' \
             '--user[The user config'\''s settings]' \
+            '--json[As JSON, whose shape keeps its version]' \
             '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
             '--config-path=[Use only this configuration file; search for no other]:file:_files' \
             '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
@@ -148,6 +154,7 @@ _mto_config() {
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
             '--toml[As a commented file, every setting at its default]' \
+            '--json[As JSON, whose shape keeps its version]' \
             '*: : ' && ret=0
           ;;
       esac
@@ -170,6 +177,7 @@ _mto_history() {
   _arguments -C -s : \
     '(- *)'{-h,--help}'[Show this help and exit]' \
     '--all[List every project'\''s runs]' \
+    '--json[As JSON, whose shape keeps its version]' \
     '1: :->first' \
     '*:: :->rest' && ret=0
   case $state in
@@ -218,6 +226,7 @@ _mto_doctor() {
   local curcontext=$curcontext state state_descr line ret=1
   _arguments -C -s : \
     '(- *)'{-h,--help}'[Show this help and exit]' \
+    '--json[As JSON, whose shape keeps its version]' \
     '1: :->first' \
     '*:: :->rest' && ret=0
   case $state in
@@ -258,7 +267,9 @@ _mto_report_subcommands() {
     'show:Print one report'
     'save:Write one report to a file'
     'send:Open a new issue filled in with one report'
-    'prune:Remove every report'
+    'recheck:Run each report'\''s bug again; remove those it no longer shows'
+    'remove:Remove the reports named'
+    'prune:Remove every report, or those seen under a folder'
   )
   _describe -t subcommands subcommand subcommands
 }
@@ -291,9 +302,21 @@ _mto_report() {
             '(- *)'{-h,--help}'[Show this help and exit]' \
             '*: : ' && ret=0
           ;;
+        (recheck)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '(-d --dry-run)'{-d,--dry-run}'[List the files that would change, without writing]' \
+            '*: : ' && ret=0
+          ;;
+        (remove)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '*: : ' && ret=0
+          ;;
         (prune)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--under=[Only the reports seen in files under PATH]:path: ' \
             '*: : ' && ret=0
           ;;
       esac
@@ -307,7 +330,10 @@ _mto_debug_subcommands() {
   subcommands=(
     'tokens:Print the tokens of a file'
     'tree:Print the syntax tree of a file'
-    'layout:Say where the formatter leaves code as written, and why'
+    'kept:Say where formatting leaves code as written, and why'
+    'units:Show how layout cuts a file into items, and why'
+    'moves:List the items that move, and the rule behind each'
+    'settle:Run files through mto in memory, check them, run again, count outcomes'
   )
   _describe -t subcommands subcommand subcommands
 }
@@ -327,19 +353,79 @@ _mto_debug() {
         (tokens)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
+            '--config-path=[Use only this configuration file; search for no other]:file:_files' \
             '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
+            '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
+            '--json[As JSON, whose shape keeps its version]' \
+            '--runs=[How many runs a file goes through (default 2)]:n: ' \
+            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
         (tree)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
+            '--config-path=[Use only this configuration file; search for no other]:file:_files' \
             '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
+            '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
+            '--json[As JSON, whose shape keeps its version]' \
+            '--runs=[How many runs a file goes through (default 2)]:n: ' \
+            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
-        (layout)
+        (kept)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
+            '--config-path=[Use only this configuration file; search for no other]:file:_files' \
             '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
+            '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
+            '--json[As JSON, whose shape keeps its version]' \
+            '--runs=[How many runs a file goes through (default 2)]:n: ' \
+            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--layout-only[Lay out without formatting]' \
+            '*: :_files -g "*.rs(-.)"' && ret=0
+          ;;
+        (units)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
+            '--config-path=[Use only this configuration file; search for no other]:file:_files' \
+            '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
+            '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
+            '--json[As JSON, whose shape keeps its version]' \
+            '--runs=[How many runs a file goes through (default 2)]:n: ' \
+            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--layout-only[Lay out without formatting]' \
+            '*: :_files -g "*.rs(-.)"' && ret=0
+          ;;
+        (moves)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
+            '--config-path=[Use only this configuration file; search for no other]:file:_files' \
+            '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
+            '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
+            '--json[As JSON, whose shape keeps its version]' \
+            '--runs=[How many runs a file goes through (default 2)]:n: ' \
+            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--layout-only[Lay out without formatting]' \
+            '*: :_files -g "*.rs(-.)"' && ret=0
+          ;;
+        (settle)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings' \
+            '--config-path=[Use only this configuration file; search for no other]:file:_files' \
+            '--edition=[The Rust edition, over Cargo.toml and configuration files]:year:(2015 2018 2021 2024)' \
+            '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
+            '--json[As JSON, whose shape keeps its version]' \
+            '--runs=[How many runs a file goes through (default 2)]:n: ' \
+            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
       esac
@@ -418,8 +504,8 @@ _mto() {
     '--allow-dirty[With history off, rewrite files that have uncommitted changes]'
     '--unguarded[Do not check this run with the build guard, nor hold back the edits it holds]'
     '--no-history[Do not record this run in history (it cannot be restored)]'
+    '--no-report[Keep no bug report: name each bug mto finds in itself in one line]'
     '--color=[Color the output (default: auto, only on a terminal)]:value:(always never auto)'
-    '--dbg[Print how each file was split into items]'
     '(-q --quiet)'{-q,--quiet}'[Print only errors and what was asked for]'
     '(-v --verbose)'{-v,--verbose}'[Name each file as it is formatted]'
     '(- *)'{-h,--help}'[Show this help and exit]'

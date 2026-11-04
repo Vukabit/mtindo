@@ -184,6 +184,28 @@ fn test_imports_granularity() {
   );
 }
 
+/// mto's `import_sort` picks the order formatting sorts imports by, as it does layout's:
+/// before, formatting sorted by the style edition alone and undid layout's order.
+#[test]
+fn test_imports_sort_by_import_sort_when_set() {
+  let source = "use a::u16;\nuse a::u8;\nuse a::Zeta;\nuse a::alpha;\n";
+  let by = |import_sort: Option<u16>, style_edition: u16| {
+    formatted(
+      source,
+      &FormatConfig {
+        import_sort,
+        style_edition,
+        ..FormatConfig::default()
+      },
+    )
+  };
+  let older = "use a::alpha;\nuse a::u16;\nuse a::u8;\nuse a::Zeta;\n";
+  let version = "use a::Zeta;\nuse a::alpha;\nuse a::u8;\nuse a::u16;\n";
+  assert_eq!(by(None, 2021), older);
+  assert_eq!(by(Some(2024), 2021), version);
+  assert_eq!(by(Some(2015), 2024), older);
+}
+
 /// `inline_attribute_width`: an import, `extern crate` or `mod` and its one attribute on a
 /// line when the two are at most that wide; two attributes stay apart.
 #[test]

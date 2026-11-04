@@ -39,7 +39,7 @@ pub(super) fn checked(data: &[u8]) {
     format: Some(FormatConfig::default()),
     edition: crate::syntax::Edition::E2021,
   };
-  let Ok(once) = shape(&text, &both, &Held::default(), None) else {
+  let Ok(once) = shape(&text, &both, &Held::default()) else {
     return;
   };
   let edition = once.edition;
@@ -79,7 +79,7 @@ pub(super) fn checked(data: &[u8]) {
       formatted
     );
   }
-  let twice = shape(&once.text, &both, &Held::default(), None).map(|s| s.text);
+  let twice = shape(&once.text, &both, &Held::default()).map(|s| s.text);
   assert_eq!(
     twice.as_deref(),
     Ok(once.text.as_str()),

@@ -30,12 +30,14 @@
 
 mod classify;
 mod impls;
+mod inspect;
 mod order;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
 
 pub use classify::import_group_of_text;
+pub use inspect::{Container, Inspection, MoveView, UnitView, inspect, line_of};
 pub use order::Rule;
 
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Sections, Visibility};
@@ -395,71 +397,10 @@ fn cut_sections(
 /// by two units otherwise, a type with an impl of its own here (its impls go with it), a
 /// paragraph, or a unit whose helpers would lead back to itself.
 fn find_callers(units: &mut [Unit]) {
-  let helper_kind = |kind: &ItemKind| {
-    matches!(
-      kind,
-      ItemKind::FnDecl
-        | ItemKind::ConstDecl
-        | ItemKind::StaticDecl
-        | ItemKind::TypeAlias
-        | ItemKind::StructDecl
-        | ItemKind::EnumDecl
-        | ItemKind::Union
-    )
-  };
-  let names: Vec<HashSet<&str>> = units
-    .iter()
-    .map(|unit| {
-      let mut at = 0;
-      let mut found = HashSet::new();
-      for token in tokenize(&unit.text, Edition::E2021) {
-        let end = at + token.len as usize;
-        if matches!(token.kind, SyntaxKind::Ident | SyntaxKind::RawIdent) {
-          found.insert(unit.text[at..end].trim_start_matches("r#"));
-        }
-        at = end;
-      }
-      found
-    })
+  let names = names_used(units);
+  let callers: Vec<Option<usize>> = (0..units.len())
+    .map(|at| helper_verdict(units, &names, at).ok())
     .collect();
-  let mut callers: Vec<Option<usize>> = vec![None; units.len()];
-  for (at, unit) in units.iter().enumerate() {
-    let name = unit.identifier.as_str();
-    let candidate = helper_kind(&unit.kind)
-      && unit.visibility == Visibility::Private
-      && !unit.pinned
-      && !unit.paragraph
-      && !name.is_empty()
-      && !units.iter().enumerate().any(|(other, u)| {
-        // `#[cfg]` variants of one item, written apart, are one name.
-        let variant = u.cfg && unit.cfg && u.kind == unit.kind;
-        other != at && ((u.identifier == name && !variant) || u.parent_target == name)
-      });
-    if !candidate {
-      continue;
-    }
-    // Its own `#[cfg]` variants name it too, but do not use it; the variants of one user
-    // are one user, the first written standing for them all.
-    let users: std::collections::BTreeSet<usize> = (0..units.len())
-      .filter(|&other| units[other].identifier != name && names[other].contains(name))
-      .map(|other| first_variant(units, other))
-      .collect();
-    let mut users = users.into_iter();
-    let (Some(user), None) = (users.next(), users.next()) else {
-      continue;
-    };
-    let caller = &units[user];
-    let movable = !caller.pinned
-      && !caller.comments_only
-      && !caller.module_declaration
-      && !matches!(
-        caller.kind,
-        ItemKind::UseDecl | ItemKind::MacroDecl | ItemKind::MacroDef
-      );
-    if movable {
-      callers[at] = Some(user);
-    }
-  }
   // A helper whose chain of callers comes back to it helps no one.
   for (at, unit) in units.iter_mut().enumerate() {
     let mut seen = HashSet::from([at]);
@@ -503,6 +444,81 @@ fn heading(text: &str, run: &[(usize, usize)]) -> bool {
         .any(|bit| words.contains(bit));
     !words.is_empty() && !note && !code
   })
+}
+
+/// The unit at `at` as a helper (`keep_helpers_near`): its one user, or why it is none.
+fn helper_verdict(units: &[Unit], names: &[HashSet<&str>], at: usize) -> Result<usize, String> {
+  let unit = &units[at];
+  let name = unit.identifier.as_str();
+  if !matches!(
+    unit.kind,
+    ItemKind::FnDecl
+      | ItemKind::ConstDecl
+      | ItemKind::StaticDecl
+      | ItemKind::TypeAlias
+      | ItemKind::StructDecl
+      | ItemKind::EnumDecl
+      | ItemKind::Union
+  ) || name.is_empty()
+  {
+    return Err("not a kind of item that helps".to_string());
+  }
+  if unit.visibility != Visibility::Private {
+    return Err("not private".to_string());
+  }
+  if unit.pinned || unit.paragraph {
+    return Err(
+      if unit.pinned {
+        "pinned"
+      } else {
+        "in a paragraph"
+      }
+      .to_string(),
+    );
+  }
+  for (other, u) in units.iter().enumerate() {
+    // `#[cfg]` variants of one item, written apart, are one name.
+    let variant = u.cfg && unit.cfg && u.kind == unit.kind;
+    if other != at && u.identifier == name && !variant {
+      return Err(format!("`{}` is defined twice here", name));
+    }
+    if other != at && u.parent_target == name {
+      return Err("has impls of its own".to_string());
+    }
+  }
+  // Its own `#[cfg]` variants name it too, but do not use it; the variants of one user
+  // are one user, the first written standing for them all.
+  let users: std::collections::BTreeSet<usize> = (0..units.len())
+    .filter(|&other| units[other].identifier != name && names[other].contains(name))
+    .map(|other| first_variant(units, other))
+    .collect();
+  let user = match users.len() {
+    0 => return Err("used by no other item here".to_string()),
+    1 => *users.iter().next().expect("one"),
+    _ => {
+      let named: Vec<&str> = users
+        .iter()
+        .map(|&u| units[u].identifier.as_str())
+        .collect();
+      return Err(format!(
+        "used by {} items: {}",
+        named.len(),
+        named.join(", ")
+      ));
+    }
+  };
+  let caller = &units[user];
+  if caller.pinned
+    || caller.comments_only
+    || caller.module_declaration
+    || matches!(
+      caller.kind,
+      ItemKind::UseDecl | ItemKind::MacroDecl | ItemKind::MacroDef
+    )
+  {
+    return Err(format!("its user `{}` keeps its place", caller.identifier));
+  }
+  Ok(user)
 }
 
 /// Whether `unit` may be part of a paragraph (`keep_paragraphs`): not an import or a
@@ -656,6 +672,25 @@ fn moves_of(arranged: &[Unit], why: impl Fn(usize) -> Rule) -> Vec<Move> {
         .get(at + 1)
         .map(|u| (u.kind.clone(), u.identifier.clone())),
       rule: why(at),
+    })
+    .collect()
+}
+
+/// The identifiers in each unit's text: the names it uses.
+fn names_used(units: &[Unit]) -> Vec<HashSet<&str>> {
+  units
+    .iter()
+    .map(|unit| {
+      let mut at = 0;
+      let mut found = HashSet::new();
+      for token in tokenize(&unit.text, Edition::E2021) {
+        let end = at + token.len as usize;
+        if matches!(token.kind, SyntaxKind::Ident | SyntaxKind::RawIdent) {
+          found.insert(unit.text[at..end].trim_start_matches("r#"));
+        }
+        at = end;
+      }
+      found
     })
     .collect()
 }

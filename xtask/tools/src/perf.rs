@@ -83,7 +83,7 @@ pub fn digest(args: &[String]) -> ExitCode {
     let Ok(source) = fs::read_to_string(&file) else {
       continue;
     };
-    let outcome = match mtindo::shape(&source, &settings, &Default::default(), None) {
+    let outcome = match mtindo::shape(&source, &settings, &Default::default()) {
       Err(reason) => format!("refused: {}", reason),
       Ok(shaped) => {
         let layout = shaped.laid_out != source
@@ -205,7 +205,7 @@ pub fn stages(args: &[String]) -> ExitCode {
     };
     lap(0, &mut took);
     bytes += source.len();
-    let shaped = mtindo::shape(&source, &layout_only, &Default::default(), None);
+    let shaped = mtindo::shape(&source, &layout_only, &Default::default());
     lap(1, &mut took);
     let Ok(shaped) = shaped else {
       continue;

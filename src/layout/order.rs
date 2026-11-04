@@ -67,6 +67,28 @@ pub enum Rule {
 }
 
 impl Rule {
+  /// The rule's name in JSON outputs, which does not change.
+  pub fn id(self) -> &'static str {
+    match self {
+      Rule::TestModuleLast => "test_module_last",
+      Rule::MacrosFirst => "macros_first",
+      Rule::ImportGroups => "import_groups",
+      Rule::Imports => "imports",
+      Rule::TypeOrder => "type_order",
+      Rule::GroupImpls => "group_impls",
+      Rule::MacroUseModules => "macro_use_modules",
+      Rule::Modules => "modules",
+      Rule::ImplsOfOneType => "impls_of_one_type",
+      Rule::Visibility => "visibility",
+      Rule::Name => "name",
+      Rule::Written => "written",
+      Rule::Slot => "slot",
+      Rule::Helper => "helper",
+      Rule::ImplItems => "impl_items",
+      Rule::TraitOrder => "trait_order",
+    }
+  }
+
   /// What the rule says, for `mto debug moves`.
   pub fn says(self) -> &'static str {
     match self {
@@ -277,21 +299,23 @@ pub(super) fn reason(arranged: &[Unit], at: usize, config: &LayoutConfig) -> Rul
   }
   let families = families(arranged, config);
   let free = |u: &&Unit| !u.pinned && !u.comments_only;
-  let (rule, ordering) = match arranged[at + 1..].iter().find(free) {
+  let (rule, ordering, neighbour) = match arranged[at + 1..].iter().find(free) {
     Some(next) => {
       let (ordering, rule) = compare_by(unit, next, config, &families, false);
-      (rule, ordering)
+      (rule, ordering, next)
     }
     None => match arranged[..at].iter().rev().find(free) {
       Some(previous) => {
         let (ordering, rule) = compare_by(previous, unit, config, &families, false);
-        (rule, ordering)
+        (rule, ordering, previous)
       }
       None => return Rule::Written,
     },
   };
   match ordering {
     Ordering::Less => rule,
+    // Out of the plain order beside a helper: the helper's place decided it.
+    _ if unit.caller.is_some() || neighbour.caller.is_some() => Rule::Helper,
     // The plain order would not have put it here: the macro rule did.
     Ordering::Greater if defines_macros(unit) || arranged.iter().any(defines_macros) => {
       Rule::MacrosFirst

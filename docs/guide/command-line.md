@@ -64,12 +64,14 @@ directory is walked.
 * `-R, --recursive`: Format every `.rs` file under the current directory.
 * `--follow-links`: Also follow symlinked files and directories.
 * `--no-history`: Do not record this run, so it cannot be restored.
+* `--no-report`: Keep no [bug report](safety.md#bug-reports); name each bug
+  `mto` finds in itself in one line.
 * `--allow-dirty`: With history off, rewrite files that have uncommitted
   changes.
 * `--unguarded`: Do not check this run with the [build guard](build-guard.md),
   nor hold back the edits it holds.
-* `--dbg`: With layout on, print how each file was split into items; the run
-  otherwise goes on as usual.
+* `mto debug units FILE` and `mto debug moves FILE` show how layout cut a
+  file into items and why each moves; see [mto debug](#mto-debug).
 * `--man`: Print the manual, which documents every setting and its values.
 * `-h, --help`: Print the short help menu.
 * `-V, --version`: Print the version.
@@ -121,8 +123,39 @@ other `mto` option goes after `--`, as `cargo mto -- --unguarded`.
 | `mto history`, `restore` | Past runs, undoing them ([Safety](safety.md)) |
 | `mto report ...` | Bug reports mto kept ([Safety](safety.md#bug-reports)) |
 | `mto doctor ...` | The build guard ([The build guard](build-guard.md)) |
-| `mto debug ...` | What mto sees in a file, and why it keeps code |
+| `mto debug ...` | What mto sees in a file and why ([mto debug](#mto-debug)) |
 | `mto completions ...` | Completions for bash, zsh, fish and PowerShell |
+
+## mto debug
+
+`mto debug` shows what mto sees and why it does what it does, without writing
+anything. Each view takes a file or `-` (stdin), with the settings that apply
+to it and any given with `--config` or `--config-path`:
+
+* `units FILE`: how layout cuts the file into items, in each module, and why
+  each was cut and classed so: pinned, a paragraph, a section's start, a
+  helper and its one user, or why an item is not a helper.
+* `moves FILE`: the items that move, where to, and the rule behind each
+  (`type_order`, `visibility_order`, `keep_helpers_near` and so on).
+* `settle PATH...`: files or folders through a real run in memory, checked
+  as a write would be, then run again over their own output. Every outcome is
+  counted apart: as written, changed and settled, left alone, the check
+  failing, a panic, or a run changing the output again. It exits 4 when a
+  check fails or mto panics, 1 when a file does not settle. `--runs N`, `--diff`
+  and `--layout-only` adjust it.
+* `kept FILE`: each place formatting leaves code as written, and why.
+* `tokens FILE`, `tree FILE`: the tokens and syntax tree mto reads.
+
+These views are for people and may change.
+
+## JSON output
+
+`mto debug units`, `moves` and `settle`, `mto history` (and `history show`),
+`mto doctor` and `mto config print`, `path` and `options` take `--json`. Each
+prints one JSON object on one line whose first field is `"version"` and second
+`"kind"`. Within a version fields are only added; a field renamed, removed or
+given another meaning raises the version. `--emit json` is separate: it keeps
+the standard formatter's own shape.
 
 ## Exit codes
 

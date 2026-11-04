@@ -55,7 +55,7 @@ impl File {
     held.all |= more.all;
     held.moves.extend(more.moves.iter().copied());
     held.lines.extend(more.lines.iter().cloned());
-    match shape(&self.source, &self.settings, &held, None) {
+    match shape(&self.source, &self.settings, &held) {
       Ok(shaped) => shaped.text,
       Err(_) => self.source.clone(),
     }
@@ -65,20 +65,20 @@ impl File {
   /// what layout gives with `moves_held`.
   fn edits(&self, moves_held: bool) -> (Vec<Move>, Vec<Hunk>, String) {
     let mut held = self.held.clone();
-    let Ok(free) = shape(&self.source, &self.settings, &held, None) else {
+    let Ok(free) = shape(&self.source, &self.settings, &held) else {
       return (Vec::new(), Vec::new(), String::new());
     };
     if moves_held {
       held.moves.extend(free.moves.iter().map(|m| m.span.0));
     }
-    let Ok(shaped) = shape(&self.source, &self.settings, &held, None) else {
+    let Ok(shaped) = shape(&self.source, &self.settings, &held) else {
       return (free.moves, Vec::new(), String::new());
     };
     // The changed lines still to be held: those formatting makes over what layout gives,
     // less those held already.
     let mut formatted = held.clone();
     formatted.lines.clear();
-    let full = shape(&self.source, &self.settings, &formatted, None)
+    let full = shape(&self.source, &self.settings, &formatted)
       .map(|s| s.text)
       .unwrap_or_default();
     let hunks = hunks(&shaped.laid_out, &full)

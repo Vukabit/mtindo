@@ -58,6 +58,10 @@ pub fn run(root: &Path, m: &clap::ArgMatches) -> ExitCode {
       0 => bench(root, on(sub, "markdown"), &log),
       code => code,
     },
+    Some(("try", sub)) => match fetch(root, on(sub, "with-rust"), &log) {
+      0 => try_settings(root, sub, &log),
+      code => code,
+    },
     Some(("check", sub)) => {
       let with_rust = on(sub, "with-rust");
       let flags: &[&str] = if on(sub, "baseline") {
@@ -421,6 +425,54 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     ));
   }
   Ok(output)
+}
+
+/// `corpus try`: runs xtask-tools corpus-try on every pinned repository.
+fn try_settings(root: &Path, sub: &clap::ArgMatches, log: &Logger) -> u8 {
+  let pins = match load_pins(root) {
+    Ok(pins) => pins,
+    Err(e) => {
+      println!("{}", e);
+      return 1;
+    }
+  };
+  let mut args: Vec<String> = crate::common::build::tools(&["corpus-try".to_string()]);
+  for name in ["config", "each", "runs", "record"] {
+    if let Some(value) = sub.get_one::<String>(name) {
+      args.push(format!("--{}", name));
+      args.push(value.clone());
+    }
+  }
+  if crate::cli::on(sub, "layout-only") {
+    args.push("--layout-only".to_string());
+  }
+  let with_rust = crate::cli::on(sub, "with-rust");
+  for pin in pins.iter().filter(|p| with_rust || !p.opt_in) {
+    args.push(format!(
+      "{}={}",
+      pin.name,
+      cache_dir(root).join(&pin.name).display()
+    ));
+  }
+  log.info("running xtask-tools corpus-try (release build)");
+  match process::output(
+    std::process::Command::new("cargo")
+      .args(&args)
+      .current_dir(root),
+    process::HEAVY,
+  ) {
+    Ok(done) => {
+      print!("{}", String::from_utf8_lossy(&done.stdout));
+      if done.code != 0 && done.code != 1 {
+        print!("{}", String::from_utf8_lossy(&done.stderr));
+      }
+      done.code.clamp(0, 255) as u8
+    }
+    Err(e) => {
+      println!("cannot run cargo: {}", e);
+      1
+    }
+  }
 }
 
 /// Moves every pin to its repository's current HEAD, keeping the file's comments and order.

@@ -198,6 +198,31 @@ pub fn status(settings: &Settings, config: Option<&Path>) -> String {
   out
 }
 
+/// `mto doctor --json`: whether the guard is on, its command and limits, each held edit,
+/// and the user config that sets it.
+pub fn status_json(settings: &Settings, config: Option<&Path>) -> crate::text::json::Json {
+  use crate::text::json::Json;
+  let holds: Vec<Json> = settings
+    .holds()
+    .list
+    .iter()
+    .map(|hold| {
+      Json::object()
+        .with("path", hold.path.display().to_string())
+        .with("what", hold.what.as_str())
+        .with("run", hold.run.as_str())
+        .with("fix", hold.fix.as_str())
+    })
+    .collect();
+  Json::output("doctor")
+    .with("enabled", settings.enabled)
+    .with("command", settings.command.clone())
+    .with("timeout_s", settings.timeout.map(|t| t.as_secs()))
+    .with("max_checks", settings.max_checks)
+    .with("holds", holds)
+    .with("set_in", config.map(|c| c.display().to_string()))
+}
+
 /// `mto doctor on` and `off`: sets `[doctor]` in the user config, keeping everything else
 /// in it as written. Returns what the user config now says.
 pub fn turn(path: &Path, on: bool, command: Option<&[String]>) -> Result<(), String> {

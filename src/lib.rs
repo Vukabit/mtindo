@@ -13,6 +13,7 @@ pub mod layout;
 pub mod options;
 pub mod order;
 pub mod report;
+pub mod settle;
 pub mod syntax;
 pub mod text;
 pub mod verify;
@@ -128,6 +129,15 @@ pub enum Outcome {
   Dirty,
 }
 
+/// Which check stopped a write: layout's output against the source, a second layout pass
+/// against the formatted text it was given, or formatting's output against what it was
+/// given.
+enum Stop {
+  Layout,
+  Relaid,
+  Format,
+}
+
 /// What collecting the files of a run found.
 #[derive(Debug, Default)]
 pub struct Collected {
@@ -196,7 +206,6 @@ struct Mismatch<'a> {
 pub struct RunOptions {
   pub dry_run: bool,
   pub check: bool,
-  pub debug: bool,
   pub follow_links: bool,
   /// `--emit`: write the files (default), print them, or report as JSON.
   pub emit: Emit,
@@ -210,6 +219,8 @@ pub struct RunOptions {
   pub skip_children: bool,
   /// `--no-history`: do not record this run.
   pub no_history: bool,
+  /// `--no-report`: keep no bug report; name each bug in one line.
+  pub no_report: bool,
   /// `--allow-dirty`: with history off, rewrite files with uncommitted changes.
   pub allow_dirty: bool,
   /// `--unguarded`: no build guard for this run.
@@ -478,9 +489,8 @@ pub fn explain_file(
     return Ok(None);
   };
   let formatting = settings.format.is_some();
-  let (shaped, notes) = format::explain::collect(|| {
-    shape(&source, &settings, &doctor::Held::default(), None).map(|_| ())
-  });
+  let (shaped, notes) =
+    format::explain::collect(|| shape(&source, &settings, &doctor::Held::default()).map(|_| ()));
   if let Err(reason) = shaped {
     return Err(MtoError::Io(format!("{}: {}", path.display(), reason)));
   }
@@ -607,7 +617,7 @@ pub fn process_stdin(
     return Ok(unchanged(report, Outcome::LayoutOff));
   };
   let shaped = match caught(&shown, &source, &settings, || {
-    shape(&source, &settings, &doctor::Held::default(), None)
+    shape(&source, &settings, &doctor::Held::default())
   }) {
     Ok(shaped) => shaped.map(|s| {
       report
@@ -619,7 +629,7 @@ pub fn process_stdin(
       (s.laid_out, s.text, s.edition, s.relaid)
     }),
     Err(bug) => {
-      report.stderr = deliver(&bug, reports.as_ref());
+      report.stderr = deliver(&bug, reports.as_ref(), opts.no_report);
       return Ok(unchanged(report, Outcome::VerifierFailed));
     }
   };
@@ -657,7 +667,7 @@ pub fn process_stdin(
       &shown,
     )
   }) {
-    report.stderr = deliver(&bug, reports.as_ref());
+    report.stderr = deliver(&bug, reports.as_ref(), opts.no_report);
     return Ok(unchanged(report, Outcome::VerifierFailed));
   }
   if opts.emit == Emit::Json {
@@ -696,10 +706,37 @@ pub fn remove_stale(paths: &[PathBuf]) -> usize {
     .count()
 }
 
-pub fn reorganize_file(source: String, config: &LayoutConfig, dbg: bool) -> String {
-  match try_reorganize(&source, config, dbg) {
+pub fn reorganize_file(source: String, config: &LayoutConfig) -> String {
+  match try_reorganize(&source, config) {
     Ok(text) => text,
     Err(_) => source,
+  }
+}
+
+/// What a run makes of `source` with `settings`, as it decides it: `None` when the file is
+/// laid out and formatted with every check passing, or left alone for a reason of its own
+/// (a syntax error); else how mto fails on it, a panic or a verifier stop, without looking
+/// for a smaller input. `mto report recheck` runs a report's bug again with it.
+pub fn replay(source: &str, settings: &Settings) -> Option<report::Failure> {
+  let checked = quietly(false, || {
+    let _parses = syntax::ParseCache::open();
+    let shaped = shape(source, settings, &doctor::Held::default()).ok()?;
+    if shaped.text == source {
+      return None;
+    }
+    violations_all(
+      source,
+      &shaped.laid_out,
+      &shaped.text,
+      shaped.relaid.as_ref(),
+      shaped.edition,
+      settings,
+    )
+    .err()
+  });
+  match checked {
+    Ok(stop) => stop.map(|(_, violations)| report::Failure::Verifier { violations }),
+    Err((said, _)) => Some(report::Failure::Panicked { said }),
   }
 }
 
@@ -729,24 +766,16 @@ pub fn run_file(
       return report.with(Outcome::Failed);
     }
   };
-  if opts.debug {
-    report.stdout.push_str(&format!(
-      "{}--- [DBG] Processing file: {} ---\n",
-      c_cyan(),
-      shown
-    ));
-  }
-  let debug = opts.debug.then_some(&mut report.stdout);
   let held = ctx
     .holds
     .map(|holds| holds.held_for(&std::path::absolute(file_path).unwrap_or_default()))
     .unwrap_or_default();
   let shaped = match caught(&shown, &source, settings, || {
-    shape(&source, settings, &held, debug)
+    shape(&source, settings, &held)
   }) {
     Ok(shaped) => shaped,
     Err(bug) => {
-      report.stderr = deliver(&bug, ctx.reports);
+      report.stderr = deliver(&bug, ctx.reports, opts.no_report);
       return report.with(Outcome::VerifierFailed);
     }
   };
@@ -821,7 +850,7 @@ pub fn run_file(
       &shown,
     )
   }) {
-    report.stderr = deliver(&bug, ctx.reports);
+    report.stderr = deliver(&bug, ctx.reports, opts.no_report);
     return report.with(Outcome::VerifierFailed);
   }
   match opts.emit {
@@ -940,6 +969,13 @@ pub fn run_file(
   report.with(Outcome::Changed)
 }
 
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
 /// Runs every job on a pool of threads, printing each report as soon as every report
 /// before it has been printed, so the output is the same as one thread's.
 /// Each file written is added to the run's history record before it is replaced.
@@ -957,13 +993,6 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions, writes: &mut Writes) -> Vec<Don
     |_| true,
   );
   done
-}
-
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
 }
 
 /// [`run_jobs`] while `walk` is still finding the jobs: it hands each to the function it is
@@ -986,12 +1015,7 @@ pub fn run_jobs_walking<T>(
 
 /// Lays out and formats `source` as `settings` say, holding back the edits `held` names
 /// (none for an ordinary run). `Err` with the reason when the file is left alone.
-pub fn shape(
-  source: &str,
-  settings: &Settings,
-  held: &doctor::Held,
-  mut debug: Option<&mut String>,
-) -> Result<Shaped, String> {
+pub fn shape(source: &str, settings: &Settings, held: &doctor::Held) -> Result<Shaped, String> {
   let mut found = Vec::new();
   if held.all {
     let (edition, parsed) = layout::parse_any_edition(source, settings.edition);
@@ -1025,7 +1049,7 @@ pub fn shape(
       let mut starts = held.moves.clone();
       if !held.move_ids.is_empty() {
         // Remembered holds name units by content: found among the moves of a first pass.
-        let (_, _, _, free) = arrange_holding(source, config, &starts, None)?;
+        let (_, _, _, free) = arrange_holding(source, config, &starts)?;
         for moved in &free {
           let id = doctor::move_id(source, moved);
           if held.move_ids.contains(&id) {
@@ -1034,7 +1058,7 @@ pub fn shape(
           }
         }
       }
-      match arrange_holding(source, config, &starts, debug.take()) {
+      match arrange_holding(source, config, &starts) {
         Ok(arranged) => arranged,
         // A reason of layout's own: the file is formatted with its items where they are.
         Err(reason) => {
@@ -1075,7 +1099,7 @@ pub fn shape(
     && held.moves.is_empty()
     && held.move_ids.is_empty()
     && held.lines.is_empty()
-    && let Ok((again, _, _, _)) = arrange_holding(&text, layout_config, &HashSet::new(), None)
+    && let Ok((again, _, _, _)) = arrange_holding(&text, layout_config, &HashSet::new())
     && again != text
   {
     let formatted = format::file::format_file(&again, edition, format_config);
@@ -1104,11 +1128,8 @@ pub fn shape(
 }
 
 /// Reorders the items of one source file, or explains why the file was left alone.
-pub fn try_reorganize(source: &str, config: &LayoutConfig, dbg: bool) -> Result<String, String> {
-  let mut log = String::new();
-  let result = arrange(source, config, dbg.then_some(&mut log)).map(|(text, _, _)| text);
-  out!("{}", log);
-  result
+pub fn try_reorganize(source: &str, config: &LayoutConfig) -> Result<String, String> {
+  arrange(source, config).map(|(text, _, _)| text)
 }
 
 /// Lays out every `.rs` file under `dir`, each with the settings of its own folder. Files
@@ -1192,13 +1213,119 @@ pub fn write_atomic(target: &Path, content: &str) -> Result<(), std::io::Error> 
   result
 }
 
-/// The arranged text and the edition the file was parsed with.
-fn arrange(
+/// Runs `work`; a panic in it is caught and given as what it said and where (and, with
+/// `backtrace`, the backtrace), without the standard message on stderr.
+pub(crate) fn quietly<T>(
+  backtrace: bool,
+  work: impl FnOnce() -> T,
+) -> Result<T, (String, Option<String>)> {
+  static HOOK: std::sync::Once = std::sync::Once::new();
+  HOOK.call_once(|| {
+    let standard = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+      let kept = QUIET.with(|quiet| match quiet.borrow_mut().as_mut() {
+        Some((said, trace, wanted)) => {
+          let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+          *said = match info.location() {
+            Some(at) => format!("{} (at {}:{})", message, at.file(), at.line()),
+            None => message,
+          };
+          if *wanted {
+            *trace = Some(std::backtrace::Backtrace::force_capture().to_string());
+          }
+          true
+        }
+        None => false,
+      });
+      if !kept {
+        standard(info);
+      }
+    }));
+  });
+  let outer = QUIET.with(|quiet| quiet.replace(Some((String::new(), None, backtrace))));
+  let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+  let (said, trace, _) = QUIET.with(|quiet| quiet.replace(outer)).unwrap_or_default();
+  result.map_err(|_| (said, trace))
+}
+
+/// The settings that differ from the defaults, one per line, for a bug report.
+pub(crate) fn settings_text(settings: &Settings) -> String {
+  let differing = |name: &str, value: String, default: String| -> String {
+    let defaults: HashSet<&str> = default.lines().collect();
+    value
+      .lines()
+      .filter(|line| !defaults.contains(line))
+      .map(|line| format!("{}: {}\n", name, line.trim().trim_end_matches(',')))
+      .collect()
+  };
+  let mut out = String::new();
+  match &settings.layout {
+    None => out.push_str("layout: off\n"),
+    Some(config) => out.push_str(&differing(
+      "layout",
+      format!("{:#?}", config),
+      format!("{:#?}", LayoutConfig::default()),
+    )),
+  }
+  match &settings.format {
+    None => out.push_str("format: off\n"),
+    Some(config) => out.push_str(&differing(
+      "format",
+      format!("{:#?}", config),
+      format!("{:#?}", options::format::FormatConfig::default()),
+    )),
+  }
+  out
+}
+
+/// Both checks before anything is written or shown: layout's output against the source,
+/// then formatting's output against layout's. A violation is a bug report, with the
+/// smallest part of the input that still breaks the same rules.
+pub(crate) fn verified_all(
   source: &str,
-  config: &LayoutConfig,
-  debug: Option<&mut String>,
-) -> Result<(String, syntax::Edition, bool), String> {
-  arrange_holding(source, config, &HashSet::new(), debug)
+  laid_out: &str,
+  formatted: &str,
+  relaid: Option<&(String, String)>,
+  edition: syntax::Edition,
+  settings: &Settings,
+  path: &str,
+) -> Result<(), Box<report::Bug>> {
+  let Err((stop, violations)) =
+    violations_all(source, laid_out, formatted, relaid, edition, settings)
+  else {
+    return Ok(());
+  };
+  let minimal = match (stop, &settings.layout, relaid) {
+    (Stop::Layout, Some(config), _) => Some(layout_minimal(source, edition, config)),
+    (Stop::Relaid, Some(config), Some((first, _))) => Some(layout_minimal(first, edition, config)),
+    _ => {
+      // Formatting: the whole run, again, on each smaller part.
+      let rules = report::rules(&violations);
+      let fails = |candidate: &str| match replay(candidate, settings) {
+        Some(report::Failure::Verifier { violations }) => report::rules(&violations) == rules,
+        _ => false,
+      };
+      fails(source).then(|| verify::report::minimize(source, edition, &fails))
+    }
+  };
+  Err(Box::new(bug(
+    path,
+    source,
+    settings,
+    report::Failure::Verifier { violations },
+    minimal,
+    None,
+  )))
+}
+
+/// The arranged text and the edition the file was parsed with.
+fn arrange(source: &str, config: &LayoutConfig) -> Result<(String, syntax::Edition, bool), String> {
+  arrange_holding(source, config, &HashSet::new())
     .map(|(text, edition, skipped, _)| (text, edition, skipped))
 }
 
@@ -1208,7 +1335,6 @@ fn arrange_holding(
   source: &str,
   config: &LayoutConfig,
   held: &HashSet<usize>,
-  debug: Option<&mut String>,
 ) -> Result<(String, syntax::Edition, bool, Vec<layout::Move>), String> {
   if source.trim_start_matches('\u{feff}').trim().is_empty() {
     return Ok((
@@ -1219,26 +1345,6 @@ fn arrange_holding(
     ));
   }
   let arranged = layout::layout_holding(source, config, held)?;
-  if let Some(out) = debug {
-    out.push_str(&format!(
-      "{}--- [DBG] Extracted {} blocks from source ---\n",
-      c_cyan(),
-      arranged.before.len()
-    ));
-    for (idx, unit) in arranged.before.iter().enumerate() {
-      out.push_str(&format!(
-        "  [Block #{}] Kind: {:?}, Visibility: {:?}, Identifier: '{}', Parent Target: '{}'\n",
-        idx, unit.kind, unit.visibility, unit.identifier, unit.parent_target
-      ));
-    }
-    out.push_str(&format!("{}--- [DBG] Blocks after sorting ---\n", c_cyan()));
-    for (idx, unit) in arranged.after.iter().enumerate() {
-      out.push_str(&format!(
-        "  [Sorted #{}] Kind: {:?}, Identifier: '{}'\n",
-        idx, unit.kind, unit.identifier
-      ));
-    }
-  }
   let mut text = arranged.text;
   // Debug builds only: lets the tests prove the verifier stops a bad write, now that the
   // engine has no known way to produce one, and that a bug failing on one file stops only
@@ -1348,6 +1454,13 @@ fn bug(
   let path = (shown != "<stdin>")
     .then(|| std::path::absolute(shown).ok())
     .flatten();
+  // What runs it again: the smallest part, with the settings as a file gives them back.
+  let replay = minimal.as_ref().and_then(|input| {
+    cli::replay::settings_file(settings).map(|settings| report::Replay {
+      input: input.clone(),
+      settings,
+    })
+  });
   report::Bug {
     failure,
     file: shown.to_string(),
@@ -1357,6 +1470,7 @@ fn bug(
     source_hash: history::sha256::hex(source.as_bytes()),
     settings: settings_text(settings),
     command: cli::history::command_line(),
+    replay,
   }
 }
 
@@ -1375,21 +1489,10 @@ fn caught<T>(
     Err(failed) => failed,
   };
   let fails = |candidate: &str| {
-    quietly(false, || {
-      let _parses = syntax::ParseCache::open();
-      if let Ok(shaped) = shape(candidate, settings, &doctor::Held::default(), None) {
-        let _ = verified_all(
-          candidate,
-          &shaped.laid_out,
-          &shaped.text,
-          shaped.relaid.as_ref(),
-          shaped.edition,
-          settings,
-          shown,
-        );
-      }
-    })
-    .is_err()
+    matches!(
+      replay(candidate, settings),
+      Some(report::Failure::Panicked { .. })
+    )
   };
   let minimal = fails(source).then(|| {
     let (edition, _) = layout::parse_any_edition(source, settings.edition);
@@ -1415,8 +1518,18 @@ fn code(text: &str, edition: syntax::Edition) -> std::borrow::Cow<'_, str> {
 }
 
 /// What the terminal shows for `bug`: one line naming the report it is kept as, or the
-/// whole report when reports are not kept (or keeping it failed).
-fn deliver(bug: &report::Bug, reports: Option<&report::Store>) -> String {
+/// whole report when reports are not kept (or keeping it failed); with `--no-report`
+/// (`name_only`), one line naming the bug, and nothing kept.
+fn deliver(bug: &report::Bug, reports: Option<&report::Store>, name_only: bool) -> String {
+  if name_only {
+    return format!(
+      "{}mto hit a bug on {} ({}); no report kept (--no-report){}\n",
+      c_red(),
+      bug.file,
+      bug.title(),
+      c_reset(true)
+    );
+  }
   let mut note = String::new();
   if let Some(store) = reports {
     match store.save(bug) {
@@ -1630,6 +1743,15 @@ fn json_string(text: &str) -> String {
   out
 }
 
+/// The smallest part of `text` whose layout still breaks a verifier rule (`text` does).
+fn layout_minimal(text: &str, edition: syntax::Edition, config: &LayoutConfig) -> String {
+  let fails = |candidate: &str| match arrange(candidate, config) {
+    Ok((out, _, _)) => !verify::verify_layout(candidate, &out, edition).is_empty(),
+    Err(_) => false,
+  };
+  verify::report::minimize(text, edition, &fails)
+}
+
 /// The changed regions between `old` and `new` with `context` lines around each: a port of
 /// The standard formatter's diff regions, over mto's own line diff. Lines are split as its
 /// diff splits them, so a final line break leaves an empty last line.
@@ -1784,43 +1906,6 @@ fn plain_path(path: &Path) -> Option<PathBuf> {
     .then(|| PathBuf::from(plain))
 }
 
-/// Runs `work`; a panic in it is caught and given as what it said and where (and, with
-/// `backtrace`, the backtrace), without the standard message on stderr.
-fn quietly<T>(backtrace: bool, work: impl FnOnce() -> T) -> Result<T, (String, Option<String>)> {
-  static HOOK: std::sync::Once = std::sync::Once::new();
-  HOOK.call_once(|| {
-    let standard = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-      let kept = QUIET.with(|quiet| match quiet.borrow_mut().as_mut() {
-        Some((said, trace, wanted)) => {
-          let message = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|s| s.to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_default();
-          *said = match info.location() {
-            Some(at) => format!("{} (at {}:{})", message, at.file(), at.line()),
-            None => message,
-          };
-          if *wanted {
-            *trace = Some(std::backtrace::Backtrace::force_capture().to_string());
-          }
-          true
-        }
-        None => false,
-      });
-      if !kept {
-        standard(info);
-      }
-    }));
-  });
-  let outer = QUIET.with(|quiet| quiet.replace(Some((String::new(), None, backtrace))));
-  let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
-  let (said, trace, _) = QUIET.with(|quiet| quiet.replace(outer)).unwrap_or_default();
-  result.map_err(|_| (said, trace))
-}
-
 /// [`fs::rename`], tried again for a while on Windows when another program has the file
 /// open: a virus scanner or the search indexer often does, for a moment, after a write.
 fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -1837,36 +1922,6 @@ fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
   fs::rename(from, to)
 }
 
-/// The settings that differ from the defaults, one per line, for a bug report.
-fn settings_text(settings: &Settings) -> String {
-  let differing = |name: &str, value: String, default: String| -> String {
-    let defaults: HashSet<&str> = default.lines().collect();
-    value
-      .lines()
-      .filter(|line| !defaults.contains(line))
-      .map(|line| format!("{}: {}\n", name, line.trim().trim_end_matches(',')))
-      .collect()
-  };
-  let mut out = String::new();
-  match &settings.layout {
-    None => out.push_str("layout: off\n"),
-    Some(config) => out.push_str(&differing(
-      "layout",
-      format!("{:#?}", config),
-      format!("{:#?}", LayoutConfig::default()),
-    )),
-  }
-  match &settings.format {
-    None => out.push_str("format: off\n"),
-    Some(config) => out.push_str(&differing(
-      "format",
-      format!("{:#?}", config),
-      format!("{:#?}", options::format::FormatConfig::default()),
-    )),
-  }
-  out
-}
-
 /// The note for a file formatted with its items where they are, because layout left it.
 fn unlaid_note(shown: &str, reason: &str) -> String {
   format!(
@@ -1878,51 +1933,28 @@ fn unlaid_note(shown: &str, reason: &str) -> String {
   )
 }
 
-/// Checks layout's new text with the verifier before anything is written or shown. On a
-/// violation, the rules broken and the smallest part of the input that still breaks them.
-fn verified(
-  source: &str,
-  output: &str,
-  edition: syntax::Edition,
-  config: &LayoutConfig,
-) -> Result<(), (Vec<verify::Violation>, String)> {
-  let violations = verify::verify_layout(source, output, edition);
-  if violations.is_empty() {
-    return Ok(());
-  }
-  let fails = |candidate: &str| match arrange(candidate, config, None) {
-    Ok((out, _, _)) => !verify::verify_layout(candidate, &out, edition).is_empty(),
-    Err(_) => false,
-  };
-  Err((
-    violations,
-    verify::report::minimize(source, edition, &fails),
-  ))
-}
-
-/// Both checks before anything is written or shown: layout's output against the source,
-/// then formatting's output against layout's. A violation is a bug report.
-fn verified_all(
+/// The checks of [`verified_all`], without looking for a smaller input: the first that
+/// fails, with the rules broken.
+fn violations_all(
   source: &str,
   laid_out: &str,
   formatted: &str,
   relaid: Option<&(String, String)>,
   edition: syntax::Edition,
   settings: &Settings,
-  path: &str,
-) -> Result<(), Box<report::Bug>> {
-  if let Some(config) = &settings.layout
-    && laid_out != source
-    && let Err((violations, minimal)) = verified(source, laid_out, edition, config)
-  {
-    return Err(Box::new(bug(
-      path,
-      source,
-      settings,
-      report::Failure::Verifier { violations },
-      Some(minimal),
-      None,
-    )));
+) -> Result<(), (Stop, Vec<verify::Violation>)> {
+  let broken = |stop: Stop, violations: Vec<verify::Violation>| {
+    if violations.is_empty() {
+      Ok(())
+    } else {
+      Err((stop, violations))
+    }
+  };
+  if settings.layout.is_some() && laid_out != source {
+    broken(
+      Stop::Layout,
+      verify::verify_layout(source, laid_out, edition),
+    )?;
   }
   // Each formatting against what it was given; a second layout pass against the text it
   // was given.
@@ -1931,33 +1963,17 @@ fn verified_all(
     relaid.map_or(formatted, |(first, _)| first.as_str()),
   )];
   if let Some((first, again)) = relaid {
-    if let Some(config) = &settings.layout
-      && let Err((violations, minimal)) = verified(first, again, edition, config)
-    {
-      return Err(Box::new(bug(
-        path,
-        source,
-        settings,
-        report::Failure::Verifier { violations },
-        Some(minimal),
-        None,
-      )));
+    if settings.layout.is_some() {
+      broken(Stop::Relaid, verify::verify_layout(first, again, edition))?;
     }
     formats.push((again.as_str(), formatted));
   }
   for (given, gave) in formats {
     if settings.format.is_some() && gave != given {
-      let violations = verify::format::verify_format(given, gave, edition);
-      if !violations.is_empty() {
-        return Err(Box::new(bug(
-          path,
-          source,
-          settings,
-          report::Failure::Verifier { violations },
-          None,
-          None,
-        )));
-      }
+      broken(
+        Stop::Format,
+        verify::format::verify_format(given, gave, edition),
+      )?;
     }
   }
   Ok(())
@@ -2271,7 +2287,7 @@ mod tests {
         format: Some(options::format::FormatConfig::default()),
         edition,
       };
-      let shaped = super::shape(source, &settings, &doctor::Held::default(), None).unwrap();
+      let shaped = super::shape(source, &settings, &doctor::Held::default()).unwrap();
       (shaped.edition, shaped.text)
     };
     assert_eq!(
@@ -2294,8 +2310,7 @@ mod tests {
       format: Some(options::format::FormatConfig::default()),
       edition: syntax::Edition::E2021,
     };
-    let shaped =
-      super::shape("fn async() {}\n", &settings, &doctor::Held::default(), None).unwrap();
+    let shaped = super::shape("fn async() {}\n", &settings, &doctor::Held::default()).unwrap();
     assert_eq!(shaped.edition, syntax::Edition::E2015);
   }
 

@@ -3,9 +3,62 @@
 //! (from `records/policy/capabilities.txt`, generated into [`crate::options::support`]).
 
 use crate::options::{self, File, Kind, Setting, support};
+use crate::text::json::Json;
 
 /// The longest a VALUES cell runs before it is cut.
 const VALUES_WIDTH: usize = 30;
+
+/// `mto config options --json`: every setting with its file, type, legal values, defaults
+/// and documentation, and for the standard formatter's how far mto honors it.
+pub fn json() -> Json {
+  let mut settings: Vec<&Setting> = options::all()
+    .filter(|s| !s.hidden && s.kind != Kind::Internal)
+    .collect();
+  settings.sort_by_key(|s| (s.file as u8, s.name));
+  let listed: Vec<Json> = settings
+    .iter()
+    .map(|setting| {
+      let (kind, values) = match setting.kind {
+        Kind::Bool => ("bool", None),
+        Kind::Integer => ("integer", None),
+        Kind::Text => ("text", None),
+        Kind::Size => ("size", None),
+        Kind::Choice(choices) => ("choice", Some(choices)),
+        Kind::List => ("list", None),
+        Kind::Sequence(choices) => ("sequence", Some(choices)),
+        Kind::Internal => ("internal", None),
+      };
+      let values: Option<Vec<Json>> = values.map(|choices| {
+        choices
+          .iter()
+          .map(|c| Json::object().with("name", c.name).with("doc", c.doc))
+          .collect()
+      });
+      Json::object()
+        .with("name", setting.name)
+        .with(
+          "file",
+          match setting.file {
+            File::Mto => "mto.toml",
+            File::Format => "rustfmt.toml",
+            File::User => "config.toml",
+          },
+        )
+        .with("kind", kind)
+        .with("values", values.map(Json::Array))
+        .with("default", setting.default)
+        .with("default_2024", setting.default_2024)
+        .with("summary", setting.summary)
+        .with("doc", setting.doc)
+        .with(
+          "in_mto",
+          (setting.file == File::Format).then(|| status(setting.name)),
+        )
+        .with("replaced_by", setting.replaced_by)
+    })
+    .collect();
+  Json::output("options").with("settings", listed)
+}
 
 /// The listing: a table per file, or with `toml`, the same as a commented file to copy from.
 pub fn render(toml: bool) -> String {

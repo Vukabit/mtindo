@@ -271,7 +271,7 @@ fn shaping(sources: &[(PathBuf, String)]) {
   let (mut files, mut moves, mut runs) = (0usize, 0usize, 0usize);
   for (_, source) in sources {
     let started = Instant::now();
-    let Ok(free) = shape(source, &settings, &Held::default(), None) else {
+    let Ok(free) = shape(source, &settings, &Held::default()) else {
       continue;
     };
     plain += started.elapsed();
@@ -291,7 +291,7 @@ fn shaping(sources: &[(PathBuf, String)]) {
       ..Held::default()
     };
     let started = Instant::now();
-    let _ = shape(source, &settings, &held, None);
+    let _ = shape(source, &settings, &held);
     holding += started.elapsed();
   }
   let mb_per_s = bytes as f64 / plain.as_secs_f64().max(1e-9) / 1e6;

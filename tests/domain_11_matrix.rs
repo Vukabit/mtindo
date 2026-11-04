@@ -154,7 +154,7 @@ fn test_corpus_matrix_permutations() {
 
   for (name, snippet) in corpus {
     for (idx, config) in configs.iter().enumerate() {
-      let first_pass = reorganize_file(snippet.to_string(), config, false);
+      let first_pass = reorganize_file(snippet.to_string(), config);
 
       assert!(
         !first_pass.is_empty(),
@@ -163,7 +163,7 @@ fn test_corpus_matrix_permutations() {
         idx
       );
 
-      let second_pass = reorganize_file(first_pass.clone(), config, false);
+      let second_pass = reorganize_file(first_pass.clone(), config);
 
       assert_eq!(
         first_pass, second_pass,

@@ -228,6 +228,9 @@ pub struct FormatConfig {
   pub style_edition: u16,
   /// Whether runs of `use` declarations are sorted.
   pub reorder_imports: bool,
+  /// mto's `import_sort`: the style edition imports are sorted by, when not
+  /// `style_edition`; layout sorts by it too, so formatting must not undo it.
+  pub import_sort: Option<u16>,
   /// Whether runs of `mod name;` declarations are sorted.
   pub reorder_modules: bool,
   /// Whether `extern` alone is written `extern "C"`.
@@ -294,6 +297,12 @@ impl FormatConfig {
 }
 
 impl FormatConfig {
+  /// Whether imports sort by version sort: `import_sort` when set, else the style edition
+  /// (2024 and later), as layout decides it.
+  pub fn version_sorted_imports(&self) -> bool {
+    self.import_sort.unwrap_or(self.style_edition) >= 2024
+  }
+
   /// The defaults without the generated-file markers, which only a whole file reads:
   /// for the settings a nested layout rebuilds, often, without allocating.
   pub fn nested() -> Self {
@@ -353,6 +362,7 @@ impl FormatConfig {
       attr_fn_like_width: 70,
       style_edition: 2015,
       reorder_imports: true,
+      import_sort: None,
       reorder_modules: true,
       force_explicit_abi: true,
       merge_derives: true,

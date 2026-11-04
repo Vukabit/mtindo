@@ -25,14 +25,14 @@ proptest! {
     #[test]
     fn test_reorganize_file_no_panic(ref s in any::<String>()) {
         let config = LayoutConfig::default();
-        let _ = reorganize_file(s.clone(), &config, false);
+        let _ = reorganize_file(s.clone(), &config);
     }
     #[test]
     fn test_reorganize_keeps_every_line_and_is_idempotent(items in prop::collection::vec(item_strategy(), 1..12)) {
         let source = items.join("\n");
         let config = LayoutConfig::default();
-        let first = reorganize_file(source.clone(), &config, false);
-        let second = reorganize_file(first.clone(), &config, false);
+        let first = reorganize_file(source.clone(), &config);
+        let second = reorganize_file(first.clone(), &config);
         prop_assert_eq!(&first, &second);
         let mut before: Vec<&str> = source.lines().filter(|l| !l.trim().is_empty()).collect();
         let mut after: Vec<&str> = first.lines().filter(|l| !l.trim().is_empty()).collect();

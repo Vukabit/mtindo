@@ -3,6 +3,7 @@
 pub mod color;
 #[cfg(windows)]
 pub mod console;
+pub mod json;
 pub mod line_index;
 pub mod source;
 pub mod terminal;

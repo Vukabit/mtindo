@@ -18,7 +18,7 @@ pub(super) fn checked(data: &[u8]) {
     return;
   };
   let config = LayoutConfig::default();
-  let Ok(once) = try_reorganize(text, &config, false) else {
+  let Ok(once) = try_reorganize(text, &config) else {
     return;
   };
   // Checked in the edition layout read it in, as mto checks it before writing.
@@ -31,7 +31,7 @@ pub(super) fn checked(data: &[u8]) {
     once,
     found
   );
-  let twice = try_reorganize(&once, &config, false);
+  let twice = try_reorganize(&once, &config);
   assert_eq!(
     twice.as_deref(),
     Ok(once.as_str()),

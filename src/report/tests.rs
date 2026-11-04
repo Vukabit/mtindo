@@ -11,6 +11,7 @@ fn bug(said: &str, minimal: &str, file: &str) -> Bug {
     source_hash: "ab".repeat(32),
     settings: "layout: on\n".into(),
     command: "mto .".into(),
+    replay: None,
   }
 }
 

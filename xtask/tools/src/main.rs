@@ -5,6 +5,7 @@ mod common;
 mod compare;
 mod config_docs;
 mod corpus;
+mod corpus_try;
 mod diff_fuzz;
 mod doctor_bench;
 mod perf;
@@ -32,6 +33,7 @@ fn main() -> ExitCode {
     Some("lexdiff") => compare::lexer(&root, &args[1..]),
     Some("parsecheck") => compare::parse(&root, &args[1..]),
     Some("corpus-check") => corpus::run(&root, &args[1..]),
+    Some("corpus-try") => corpus_try::run(&root, &args[1..]),
     Some("docs") => config_docs::run(&root, &args[1..]),
     Some("corpus-speed") => corpus::speed(&args[1..]),
     Some("toml-test") => toml_test::run(&args[1..]),

@@ -372,6 +372,102 @@ fn test_a_file_nested_too_deeply_is_left_as_written() {
   assert_eq!(printed(&output.stdout), deep);
 }
 
+/// A report keeps what runs its bug again; `recheck` keeps one that still fails, gives one
+/// kept before replays were what runs it again, and removes one that no longer fails, only
+/// without `--dry-run`. `--no-report` keeps nothing and names the bug in one line.
+#[test]
+fn test_a_report_is_rechecked_and_removed_once_fixed() {
+  let env = TestEnvironment::new();
+  env.write_file("b.rs", "fn inject_panic() {}\n\nfn a() {}\n");
+  let output = env
+    .mto_cmd()
+    .args(["--no-report", "b.rs"])
+    .env("MTINDO_INJECT_FAULT", "panic")
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(4));
+  let stderr = printed(&output.stderr);
+  assert!(
+    stderr
+      .contains("mto hit a bug on b.rs (panic: injected by MTINDO_INJECT_FAULT (at src/lib.rs:")
+      && stderr.contains("); no report kept (--no-report)\n"),
+    "{}",
+    stderr
+  );
+  let (_, listed, _) = mto(&env, &["report"]);
+  assert!(listed.starts_with("no bug reports"), "{}", listed);
+  let output = env
+    .mto_cmd()
+    .arg("b.rs")
+    .env("MTINDO_INJECT_FAULT", "panic")
+    .output()
+    .unwrap();
+  let stderr = printed(&output.stderr);
+  let id = stderr
+    .split("saved as report ")
+    .nth(1)
+    .and_then(|rest| rest.split(':').next())
+    .unwrap()
+    .to_string();
+  let reports = env.dir.path().join(".home/.local/state/mtindo/reports");
+  let kept = std::fs::read_dir(&reports)
+    .unwrap()
+    .next()
+    .unwrap()
+    .unwrap()
+    .path();
+  assert_eq!(
+    std::fs::read_to_string(kept.join("input.rs"))
+      .unwrap()
+      .trim_end(),
+    "fn inject_panic() {}"
+  );
+  let settings = std::fs::read_to_string(kept.join("replay.toml")).unwrap();
+  assert!(settings.contains("\nlayout = true\n"), "{}", settings);
+  // As a report kept before replays were: run from what it shows.
+  std::fs::remove_file(kept.join("input.rs")).unwrap();
+  std::fs::remove_file(kept.join("replay.toml")).unwrap();
+  let recheck = |args: &[&str], fault: bool| {
+    let mut cmd = env.mto_cmd();
+    cmd.args(["report", "recheck"]).args(args);
+    if fault {
+      cmd.env("MTINDO_INJECT_FAULT", "panic");
+    }
+    let output = cmd.output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", printed(&output.stderr));
+    printed(&output.stdout).to_string()
+  };
+  let found = recheck(&[], true);
+  assert!(
+    found.contains(&format!("{}   reproduces     panic: injected", id)),
+    "{}",
+    found
+  );
+  assert!(
+    found.ends_with(
+      "1 report(s): 1 reproduce, 0 fail differently, 0 fixed, 0 cannot be replayed (kept \
+       as they are)\n"
+    ),
+    "{}",
+    found
+  );
+  assert!(kept.join("replay.toml").exists());
+  let meta = std::fs::read_to_string(kept.join("meta")).unwrap();
+  assert!(meta.contains("\nrechecked "), "{}", meta);
+  // The bug fixed: listed as such, and removed only for real.
+  let found = recheck(&["--dry-run", &id], false);
+  assert!(
+    found.contains(&format!("{}   fixed", id))
+      && found.contains("1 fixed (--dry-run: none removed)"),
+    "{}",
+    found
+  );
+  assert!(kept.exists());
+  let found = recheck(&[], false);
+  assert!(found.contains("1 fixed and removed"), "{}", found);
+  assert!(!kept.exists());
+}
+
 /// More targets than a Windows command line holds reach mto all the same: the list goes in
 /// a file, removed after.
 #[test]
@@ -480,6 +576,23 @@ fn test_cargo_mto_lays_out_every_target_like_cargo_fmt() {
     "{}",
     history
   );
+}
+
+/// A check that takes no file says so even under -q; one with a file that has syntax
+/// errors still counts the files that would change.
+#[test]
+fn test_cli_a_check_says_what_it_did_not_check() {
+  let env = TestEnvironment::new();
+  env.write_file("only/inner/.git/HEAD", "ref: refs/heads/main\n");
+  env.write_file("only/inner/x.rs", "fn x(){}\n");
+  let (code, _, said) = mto(&env, &["-q", "--check", "--no-history", "only"]);
+  assert_eq!(code, 0);
+  assert!(said.contains("warning: nothing was checked"), "{}", said);
+  env.write_file("mix/a.rs", "fn  a(){}\n");
+  env.write_file("mix/b.rs", "fn a( {\n");
+  let (code, _, said) = mto(&env, &["--check", "--no-history", "--unguarded", "mix"]);
+  assert_eq!(code, 3);
+  assert!(said.contains("1 file(s) would be reformatted."), "{}", said);
 }
 
 #[test]
@@ -920,35 +1033,16 @@ fn test_cli_crate_skip_attributes_reach_its_modules() {
   );
 }
 
-#[test]
-fn test_cli_dbg_prints_the_split() {
-  let env = TestEnvironment::new();
-  env.write_file("main.rs", "fn b() {}\nfn a() {}\n");
-
-  let output = env
-    .mto_cmd()
-    .args(["--dbg", "--check", "main.rs"])
-    .output()
-    .unwrap();
-  let all = printed(&output.stdout).to_string() + &printed(&output.stderr);
-  assert!(all.contains("Extracted 2 blocks"), "{}", all);
-  assert!(
-    all.contains("[Sorted #0] Kind: FnDecl, Identifier: 'a'"),
-    "{}",
-    all
-  );
-}
-
-/// `mto debug layout`: each place left as written, where and why, with formatting on
+/// `mto debug kept`: each place left as written, where and why, with formatting on
 /// though the folder has it off; nothing written.
 #[test]
-fn test_cli_debug_layout_says_why_code_is_left_as_written() {
+fn test_cli_debug_kept_says_why_code_is_left_as_written() {
   let env = TestEnvironment::new();
   let source = "fn f() {\n    #[rustfmt::skip]\n    let  a  =  1;\n    let b   = 2;\n}\n";
   env.write_file("main.rs", source);
   let out = env
     .mto_cmd()
-    .args(["debug", "layout", "main.rs"])
+    .args(["debug", "kept", "main.rs"])
     .output()
     .unwrap();
   assert!(out.status.success());
@@ -964,7 +1058,7 @@ fn test_cli_debug_layout_says_why_code_is_left_as_written() {
   env.write_file("plain.rs", "fn g() {}\n");
   let out = env
     .mto_cmd()
-    .args(["debug", "layout", "plain.rs"])
+    .args(["debug", "kept", "plain.rs"])
     .output()
     .unwrap();
   assert!(out.status.success());
@@ -1015,6 +1109,65 @@ fn test_cli_debug_tree_and_tokens() {
     .assert()
     .failure()
     .code(3);
+}
+
+/// `mto debug units`, `moves` and `settle`: what layout sees and does, nothing written,
+/// as people read it and as JSON.
+#[test]
+fn test_cli_debug_units_moves_and_settle() {
+  let env = TestEnvironment::new();
+  let source = "fn zz() {}\n\nfn beta() {\n    zz();\n}\n\nfn alpha() {}\n";
+  env.write_file("main.rs", source);
+  let helpers = ["--config", "layout=true,keep_helpers_near=true"];
+  let (code, units, _) = mto(
+    &env,
+    &[&["debug", "units", "main.rs"][..], &helpers].concat(),
+  );
+  assert_eq!(code, 0);
+  assert!(
+    units.contains("helper: stays above `beta`, its one user"),
+    "{}",
+    units
+  );
+  let (code, moves, _) = mto(
+    &env,
+    &[&["debug", "moves", "main.rs"][..], &helpers].concat(),
+  );
+  assert_eq!(code, 0);
+  assert!(
+    moves.contains("by name (name_sort)") || moves.contains("keep_helpers_near"),
+    "{}",
+    moves
+  );
+  let (code, json, _) = mto(
+    &env,
+    &[&["debug", "moves", "main.rs", "--json"][..], &helpers].concat(),
+  );
+  assert_eq!(code, 0);
+  assert!(
+    json.starts_with("{\"version\":1,\"kind\":\"moves\""),
+    "{}",
+    json
+  );
+  let (code, settled, _) = mto(
+    &env,
+    &[&["debug", "settle", "main.rs"][..], &helpers].concat(),
+  );
+  assert_eq!(code, 0);
+  assert!(
+    settled.contains("main.rs  changed · settles"),
+    "{}",
+    settled
+  );
+  assert!(
+    settled.contains("1 file(s): 1 changed and settled"),
+    "{}",
+    settled
+  );
+  // Nothing is written.
+  assert_eq!(env.read_file("main.rs"), source);
+  let (code, _, said) = mto(&env, &["debug", "settle", "main.rs", "--runs", "1"]);
+  assert_eq!(code, 2, "{}", said);
 }
 
 /// The build guard: off, mto runs nothing; on, it checks before and after a run, holds
@@ -1645,6 +1798,29 @@ fn test_cli_invalid_config_exits_two() {
   env.mto_cmd().arg("main.rs").assert().failure().code(2);
 }
 
+/// `--json` on the views that list state: history, doctor, the settings.
+#[test]
+fn test_cli_json_views_carry_their_version() {
+  let env = TestEnvironment::new();
+  for (args, kind) in [
+    (&["history", "--json"][..], "history"),
+    (&["doctor", "--json"][..], "doctor"),
+    (&["config", "print", "--json"][..], "config"),
+    (&["config", "options", "--json"][..], "options"),
+  ] {
+    let (code, out, said) = mto(&env, args);
+    assert_eq!(code, 0, "{:?}: {}", args, said);
+    assert!(
+      out.starts_with(&format!("{{\"version\":1,\"kind\":\"{}\"", kind)),
+      "{:?}: {}",
+      args,
+      out
+    );
+  }
+  let (code, _, _) = mto(&env, &["history", "prune", "--json"]);
+  assert_eq!(code, 2);
+}
+
 #[test]
 fn test_cli_man_prints_the_manual() {
   let env = TestEnvironment::new();
@@ -2058,7 +2234,7 @@ fn test_completions_bash_completes_from_the_tables() {
     );
     assert_eq!(
       offers(&["mto", "history", "--"]),
-      ["--help ", "--all "],
+      ["--help ", "--all ", "--json "],
       "{}",
       context
     );
@@ -2430,6 +2606,39 @@ fn test_completions_match_their_snapshots() {
       ),
     }
   }
+}
+
+/// `prune --under` removes the reports seen only in files under a folder; `remove` removes
+/// those named.
+#[test]
+fn test_reports_are_pruned_by_folder_and_removed_by_id() {
+  let env = TestEnvironment::new();
+  env.write_file("deep/a.rs", "fn inject_panic() {\n  a();\n}\n");
+  env.write_file("b.rs", "fn inject_panic() {}\nfn b() {}\n");
+  let output = env
+    .mto_cmd()
+    .args(["deep/a.rs", "b.rs"])
+    .env("MTINDO_INJECT_FAULT", "panic")
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(4));
+  let (code, said, _) = mto(&env, &["report", "prune", "--under", "deep"]);
+  assert_eq!(code, 0);
+  assert_eq!(said, "removed 1 report(s) seen only under deep\n");
+  let (_, listed, _) = mto(&env, &["report"]);
+  assert!(
+    listed.contains("(b.rs)") && !listed.contains("a.rs"),
+    "{}",
+    listed
+  );
+  let id = listed.lines().nth(1).unwrap()[..6].to_string();
+  let (code, _, stderr) = mto(&env, &["report", "remove", "zzzzzz"]);
+  assert_eq!(code, 2, "{}", stderr);
+  let (code, said, _) = mto(&env, &["report", "remove", &id]);
+  assert_eq!(code, 0);
+  assert_eq!(said, format!("removed report {}\n", id));
+  let (_, listed, _) = mto(&env, &["report"]);
+  assert!(listed.starts_with("no bug reports"), "{}", listed);
 }
 
 /// The command-line guide lists every top-level flag with its values, every command,

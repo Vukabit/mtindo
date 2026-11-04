@@ -4,6 +4,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use mtindo::cli::completions::{self, Folders, Found, Installed, Shell, State};
+use mtindo::cli::debug as debug_cli;
 use mtindo::cli::doctor as doctor_cli;
 use mtindo::cli::history::{self, PruneArgs};
 use mtindo::cli::spec::{
@@ -14,8 +15,8 @@ use mtindo::config::{self, Config, Environment, FileKind, Overrides, Resolver, S
 use mtindo::doctor::guard::{self, Ended, Planned};
 use mtindo::options::File;
 use mtindo::syntax::lexer::tokenize;
+use mtindo::syntax::parse;
 use mtindo::syntax::tree::debug_dump;
-use mtindo::syntax::{Edition, parse};
 use mtindo::{
   Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, Writes, c_green, c_red, c_reset,
   c_yellow, collect_jobs, collect_jobs_into, print_warnings, process_init, process_stdin, run_jobs,
@@ -60,12 +61,14 @@ enum CliAction {
     view: ConfigView,
     dir: PathBuf,
     overrides: Overrides,
+    json: bool,
   },
   Report {
     view: ReportView,
   },
   History {
     view: HistoryView,
+    json: bool,
   },
   Restore {
     run: String,
@@ -74,16 +77,22 @@ enum CliAction {
   },
   Doctor {
     view: DoctorView,
+    json: bool,
   },
   Init {
     target_path: Option<PathBuf>,
   },
   Debug {
     view: DebugView,
-    path: PathBuf,
-    edition: Edition,
-    /// `--edition` as given, over the settings for `layout`.
-    edition_given: Option<String>,
+    /// The files (or folders, for `settle`); `-` is stdin.
+    paths: Vec<PathBuf>,
+    overrides: Overrides,
+    /// `--stdin-filepath`: where stdin's settings are looked up, and its name.
+    filepath: Option<PathBuf>,
+    json: bool,
+    runs: usize,
+    diff: bool,
+    layout_only: bool,
   },
   Man,
 }
@@ -99,11 +108,14 @@ enum ConfigView {
   User,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum DebugView {
   Tokens,
   Tree,
-  Layout,
+  Kept,
+  Units,
+  Moves,
+  Settle,
 }
 
 /// What `mto doctor` was asked for.
@@ -146,7 +158,12 @@ enum ReportView {
     with_file: bool,
   },
   Send(String),
-  Prune,
+  Recheck {
+    ids: Vec<String>,
+    dry_run: bool,
+  },
+  Remove(Vec<String>),
+  Prune(Option<PathBuf>),
 }
 
 /// The value given to a flag with a fixed set of values, if it is one of them.
@@ -226,6 +243,74 @@ fn config_flag(
   Ok(())
 }
 
+/// `mto config path|print --json`: the files read, or each setting shown with its value,
+/// the file it belongs in and where its value came from.
+fn config_json(view: ConfigView, config: &Config) -> mtindo::text::json::Json {
+  use mtindo::text::json::Json;
+  if view == ConfigView::Path {
+    let files: Vec<Json> = config
+      .files()
+      .iter()
+      .map(|(kind, path)| {
+        Json::object()
+          .with("kind", kind_label(*kind))
+          .with("path", path.display().to_string())
+      })
+      .collect();
+    return Json::output("config_files").with("files", files);
+  }
+  let mut settings: Vec<Json> = Vec::new();
+  let mut values: Vec<_> = config.values().collect();
+  values.sort_by_key(|(setting, _, _)| setting.name);
+  for (setting, value, source) in values {
+    let shown = match view {
+      ConfigView::User => setting.file == File::User,
+      ConfigView::Default | ConfigView::Current => setting.file != File::User && !setting.hidden,
+      _ => setting.file != File::User && !matches!(source, Source::Default | Source::Derived(_)),
+    };
+    if !shown {
+      continue;
+    }
+    let value = match value {
+      config::Value::Bool(b) => Json::Bool(*b),
+      config::Value::Integer(n) => Json::Int(*n as i64),
+      config::Value::Text(text) => Json::Str(text.clone()),
+      config::Value::List(items) => Json::from(items.clone()),
+    };
+    settings.push(
+      Json::object()
+        .with("name", setting.name)
+        .with("value", value)
+        .with("source", source.to_string()),
+    );
+  }
+  Json::output("config")
+    .with("style_edition", config.style_edition() as u64)
+    .with("settings", settings)
+}
+
+/// The text `mto debug` reads (a file, or stdin for `-`), the name it is shown by, and the
+/// folder its settings are looked up from.
+fn debug_input(
+  path: &std::path::Path,
+  filepath: Option<&std::path::Path>,
+) -> Result<(String, String, PathBuf), MtoError> {
+  let folder = |file: &std::path::Path| match file.parent() {
+    Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+    _ => PathBuf::from("."),
+  };
+  if path.as_os_str() == "-" {
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
+      .map_err(|e| MtoError::Io(format!("cannot read stdin: {}", e)))?;
+    let shown = filepath.map_or("<stdin>".to_string(), |p| p.display().to_string());
+    return Ok((text, shown, filepath.map_or(PathBuf::from("."), folder)));
+  }
+  let text = std::fs::read_to_string(path)
+    .map_err(|e| MtoError::Io(format!("cannot read {}: {}", path.display(), e)))?;
+  Ok((text, path.display().to_string(), folder(path)))
+}
+
 /// Prints the JSON report and the summary for a run, and returns its exit code.
 fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
@@ -282,6 +367,28 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
       unsafe_writes,
       c_reset(true)
     );
+  }
+  // Said whatever the exit code, so a file with syntax errors does not hide the others.
+  if opts.check && changed > 0 && !opts.quiet {
+    errln!(
+      "{}{} file(s) would be reformatted.{}",
+      c_red(),
+      changed,
+      c_reset(true)
+    );
+  }
+  if done.is_empty() {
+    // Even under -q: a run that took no file at all is likely not the run meant.
+    errln!(
+      "{}warning: nothing was {}: no Rust file among the targets (a folder holding a \
+       repository of its own is passed over; name it to take it){}",
+      c_yellow(true),
+      if opts.check { "checked" } else { "formatted" },
+      c_reset(true)
+    );
+    return 0;
+  }
+  if unsafe_writes > 0 {
     return 4;
   }
   if failed > 0 || broken > 0 || dirty > 0 {
@@ -289,14 +396,6 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   }
   if opts.check {
     if changed > 0 {
-      if !opts.quiet {
-        errln!(
-          "{}{} file(s) would be reformatted.{}",
-          c_red(),
-          changed,
-          c_reset(true)
-        );
-      }
       return 1;
     }
     if !opts.quiet && !opts.files_with_diff && opts.emit == Emit::Files {
@@ -377,17 +476,31 @@ fn main() {
       dry_run,
     } => run_completions(view, shell, dir.as_deref(), dry_run),
     CliAction::Debug {
-      view: DebugView::Layout,
-      path,
-      edition_given,
-      ..
-    } => run_debug_layout(&path, edition_given),
+      view: DebugView::Settle,
+      paths,
+      overrides,
+      filepath,
+      json,
+      runs,
+      diff,
+      layout_only,
+    } => run_debug_settle(
+      &paths,
+      &overrides,
+      filepath.as_deref(),
+      json,
+      runs,
+      diff,
+      layout_only,
+    ),
     CliAction::Debug {
       view,
-      path,
-      edition,
+      paths,
+      overrides,
+      filepath,
+      json,
       ..
-    } => run_debug(view, &path, edition),
+    } => run_debug(view, &paths[0], &overrides, filepath.as_deref(), json),
     CliAction::Stdin {
       overrides,
       opts,
@@ -402,7 +515,8 @@ fn main() {
       view,
       dir,
       overrides,
-    } => run_config(view, &dir, &overrides),
+      json,
+    } => run_config(view, &dir, &overrides, json),
     CliAction::Init { target_path } => match process_init(target_path) {
       Ok(path) => {
         outln!(
@@ -415,10 +529,10 @@ fn main() {
       }
       Err(e) => report_error(&e),
     },
-    CliAction::History { view } => run_history(view),
+    CliAction::History { view, json } => run_history(view, json),
     CliAction::Report { view } => run_report(view),
     CliAction::Restore { run, files, force } => run_restore(&run, &files, force),
-    CliAction::Doctor { view } => run_doctor(view),
+    CliAction::Doctor { view, json } => run_doctor(view, json),
     CliAction::Format {
       paths,
       overrides,
@@ -518,7 +632,6 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::Man => return Ok(Some(CliAction::Man)),
         Flag::Check => opts.check = true,
         Flag::DryRun => opts.dry_run = true,
-        Flag::Dbg => opts.debug = true,
         Flag::FollowLinks => opts.follow_links = true,
         Flag::Recursive => recursive = true,
         Flag::FilesWithDiff => opts.files_with_diff = true,
@@ -564,6 +677,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
           return usage_error(&format!("{} only goes with `mto config print`", spec.long));
         }
         Flag::NoHistory => opts.no_history = true,
+        Flag::NoReport => opts.no_report = true,
         Flag::AllowDirty => opts.allow_dirty = true,
         Flag::Unguarded => opts.unguarded = true,
         Flag::Force | Flag::OlderThan | Flag::Keep => {
@@ -581,8 +695,20 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::WithFile => {
           return usage_error("--with-file only goes with `mto report save`");
         }
+        Flag::Under => {
+          return usage_error("--under only goes with `mto report prune`");
+        }
         Flag::Toml => {
           return usage_error("--toml only goes with `mto config options`");
+        }
+        Flag::Json => {
+          return usage_error(
+            "--json goes with `mto debug`, `mto history`, `mto doctor` and `mto config`; \
+             a run's changes as JSON are `--emit json`",
+          );
+        }
+        Flag::Runs | Flag::Diff | Flag::LayoutOnly => {
+          return usage_error(&format!("{} only goes with `mto debug settle`", spec.long));
         }
       }
     } else if arg == "-" && !read_stdin {
@@ -724,6 +850,8 @@ fn parse_completions_args(command: &CommandSpec, args: &[String]) -> Result<CliA
 }
 
 fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
+  let (json, args) = without_json(args);
+  let args = &args[..];
   let usage = || command_usage(command, None, None);
   let mut view = match command.subcommand(args.first().map(String::as_str)) {
     Some("options") => {
@@ -732,11 +860,13 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
           view: ConfigView::Options(false),
           dir: PathBuf::from("."),
           overrides: Overrides::default(),
+          json,
         }),
-        [flag] if flag == spec_of(Flag::Toml).long => Ok(CliAction::Config {
+        [flag] if flag == spec_of(Flag::Toml).long && !json => Ok(CliAction::Config {
           view: ConfigView::Options(true),
           dir: PathBuf::from("."),
           overrides: Overrides::default(),
+          json,
         }),
         _ => command_usage(command, Some("options"), None),
       };
@@ -775,6 +905,7 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
     view,
     dir: dir.unwrap_or_else(|| PathBuf::from(".")),
     overrides,
+    json,
   })
 }
 
@@ -783,48 +914,76 @@ fn parse_debug_args(command: &CommandSpec, args: &[String]) -> Result<CliAction,
   let view = match command.subcommand(args.first().map(String::as_str)) {
     Some("tokens") => DebugView::Tokens,
     Some("tree") => DebugView::Tree,
-    Some("layout") => DebugView::Layout,
+    Some("kept") => DebugView::Kept,
+    Some("units") => DebugView::Units,
+    Some("moves") => DebugView::Moves,
+    Some("settle") => DebugView::Settle,
     _ => return usage(),
   };
-  let mut path = None;
-  let mut edition = Edition::DEFAULT;
-  let mut edition_given = None;
+  let mut paths = Vec::new();
+  let mut overrides = Overrides::default();
+  let mut filepath = None;
+  let (mut json, mut diff, mut layout_only) = (false, false, false);
+  let mut runs = 2;
   let mut i = 1;
   while i < args.len() {
-    match args[i].as_str() {
-      flag if flag == spec_of(Flag::Edition).long && i + 1 < args.len() => {
-        edition = match Edition::from_year(&args[i + 1]) {
-          Some(edition) => edition,
-          None => {
-            errln!(
-              "{}Error: unknown edition '{}'{}",
-              c_red(),
-              args[i + 1],
-              c_reset(true)
-            );
-            return Err(());
+    let arg = args[i].as_str();
+    match FLAGS.iter().find(|spec| spec.long == arg) {
+      Some(spec) => match spec.flag {
+        Flag::Config | Flag::ConfigPath | Flag::Edition | Flag::StyleEdition => {
+          i += 1;
+          config_flag(spec, args.get(i), &mut overrides)?;
+        }
+        Flag::StdinFilepath => {
+          i += 1;
+          match args.get(i) {
+            Some(path) => filepath = Some(PathBuf::from(path)),
+            None => return usage_error("--stdin-filepath needs a <PATH>"),
           }
-        };
-        edition_given = Some(args[i + 1].clone());
-        i += 1;
-      }
-      other if path.is_none() && !other.starts_with('-') => path = Some(PathBuf::from(other)),
-      _ => return usage(),
+        }
+        Flag::Json if view != DebugView::Kept => json = true,
+        Flag::Runs | Flag::Diff | Flag::LayoutOnly if view != DebugView::Settle => {
+          return usage_error(&format!("{} only goes with `mto debug settle`", spec.long));
+        }
+        Flag::Runs => {
+          i += 1;
+          runs = match args.get(i).and_then(|n| n.parse::<usize>().ok()) {
+            Some(n) if n >= 2 => n,
+            _ => return usage_error("--runs takes a number of runs, 2 or more"),
+          };
+        }
+        Flag::Diff => diff = true,
+        Flag::LayoutOnly => layout_only = true,
+        _ => return usage_error(&format!("unexpected argument '{}'", arg)),
+      },
+      None if arg == "-" || !arg.starts_with('-') => paths.push(PathBuf::from(arg)),
+      None => return usage_error(&format!("unexpected argument '{}'", arg)),
     }
     i += 1;
   }
-  match path {
-    Some(path) => Ok(CliAction::Debug {
-      view,
-      path,
-      edition,
-      edition_given,
-    }),
-    None => usage(),
+  let stdin = paths.iter().filter(|p| p.as_os_str() == "-").count();
+  if paths.is_empty()
+    || stdin > 1
+    || (view != DebugView::Settle && paths.len() > 1)
+    || (view == DebugView::Kept && stdin > 0)
+  {
+    return usage();
   }
+  Ok(CliAction::Debug {
+    view,
+    paths,
+    overrides,
+    filepath,
+    json,
+    runs,
+    diff,
+    layout_only,
+  })
 }
 
 fn parse_doctor_args(spec: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
+  let (json, args) = without_json(args);
+  let args = &args[..];
   let (words, command) = match args.iter().position(|a| a == "--") {
     Some(at) => (&args[..at], Some(args[at + 1..].to_vec())),
     None => (args, None),
@@ -847,10 +1006,15 @@ fn parse_doctor_args(spec: &CommandSpec, args: &[String]) -> Result<CliAction, (
     (Some("release"), [_, which], None) => DoctorView::Release(which.to_string()),
     _ => return usage(),
   };
-  Ok(CliAction::Doctor { view })
+  if json && !matches!(view, DoctorView::Status) {
+    return usage_error("--json goes with `mto doctor` alone");
+  }
+  Ok(CliAction::Doctor { view, json })
 }
 
 fn parse_history_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
+  let (json, args) = without_json(args);
+  let args = &args[..];
   let usage = || command_usage(command, None, None);
   let first = args.first().map(String::as_str);
   let view = match command.subcommand(first) {
@@ -901,7 +1065,10 @@ fn parse_history_args(command: &CommandSpec, args: &[String]) -> Result<CliActio
     }
     _ => return usage(),
   };
-  Ok(CliAction::History { view })
+  if json && matches!(view, HistoryView::Prune(_)) {
+    return usage_error("--json goes with `mto history` and `mto history show`");
+  }
+  Ok(CliAction::History { view, json })
 }
 
 fn parse_report_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
@@ -924,7 +1091,33 @@ fn parse_report_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
       }
     }
     (Some("send"), [_, id]) => ReportView::Send(id.to_string()),
-    (Some("prune"), [_]) => ReportView::Prune,
+    (Some("recheck"), [_, rest @ ..]) => {
+      let dry_run = spec_of(Flag::DryRun).long;
+      let ids: Vec<String> = rest
+        .iter()
+        .filter(|word| **word != dry_run)
+        .map(|word| word.to_string())
+        .collect();
+      if ids.iter().any(|id| id.starts_with('-')) {
+        return usage();
+      }
+      ReportView::Recheck {
+        dry_run: ids.len() < rest.len(),
+        ids,
+      }
+    }
+    (Some("remove"), [_, ids @ ..])
+      if !ids.is_empty() && !ids.iter().any(|id| id.starts_with('-')) =>
+    {
+      ReportView::Remove(ids.iter().map(|id| id.to_string()).collect())
+    }
+    (Some("prune"), [_]) => ReportView::Prune(None),
+    (Some("prune"), [_, flag, path]) if *flag == spec_of(Flag::Under).long => {
+      ReportView::Prune(Some(PathBuf::from(path)))
+    }
+    (Some("prune"), [_, flag]) if flag.starts_with("--under=") => {
+      ReportView::Prune(Some(PathBuf::from(&flag["--under=".len()..])))
+    }
     _ => return usage(),
   };
   Ok(CliAction::Report { view })
@@ -1387,9 +1580,13 @@ fn run_completions(
   }
 }
 
-fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) -> i32 {
+fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides, json: bool) -> i32 {
   if let ConfigView::Options(toml) = view {
-    out!("{}", mtindo::cli::options::render(toml));
+    if json {
+      outln!("{}", mtindo::cli::options::json().text());
+    } else {
+      out!("{}", mtindo::cli::options::render(toml));
+    }
     return 0;
   }
   if !dir.is_dir() {
@@ -1407,6 +1604,10 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) ->
     Err(e) => return report_error(&e.into()),
   };
   print_warnings(&mut resolver);
+  if json {
+    outln!("{}", config_json(view, &config).text());
+    return 0;
+  }
   let text = render_config(view, &config, &Environment::from_process());
   if view == ConfigView::Path {
     out!("{}", text);
@@ -1419,17 +1620,33 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides) ->
   0
 }
 
-fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
-  let text = match std::fs::read_to_string(path) {
-    Ok(text) => text,
-    Err(e) => {
-      return report_error(&MtoError::Io(format!(
-        "cannot read {}: {}",
-        path.display(),
-        e
-      )));
-    }
+/// `mto debug tokens|tree|kept|units|moves`.
+fn run_debug(
+  view: DebugView,
+  path: &std::path::Path,
+  overrides: &Overrides,
+  filepath: Option<&std::path::Path>,
+  json: bool,
+) -> i32 {
+  if view == DebugView::Kept {
+    return run_debug_kept(path, overrides);
+  }
+  let (text, shown, folder) = match debug_input(path, filepath) {
+    Ok(input) => input,
+    Err(e) => return report_error(&e),
   };
+  let mut resolver = match resolver(overrides) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let resolved = match resolver.config_for(&folder) {
+    Ok(resolved) => resolved,
+    Err(e) => return report_error(&MtoError::from(e)),
+  };
+  // Layout's settings whether or not layout is on here: the view is what it would do.
+  let layout = resolved.layout();
+  let edition = mtindo::layout::configured_edition(&layout);
+  let on = mtindo::text::terminal::code_in_color();
   match view {
     DebugView::Tokens => {
       let mut offset = 0;
@@ -1449,8 +1666,6 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
         offset = end;
       }
     }
-    // Run apart (`run_debug_layout`).
-    DebugView::Layout => {}
     DebugView::Tree => {
       let parse = parse(&text, edition);
       out!("{}", debug_dump(&parse.syntax_node()));
@@ -1458,19 +1673,33 @@ fn run_debug(view: DebugView, path: &std::path::Path, edition: Edition) -> i32 {
         outln!("error@{}: {}", error.range, error.message);
       }
     }
+    DebugView::Units | DebugView::Moves => {
+      let seen = match mtindo::layout::inspect(&text, &layout) {
+        Ok(seen) => seen,
+        Err(reason) => {
+          return report_error(&MtoError::Io(format!("{}: {}", shown, reason)));
+        }
+      };
+      match (view, json) {
+        (DebugView::Units, true) => outln!("{}", seen.units_json(&shown).text()),
+        (DebugView::Units, false) => out!("{}", debug_cli::units(&seen, &shown, on)),
+        (_, true) => outln!("{}", seen.moves_json(&shown).text()),
+        (_, false) => out!("{}", debug_cli::moves(&seen, &shown, on)),
+      }
+    }
+    DebugView::Kept | DebugView::Settle => unreachable!("run apart"),
   }
   0
 }
 
-/// `mto debug layout FILE`: each place the formatter leaves code as written in FILE, and
+/// `mto debug kept FILE`: each place the formatter leaves code as written in FILE, and
 /// why, with the settings that apply to it and formatting on.
-fn run_debug_layout(path: &std::path::Path, edition: Option<String>) -> i32 {
+fn run_debug_kept(path: &std::path::Path, given: &Overrides) -> i32 {
   // Formatting on, wherever it is off: it is what leaves code as written.
-  let overrides = Overrides {
-    edition,
-    settings: vec![("format".to_string(), "true".to_string())],
-    ..Overrides::default()
-  };
+  let mut overrides = given.clone();
+  overrides
+    .settings
+    .push(("format".to_string(), "true".to_string()));
   let mut resolver = match resolver(&overrides) {
     Ok(resolver) => resolver,
     Err(e) => return report_error(&e),
@@ -1514,8 +1743,123 @@ fn run_debug_layout(path: &std::path::Path, edition: Option<String>) -> i32 {
   0
 }
 
+/// `mto debug settle PATH...`: each file through a real run in memory, checked, run again;
+/// every outcome counted apart. Exits 4 when a check failed or mto panicked, 1 when a file
+/// did not settle, else 0.
+fn run_debug_settle(
+  paths: &[PathBuf],
+  overrides: &Overrides,
+  filepath: Option<&std::path::Path>,
+  json: bool,
+  runs: usize,
+  diff: bool,
+  layout_only: bool,
+) -> i32 {
+  use mtindo::settle::{Outcome, Tally, settle};
+  use mtindo::text::json::Json;
+  let mut resolver = match resolver(overrides) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let files: Vec<&PathBuf> = paths.iter().filter(|p| p.as_os_str() != "-").collect();
+  let opts = RunOptions::default();
+  let owned: Vec<PathBuf> = files.iter().map(|p| p.to_path_buf()).collect();
+  let collected = match mtindo::collect_jobs(&owned, &mut resolver, &opts) {
+    Ok(collected) => collected,
+    Err(e) => return report_error(&e),
+  };
+  for nested in &collected.nested {
+    errln!(
+      "{}note: passed over {}, a repository of its own; name it to take it{}",
+      c_yellow(true),
+      nested.display(),
+      c_reset(true)
+    );
+  }
+  let mut inputs: Vec<(String, String, Option<std::sync::Arc<mtindo::Settings>>)> = Vec::new();
+  if paths.iter().any(|p| p.as_os_str() == "-") {
+    match debug_input(std::path::Path::new("-"), filepath) {
+      Ok((text, shown, folder)) => {
+        let settings = resolver
+          .config_for(&folder)
+          .ok()
+          .and_then(|c| mtindo::Settings::of(&c))
+          .map(std::sync::Arc::new);
+        inputs.push((shown, text, settings));
+      }
+      Err(e) => return report_error(&e),
+    }
+  }
+  for (path, settings) in collected.jobs {
+    match std::fs::read_to_string(&path) {
+      Ok(text) => inputs.push((path.display().to_string(), text, settings)),
+      Err(e) => errln!("{}: cannot read: {}", path.display(), e),
+    }
+  }
+  let on = mtindo::text::terminal::code_in_color();
+  let mut tally = Tally::default();
+  let mut entries = Vec::new();
+  for (shown, text, settings) in &inputs {
+    let done = match settings {
+      Some(settings) => {
+        let mut settings = (**settings).clone();
+        if layout_only {
+          settings.format = None;
+        }
+        settle(text, &settings, runs)
+      }
+      None => mtindo::settle::Settle {
+        outcome: Outcome::LeftAlone("layout and formatting are both off here".to_string()),
+        moves: 0,
+        texts: None,
+      },
+    };
+    tally.add(&done);
+    if json {
+      let detail = match &done.outcome {
+        Outcome::LeftAlone(why) | Outcome::CheckFailed(why) | Outcome::Panicked(why) => {
+          Some(why.clone())
+        }
+        Outcome::Unsettled { run } => Some(format!("run {} changed it again", run)),
+        _ => None,
+      };
+      entries.push(
+        Json::object()
+          .with("file", shown.as_str())
+          .with("outcome", done.outcome.id())
+          .with("detail", detail)
+          .with("moves", done.moves),
+      );
+    } else {
+      out!("{}", debug_cli::settled(shown, &done, on));
+      if diff && let Some((before, after)) = &done.texts {
+        out!("{}", mtindo::check_diff(before, after, shown, false));
+      }
+    }
+  }
+  if json {
+    outln!(
+      "{}",
+      Json::output("settle")
+        .with("runs", runs)
+        .with("files", entries)
+        .with("total", tally.json())
+        .text()
+    );
+  } else {
+    out!("{}", debug_cli::tally(&tally));
+  }
+  if tally.check_failed + tally.panicked > 0 {
+    4
+  } else if tally.unsettled > 0 {
+    1
+  } else {
+    0
+  }
+}
+
 /// `mto doctor`: the build guard's settings and holds, or a run narrowed down.
-fn run_doctor(view: DoctorView) -> i32 {
+fn run_doctor(view: DoctorView, json: bool) -> i32 {
   let mut resolver = match resolver(&Overrides::default()) {
     Ok(resolver) => resolver,
     Err(e) => return report_error(&e),
@@ -1523,6 +1867,10 @@ fn run_doctor(view: DoctorView) -> i32 {
   let settings = doctor_cli::Settings::read(&resolver);
   let config_path = config::user::path(resolver.env()).ok().flatten();
   let result = match view {
+    DoctorView::Status if json => Ok(format!(
+      "{}\n",
+      doctor_cli::status_json(&settings, config_path.as_deref()).text()
+    )),
     DoctorView::Status => Ok(doctor_cli::status(&settings, config_path.as_deref())),
     DoctorView::On(command) => {
       let Some(path) = &config_path else {
@@ -1854,12 +2202,16 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
   finish(&done, opts).max(code_after)
 }
 
-fn run_history(view: HistoryView) -> i32 {
+fn run_history(view: HistoryView, json: bool) -> i32 {
   let (settings, store) = match history_store() {
     Ok(found) => found,
     Err(code) => return code,
   };
   let result = match view {
+    HistoryView::List(_) if json => history::list_json(&store).map(|j| format!("{}\n", j.text())),
+    HistoryView::Show(run) if json => {
+      history::show_json(&store, &run).map(|j| format!("{}\n", j.text()))
+    }
     HistoryView::List(all) => {
       let here = std::env::current_dir().ok().filter(|_| !all);
       history::list(&store, here.as_deref())
@@ -1926,7 +2278,7 @@ fn run_print_config(kind: PrintKind, path: Option<&Path>, overrides: &Overrides)
 }
 
 /// `mto history`: lists, shows or prunes the runs.
-/// `mto report`: lists, shows, saves, sends or prunes the bug reports.
+/// `mto report`: lists, shows, saves, sends, rechecks, removes or prunes the bug reports.
 fn run_report(view: ReportView) -> i32 {
   let resolver = match resolver(&Overrides::default()) {
     Ok(resolver) => resolver,
@@ -1948,7 +2300,12 @@ fn run_report(view: ReportView) -> i32 {
       with_file,
     } => reports::save(&store, &id, &file, with_file),
     ReportView::Send(id) => reports::send(&store, &id),
-    ReportView::Prune => reports::prune(&store),
+    ReportView::Recheck { ids, dry_run } => {
+      reports::recheck(&store, &ids, dry_run, &mut |row| out!("{}", row))
+    }
+    ReportView::Remove(ids) => reports::remove(&store, &ids),
+    ReportView::Prune(None) => reports::prune(&store),
+    ReportView::Prune(Some(under)) => reports::prune_under(&store, &under),
   };
   match result {
     Ok(text) => {
@@ -2053,6 +2410,15 @@ fn walk_notes(collected: &mtindo::Collected, opts: &RunOptions) {
   }
 }
 
+/// `args` without `--json`, and whether it was there.
+fn without_json(args: &[String]) -> (bool, Vec<String>) {
+  let json = spec_of(Flag::Json).long;
+  (
+    args.iter().any(|a| a == json),
+    args.iter().filter(|a| *a != json).cloned().collect(),
+  )
+}
+
 #[cfg(test)]
 mod tests {
   use std::collections::HashSet;
@@ -2135,9 +2501,24 @@ mod tests {
       &["report", "save", "7f3a", "bug.md", "--with-file"],
       &["report", "send", "7f3a"],
       &["report", "prune"],
+      &["report", "prune", "--under", "compat"],
+      &["report", "recheck", "7f3a", "--dry-run"],
+      &["report", "remove", "7f3a", "0b19"],
       &["debug", "tokens", "a.rs"],
       &["debug", "tree", "a.rs"],
-      &["debug", "layout", "a.rs", "--edition", "2021"],
+      &["debug", "kept", "a.rs", "--edition", "2021"],
+      &["debug", "units", "-", "--json"],
+      &["debug", "moves", "a.rs", "--config", "layout=true"],
+      &[
+        "debug",
+        "settle",
+        "src",
+        "a.rs",
+        "--runs",
+        "3",
+        "--diff",
+        "--layout-only",
+      ],
       &["completions", "zsh"],
       &["completions", "install", "fish", "--dir", "x", "--dry-run"],
       &["completions", "uninstall", "--dir=x"],

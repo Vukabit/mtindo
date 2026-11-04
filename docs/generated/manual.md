@@ -112,13 +112,14 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `--allow-dirty`: With history off, rewrite files that have uncommitted
     changes.
 *   `--no-history`: Do not record this run in history (it cannot be restored).
+*   `--no-report`: Keep no bug report: name each bug mto finds in itself in one
+    line.
 *   `--unguarded`: Do not check this run with the build guard, nor hold back the
     edits it holds.
 
 ### Output (`mto <PATH>... | mto -`)
 *   `--color <always|never|auto>`: Color the output (default: auto, only on a
     terminal).
-*   `--dbg`: Print how each file was split into items.
 *   `-q, --quiet`: Print only errors and what was asked for.
 *   `-v, --verbose`: Name each file as it is formatted.
 
@@ -143,12 +144,17 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     formatter's settings whether mto honors it yet.
     *   `--toml` (after `mto config options`): As a commented file, every
         setting at its default.
-    *   `--current` (after `mto config print`): Every setting in effect, with
-        its source (the default).
-    *   `--default` (after `mto config print`): Every setting at its default.
-    *   `--minimal` (after `mto config print`): Only the settings that differ
-        from their defaults.
-    *   `--user` (after `mto config print`): The user config's settings.
+    *   `--json` (after `mto config options`): As JSON, whose shape keeps its
+        version.
+    *   `--current` (after `mto config path|print`): Every setting in effect,
+        with its source (the default).
+    *   `--default` (after `mto config path|print`): Every setting at its
+        default.
+    *   `--minimal` (after `mto config path|print`): Only the settings that
+        differ from their defaults.
+    *   `--user` (after `mto config path|print`): The user config's settings.
+    *   `--json` (after `mto config path|print`): As JSON, whose shape keeps its
+        version.
     *   `--config <KEY=VALUE,...>` (after `mto config path|print`): Set settings
         for this run, over every file.
     *   `--config-path <FILE>` (after `mto config path|print`): Use only this
@@ -166,6 +172,7 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     told otherwise. RUN is `last` or `last~N`, counted among this project's
     runs, or a handle from the list, which names its run anywhere.
     *   `--all` (after `mto history`): List every project's runs.
+    *   `--json` (after `mto history`): As JSON, whose shape keeps its version.
     *   `--keep <N>` (after `mto history prune`): Keep only the newest N runs.
     *   `--older-than <DAYS>` (after `mto history prune`): Remove runs this old:
         30 (days), 2w, 12h.
@@ -186,27 +193,63 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     lists those edits; `release` drops one, or all. RUN narrows down a run
     already made the same way: RUN is `last` or `last~N`, counted among this
     project's runs, or a handle from `mto history`.
-*   `mto report [show|save|send|prune]`: When the verifier stops a write, or
-    laying out a file fails, mto keeps a report beside history and names it in
-    one line (`report.save = false` in the user config prints the whole report
-    instead). A report holds what failed, the smallest part of the file that
-    still fails (never the whole file), the command, the settings that differ
-    from the defaults and the build; the same bug seen again is counted. With no
-    argument, lists the reports. `show` prints one. `save` writes one to FILE;
-    --with-file adds the whole file it was found in. `send` opens a new issue on
-    mto's repository in the browser, filled in with the report, to read over and
-    submit: mto itself sends nothing. `prune` removes them all; a report not
-    seen for 90 days goes by itself. ID is a report's id from the list, or its
-    start.
+    *   `--json` (after `mto doctor`): As JSON, whose shape keeps its version.
+*   `mto report [show|save|send|recheck|remove|prune]`: When the verifier stops
+    a write, or laying out a file fails, mto keeps a report beside history and
+    names it in one line (`report.save = false` in the user config prints the
+    whole report instead). A report holds what failed, the smallest part of the
+    file that still fails (never the whole file), the command, the settings that
+    differ from the defaults and the build; the same bug seen again is counted.
+    Beside it, a report keeps what runs the bug again: the smallest part, and
+    the settings as an mto.toml holds them. With no argument, lists the reports.
+    `show` prints one. `save` writes one to FILE; --with-file adds the whole
+    file it was found in. `send` opens a new issue on mto's repository in the
+    browser, filled in with the report, to read over and submit: mto itself
+    sends nothing. `recheck` runs each report's bug (or those named) again under
+    this mto: one that no longer fails is removed, and one that cannot be run
+    again exactly is kept as it is; --dry-run only lists what it finds. `remove`
+    removes the reports named. `prune` removes them all, or with --under only
+    those seen in files under PATH; a report not seen for 90 days goes by
+    itself. ID is a report's id from the list, or its start.
     *   `--with-file` (after `mto report save <ID> <FILE>`): Add the whole file
         the bug was found in.
-*   `mto debug tokens|tree|layout <FILE>`: Prints the tokens or the syntax tree
-    of FILE as mto reads it, or (layout) each place the formatter leaves code as
-    written in it and why, with the settings that apply to FILE and formatting
-    on; nothing is written. The output is not stable; it is meant for bug
-    reports and for finding why code was not formatted.
-    *   `--edition <YEAR>` (after `mto debug tokens|tree|layout <FILE>`): The
-        Rust edition, over Cargo.toml and configuration files.
+    *   `-d, --dry-run` (after `mto report recheck`): List the files that would
+        change, without writing.
+    *   `--under <PATH>` (after `mto report prune`): Only the reports seen in
+        files under PATH.
+*   `mto debug tokens|tree|kept|units|moves|settle <FILE|->`: Shows what mto
+    sees in FILE (or stdin, `-`), with the settings that apply to it and any
+    given here; nothing is written. `tokens` and `tree` print the tokens or the
+    syntax tree. `kept` lists each place formatting leaves code as written, and
+    why. `units` shows how layout cuts the file into items, each with why it was
+    cut and classed so (pinned, a paragraph, a section's start, a helper and its
+    user). `moves` lists the items that move and the rule behind each. `settle`
+    takes files or folders through a real run in memory, checks the result as a
+    write would, runs again over its own output, and counts every outcome apart:
+    as written, settled, left alone, the check failing, a panic, or a run
+    changing the output again; it exits 4 when a check fails or a panic, 1 when
+    one does not settle. The views are for people and are not stable; `--json`
+    gives `units`, `moves` and `settle` as JSON whose shape keeps its `version`.
+    *   `--config <KEY=VALUE,...>` (after `mto debug
+        tokens|tree|kept|units|moves|settle`): Set settings for this run, over
+        every file.
+    *   `--config-path <FILE>` (after `mto debug
+        tokens|tree|kept|units|moves|settle`): Use only this configuration file;
+        search for no other.
+    *   `--edition <YEAR>` (after `mto debug
+        tokens|tree|kept|units|moves|settle`): The Rust edition, over Cargo.toml
+        and configuration files.
+    *   `--stdin-filepath <PATH>` (after `mto debug
+        tokens|tree|kept|units|moves|settle`): With -: where the source belongs,
+        for its settings and in messages.
+    *   `--json` (after `mto debug tokens|tree|kept|units|moves|settle`): As
+        JSON, whose shape keeps its version.
+    *   `--runs <N>` (after `mto debug tokens|tree|kept|units|moves|settle`):
+        How many runs a file goes through (default 2).
+    *   `--diff` (after `mto debug tokens|tree|kept|units|moves|settle`): Show
+        what a run changed again, for a file that does not settle.
+    *   `--layout-only` (after `mto debug tokens|tree|kept|units|moves|settle`):
+        Lay out without formatting.
 *   `mto completions [install|uninstall|status] [SHELL]`: Prints the completion
     script for SHELL: bash, zsh, fish or powershell. With no SHELL, it is the
     shell mto runs in: the parent process when that is a shell, else $SHELL.

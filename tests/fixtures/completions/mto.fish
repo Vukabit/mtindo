@@ -230,6 +230,7 @@ complete -c mto -n '__mto_at init -' -a '(__fish_complete_directories (commandli
 
 # mto verify
 complete -c mto -n '__mto_at verify -' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at verify -' -l ignored-revs -d 'Every commit `git blame` is told to look past (blame.ignoreRevsFile)'
 complete -c mto -n '__mto_at verify -' -l json -d 'As JSON, whose shape keeps its version'
 
 # mto pins

@@ -90,7 +90,8 @@ enum CliAction {
     json: bool,
   },
   Verify {
-    rev: String,
+    /// `None`: every commit `.git-blame-ignore-revs` lists (`--ignored-revs`).
+    rev: Option<String>,
     json: bool,
   },
   Debug {
@@ -587,7 +588,10 @@ fn main() {
     },
     CliAction::History { view, json } => run_history(view, json),
     CliAction::Pins { paths, json } => run_pins(&paths, json),
-    CliAction::Verify { rev, json } => run_verify(&rev, json),
+    CliAction::Verify { rev, json } => match rev {
+      Some(rev) => run_verify(&rev, json),
+      None => run_verify_ignored(json),
+    },
     CliAction::Report { view } => run_report(view),
     CliAction::Restore { run, files, force } => run_restore(&run, &files, force),
     CliAction::Doctor { view, json } => run_doctor(view, json),
@@ -791,6 +795,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::Under => {
           return usage_error("--under only goes with `mto report prune`");
         }
+        Flag::IgnoredRevs => {
+          return usage_error("--ignored-revs only goes with `mto verify`");
+        }
         Flag::Toml => {
           return usage_error("--toml only goes with `mto config options`");
         }
@@ -908,9 +915,12 @@ fn parse_command(command: &'static CommandSpec, args: &[String]) -> Result<CliAc
       let (json, args) = without_json(args);
       match &args[..] {
         [rev] if !rev.starts_with('-') => Ok(CliAction::Verify {
-          rev: rev.clone(),
+          rev: Some(rev.clone()),
           json,
         }),
+        [flag] if flag == spec_of(Flag::IgnoredRevs).long => {
+          Ok(CliAction::Verify { rev: None, json })
+        }
         [] => usage_error("mto verify needs a <REV>: the commit to verify"),
         [_, extra, ..] => usage_error(&format!("unexpected argument '{}'", extra)),
         [flag] => usage_error(&format!("unexpected argument '{}'", flag)),
@@ -2766,32 +2776,182 @@ fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) 
 
 /// `mto verify REV`: each Rust file the commit changed, reproduced or at least safe.
 fn run_verify(rev: &str, json: bool) -> i32 {
+  let (code, entry) = verify_commit(rev, json, mtindo::text::json::Json::output("verify"));
+  if json {
+    outln!("{}", entry.text());
+  }
+  code
+}
+
+/// `mto verify --ignored-revs`: each commit the blame list names, in turn; a commit that
+/// cannot be checked (a typo, one a rebase left behind) counts as not verified and does not
+/// stop the rest.
+fn run_verify_ignored(json: bool) -> i32 {
+  use mtindo::text::json::Json;
+  let here = env::current_dir().unwrap_or_default();
+  let (named, revs) = match mtindo::cli::verify::ignored_revs(&here) {
+    Ok(found) => found,
+    Err(why) => {
+      if json {
+        outln!(
+          "{}",
+          Json::output("verify_list")
+            .with("error", why.as_str())
+            .text()
+        );
+        return 2;
+      }
+      return report_error(&MtoError::Usage(why));
+    }
+  };
+  let mut entries = Vec::new();
+  let mut failed = 0;
+  for (at, rev) in revs.iter().enumerate() {
+    if at > 0 && !json {
+      outln!();
+    }
+    let (code, entry) = verify_commit(rev, json, Json::object().with("rev", rev.as_str()));
+    if code != 0 {
+      failed += 1;
+    }
+    entries.push(entry);
+  }
+  if json {
+    outln!(
+      "{}",
+      Json::output("verify_list")
+        .with("file", named.as_str())
+        .with("verified", failed == 0)
+        .with("commits", entries)
+        .text()
+    );
+  } else if revs.is_empty() {
+    outln!("{} lists no commit: nothing to verify", named);
+  } else {
+    if !revs.is_empty() {
+      outln!();
+    }
+    let said = if failed == 0 {
+      format!("every commit {} lists is verified ({})", named, revs.len())
+    } else {
+      format!(
+        "{} of the {} commits {} lists not verified",
+        failed,
+        revs.len(),
+        named
+      )
+    };
+    outln!("{}", said);
+  }
+  if failed == 0 { 0 } else { 1 }
+}
+
+/// A section heading with the command its flags follow: `layout: (mto <PATH>...)`.
+fn section_heading(p: &HelpPalette, heading: &str, command: &str) -> String {
+  format!(
+    "\n{} ({})\n",
+    p.heading(&format!("{}:", heading)),
+    p.usage_line(command)
+  )
+}
+
+/// `--config` pairs split at commas outside brackets and quotes, so
+/// `type_order=["FnDecl","UseDecl"]` stays one pair.
+fn split_pairs(text: &str) -> Vec<&str> {
+  let mut pairs = Vec::new();
+  let (mut depth, mut quote, mut start) = (0i32, None, 0);
+  for (idx, ch) in text.char_indices() {
+    match (quote, ch) {
+      (Some(q), c) if c == q => quote = None,
+      (Some(_), _) => {}
+      (None, '"' | '\'') => quote = Some(ch),
+      (None, '[' | '{') => depth += 1,
+      (None, ']' | '}') => depth -= 1,
+      (None, ',') if depth == 0 => {
+        pairs.push(&text[start..idx]);
+        start = idx + 1;
+      }
+      _ => {}
+    }
+  }
+  pairs.push(&text[start..]);
+  pairs.into_iter().filter(|p| !p.trim().is_empty()).collect()
+}
+
+/// The warning for each staged file left alone because it has changes not staged as well.
+fn unstaged_notes(unstaged: &[PathBuf]) {
+  for path in unstaged {
+    let text = format!(
+      "{}: staged, with changes not staged as well; left alone, so the commit gets what \
+       was staged",
+      path.display()
+    );
+    if mtindo::json_messages() {
+      let message = mtindo::Message {
+        level: "warning",
+        code: "unstaged_changes",
+        at: None,
+        text,
+      };
+      outln!("{}", mtindo::json_message(None, &message));
+    } else {
+      errln!("{}warning: {}{}", c_yellow(true), text, c_reset(true));
+    }
+  }
+}
+
+/// `usage:` and its lines, aligned.
+fn usage_block(p: &HelpPalette, lines: &[&str]) -> String {
+  let mut out = String::new();
+  for (idx, line) in lines.iter().enumerate() {
+    let lead = if idx == 0 {
+      p.heading("usage:")
+    } else {
+      "      ".to_string()
+    };
+    out.push_str(&format!("{} {}\n", lead, p.usage_line(line)));
+  }
+  out
+}
+
+/// Prints a usage error and points at the help; returns the error for `?`-style use.
+fn usage_error<T>(message: &str) -> Result<T, ()> {
+  errln!("{}Error: {}{}", c_red(), message, c_reset(true));
+  errln!("Run 'mto --help' for usage.");
+  Err(())
+}
+
+/// One commit verified: printed unless `json`, and its JSON built on `base`; the exit code
+/// it alone would give.
+fn verify_commit(
+  rev: &str,
+  json: bool,
+  base: mtindo::text::json::Json,
+) -> (i32, mtindo::text::json::Json) {
   use mtindo::cli::verify::{Found, verify};
   use mtindo::settle::Verdict;
   use mtindo::text::color::{paint, tone};
   use mtindo::text::json::Json;
-  let failed = |why: String| -> i32 {
-    if json {
-      outln!(
-        "{}",
-        Json::output("verify")
-          .with("rev", rev)
-          .with("error", why.as_str())
-          .text()
-      );
-      2
-    } else {
-      report_error(&MtoError::Usage(why))
+  let failed = |why: String, base: Json| -> (i32, Json) {
+    if !json {
+      report_error(&MtoError::Usage(why.clone()));
     }
+    (
+      2,
+      base
+        .with("rev", rev)
+        .with("verified", false)
+        .with("error", why.as_str()),
+    )
   };
   let mut resolver = match resolver(&Overrides::default()) {
     Ok(resolver) => resolver,
-    Err(e) => return failed(e.to_string()),
+    Err(e) => return failed(e.to_string(), base),
   };
   let here = env::current_dir().unwrap_or_default();
   let checked = match verify(rev, &mut resolver, &here) {
     Ok(checked) => checked,
-    Err(why) => return failed(why),
+    Err(why) => return failed(why, base),
   };
   let on = mtindo::color_enabled(false);
   let short = &checked.commit[..10.min(checked.commit.len())];
@@ -2870,22 +3030,19 @@ fn run_verify(rev: &str, json: bool) -> i32 {
     }
   }
   let verified = safe + unverified + not_safe == 0;
+  let warnings: Vec<Json> = checked
+    .warnings
+    .iter()
+    .map(|w| Json::from(w.as_str()))
+    .collect();
+  let entry = base
+    .with("commit", checked.commit.as_str())
+    .with("merge", checked.merge)
+    .with("verified", verified)
+    .with("files", entries)
+    .with("warnings", warnings);
   if json {
-    let warnings: Vec<Json> = checked
-      .warnings
-      .iter()
-      .map(|w| Json::from(w.as_str()))
-      .collect();
-    outln!(
-      "{}",
-      Json::output("verify")
-        .with("commit", checked.commit.as_str())
-        .with("merge", checked.merge)
-        .with("verified", verified)
-        .with("files", entries)
-        .with("warnings", warnings)
-        .text()
-    );
+    // Printed by the caller, alone or in a list.
   } else if verified {
     outln!(
       "{}",
@@ -2907,82 +3064,7 @@ fn run_verify(rev: &str, json: bool) -> i32 {
     .collect();
     outln!("{}: not verified: {}", short, counts.join(", "));
   }
-  if verified { 0 } else { 1 }
-}
-
-/// A section heading with the command its flags follow: `layout: (mto <PATH>...)`.
-fn section_heading(p: &HelpPalette, heading: &str, command: &str) -> String {
-  format!(
-    "\n{} ({})\n",
-    p.heading(&format!("{}:", heading)),
-    p.usage_line(command)
-  )
-}
-
-/// `--config` pairs split at commas outside brackets and quotes, so
-/// `type_order=["FnDecl","UseDecl"]` stays one pair.
-fn split_pairs(text: &str) -> Vec<&str> {
-  let mut pairs = Vec::new();
-  let (mut depth, mut quote, mut start) = (0i32, None, 0);
-  for (idx, ch) in text.char_indices() {
-    match (quote, ch) {
-      (Some(q), c) if c == q => quote = None,
-      (Some(_), _) => {}
-      (None, '"' | '\'') => quote = Some(ch),
-      (None, '[' | '{') => depth += 1,
-      (None, ']' | '}') => depth -= 1,
-      (None, ',') if depth == 0 => {
-        pairs.push(&text[start..idx]);
-        start = idx + 1;
-      }
-      _ => {}
-    }
-  }
-  pairs.push(&text[start..]);
-  pairs.into_iter().filter(|p| !p.trim().is_empty()).collect()
-}
-
-/// The warning for each staged file left alone because it has changes not staged as well.
-fn unstaged_notes(unstaged: &[PathBuf]) {
-  for path in unstaged {
-    let text = format!(
-      "{}: staged, with changes not staged as well; left alone, so the commit gets what \
-       was staged",
-      path.display()
-    );
-    if mtindo::json_messages() {
-      let message = mtindo::Message {
-        level: "warning",
-        code: "unstaged_changes",
-        at: None,
-        text,
-      };
-      outln!("{}", mtindo::json_message(None, &message));
-    } else {
-      errln!("{}warning: {}{}", c_yellow(true), text, c_reset(true));
-    }
-  }
-}
-
-/// `usage:` and its lines, aligned.
-fn usage_block(p: &HelpPalette, lines: &[&str]) -> String {
-  let mut out = String::new();
-  for (idx, line) in lines.iter().enumerate() {
-    let lead = if idx == 0 {
-      p.heading("usage:")
-    } else {
-      "      ".to_string()
-    };
-    out.push_str(&format!("{} {}\n", lead, p.usage_line(line)));
-  }
-  out
-}
-
-/// Prints a usage error and points at the help; returns the error for `?`-style use.
-fn usage_error<T>(message: &str) -> Result<T, ()> {
-  errln!("{}Error: {}{}", c_red(), message, c_reset(true));
-  errln!("Run 'mto --help' for usage.");
-  Err(())
+  (if verified { 0 } else { 1 }, entry)
 }
 
 fn walk_notes(collected: &mtindo::Collected, opts: &RunOptions) {

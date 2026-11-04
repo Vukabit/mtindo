@@ -251,6 +251,7 @@ mto     flag:--files-with-diff                           supported    # tests/do
 mto     flag:--follow-links                              supported    # tests/domain_10_polyrepo.rs
 mto     flag:--force                                     supported    # tests/domain_8_cli.rs
 mto     flag:--help                                      supported    # tests/domain_8_cli.rs
+mto     flag:--ignored-revs                              supported    # tests/domain_8_cli.rs
 mto     flag:--json                                      supported    # tests/domain_8_cli.rs
 mto     flag:--keep                                      supported    # tests/domain_8_cli.rs
 mto     flag:--layout-only                               supported    # tests/domain_8_cli.rs

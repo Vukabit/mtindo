@@ -77,6 +77,41 @@ pub struct Verified {
   pub warnings: Vec<String>,
 }
 
+/// The commits `git blame` is told to look past: the file `blame.ignoreRevsFile` names (from
+/// the repository's top), else `.git-blame-ignore-revs` there; one per line, `#` starting
+/// a comment. The file as named for messages, and the commits it lists.
+pub fn ignored_revs(here: &Path) -> Result<(String, Vec<String>), String> {
+  let root = PathBuf::from(
+    git(here, &["rev-parse", "--show-toplevel"])
+      .map_err(|_| "not in a git work tree: verifying a commit needs one".to_string())?
+      .trim(),
+  );
+  let named = git(&root, &["config", "--get", "blame.ignoreRevsFile"])
+    .ok()
+    .map(|name| name.trim().to_string())
+    .filter(|name| !name.is_empty())
+    .unwrap_or_else(|| ".git-blame-ignore-revs".to_string());
+  let text = std::fs::read_to_string(root.join(&named)).map_err(|e| {
+    format!(
+      "cannot read {} ({}); it lists the commits `git blame` looks past",
+      named, e
+    )
+  })?;
+  let revs = text
+    .lines()
+    .map(|line| {
+      line
+        .split('#')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+    })
+    .filter(|line| !line.is_empty())
+    .collect();
+  Ok((named, revs))
+}
+
 /// The commit `rev` names, checked file by file; an error saying why it cannot be.
 pub fn verify(rev: &str, resolver: &mut Resolver, here: &Path) -> Result<Verified, String> {
   let root = PathBuf::from(

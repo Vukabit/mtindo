@@ -128,7 +128,7 @@ pub const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "verify",
-    args: "<REV>",
+    args: "<REV>|--ignored-revs",
     summary: "Prove a commit is mto's work: only moves and formatting, as mto writes them",
     about: "Checks the commit REV names against its parent, Rust file by Rust file, with \
                 the settings the commit holds (its mto.toml, rustfmt.toml and Cargo.toml \
@@ -142,13 +142,23 @@ pub const COMMANDS: &[CommandSpec] = &[
                 `NOT SAFE` when the checks find a change mto never makes, or a Rust file is \
                 added, deleted, renamed, or changes mode or link. Exits 0 when every file \
                 is reproduced or settings, 1 otherwise, 2 when it cannot check (with \
-                --json, the error as JSON). Made for the commits a \
-                project lists in `.git-blame-ignore-revs`. Needs git.",
-    usage: &["mto verify <REV> [--json]"],
-    options: &[("options", "mto verify", &[Flag::Json])],
+                --json, the error as JSON). Made for the commits a project lists in \
+                `.git-blame-ignore-revs`: --ignored-revs verifies each commit the file \
+                `blame.ignoreRevsFile` names lists (else `.git-blame-ignore-revs`), and \
+                exits 0 only when every one verifies; one that cannot be checked counts as \
+                not verified. Needs git.",
+    usage: &[
+      "mto verify <REV> [--json]",
+      "mto verify --ignored-revs [--json]",
+    ],
+    options: &[("options", "mto verify", &[Flag::IgnoredRevs, Flag::Json])],
     operand: Complete::Nothing,
     subcommands: &[],
-    examples: &["mto verify HEAD", "mto verify 3f2a91c --json"],
+    examples: &[
+      "mto verify HEAD",
+      "mto verify 3f2a91c --json",
+      "mto verify --ignored-revs",
+    ],
   },
   CommandSpec {
     name: "pins",
@@ -1019,6 +1029,15 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Lay out without formatting",
   },
   FlagSpec {
+    flag: Flag::IgnoredRevs,
+    group: Group::Command,
+    short: None,
+    long: "--ignored-revs",
+    value: "",
+    values: &[],
+    help: "Every commit `git blame` is told to look past (blame.ignoreRevsFile)",
+  },
+  FlagSpec {
     flag: Flag::Under,
     group: Group::Command,
     short: None,
@@ -1085,6 +1104,7 @@ pub enum Complete {
 /// cannot be accepted without being documented.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Flag {
+  IgnoredRevs,
   Changed,
   Since,
   Staged,

@@ -96,7 +96,10 @@ exec mto --check --since origin/main -q
 publishes hooks, `mto` (lays out and formats the files committed; the
 framework fails the commit when one changes) and `mto-check` (`--check`, at
 commit and at push), each built from source; `mto-system` and
-`mto-check-system` use the `mto` already installed. In
+`mto-check-system` use the `mto` already installed. `mto-verify` runs
+`mto verify --ignored-revs` at push, so a commit `git blame` looks past is
+proved to be mto's work alone (see
+[Adopting layout](layout.md#adopting-layout-in-an-existing-project)). In
 `.pre-commit-config.yaml`:
 
 ```yaml
@@ -108,6 +111,7 @@ repos:
       - id: mto
       - id: mto-check
         stages: [pre-push]
+      - id: mto-verify
 ```
 
 The framework passes the files itself, those a push carries included, so the
@@ -138,6 +142,7 @@ mto --check --staged -q
     fetch-depth: 0  # --since needs the history
 - run: cargo install mtindo
 - run: mto --check --since origin/${{ github.base_ref }}
+- run: mto verify --ignored-revs
 ```
 
 ## Editors

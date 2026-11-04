@@ -26,3 +26,19 @@
   language: system
   types: [rust]
   stages: [pre-commit, pre-push]
+- id: mto-verify
+  name: mto verify --ignored-revs
+  description: Prove every commit .git-blame-ignore-revs lists is mto's work alone.
+  entry: mto verify --ignored-revs
+  language: rust
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push]
+- id: mto-verify-system
+  name: mto verify --ignored-revs (installed)
+  description: The mto-verify hook, with the mto already installed on the machine.
+  entry: mto verify --ignored-revs
+  language: system
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push]

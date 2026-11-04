@@ -2418,6 +2418,12 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
   let (code, _, said) = mto(&env, &["--no-history", "--unguarded", "--allow-dirty", "."]);
   assert_eq!(code, 0, "{}", said);
   env.git(".", &["commit", "-qam", "lay out"]);
+  let laid_out = std::process::Command::new("git")
+    .args(["rev-parse", "HEAD"])
+    .current_dir(env.dir.path())
+    .output()
+    .unwrap();
+  let laid_out = String::from_utf8_lossy(&laid_out.stdout).trim().to_string();
   let (code, out, said) = mto(&env, &["verify", "HEAD"]);
   assert_eq!(code, 0, "{}{}", out, said);
   assert!(out.contains("src/lib.rs  reproduced"), "{}", out);
@@ -2492,6 +2498,32 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
     "{}",
     out
   );
+  // Every commit the blame list names: a typo among them is not verified.
+  env.write_file(
+    ".git-blame-ignore-revs",
+    &format!("# layout\n{}\nnowhere\n", laid_out),
+  );
+  let (code, out, said) = mto(&env, &["verify", "--ignored-revs"]);
+  assert_eq!(code, 1, "{}{}", out, said);
+  assert!(
+    out.contains("verified, every Rust file reproduced"),
+    "{}",
+    out
+  );
+  assert!(
+    said.contains("no commit is named `nowhere` here"),
+    "{}",
+    said
+  );
+  assert!(
+    out.contains("1 of the 2 commits .git-blame-ignore-revs lists not verified"),
+    "{}",
+    out
+  );
+  env.write_file(".git-blame-ignore-revs", &format!("{}\n", laid_out));
+  let (code, out, _) = mto(&env, &["verify", "--ignored-revs", "--json"]);
+  assert_eq!(code, 0, "{}", out);
+  assert!(out.contains("\"kind\":\"verify_list\""), "{}", out);
   // An error is JSON too, with --json.
   let (code, out, _) = mto(&env, &["verify", "nowhere", "--json"]);
   assert_eq!(code, 2, "{}", out);

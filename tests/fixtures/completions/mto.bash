@@ -156,7 +156,7 @@ _mto_flags() {
   case "$1 $2" in
     " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --changed --staged --since --tracked --stdin-filepath --config --config-path --edition --print-config --strict --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-report --color -q --quiet -v --verbose -h --help --man -V --version --message-format ;;
     "init ") _mto_words "" -h --help ;;
-    "verify ") _mto_words "" -h --help --json ;;
+    "verify ") _mto_words "" -h --help --ignored-revs --json ;;
     "pins ") _mto_words "" -h --help --json ;;
     "config ") _mto_words "" -h --help ;;
     "config path") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;

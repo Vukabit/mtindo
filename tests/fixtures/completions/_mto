@@ -109,6 +109,7 @@ _mto_init() {
 _mto_verify() {
   _arguments -s : \
     '(- *)'{-h,--help}'[Show this help and exit]' \
+    '--ignored-revs[Every commit `git blame` is told to look past (blame.ignoreRevsFile)]' \
     '--json[As JSON, whose shape keeps its version]' \
     '*: : '
 }

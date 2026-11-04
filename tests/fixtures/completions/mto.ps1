@@ -9,7 +9,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--changed', '--staged', '--since', '--tracked', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--strict', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
     $flags['init'] = @('-h', '--help')
-    $flags['verify'] = @('-h', '--help', '--json')
+    $flags['verify'] = @('-h', '--help', '--ignored-revs', '--json')
     $flags['pins'] = @('-h', '--help', '--json')
     $flags['config'] = @('-h', '--help')
     $flags['config path'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
@@ -99,6 +99,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--runs'] = 'How many runs a file goes through (default 2)'
     $help['--diff'] = 'Show what a run changed again, for a file that does not settle'
     $help['--layout-only'] = 'Lay out without formatting'
+    $help['--ignored-revs'] = 'Every commit `git blame` is told to look past (blame.ignoreRevsFile)'
     $help['--under'] = 'Only the reports seen in files under PATH'
     $help['--older-than'] = 'Remove runs this old: 30 (days), 2w, 12h'
     $help['init'] = 'Write a default mto.toml'

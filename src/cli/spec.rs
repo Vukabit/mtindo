@@ -178,7 +178,7 @@ pub const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "config",
-    args: "path|print|options|mirror [DIR]",
+    args: "path|print|options|mirror|derive [DIR]",
     summary: "Show the configuration that applies in a folder, or every setting",
     about: "`path` lists the configuration files that apply in DIR (default: the current \
                 directory), and the history folder. `print` shows every setting in effect with \
@@ -189,15 +189,22 @@ pub const COMMANDS: &[CommandSpec] = &[
                 rustfmt.toml beside it (only those the standard formatter's stable release \
                 takes; the rest are named), so tools that run the standard formatter agree \
                 with mto while a project moves to it; it writes again only a rustfmt.toml it \
-                wrote.",
+                wrote. `derive` finds the mto.toml that moves the fewest items in DIR's \
+                project as it is written: from what `mto init` writes, each layout setting \
+                takes the value that leaves the most where it is, the defaults winning ties, \
+                while the settings the project's formatting decides (its rustfmt.toml) stay \
+                as it asks; it prints that mto.toml, or writes it with --write (never over \
+                one there), and says what each change saves.",
     usage: &[
       "mto config path [DIR]",
       "mto config print [OPTIONS] [DIR]",
       "mto config options [--toml|--json]",
       "mto config mirror [--dry-run] [DIR]",
+      "mto config derive [--write] [--json] [DIR]",
     ],
     options: &[
       ("views", "mto config options", &[Flag::Toml, Flag::Json]),
+      ("derive", "mto config derive", &[Flag::Write, Flag::Json]),
       (
         "views",
         "mto config path|print",
@@ -242,6 +249,11 @@ pub const COMMANDS: &[CommandSpec] = &[
         summary: "Write mto.toml's formatting settings into a rustfmt.toml beside it",
         operand: Complete::Dirs,
       },
+      Subcommand {
+        word: "derive",
+        summary: "Find the mto.toml that moves the fewest items in the project as written",
+        operand: Complete::Dirs,
+      },
     ],
     examples: &[
       "mto config path",
@@ -249,6 +261,8 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto config print --user",
       "mto config options",
       "mto config options --toml",
+      "mto config derive",
+      "mto config derive --write",
     ],
   },
   CommandSpec {
@@ -1029,6 +1043,15 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Lay out without formatting",
   },
   FlagSpec {
+    flag: Flag::Write,
+    group: Group::Command,
+    short: None,
+    long: "--write",
+    value: "",
+    values: &[],
+    help: "Write DIR/mto.toml, rather than print it (never over one there)",
+  },
+  FlagSpec {
     flag: Flag::IgnoredRevs,
     group: Group::Command,
     short: None,
@@ -1105,6 +1128,7 @@ pub enum Complete {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Flag {
   IgnoredRevs,
+  Write,
   Changed,
   Since,
   Staged,

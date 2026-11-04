@@ -174,19 +174,29 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     `directive_reasons = "required"` in mto.toml asks every directive for its
     reason.
     *   `--json` (after `mto pins`): As JSON, whose shape keeps its version.
-*   `mto config path|print|options|mirror [DIR]`: `path` lists the configuration
-    files that apply in DIR (default: the current directory), and the history
-    folder. `print` shows every setting in effect with where it came from, in
-    sections: layout, then formatting. `options` lists every setting a
+*   `mto config path|print|options|mirror|derive [DIR]`: `path` lists the
+    configuration files that apply in DIR (default: the current directory), and
+    the history folder. `print` shows every setting in effect with where it came
+    from, in sections: layout, then formatting. `options` lists every setting a
     configuration file may hold, by file, with its values and default, and for
     the standard formatter's settings whether mto honors it yet. `mirror` writes
     the formatting settings DIR's mto.toml holds into a rustfmt.toml beside it
     (only those the standard formatter's stable release takes; the rest are
     named), so tools that run the standard formatter agree with mto while a
-    project moves to it; it writes again only a rustfmt.toml it wrote.
+    project moves to it; it writes again only a rustfmt.toml it wrote. `derive`
+    finds the mto.toml that moves the fewest items in DIR's project as it is
+    written: from what `mto init` writes, each layout setting takes the value
+    that leaves the most where it is, the defaults winning ties, while the
+    settings the project's formatting decides (its rustfmt.toml) stay as it
+    asks; it prints that mto.toml, or writes it with --write (never over one
+    there), and says what each change saves.
     *   `--toml` (after `mto config options`): As a commented file, every
         setting at its default.
     *   `--json` (after `mto config options`): As JSON, whose shape keeps its
+        version.
+    *   `--write` (after `mto config derive`): Write DIR/mto.toml, rather than
+        print it (never over one there).
+    *   `--json` (after `mto config derive`): As JSON, whose shape keeps its
         version.
     *   `--current` (after `mto config path|print`): Every setting in effect,
         with its source (the default).

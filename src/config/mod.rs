@@ -178,6 +178,22 @@ impl Config {
     self.values.get(name).map(|(value, _)| value)
   }
 
+  /// These settings with `pairs` set over them, each a key and a value as `--config`
+  /// takes it (`mto config derive` trying values).
+  pub fn with_settings(&self, pairs: &[(&str, &str)]) -> Result<Config, Error> {
+    let mut config = self.clone();
+    for (key, text) in pairs {
+      let setting = options::find(key)
+        .ok_or_else(|| Error::new(format!("unknown key `{}`{}", key, suggestion(key))))?;
+      if let Some(value) = value::from_command_line(setting, text).map_err(Error::new)? {
+        config
+          .values
+          .insert(setting.name, (value, Source::CommandLine));
+      }
+    }
+    Ok(config)
+  }
+
   /// The layout settings.
   pub fn layout(&self) -> LayoutConfig {
     let mut config = LayoutConfig::default();

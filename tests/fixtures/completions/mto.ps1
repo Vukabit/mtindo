@@ -16,6 +16,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags['config print'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
     $flags['config options'] = @('-h', '--help', '--toml', '--json')
     $flags['config mirror'] = @('-h', '--help')
+    $flags['config derive'] = @('-h', '--help', '--write', '--json')
     $flags['history'] = @('-h', '--help', '--all', '--json')
     $flags['history show'] = @('-h', '--help')
     $flags['history prune'] = @('-h', '--help', '--keep', '--older-than')
@@ -99,6 +100,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--runs'] = 'How many runs a file goes through (default 2)'
     $help['--diff'] = 'Show what a run changed again, for a file that does not settle'
     $help['--layout-only'] = 'Lay out without formatting'
+    $help['--write'] = 'Write DIR/mto.toml, rather than print it (never over one there)'
     $help['--ignored-revs'] = 'Every commit `git blame` is told to look past (blame.ignoreRevsFile)'
     $help['--under'] = 'Only the reports seen in files under PATH'
     $help['--older-than'] = 'Remove runs this old: 30 (days), 2w, 12h'
@@ -110,6 +112,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['config print'] = 'Show every setting in effect, with where it came from'
     $help['config options'] = 'List every setting a configuration file may hold'
     $help['config mirror'] = 'Write mto.toml''s formatting settings into a rustfmt.toml beside it'
+    $help['config derive'] = 'Find the mto.toml that moves the fewest items in the project as written'
     $help['history'] = 'List, show or prune the runs that wrote files'
     $help['history show'] = 'List one run''s files and where each stands now'
     $help['history prune'] = 'Remove old runs'
@@ -158,7 +161,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $commands = @('init', 'verify', 'pins', 'config', 'history', 'restore', 'doctor', 'report', 'debug', 'completions')
     # Each command's subcommands.
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-    $subcommands['config'] = @('path', 'print', 'options', 'mirror')
+    $subcommands['config'] = @('path', 'print', 'options', 'mirror', 'derive')
     $subcommands['history'] = @('show', 'prune')
     $subcommands['doctor'] = @('on', 'off', 'holds', 'keep', 'recheck', 'trust', 'release')
     $subcommands['report'] = @('show', 'save', 'send', 'recheck', 'remove', 'prune')
@@ -171,6 +174,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $operandPaths['config path'] = 'dirs'
     $operandPaths['config print'] = 'dirs'
     $operandPaths['config mirror'] = 'dirs'
+    $operandPaths['config derive'] = 'dirs'
     $operandPaths['restore'] = 'files'
     $operandPaths['report save'] = 'files'
     $operandPaths['debug tokens'] = 'files'

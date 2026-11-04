@@ -2,6 +2,7 @@
 
 pub mod completions;
 pub mod debug;
+pub mod derive;
 pub mod doctor;
 pub mod git_files;
 pub mod history;

@@ -114,6 +114,8 @@ enum ConfigView {
   Path,
   /// `mirror`, with `--dry-run` when true.
   Mirror(bool),
+  /// `derive`, with `--write` when true.
+  Derive(bool),
   /// Every setting a file may hold; as a commented file when true.
   Options(bool),
   Default,
@@ -798,6 +800,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::IgnoredRevs => {
           return usage_error("--ignored-revs only goes with `mto verify`");
         }
+        Flag::Write => {
+          return usage_error("--write only goes with `mto config derive`");
+        }
         Flag::Toml => {
           return usage_error("--toml only goes with `mto config options`");
         }
@@ -1032,6 +1037,7 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
     Some("path") => ConfigView::Path,
     Some("print") => ConfigView::Current,
     Some("mirror") => ConfigView::Mirror(false),
+    Some("derive") => ConfigView::Derive(false),
     _ => return usage(),
   };
   let mut dir = None;
@@ -1046,8 +1052,12 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
           config_flag(spec, args.get(i), &mut overrides)?;
         }
         Flag::DryRun if matches!(view, ConfigView::Mirror(_)) => view = ConfigView::Mirror(true),
+        Flag::Write if matches!(view, ConfigView::Derive(_)) => view = ConfigView::Derive(true),
         Flag::Default | Flag::Current | Flag::Minimal | Flag::User
-          if !matches!(view, ConfigView::Path | ConfigView::Mirror(_)) =>
+          if !matches!(
+            view,
+            ConfigView::Path | ConfigView::Mirror(_) | ConfigView::Derive(_)
+          ) =>
         {
           view = match spec.flag {
             Flag::Default => ConfigView::Default,
@@ -1823,6 +1833,9 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides, js
     Err(e) => return report_error(&e.into()),
   };
   print_warnings(&mut resolver);
+  if let ConfigView::Derive(write) = view {
+    return run_derive(dir, &mut resolver, write, json);
+  }
   if let ConfigView::Mirror(dry_run) = view {
     return match mtindo::cli::mirror::mirror(&config, dir, dry_run) {
       Ok(done) => {
@@ -2101,6 +2114,132 @@ fn run_debug_settle(
   } else {
     0
   }
+}
+
+/// `mto config derive`: the mto.toml printed (the report on stderr, so the file can be
+/// redirected), or written with `--write`, never over one there.
+fn run_derive(dir: &Path, resolver: &mut Resolver, write: bool, json: bool) -> i32 {
+  use mtindo::text::json::Json;
+  let target = dir.join("mto.toml");
+  let existing = [dir.join("mto.toml"), dir.join(".mto.toml")]
+    .into_iter()
+    .find(|p| p.exists());
+  if write && let Some(existing) = &existing {
+    errln!(
+      "{}Error: {} exists; `mto config derive` without --write prints the mto.toml it would \
+       write, to compare or copy from{}",
+      c_red(),
+      existing.display(),
+      c_reset(true)
+    );
+    return 3;
+  }
+  let derived = match mtindo::cli::derive::derive(dir, resolver) {
+    Ok(derived) => derived,
+    Err(why) => return report_error(&MtoError::Usage(why)),
+  };
+  print_warnings(resolver);
+  if json {
+    let changed: Vec<Json> = derived
+      .changed
+      .iter()
+      .map(|c| {
+        Json::object()
+          .with("setting", c.setting)
+          .with("value", c.value.as_str())
+          .with("saved", c.saved)
+      })
+      .collect();
+    let held: Vec<Json> = derived
+      .held
+      .iter()
+      .map(|(setting, why)| {
+        Json::object()
+          .with("setting", *setting)
+          .with("why", why.as_str())
+      })
+      .collect();
+    let mut out = Json::output("derive")
+      .with("dir", dir.display().to_string())
+      .with("files", derived.files)
+      .with(
+        "init",
+        Json::object()
+          .with("moves", derived.start.moves)
+          .with("files_changed", derived.start.files),
+      )
+      .with(
+        "derived",
+        Json::object()
+          .with("moves", derived.end.moves)
+          .with("files_changed", derived.end.files),
+      )
+      .with("changed", changed)
+      .with("held", held)
+      .with("toml", derived.toml.as_str());
+    if let Some(standard) = &derived.standard {
+      out = out.with("formatter_settings", standard.display().to_string());
+    }
+    outln!("{}", out.text());
+  } else if !write {
+    out!("{}", derived.toml);
+  }
+  if write && let Err(e) = mtindo::write_atomic(&target, &derived.toml) {
+    errln!(
+      "{}Error: cannot write {}: {}{}",
+      c_red(),
+      target.display(),
+      e,
+      c_reset(true)
+    );
+    return 3;
+  }
+  if !json {
+    let mut report = Vec::new();
+    report.push(format!(
+      "{} Rust file(s): with `mto init`'s settings layout moves {} item(s) in {} file(s); \
+       with these, {} in {}",
+      derived.files, derived.start.moves, derived.start.files, derived.end.moves, derived.end.files
+    ));
+    for change in &derived.changed {
+      report.push(format!(
+        "  {} = {}  (saves {} move(s))",
+        change.setting, change.value, change.saved
+      ));
+    }
+    if derived.changed.is_empty() {
+      report.push("  `mto init`'s settings already move the fewest".to_string());
+    }
+    if derived.end.moves > 0 {
+      report.push(
+        "  (`order_keys = []` keeps every file in its written order, sorting only imports \
+         and `mod` declarations where they stand)"
+          .to_string(),
+      );
+    }
+    for (setting, why) in &derived.held {
+      report.push(format!("  {} kept: {}", setting, why));
+    }
+    if let Some(standard) = &derived.standard {
+      report.push(format!(
+        "  the formatting settings stay in {}, which mto reads",
+        standard.display()
+      ));
+    }
+    if write {
+      report.push(format!("wrote {}", target.display()));
+    } else if existing.is_some() {
+      report.push("an mto.toml is there already: compare, or copy what you want".to_string());
+    }
+    for line in report {
+      if write {
+        outln!("{}", line);
+      } else {
+        errln!("{}", line);
+      }
+    }
+  }
+  0
 }
 
 /// `mto doctor`: the build guard's settings and holds, or a run narrowed down.
@@ -3173,6 +3312,7 @@ mod tests {
       &["config", "print", "--minimal"],
       &["config", "options", "--toml"],
       &["config", "mirror", "--dry-run", "src"],
+      &["config", "derive", "--json", "src"],
       &["history"],
       &["history", "--all"],
       &["history", "show", "last"],

@@ -280,3 +280,4 @@ mto     flag:--user                                      supported    # tests/do
 mto     flag:--verbose                                   supported    # tests/domain_8_cli.rs
 mto     flag:--version                                   supported    # tests/domain_8_cli.rs
 mto     flag:--with-file                                 supported    # tests/domain_8_cli.rs
+mto     flag:--write                                     supported    # tests/domain_8_cli.rs

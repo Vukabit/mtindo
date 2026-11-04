@@ -10,12 +10,13 @@ function __mto_state
     set -l commands init verify pins config history restore doctor report debug \
         completions
     set -l subcommands 'config path' 'config print' 'config options' 'config mirror' \
-        'history show' 'history prune' 'doctor on' 'doctor off' 'doctor holds' \
-        'doctor keep' 'doctor recheck' 'doctor trust' 'doctor release' \
-        'report show' 'report save' 'report send' 'report recheck' \
-        'report remove' 'report prune' 'debug tokens' 'debug tree' \
-        'debug kept' 'debug units' 'debug moves' 'debug settle' \
-        'completions install' 'completions uninstall' 'completions status'
+        'config derive' 'history show' 'history prune' 'doctor on' \
+        'doctor off' 'doctor holds' 'doctor keep' 'doctor recheck' \
+        'doctor trust' 'doctor release' 'report show' 'report save' \
+        'report send' 'report recheck' 'report remove' 'report prune' \
+        'debug tokens' 'debug tree' 'debug kept' 'debug units' 'debug moves' \
+        'debug settle' 'completions install' 'completions uninstall' \
+        'completions status'
     set -l words (commandline -opc)
     set -e words[1]
     set -l command -
@@ -244,6 +245,7 @@ complete -c mto -n '__mto_at config - 0' -a path -d 'List the configuration file
 complete -c mto -n '__mto_at config - 0' -a print -d 'Show every setting in effect, with where it came from'
 complete -c mto -n '__mto_at config - 0' -a options -d 'List every setting a configuration file may hold'
 complete -c mto -n '__mto_at config - 0' -a mirror -d 'Write mto.toml\'s formatting settings into a rustfmt.toml beside it'
+complete -c mto -n '__mto_at config - 0' -a derive -d 'Find the mto.toml that moves the fewest items in the project as written'
 
 # mto config path
 complete -c mto -n '__mto_at config path' -s h -l help -d 'Show this help and exit'
@@ -279,6 +281,12 @@ complete -c mto -n '__mto_at config options' -l json -d 'As JSON, whose shape ke
 # mto config mirror
 complete -c mto -n '__mto_at config mirror' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at config mirror' -a '(__fish_complete_directories (commandline -ct))'
+
+# mto config derive
+complete -c mto -n '__mto_at config derive' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at config derive' -l write -d 'Write DIR/mto.toml, rather than print it (never over one there)'
+complete -c mto -n '__mto_at config derive' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at config derive' -a '(__fish_complete_directories (commandline -ct))'
 
 # mto history
 complete -c mto -n '__mto_at history -' -s h -l help -d 'Show this help and exit'

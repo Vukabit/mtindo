@@ -780,6 +780,45 @@ fn test_cli_check_reports_every_drifted_file() {
   );
 }
 
+/// `mto config derive` finds the settings that keep a project as it is written: here the
+/// kind order every file follows, functions before types. It prints the mto.toml, writes
+/// it with --write, and never over one there.
+#[test]
+fn test_cli_config_derive_finds_the_written_order() {
+  let env = TestEnvironment::new();
+  for name in ["a", "b", "c"] {
+    env.write_file(
+      &format!("src/{}.rs", name),
+      "fn run() {}\n\nfn stop() {}\n\nstruct State;\n",
+    );
+  }
+  let (code, out, said) = mto(&env, &["config", "derive", "src"]);
+  assert_eq!(code, 0, "{}", said);
+  let functions_first = |toml: &str| {
+    let line = toml
+      .lines()
+      .find(|l| l.starts_with("type_order = "))
+      .unwrap_or_default();
+    line.find("FnDecl") < line.find("StructDecl")
+  };
+  assert!(functions_first(&out), "{}", out);
+  assert!(out.contains("layout = true"), "{}", out);
+  assert!(said.contains("3 Rust file(s)"), "{}", said);
+  assert!(said.contains("with these, 0 in 0"), "{}", said);
+  let (code, out, _) = mto(&env, &["config", "derive", "--json", "src"]);
+  assert_eq!(code, 0, "{}", out);
+  assert!(out.contains("\"kind\":\"derive\""), "{}", out);
+  assert!(out.contains("\"setting\":\"type_order\""), "{}", out);
+  let (code, out, said) = mto(&env, &["config", "derive", "--write", "src"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(out.contains("wrote"), "{}", out);
+  let written = std::fs::read_to_string(env.dir.path().join("src/mto.toml")).unwrap();
+  assert!(functions_first(&written), "{}", written);
+  let (code, _, said) = mto(&env, &["config", "derive", "--write", "src"]);
+  assert_eq!(code, 3, "{}", said);
+  assert!(said.contains("exists"), "{}", said);
+}
+
 /// A configuration file named in another case (`Mto.toml`) counts when the file system says
 /// it is the file asked for, as the standard formatter finds its own: a walk and a file
 /// named alone agree, whichever the file system decides.

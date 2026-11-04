@@ -206,6 +206,17 @@ Some items depend on their position in the file. `mto` keeps them in place:
 
 ## Adopting layout in an existing project
 
+`mto config derive` finds the settings that keep the most of a project where
+it is written: starting from what `mto init` writes, it tries each layout
+setting's values on every file in memory, keeps the one that moves the fewest
+items (the default wins a tie), and repeats while that finds less to move. It
+prints the mto.toml it found, with what each change saves (on stderr, so the
+file can be redirected); `--write` writes it, never over an mto.toml already
+there. It always picks an order: `order_keys = []`, which sorts nothing, is
+yours to choose. The settings the project's formatting decides stay as its
+rustfmt.toml asks, which mto reads as it is: imports stay sorted while the
+formatter sorts them.
+
 Laying out a whole project once moves many items. Do it in a commit of its
 own, holding nothing but what mto wrote, and add that commit to
 `.git-blame-ignore-revs` so `git blame` looks past it. Start from a clean tree:
@@ -213,7 +224,7 @@ anything else in the commit would be hidden from `git blame` too.
 
 ```bash
 git status --porcelain   # prints nothing on a clean tree; commit or stash first
-mto init
+mto init                 # or: mto config derive --write .
 mto -l . > laid-out.txt  # names each file mto writes
 git add mto.toml $(cat laid-out.txt)
 rm laid-out.txt

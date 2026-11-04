@@ -128,6 +128,7 @@ _mto_config_subcommands() {
     'print:Show every setting in effect, with where it came from'
     'options:List every setting a configuration file may hold'
     'mirror:Write mto.toml'\''s formatting settings into a rustfmt.toml beside it'
+    'derive:Find the mto.toml that moves the fewest items in the project as written'
   )
   _describe -t subcommands subcommand subcommands
 }
@@ -182,6 +183,13 @@ _mto_config() {
         (mirror)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
+            '*: :_files -/' && ret=0
+          ;;
+        (derive)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '--write[Write DIR/mto.toml, rather than print it (never over one there)]' \
+            '--json[As JSON, whose shape keeps its version]' \
             '*: :_files -/' && ret=0
           ;;
       esac

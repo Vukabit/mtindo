@@ -213,9 +213,12 @@ items (the default wins a tie), and repeats while that finds less to move. It
 prints the mto.toml it found, with what each change saves (on stderr, so the
 file can be redirected); `--write` writes it, never over an mto.toml already
 there. It always picks an order: `order_keys = []`, which sorts nothing, is
-yours to choose. The settings the project's formatting decides stay as its
-rustfmt.toml asks, which mto reads as it is: imports stay sorted while the
-formatter sorts them.
+yours to choose. `sections = "comments"` freezes much of any order, so it is
+tried last and taken only when it removes at least half the moves left. A
+change to how imports are written (`import_grouping`, `sort_imports`) is
+flagged in the report to look at before taking it, whatever it saves. The
+settings the project's formatting decides stay as its rustfmt.toml asks, which
+mto reads as it is: imports stay sorted while the formatter sorts them.
 
 Laying out a whole project once moves many items. Do it in a commit of its
 own, holding nothing but what mto wrote, and add that commit to

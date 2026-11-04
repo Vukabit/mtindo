@@ -2148,6 +2148,7 @@ fn run_derive(dir: &Path, resolver: &mut Resolver, write: bool, json: bool) -> i
           .with("setting", c.setting)
           .with("value", c.value.as_str())
           .with("saved", c.saved)
+          .with("import_style", c.imports)
       })
       .collect();
     let held: Vec<Json> = derived
@@ -2203,8 +2204,15 @@ fn run_derive(dir: &Path, resolver: &mut Resolver, write: bool, json: bool) -> i
     ));
     for change in &derived.changed {
       report.push(format!(
-        "  {} = {}  (saves {} move(s))",
-        change.setting, change.value, change.saved
+        "  {} = {}  (saves {} move(s){})",
+        change.setting,
+        change.value,
+        change.saved,
+        if change.imports {
+          "; changes how imports are written: look at it before taking it"
+        } else {
+          ""
+        }
       ));
     }
     if derived.changed.is_empty() {

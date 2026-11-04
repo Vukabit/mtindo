@@ -22,6 +22,14 @@ use crate::config::{Config, Resolver, Value};
 use crate::options::layout::{ItemKind, LayoutConfig};
 use crate::{RunOptions, options};
 
+/// Settings that change how a project's imports are written.
+const IMPORT_STYLE: &[&str] = &["import_grouping", "sort_imports", "import_sort"];
+
+/// Cutting a section at every loose comment keeps much of any order where it is, so it
+/// saves moves almost everywhere: it is tried after the rest, and kept only when it takes
+/// away at least this share of the moves left.
+const SECTIONS_SHARE: usize = 2;
+
 /// The settings derive tries, each with its values, the first the one `mto init` writes.
 struct Candidate {
   setting: &'static str,
@@ -35,6 +43,8 @@ pub struct Changed {
   pub value: String,
   /// Moves it saved when it was chosen.
   pub saved: usize,
+  /// It changes how imports are written: a style shift to look at, whatever it saves.
+  pub imports: bool,
 }
 
 /// What derive found.
@@ -142,6 +152,17 @@ pub fn derive(dir: &Path, resolver: &mut Resolver) -> Result<Derived, String> {
       break;
     }
   }
+  // Last, and only for a clear win: sections at every loose comment.
+  if let Some(at) = table.iter().position(|c| c.setting == "sections") {
+    let mut trial = chosen.clone();
+    trial[at].1 = "\"comments\"".to_string();
+    let found = score(&trial)?;
+    if found < best && found.moves * SECTIONS_SHARE <= best.moves {
+      *saved.entry("sections").or_default() += best.moves - found.moves;
+      best = found;
+      chosen = trial;
+    }
+  }
   let changed: Vec<Changed> = table
     .iter()
     .zip(&chosen)
@@ -150,6 +171,7 @@ pub fn derive(dir: &Path, resolver: &mut Resolver) -> Result<Derived, String> {
       setting: candidate.setting,
       value: value.clone(),
       saved: saved.get(candidate.setting).copied().unwrap_or(0),
+      imports: IMPORT_STYLE.contains(&candidate.setting),
     })
     .collect();
   let mut toml = crate::init_template();
@@ -384,6 +406,10 @@ fn table(here: &Config, consensus: &str) -> (Vec<Candidate>, Vec<(&'static str, 
     let mut values = vec![setting.default.to_string()];
     for choice in setting.choices() {
       let quoted = format!("\"{}\"", choice.name);
+      // Tried apart, after the rest (`SECTIONS_SHARE`).
+      if name == "sections" && choice.name == "comments" {
+        continue;
+      }
       if !values.contains(&quoted) {
         values.push(quoted);
       }

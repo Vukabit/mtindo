@@ -99,9 +99,10 @@ function __mto_settings
             trailing_comma trailing_semicolon type_punctuation_density \
             unstable_features use_field_init_shorthand use_small_heuristics \
             use_try_shorthand version where_single_line wrap_comments \
-            blank_lines_between_blocks directive_reasons generated_markers \
-            group_impls ignore_dirs impl_method_order import_grouping \
-            import_sort keep_helpers_near keep_paragraphs layout format \
+            blank_lines_between_blocks directive_reasons flow \
+            generated_markers group_impls ignore_dirs impl_method_order \
+            import_grouping import_sort inherent_method_order \
+            keep_helpers_near keep_paragraphs layout format \
             layout_generated_files mto_version name_sort order_keys sections \
             sort_alphabetically sort_imports test_module trait_impl_order \
             trait_impl_sort type_order visibility_order
@@ -159,10 +160,14 @@ function __mto_setting_values
             printf '%s\n' One Two
         case directive_reasons
             printf '%s\n' optional required
+        case flow
+            printf '%s\n' off top_down bottom_up
         case impl_method_order
             printf '%s\n' written trait
         case import_sort
             printf '%s\n' style_edition 2015 2024
+        case inherent_method_order
+            printf '%s\n' written constructors_first by_receiver
         case name_sort
             printf '%s\n' version bytes case_insensitive
         case sections

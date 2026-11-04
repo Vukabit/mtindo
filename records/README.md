@@ -59,6 +59,14 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
   (result): the first layout settings tried on the whole corpus, alone and
   together. Written by `cargo xtask corpus try --each ... --record first-slice`;
   read by people.
+- **[results/toggles/flow-bottom-up.txt](results/toggles/flow-bottom-up.txt)**
+  (result): flow = "bottom_up" and inherent_method_order = "constructors_first"
+  tried on the whole corpus. Written by `cargo xtask corpus try --each ...
+  --record flow-bottom-up`; read by people.
+- **[results/toggles/flow-top-down.txt](results/toggles/flow-top-down.txt)**
+  (result): flow = "top_down" and inherent_method_order = "by_receiver" tried on
+  the whole corpus. Written by `cargo xtask corpus try --each ... --record
+  flow-top-down`; read by people.
 - **[results/toggles/order-keys.txt](results/toggles/order-keys.txt)** (result):
   order_keys, empty and visibility first, tried on the whole corpus. Written by
   `cargo xtask corpus try --each ... --record order-keys`; read by people.

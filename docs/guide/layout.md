@@ -45,7 +45,11 @@ settings and how files combine.
 * **Impl items:** with `reorder_impl_items`, items inside an impl block are
   sorted exactly as the standard formatter sorts them; with
   `impl_method_order = "trait"`, the functions of an impl of a trait declared
-  in the same file follow the order of the trait's declaration.
+  in the same file follow the order of the trait's declaration. In an impl
+  with no trait, `inherent_method_order = "constructors_first"` puts the
+  functions that make the type (no receiver, returning `Self` or the type)
+  first, and `"by_receiver"` orders them: no receiver, `&self`, `&mut self`,
+  `self`. Each part keeps its written order.
 
 The order itself is set by `type_order`, `visibility_order`, `name_sort`,
 `group_impls`, `trait_impl_sort`, `trait_impl_order` and `test_module`; every
@@ -133,6 +137,27 @@ is the order described above.
   `#[cfg(test)]` modules go last; `sections`, `keep_paragraphs` and
   `keep_helpers_near` still apply. Use it to take only the parts of layout a
   project wants.
+
+`flow` then orders items by their uses, within one kind (functions among
+functions, types among types; among everything but imports, modules and
+macros when `kind` is not a key):
+
+* `"top_down"`: an item goes above the items it uses, so the file reads from
+  the entry points down to what they are built from;
+* `"bottom_up"`: an item goes below the items it uses, each defined before
+  its first use.
+
+```rust
+fn parse() { lex(); } // top_down: parse, lex, skip_spaces
+fn lex() { skip_spaces(); }
+fn skip_spaces() {}
+```
+
+Where no use decides, the keys do: the order is the keys' order with only
+the moves the uses ask for. A type moves with its impls and `#[cfg]` variants
+together; items that use each other in a circle keep the keys' order among
+themselves. Uses are found by name, without type checking, like
+`keep_helpers_near`.
 
 ## What mto never moves
 

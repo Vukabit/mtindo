@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 24
+  total: 26
 in_mto:
-  supported: 23
+  supported: 25
   partial: 1
   missing: 0
   not_planned: 0
@@ -54,6 +54,25 @@ exceptions do not pile up unexplained; `mto pins` lists them all.
     *   `optional`: A directive may give its reason after ` -- `, or not.
     *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
         ` -- why` gets a warning, and with --strict fails its file.
+
+### `flow`
+
+Within one kind (functions among functions, types among types; among all items
+but imports, modules and macros when `kind` is not in `order_keys`), puts an
+item above or below the items it uses, keeping the sort keys' order wherever no
+use decides. Uses are found by name, without type checking. Items that use each
+other in a circle keep the sort keys' order among themselves; a type moves with
+its impls, and `#[cfg]` variants together.
+
+*   Type: one of the values below, as a string.
+*   Default: `"off"`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `off`: Items are ordered by the sort keys alone.
+    *   `top_down`: An item goes above the items it uses: read from the top,
+        each item comes before what it is built from.
+    *   `bottom_up`: An item goes below the items it uses: each item comes after
+        what it is built from.
 
 ### `generated_markers`
 
@@ -134,6 +153,24 @@ orders to use when it should differ from the style edition in effect.
         `a10` comes before `a2`.
     *   `2024`: Version sorting, as from style edition 2024: numbers by value,
         so `u8` comes before `u16`, and uppercase before lowercase.
+
+### `inherent_method_order`
+
+The order of the functions inside an impl with no trait (`impl Type`). Only the
+functions trade places; other items and blank lines stay where they are. Trait
+impls are ordered by `impl_method_order`.
+
+*   Type: one of the values below, as a string.
+*   Default: `"written"`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `written`: Functions in impl blocks with no trait keep the order they
+        were written in.
+    *   `constructors_first`: Functions with no receiver that return `Self` or
+        the type, the ways to make one, come first, then the rest; each part as
+        written.
+    *   `by_receiver`: Functions with no receiver first, then `&self`, then
+        `&mut self`, then `self`; each part as written.
 
 ### `keep_helpers_near`
 

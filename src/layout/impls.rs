@@ -8,6 +8,9 @@
 //! - **`impl_method_order = "trait"`**: in an impl of a trait declared in the same file
 //!   (under one name only), the functions follow the trait's order. Only the functions swap
 //!   places; everything else, blank lines included, stays where it was.
+//! - **`inherent_method_order`**: in an impl with no trait, the functions in that order
+//!   (constructors first, or by receiver), each part as written; again only the functions
+//!   swap places.
 //!
 //! Pinned items (`// mto: pin`, `#[rustfmt::skip]`, `// mto: off` regions) keep their
 //! places, as everywhere. An impl whose order would lift an item above a `macro_rules!` in
@@ -18,7 +21,7 @@ use std::collections::HashMap;
 
 use super::order::macro_moved_past_user;
 use super::{Cx, Rule, Unit, around_held, split_container};
-use crate::options::layout::{ItemKind, LayoutConfig};
+use crate::options::layout::{ItemKind, LayoutConfig, MethodOrder};
 use crate::syntax::ast::Item;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 
@@ -71,7 +74,11 @@ pub(super) fn impl_with_items_ordered(
   } else {
     None
   };
-  if !config.reorder_impl_items && trait_order.is_none() {
+  let method_order = match view.trait_ref() {
+    None => config.inherent_method_order,
+    Some(_) => MethodOrder::Written,
+  };
+  if !config.reorder_impl_items && trait_order.is_none() && method_order == MethodOrder::Written {
     return None;
   }
   let body = assoc_list(node)?;
@@ -109,9 +116,22 @@ pub(super) fn impl_with_items_ordered(
       .and_then(|order| order.iter().position(|n| n == name))
       .unwrap_or(usize::MAX)
   };
+  let type_name = view.self_ty_name().unwrap_or_default();
+  let methods: HashMap<usize, u8> = units
+    .iter()
+    .filter(|u| u.kind == ItemKind::FnDecl && method_order != MethodOrder::Written)
+    .map(|u| {
+      (
+        u.index,
+        method_rank(u, &body, text, &type_name, method_order),
+      )
+    })
+    .collect();
+  let method = |u: &Unit| methods.get(&u.index).copied().unwrap_or(0);
   let fn_order = |a: &Unit, b: &Unit| {
     rank(&a.identifier)
       .cmp(&rank(&b.identifier))
+      .then(method(a).cmp(&method(b)))
       .then(a.index.cmp(&b.index))
   };
   let arrange = |units: &[Unit]| -> Result<Vec<Unit>, String> {
@@ -167,8 +187,10 @@ pub(super) fn impl_with_items_ordered(
   }
   let rule = if config.reorder_impl_items {
     Rule::ImplItems
-  } else {
+  } else if trait_order.is_some() {
     Rule::TraitOrder
+  } else {
+    Rule::MethodOrder
   };
   cx.note(&arranged, |_| rule);
   let mut out = String::new();
@@ -230,6 +252,68 @@ fn impl_item_rank(unit: &Unit, body: &SyntaxNode) -> u8 {
     _ if unit.macro_call => 3,
     ItemKind::FnDecl => 5,
     _ => 4,
+  }
+}
+
+/// The function `unit`'s place in `order`, in an impl of `type_name` with no trait: a
+/// constructor (no receiver, returning `Self` or the type, alone or inside another type)
+/// 0 and the rest 1; or no receiver 0, `&self` 1, `&mut self` 2 and `self` 3.
+fn method_rank(
+  unit: &Unit,
+  body: &SyntaxNode,
+  text: &str,
+  type_name: &str,
+  order: MethodOrder,
+) -> u8 {
+  let of = |node: &SyntaxNode| {
+    let range = node.text_range();
+    &text[range.start as usize..range.end as usize]
+  };
+  let function = body.children_iter().find(|c| {
+    let range = c.text_range();
+    c.kind() == SyntaxKind::Fn
+      && range.start as usize >= unit.span.0
+      && range.end as usize <= unit.span.1
+  });
+  let Some(function) = function else {
+    return 0;
+  };
+  let receiver = function
+    .children_iter()
+    .find(|c| c.kind() == SyntaxKind::ParamList)
+    .and_then(|params| {
+      params
+        .children_iter()
+        .find(|c| c.kind() == SyntaxKind::SelfParam)
+    })
+    .map(|param| {
+      // `&self`, `&'a mut self`, `self: &mut Self`, `mut self`, `self: Box<Self>`.
+      let spaced = of(&param).replace('&', " & ").replace(':', " : ");
+      let words: Vec<&str> = spaced.split_whitespace().collect();
+      let ty = match words.iter().position(|w| *w == ":") {
+        Some(at) => &words[at + 1..],
+        None => &words[..],
+      };
+      match ty.first() {
+        Some(&"&") if ty.contains(&"mut") => 2,
+        Some(&"&") => 1,
+        _ => 3,
+      }
+    });
+  match order {
+    MethodOrder::ByReceiver => receiver.unwrap_or(0),
+    MethodOrder::ConstructorsFirst => {
+      let returned = function
+        .children_iter()
+        .find(|c| c.kind() == SyntaxKind::RetType)
+        .map(|ret| of(&ret))
+        .unwrap_or("");
+      let makes = returned
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|word| word == "Self" || (!type_name.is_empty() && word == type_name));
+      u8::from(receiver.is_some() || !makes)
+    }
+    MethodOrder::Written => 0,
   }
 }
 

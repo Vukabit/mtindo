@@ -104,6 +104,7 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "blank_lines_between_blocks = 0",
     "",
   ),
+  ("layout + flow=top_down", "flow = \"top_down\"", ""),
   ("layout + group_impls=false", "group_impls = false", ""),
   (
     "layout + impl_method_order=trait",
@@ -120,6 +121,11 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "layout + import_sort=2024",
     "import_sort = \"2024\"",
     "style_edition = \"2024\"",
+  ),
+  (
+    "layout + inherent_method_order=by_receiver",
+    "inherent_method_order = \"by_receiver\"",
+    "",
   ),
   (
     "layout + keep_helpers_near=true",

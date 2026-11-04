@@ -1,5 +1,16 @@
 //! Layout settings and the item categories they refer to: plain data, no parsing or I/O.
 
+/// Callers and the items they use, within one rank (`flow`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+  /// The sort keys alone.
+  Off,
+  /// An item above the items it uses.
+  TopDown,
+  /// An item below the items it uses.
+  BottomUp,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ImportGroup {
   Std = 0,
@@ -47,6 +58,17 @@ impl ItemKind {
       _ => ItemKind::Unknown,
     }
   }
+}
+
+/// The order of the functions in an impl with no trait (`inherent_method_order`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodOrder {
+  /// As written.
+  Written,
+  /// Functions making the type first, each part as written.
+  ConstructorsFirst,
+  /// Functions with no receiver, then `&self`, `&mut self` and `self`, each as written.
+  ByReceiver,
 }
 
 /// How items of one kind are sorted by name (`name_sort`).
@@ -145,6 +167,10 @@ pub struct LayoutConfig {
   pub sections: Sections,
   /// `keep_helpers_near`: a private item used by one sibling stays above it.
   pub keep_helpers_near: bool,
+  /// `flow`: within one rank, an item above (or below) the items it uses.
+  pub flow: Flow,
+  /// `inherent_method_order`: the order of the functions in an impl with no trait.
+  pub inherent_method_order: MethodOrder,
   /// `order_keys`: what items are ordered by, in turn; none keeps the written order.
   pub order_keys: Vec<OrderKey>,
   /// `directive_reasons = "required"`: a directive without ` -- why` gets a warning.
@@ -221,6 +247,8 @@ impl Default for LayoutConfig {
       keep_paragraphs: false,
       sections: Sections::Off,
       keep_helpers_near: false,
+      flow: Flow::Off,
+      inherent_method_order: MethodOrder::Written,
       order_keys: vec![OrderKey::Kind, OrderKey::Visibility, OrderKey::Name],
       directive_reasons_required: false,
       sort_imports: true,

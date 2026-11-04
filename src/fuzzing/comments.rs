@@ -10,7 +10,7 @@
 
 use crate::LayoutConfig;
 use crate::layout::layout;
-use crate::options::layout::{NameSort, OrderKey, Sections, TraitImplSort};
+use crate::options::layout::{Flow, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort};
 use crate::syntax::lexer::tokenize;
 use crate::syntax::{Edition, SyntaxKind, parse};
 use crate::verify::verify_layout;
@@ -41,6 +41,16 @@ pub(super) fn checked(data: &[u8]) {
     1 => Vec::new(),
     2 => vec![OrderKey::Visibility, OrderKey::Kind, OrderKey::Name],
     _ => vec![OrderKey::Visibility, OrderKey::Name],
+  };
+  config.flow = match (head[2] >> 2) & 3 {
+    1 => Flow::TopDown,
+    2 => Flow::BottomUp,
+    _ => Flow::Off,
+  };
+  config.inherent_method_order = match head[3] >> 6 {
+    1 => MethodOrder::ConstructorsFirst,
+    2 => MethodOrder::ByReceiver,
+    _ => MethodOrder::Written,
   };
   let (text, inserted) = with_comments(source, head[2], head[3]);
   if inserted.is_empty() || !parse(&text, Edition::E2021).errors().is_empty() {

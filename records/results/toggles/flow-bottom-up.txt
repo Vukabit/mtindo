@@ -1,0 +1,11 @@
+# `cargo xtask corpus try` on the pinned corpus (2 runs a file), for `flow-bottom-up`.
+# Columns: files, changed, moves, left alone, check failed, panicked, unsettled.
+try  flow=bottom_up
+settings  layout=true,flow=bottom_up
+total  10842     8379 103312        204            0         0         0
+try  inherent_method_order=constructors_first
+settings  layout=true,inherent_method_order=constructors_first
+total  10842     8359 103059        204            0         0         0
+try  all together
+settings  layout=true,flow=bottom_up,inherent_method_order=constructors_first
+total  10842     8386 103675        204            0         0         0

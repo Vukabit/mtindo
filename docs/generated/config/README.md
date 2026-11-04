@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 126
-  mto: 24
+  total: 128
+  mto: 26
   formatting: 90
   user: 12
 in_mto:
-  supported: 69
+  supported: 71
   partial: 29
   missing: 11
   not_planned: 5
@@ -332,6 +332,13 @@ behavior, so the column does not apply to them.
 <td>supported</td>
 </tr>
 <tr>
+<td><a href="mto.toml.md#flow">
+<code>flow</code></a></td>
+<td>mto.toml</td>
+<td>Items above or below the items they use</td>
+<td>supported</td>
+</tr>
+<tr>
 <td><a href="rustfmt.toml.md#fn_args_layout">
 <code>fn_args_layout</code></a></td>
 <td>rustfmt.toml</td>
@@ -557,6 +564,13 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>How do we indent expressions or items.</td>
 <td>partial</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#inherent_method_order">
+<code>inherent_method_order</code></a></td>
+<td>mto.toml</td>
+<td>The order of functions in impls with no trait</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#inline_attribute_width">

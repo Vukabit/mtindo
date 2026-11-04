@@ -70,6 +70,35 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "flow",
+    file: File::Mto,
+    kind: Kind::Choice(&[
+      choice("off", "Items are ordered by the sort keys alone."),
+      choice(
+        "top_down",
+        "An item goes above the items it uses: read from the top, each item comes \
+         before what it is built from.",
+      ),
+      choice(
+        "bottom_up",
+        "An item goes below the items it uses: each item comes after what it is built \
+         from.",
+      ),
+    ]),
+    default: "\"off\"",
+    default_2024: None,
+    summary: "Items above or below the items they use",
+    doc: "Within one kind (functions among functions, types among types; among all items \
+              but imports, modules and macros when `kind` is not in `order_keys`), puts \
+              an item above or below the items it uses, keeping the sort keys' order \
+              wherever no use decides. Uses are found by name, without type checking. \
+              Items that use each other in a circle keep the sort keys' order among \
+              themselves; a type moves with its impls, and `#[cfg]` variants together.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "generated_markers",
     file: File::Mto,
     kind: Kind::List,
@@ -180,6 +209,35 @@ pub(super) static SETTINGS: &[Setting] = &[
     doc: "Imports are sorted exactly as the standard formatter sorts them, so the standard formatter leaves them alone. \
               This picks which of the standard formatter's two orders to use when it should differ from the \
               style edition in effect.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
+    name: "inherent_method_order",
+    file: File::Mto,
+    kind: Kind::Choice(&[
+      choice(
+        "written",
+        "Functions in impl blocks with no trait keep the order they were written in.",
+      ),
+      choice(
+        "constructors_first",
+        "Functions with no receiver that return `Self` or the type, the ways to make \
+         one, come first, then the rest; each part as written.",
+      ),
+      choice(
+        "by_receiver",
+        "Functions with no receiver first, then `&self`, then `&mut self`, then \
+         `self`; each part as written.",
+      ),
+    ]),
+    default: "\"written\"",
+    default_2024: None,
+    summary: "The order of functions in impls with no trait",
+    doc: "The order of the functions inside an impl with no trait (`impl Type`). Only the \
+              functions trade places; other items and blank lines stay where they are. \
+              Trait impls are ordered by `impl_method_order`.",
     channels: None,
     hidden: false,
     replaced_by: None,

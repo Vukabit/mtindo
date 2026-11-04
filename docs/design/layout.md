@@ -98,6 +98,17 @@ variants are not users of it (`first_variant`): once sorted together they merge
 into one unit, which must land where its parts did
 (`test_a_helper_of_cfg_variants_settles_above_them`).
 
+With `flow`, `flowed` in `order.rs` takes the sorted free units before the
+helpers are placed and reorders each run of one rank by uses, read the same way
+(`names_used`). Units next to each other with one family (a type and its impls,
+under `group_impls`) or one `#[cfg]` variant key are one node; a name two nodes
+define, and a helper, give no edges. The edges' strongly connected components
+are found (Tarjan's, without recursion) and edges inside one dropped, so a
+circle keeps the sorted order; the rest is a topological order taking, of the
+nodes free to go, the one sorted first. An order that already follows the uses
+comes out unchanged, which is what makes a second run settle
+(`test_flow_orders_items_by_their_uses`).
+
 ## Classification
 
 `classify::unit` gives each unit what the sort reads:

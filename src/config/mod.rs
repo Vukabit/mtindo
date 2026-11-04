@@ -40,7 +40,8 @@ pub use value::Value;
 
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
 use crate::options::layout::{
-  ItemKind, LayoutConfig, NameSort, OrderKey, Sections, TraitImplSort, Visibility,
+  Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort,
+  Visibility,
 };
 use crate::options::{self, Channels, File, Setting, Stability};
 use crate::syntax::Edition;
@@ -165,6 +166,17 @@ impl Config {
       Some("headings") => Sections::Headings,
       Some("markers") => Sections::Markers,
       _ => Sections::Off,
+    };
+    config.flow = match self.get("flow").and_then(Value::as_text) {
+      Some("top_down") => Flow::TopDown,
+      Some("bottom_up") => Flow::BottomUp,
+      _ => Flow::Off,
+    };
+    config.inherent_method_order = match self.get("inherent_method_order").and_then(Value::as_text)
+    {
+      Some("constructors_first") => MethodOrder::ConstructorsFirst,
+      Some("by_receiver") => MethodOrder::ByReceiver,
+      _ => MethodOrder::Written,
     };
     config.sort_imports = flag("sort_imports", config.sort_imports);
     config.import_grouping = flag("import_grouping", config.import_grouping);

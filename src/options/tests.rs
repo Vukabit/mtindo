@@ -1,5 +1,7 @@
 use super::*;
-use crate::options::layout::{ItemKind, LayoutConfig, NameSort, OrderKey, Visibility};
+use crate::options::layout::{
+  Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Visibility,
+};
 
 /// The strings of a TOML array of strings, as written in a default.
 fn strings(default: &str) -> Vec<String> {
@@ -106,6 +108,10 @@ fn test_mto_defaults_match_the_layout_config() {
     config.sort_alphabetically.to_string()
   );
   assert_eq!(default("sort_imports"), config.sort_imports.to_string());
+  assert_eq!(default("flow"), "\"off\"");
+  assert_eq!(config.flow, Flow::Off);
+  assert_eq!(default("inherent_method_order"), "\"written\"");
+  assert_eq!(config.inherent_method_order, MethodOrder::Written);
   assert_eq!(strings(default("ignore_dirs")), config.ignore_dirs);
   let order: Vec<ItemKind> = strings(default("type_order"))
     .iter()

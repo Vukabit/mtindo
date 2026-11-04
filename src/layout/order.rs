@@ -16,17 +16,21 @@
 //! 8. visibility in `visibility_order`, then name in `name_sort` order when
 //!    `sort_alphabetically` is on.
 //!
+//! With `flow`, the sorted units of one rank are then put in the order of their uses
+//! ([`flowed`]), the sort's order deciding wherever no use does.
+//!
 //! A `macro_rules!` is only visible below its definition, and so are the macros of a
 //! `#[macro_use]` module and of an item macro call that holds definitions (`cfg_if! {
 //! macro_rules! m { ... } }`), so no unit that came after a definition may move in front of
 //! it. If the sort would do that, it is redone with every
 //! macro first; if even that moves one, the file is left alone.
 
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use super::Unit;
 use crate::options::layout::{
-  ItemKind, LayoutConfig, NameSort, OrderKey, TraitImplSort, Visibility,
+  Flow, ItemKind, LayoutConfig, NameSort, OrderKey, TraitImplSort, Visibility,
 };
 use crate::order::version_sort;
 
@@ -66,6 +70,10 @@ pub enum Rule {
   ImplItems,
   /// An impl's functions in its trait's order (`impl_method_order`).
   TraitOrder,
+  /// Above or below the items it uses (`flow`).
+  Flow,
+  /// An inherent impl's functions in the order of `inherent_method_order`.
+  MethodOrder,
 }
 
 impl Rule {
@@ -88,6 +96,8 @@ impl Rule {
       Rule::Helper => "helper",
       Rule::ImplItems => "impl_items",
       Rule::TraitOrder => "trait_order",
+      Rule::Flow => "flow",
+      Rule::MethodOrder => "method_order",
     }
   }
 
@@ -112,6 +122,8 @@ impl Rule {
       Rule::Helper => "above the one item that uses it (keep_helpers_near)",
       Rule::ImplItems => "the standard formatter's order of impl items (reorder_impl_items)",
       Rule::TraitOrder => "the trait's order of functions (impl_method_order)",
+      Rule::Flow => "above or below the items it uses (flow)",
+      Rule::MethodOrder => "the order of an impl's functions (inherent_method_order)",
     }
   }
 }
@@ -303,12 +315,68 @@ pub(super) fn reason(arranged: &[Unit], at: usize, config: &LayoutConfig) -> Rul
     Ordering::Less => rule,
     // Out of the plain order beside a helper: the helper's place decided it.
     _ if unit.caller.is_some() || neighbour.caller.is_some() => Rule::Helper,
+    // The plain order would not have put it here: the uses did.
+    Ordering::Greater if config.flow != Flow::Off => Rule::Flow,
     // The plain order would not have put it here: the macro rule did.
     Ordering::Greater if defines_macros(unit) || arranged.iter().any(defines_macros) => {
       Rule::MacrosFirst
     }
     _ => Rule::Written,
   }
+}
+
+/// The strongly connected components of the graph `after` (Tarjan's, without recursion):
+/// each node's component number.
+fn components(after: &[Vec<usize>]) -> Vec<usize> {
+  let unseen = usize::MAX;
+  let mut index = vec![unseen; after.len()];
+  let mut low = vec![0; after.len()];
+  let mut on_stack = vec![false; after.len()];
+  let mut stack = Vec::new();
+  let mut component = vec![0; after.len()];
+  let (mut next, mut count) = (0, 0);
+  for root in 0..after.len() {
+    if index[root] != unseen {
+      continue;
+    }
+    index[root] = next;
+    low[root] = next;
+    next += 1;
+    stack.push(root);
+    on_stack[root] = true;
+    let mut calls = vec![(root, 0)];
+    while let Some(&(node, edge)) = calls.last() {
+      if let Some(&to) = after[node].get(edge) {
+        calls.last_mut().unwrap().1 += 1;
+        if index[to] == unseen {
+          index[to] = next;
+          low[to] = next;
+          next += 1;
+          stack.push(to);
+          on_stack[to] = true;
+          calls.push((to, 0));
+        } else if on_stack[to] {
+          low[node] = low[node].min(index[to]);
+        }
+        continue;
+      }
+      calls.pop();
+      if let Some(&(parent, _)) = calls.last() {
+        low[parent] = low[parent].min(low[node]);
+      }
+      if low[node] == index[node] {
+        while let Some(member) = stack.pop() {
+          on_stack[member] = false;
+          component[member] = count;
+          if member == node {
+            break;
+          }
+        }
+        count += 1;
+      }
+    }
+  }
+  component
 }
 
 /// A `macro_rules!`, or a `#[macro_use]` module, whose macros are visible after it.
@@ -333,6 +401,184 @@ fn families(units: &[Unit], config: &LayoutConfig) -> Vec<(String, ItemKind, Vis
   // one placed first, whatever the order they were written in.
   families.sort_by_key(|(_, kind, _)| kind_rank(kind, config));
   families
+}
+
+/// The positions in `range` of `units` in the order of their uses (see [`flowed`]).
+fn flow_run(
+  units: &[Unit],
+  uses: &[HashSet<&str>],
+  range: std::ops::Range<usize>,
+  config: &LayoutConfig,
+) -> Vec<usize> {
+  let grouped = |unit: &Unit| {
+    config.group_impls
+      && matches!(
+        unit.kind,
+        ItemKind::StructDecl
+          | ItemKind::EnumDecl
+          | ItemKind::Union
+          | ItemKind::TraitDecl
+          | ItemKind::ImplBlock
+      )
+  };
+  let node_key = |at: usize| -> (bool, String) {
+    let unit = &units[at];
+    if grouped(unit) {
+      let family = if unit.kind == ItemKind::ImplBlock {
+        &unit.parent_target
+      } else {
+        &unit.identifier
+      };
+      (true, family.clone())
+    } else {
+      (false, super::first_variant(units, at).to_string())
+    }
+  };
+  // Nodes: units next to each other with one key.
+  let mut nodes: Vec<Vec<usize>> = Vec::new();
+  let mut last_key = None;
+  for at in range {
+    let key = node_key(at);
+    if last_key.as_ref() == Some(&key) {
+      nodes.last_mut().unwrap().push(at);
+    } else {
+      nodes.push(vec![at]);
+      last_key = Some(key);
+    }
+  }
+  // The names each node defines; a name two nodes define decides nothing. A helper kept
+  // next to its user (`keep_helpers_near`) goes with it, and takes no part.
+  let helper = |node: &[usize]| node.iter().all(|&at| units[at].caller.is_some());
+  let mut defined: HashMap<&str, Option<usize>> = HashMap::new();
+  for (n, node) in nodes.iter().enumerate() {
+    if helper(node) {
+      continue;
+    }
+    let names: HashSet<&str> = node
+      .iter()
+      .map(|&at| {
+        let unit = &units[at];
+        if unit.kind == ItemKind::ImplBlock {
+          unit.parent_target.as_str()
+        } else {
+          unit.identifier.as_str()
+        }
+      })
+      .filter(|name| !name.is_empty())
+      .collect();
+    for name in names {
+      defined
+        .entry(name)
+        .and_modify(|by| *by = None)
+        .or_insert(Some(n));
+    }
+  }
+  // `after[x]` holds the nodes that must come after `x`.
+  let mut after: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+  for (n, node) in nodes.iter().enumerate() {
+    if helper(node) {
+      continue;
+    }
+    for &at in node {
+      for name in &uses[at] {
+        let Some(Some(used)) = defined.get(name) else {
+          continue;
+        };
+        if *used == n {
+          continue;
+        }
+        match config.flow {
+          Flow::TopDown => after[n].push(*used),
+          Flow::BottomUp => after[*used].push(n),
+          Flow::Off => {}
+        }
+      }
+    }
+  }
+  for next in after.iter_mut() {
+    next.sort_unstable();
+    next.dedup();
+  }
+  let component = components(&after);
+  let mut waiting = vec![0usize; nodes.len()];
+  for (n, next) in after.iter_mut().enumerate() {
+    // Inside a circle, the sorted order decides.
+    next.retain(|&m| component[m] != component[n]);
+    for &m in next.iter() {
+      waiting[m] += 1;
+    }
+  }
+  let mut free: BinaryHeap<Reverse<usize>> = (0..nodes.len())
+    .filter(|&n| waiting[n] == 0)
+    .map(Reverse)
+    .collect();
+  let mut order = Vec::new();
+  while let Some(Reverse(n)) = free.pop() {
+    order.extend(&nodes[n]);
+    for &m in &after[n] {
+      waiting[m] -= 1;
+      if waiting[m] == 0 {
+        free.push(Reverse(m));
+      }
+    }
+  }
+  order
+}
+
+/// `free` (sorted) with `flow` applied: in each run of units of one rank (one kind, an impl
+/// at its type's; every unit but imports, modules and macros when `kind` is not a key), a
+/// unit above the units it uses (`top_down`) or below them (`bottom_up`). A type and its
+/// impls are one node, and so are `#[cfg]` variants; nodes that use each other in a circle
+/// keep the sorted order among themselves, and wherever no use decides, the sorted order
+/// does: of the nodes free to go next, the one sorted first goes. So an order that already
+/// follows the uses is kept as it is, and a second run changes nothing.
+fn flowed(
+  free: Vec<Unit>,
+  config: &LayoutConfig,
+  families: &[(String, ItemKind, Visibility)],
+) -> Vec<Unit> {
+  let family_kind = |unit: &Unit| -> ItemKind {
+    if config.group_impls
+      && unit.kind == ItemKind::ImplBlock
+      && let Some((_, kind, _)) = families.iter().find(|(n, _, _)| *n == unit.parent_target)
+    {
+      return kind.clone();
+    }
+    unit.kind.clone()
+  };
+  let rank = |unit: &Unit| -> Option<usize> {
+    let fixed = matches!(
+      unit.kind,
+      ItemKind::ModDecl | ItemKind::UseDecl | ItemKind::MacroDecl | ItemKind::MacroDef
+    ) || unit.test_module
+      || unit.defines_macros
+      || unit.comments_only;
+    if fixed {
+      None
+    } else if config.order_keys.contains(&OrderKey::Kind) {
+      Some(kind_rank(&family_kind(unit), config))
+    } else {
+      Some(0)
+    }
+  };
+  let uses = super::names_used(&free);
+  let mut order = Vec::with_capacity(free.len());
+  let mut at = 0;
+  while at < free.len() {
+    let Some(this) = rank(&free[at]) else {
+      order.push(at);
+      at += 1;
+      continue;
+    };
+    let mut end = at + 1;
+    while end < free.len() && rank(&free[end]) == Some(this) {
+      end += 1;
+    }
+    order.extend(flow_run(&free, &uses, at..end, config));
+    at = end;
+  }
+  let mut free: Vec<Option<Unit>> = free.into_iter().map(Some).collect();
+  order.into_iter().filter_map(|at| free[at].take()).collect()
 }
 
 /// Pinned units at their own positions, the others sorted into the remaining ones.
@@ -566,6 +812,9 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
     free.extend(tests);
   } else {
     free.sort_by(|a, b| compare(a, b, config, &families, macros_first));
+  }
+  if config.flow != Flow::Off {
+    free = flowed(free, config, &families);
   }
   if free.iter().any(|u| u.caller.is_some()) {
     free = near_callers(free);

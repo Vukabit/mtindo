@@ -105,6 +105,22 @@ pub const ENTRIES: &[Entry] = &[
     shown_in: "—",
   },
   Entry {
+    path: "records/results/toggles/flow-bottom-up.txt",
+    kind: Kind::Result,
+    holds: "flow = \"bottom_up\" and inherent_method_order = \"constructors_first\" tried on the whole corpus",
+    written_by: "`cargo xtask corpus try --each ... --record flow-bottom-up`",
+    read_by: "people",
+    shown_in: "—",
+  },
+  Entry {
+    path: "records/results/toggles/flow-top-down.txt",
+    kind: Kind::Result,
+    holds: "flow = \"top_down\" and inherent_method_order = \"by_receiver\" tried on the whole corpus",
+    written_by: "`cargo xtask corpus try --each ... --record flow-top-down`",
+    read_by: "people",
+    shown_in: "—",
+  },
+  Entry {
     path: "records/results/toggles/order-keys.txt",
     kind: Kind::Result,
     holds: "order_keys, empty and visibility first, tried on the whole corpus",

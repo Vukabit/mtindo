@@ -1,5 +1,5 @@
 use super::*;
-use crate::options::layout::{NameSort, OrderKey, Sections, TraitImplSort};
+use crate::options::layout::{Flow, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort};
 
 fn arranged(source: &str) -> String {
   layout(source, &LayoutConfig::default()).unwrap().text
@@ -370,6 +370,50 @@ fn test_files_that_cannot_be_laid_out_say_why() {
   );
 }
 
+/// A type moves with its impls under `flow`, and items of other kinds stay in their rank.
+#[test]
+fn test_flow_moves_a_type_with_its_impls() {
+  let source =
+    "struct A;\n\nimpl A {\n    fn f() {}\n}\n\nstruct B {\n    a: A,\n}\n\nfn main() {}\n";
+  let config = LayoutConfig {
+    flow: Flow::TopDown,
+    ..LayoutConfig::default()
+  };
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "struct B {\n    a: A,\n}\n\nstruct A;\n\nimpl A {\n    fn f() {}\n}\n\nfn main() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+}
+
+/// `flow` puts a function above the ones it uses, or below them; the sort keys decide
+/// where no use does, and a circle of uses keeps them.
+#[test]
+fn test_flow_orders_items_by_their_uses() {
+  let source = "fn a() {}\n\nfn b() {\n    c();\n}\n\nfn c() {\n    a();\n}\n\nfn d() {}\n\nfn odd() {\n    even();\n}\n\nfn even() {\n    odd();\n}\n";
+  let top_down = LayoutConfig {
+    flow: Flow::TopDown,
+    ..LayoutConfig::default()
+  };
+  let once = arranged_with(source, &top_down);
+  assert_eq!(
+    once,
+    "fn b() {\n    c();\n}\n\nfn c() {\n    a();\n}\n\nfn a() {}\n\nfn d() {}\n\nfn even() {\n    odd();\n}\n\nfn odd() {\n    even();\n}\n"
+  );
+  assert_eq!(arranged_with(&once, &top_down), once);
+  let bottom_up = LayoutConfig {
+    flow: Flow::BottomUp,
+    ..LayoutConfig::default()
+  };
+  let once = arranged_with(source, &bottom_up);
+  assert_eq!(
+    once,
+    "fn a() {}\n\nfn c() {\n    a();\n}\n\nfn b() {\n    c();\n}\n\nfn d() {}\n\nfn even() {\n    odd();\n}\n\nfn odd() {\n    even();\n}\n"
+  );
+  assert_eq!(arranged_with(&once, &bottom_up), once);
+}
+
 /// Blank lines between a section comment and its item follow the configured spacing, so a
 /// second run cannot change them when the comment ends up at the top of the file.
 #[test]
@@ -597,6 +641,39 @@ fn test_imports_sort_as_the_standard_formatter_does_for_the_style_edition() {
   // `import_sort` overrides the style edition for imports.
   assert_eq!(with(2024, Some(2015)), legacy);
   assert_eq!(with(2015, Some(2024)), version);
+}
+
+/// `inherent_method_order` orders the functions of an impl with no trait; a trait impl
+/// keeps its own.
+#[test]
+fn test_inherent_impl_functions_follow_the_method_order() {
+  let source = "struct A;\n\nimpl A {\n    fn a(&self) {}\n\n    fn b(&mut self) {}\n\n    fn c(self) {}\n\n    pub fn new() -> Self {\n        A\n    }\n\n    fn helper() {}\n}\n\nimpl Clone for A {\n    fn clone_from(&mut self, _: &Self) {}\n\n    fn clone() -> Self {\n        A\n    }\n}\n";
+  let order = |method_order| {
+    let config = LayoutConfig {
+      inherent_method_order: method_order,
+      ..LayoutConfig::default()
+    };
+    let once = arranged_with(source, &config);
+    assert_eq!(arranged_with(&once, &config), once);
+    let names: Vec<String> = once
+      .lines()
+      .filter_map(|line| line.trim().split("fn ").nth(1))
+      .map(|rest| rest.split('(').next().unwrap().to_string())
+      .collect();
+    names.join(" ")
+  };
+  assert_eq!(
+    order(MethodOrder::ConstructorsFirst),
+    "new a b c helper clone_from clone"
+  );
+  assert_eq!(
+    order(MethodOrder::ByReceiver),
+    "new helper a b c clone_from clone"
+  );
+  assert_eq!(
+    order(MethodOrder::Written),
+    "a b c new helper clone_from clone"
+  );
 }
 
 #[test]

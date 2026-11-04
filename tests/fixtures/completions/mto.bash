@@ -84,11 +84,11 @@ _mto_settings() {
         trailing_semicolon type_punctuation_density unstable_features \
         use_field_init_shorthand use_small_heuristics use_try_shorthand \
         version where_single_line wrap_comments blank_lines_between_blocks \
-        directive_reasons generated_markers group_impls ignore_dirs \
-        impl_method_order import_grouping import_sort keep_helpers_near \
-        keep_paragraphs layout format layout_generated_files mto_version \
-        name_sort order_keys sections sort_alphabetically sort_imports \
-        test_module trait_impl_order trait_impl_sort type_order \
+        directive_reasons flow generated_markers group_impls ignore_dirs \
+        impl_method_order import_grouping import_sort inherent_method_order \
+        keep_helpers_near keep_paragraphs layout format layout_generated_files \
+        mto_version name_sort order_keys sections sort_alphabetically \
+        sort_imports test_module trait_impl_order trait_impl_sort type_order \
         visibility_order; do
         case "$1$head$key=" in
           "$_mto_cur"*) COMPREPLY+=("$1$head$key=") ;;
@@ -124,8 +124,10 @@ _mto_setting_values() {
     use_small_heuristics) echo Off Max Default ;;
     version) echo One Two ;;
     directive_reasons) echo optional required ;;
+    flow) echo off top_down bottom_up ;;
     impl_method_order) echo written trait ;;
     import_sort) echo style_edition 2015 2024 ;;
+    inherent_method_order) echo written constructors_first by_receiver ;;
     name_sort) echo version bytes case_insensitive ;;
     sections) echo off comments headings markers ;;
     test_module) echo last in_place ;;

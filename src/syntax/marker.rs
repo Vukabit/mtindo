@@ -35,8 +35,20 @@ pub struct Directives {
   pub pins: Vec<usize>,
   /// Where each `// mto: hold` stands.
   pub holds: Vec<usize>,
+  /// Where each `// mto: off` stands.
+  pub offs: Vec<usize>,
   /// Each problem, at the byte offset of the comment it is about.
   pub warnings: Vec<(usize, String)>,
+}
+
+/// One place a file keeps code from mto: a directive or `#[rustfmt::skip]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Exception {
+  /// Where it stands in the text.
+  pub at: usize,
+  /// `pin`, `hold`, `off` or `rustfmt::skip`.
+  pub kind: &'static str,
+  pub reason: Option<String>,
 }
 
 /// The directive the line comment at `text[start..end]` is: one whose text is a directive,
@@ -47,6 +59,45 @@ pub fn at(text: &str, start: usize, end: usize) -> Option<Marker> {
     return None;
   }
   parse(&text[start..end])
+}
+
+/// Every exception in `text` (whose tree is `root`), in order: what `mto pins` lists.
+pub fn exceptions(root: &SyntaxNode, text: &str) -> Vec<Exception> {
+  let found = scan(root, text);
+  let line_at = |at: usize| {
+    let end = text[at..].find('\n').map_or(text.len(), |n| at + n);
+    &text[at..end]
+  };
+  let mut all: Vec<Exception> = [
+    ("pin", &found.pins),
+    ("hold", &found.holds),
+    ("off", &found.offs),
+  ]
+  .into_iter()
+  .flat_map(|(kind, starts)| {
+    starts.iter().map(move |&at| Exception {
+      at,
+      kind,
+      reason: reason(line_at(at)).map(str::to_string),
+    })
+  })
+  .collect();
+  let mut at = 0;
+  for line in text.split_inclusive('\n') {
+    let trimmed = line.trim_start();
+    if (trimmed.starts_with("#[") || trimmed.starts_with("#!["))
+      && trimmed.contains("rustfmt::skip")
+    {
+      all.push(Exception {
+        at: at + line.len() - trimmed.len(),
+        kind: "rustfmt::skip",
+        reason: None,
+      });
+    }
+    at += line.len();
+  }
+  all.sort_by_key(|e| e.at);
+  all
 }
 
 /// Whether `text` holds `mto` in any case, as every directive and near miss does.
@@ -72,6 +123,14 @@ pub fn parse(comment: &str) -> Option<Marker> {
     "hold" => Some(Marker::Hold),
     _ => None,
   }
+}
+
+/// The reason written after ` -- ` in a directive's text, when there is one.
+pub fn reason(comment: &str) -> Option<&str> {
+  comment
+    .split_once(" -- ")
+    .map(|(_, why)| why.trim())
+    .filter(|why| !why.is_empty())
 }
 
 /// Every directive in the tree `root` (whose text is `text`), read as a whole.
@@ -108,7 +167,10 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
       (Marker::Pin, _) => found.pins.push(start),
       (Marker::Hold, _) => found.holds.push(start),
       (Marker::Section, _) => {}
-      (Marker::Off, None) => open.push((block, start)),
+      (Marker::Off, None) => {
+        found.offs.push(start);
+        open.push((block, start));
+      }
       (Marker::Off, Some(_)) => found.warnings.push((
         start,
         "`// mto: off` inside a region already off: it does nothing".to_string(),

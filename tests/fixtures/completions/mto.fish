@@ -7,7 +7,7 @@ function __mto_state
     set -l takes_value --emit --stdin-filepath --config --config-path --edition \
         --print-config --style-edition --color --keep --dir --message-format \
         --runs --under --older-than
-    set -l commands init config history restore doctor report debug completions
+    set -l commands init pins config history restore doctor report debug completions
     set -l subcommands 'config path' 'config print' 'config options' 'config mirror' \
         'history show' 'history prune' 'doctor on' 'doctor off' 'doctor holds' \
         'doctor keep' 'doctor recheck' 'doctor trust' 'doctor release' \
@@ -98,9 +98,9 @@ function __mto_settings
             trailing_comma trailing_semicolon type_punctuation_density \
             unstable_features use_field_init_shorthand use_small_heuristics \
             use_try_shorthand version where_single_line wrap_comments \
-            blank_lines_between_blocks generated_markers group_impls \
-            ignore_dirs impl_method_order import_grouping import_sort \
-            keep_helpers_near keep_paragraphs layout format \
+            blank_lines_between_blocks directive_reasons generated_markers \
+            group_impls ignore_dirs impl_method_order import_grouping \
+            import_sort keep_helpers_near keep_paragraphs layout format \
             layout_generated_files mto_version name_sort order_keys sections \
             sort_alphabetically sort_imports test_module trait_impl_order \
             trait_impl_sort type_order visibility_order
@@ -156,6 +156,8 @@ function __mto_setting_values
             printf '%s\n' Off Max Default
         case version
             printf '%s\n' One Two
+        case directive_reasons
+            printf '%s\n' optional required
         case impl_method_order
             printf '%s\n' written trait
         case import_sort
@@ -201,6 +203,7 @@ complete -c mto -n '__mto_at - -' -l man -d 'Print the full manual'
 complete -c mto -n '__mto_at - -' -s V -l version -d 'Print the version and exit'
 complete -c mto -n '__mto_at - -' -l message-format -x -a 'human json' -d 'How the run reports: human (default), or json, one versioned JSON object per line for each file, message and the summary'
 complete -c mto -n '__mto_at - - 0' -a init -d 'Write a default mto.toml'
+complete -c mto -n '__mto_at - - 0' -a pins -d 'List every place a project keeps code from mto, and why'
 complete -c mto -n '__mto_at - - 0' -a config -d 'Show the configuration that applies in a folder, or every setting'
 complete -c mto -n '__mto_at - - 0' -a history -d 'List, show or prune the runs that wrote files'
 complete -c mto -n '__mto_at - - 0' -a restore -d 'Undo a run'
@@ -213,6 +216,11 @@ complete -c mto -n '__mto_at - -' -a '(__fish_complete_suffix .rs)'
 # mto init
 complete -c mto -n '__mto_at init -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at init -' -a '(__fish_complete_directories (commandline -ct))'
+
+# mto pins
+complete -c mto -n '__mto_at pins -' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at pins -' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at pins -' -a '(__fish_complete_suffix .rs)'
 
 # mto config
 complete -c mto -n '__mto_at config -' -s h -l help -d 'Show this help and exit'

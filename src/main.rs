@@ -15,8 +15,8 @@ use mtindo::config::{self, Config, Environment, FileKind, Overrides, Resolver, S
 use mtindo::doctor::guard::{self, Ended, Planned};
 use mtindo::options::File;
 use mtindo::syntax::lexer::tokenize;
-use mtindo::syntax::parse;
 use mtindo::syntax::tree::debug_dump;
+use mtindo::syntax::{Edition, parse};
 use mtindo::{
   Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, Writes, c_green, c_red, c_reset,
   c_yellow, collect_jobs, collect_jobs_into, print_warnings, process_init, process_stdin, run_jobs,
@@ -81,6 +81,10 @@ enum CliAction {
   },
   Init {
     target_path: Option<PathBuf>,
+  },
+  Pins {
+    paths: Vec<PathBuf>,
+    json: bool,
   },
   Debug {
     view: DebugView,
@@ -575,6 +579,7 @@ fn main() {
       Err(e) => report_error(&e),
     },
     CliAction::History { view, json } => run_history(view, json),
+    CliAction::Pins { paths, json } => run_pins(&paths, json),
     CliAction::Report { view } => run_report(view),
     CliAction::Restore { run, files, force } => run_restore(&run, &files, force),
     CliAction::Doctor { view, json } => run_doctor(view, json),
@@ -722,7 +727,10 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
           return usage_error(&format!("{} only goes with `mto config print`", spec.long));
         }
         Flag::NoHistory => opts.no_history = true,
-        Flag::Strict => overrides.strict = true,
+        Flag::Strict => {
+          overrides.strict = true;
+          opts.strict = true;
+        }
         Flag::NoReport => opts.no_report = true,
         Flag::AllowDirty => opts.allow_dirty = true,
         Flag::Unguarded => opts.unguarded = true,
@@ -837,6 +845,16 @@ fn parse_command(command: &'static CommandSpec, args: &[String]) -> Result<CliAc
     "init" => Ok(CliAction::Init {
       target_path: args.first().map(PathBuf::from),
     }),
+    "pins" => {
+      let (json, args) = without_json(args);
+      if let Some(bad) = args.iter().find(|a| a.starts_with('-')) {
+        return usage_error(&format!("unexpected argument '{}'", bad));
+      }
+      Ok(CliAction::Pins {
+        paths: args.iter().map(PathBuf::from).collect(),
+        json,
+      })
+    }
     "config" => parse_config_args(command, args),
     "debug" => parse_debug_args(command, args),
     "doctor" => parse_doctor_args(command, args),
@@ -2428,6 +2446,77 @@ fn run_history(view: HistoryView, json: bool) -> i32 {
   }
 }
 
+/// `mto pins [PATH]...`: every directive and `#[rustfmt::skip]` under PATH, with its reason.
+fn run_pins(paths: &[PathBuf], json: bool) -> i32 {
+  use mtindo::text::json::Json;
+  let mut resolver = match resolver(&Overrides::default()) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let paths = if paths.is_empty() {
+    vec![PathBuf::from(".")]
+  } else {
+    paths.to_vec()
+  };
+  let opts = RunOptions::default();
+  let jobs = match collect_jobs(&paths, &mut resolver, &opts) {
+    Ok(collected) => collected.jobs,
+    Err(e) => return report_error(&e),
+  };
+  let on = mtindo::text::terminal::code_in_color();
+  let mut entries = Vec::new();
+  let mut lines = Vec::new();
+  let mut without = 0;
+  for (path, settings) in jobs {
+    let Ok(text) = std::fs::read_to_string(&path) else {
+      continue;
+    };
+    if !text.contains("mto:") && !text.contains("rustfmt::skip") {
+      continue;
+    }
+    let edition = settings.map_or(Edition::DEFAULT, |s| s.edition);
+    let parsed = parse(&text, edition);
+    for exception in mtindo::syntax::marker::exceptions(&parsed.syntax_node(), &text) {
+      let line = text[..exception.at].matches('\n').count() + 1;
+      let place = format!("{}:{}", path.display(), line);
+      without += usize::from(exception.reason.is_none());
+      use mtindo::text::color::{paint, tone};
+      lines.push(format!(
+        "{}  {}  {}",
+        paint(on, tone::ID, &place),
+        paint(on, tone::KEY, exception.kind),
+        match &exception.reason {
+          Some(why) => why.clone(),
+          None => paint(on, tone::QUIET, "(no reason given)"),
+        }
+      ));
+      entries.push(
+        Json::object()
+          .with("file", path.display().to_string())
+          .with("line", line)
+          .with("kind", exception.kind)
+          .with("reason", exception.reason.clone()),
+      );
+    }
+  }
+  if json {
+    outln!(
+      "{}",
+      Json::output("pins").with("exceptions", entries).text()
+    );
+    return 0;
+  }
+  if lines.is_empty() {
+    outln!("No directives or #[rustfmt::skip] here.");
+    return 0;
+  }
+  for line in &lines {
+    outln!("{}", line);
+  }
+  outln!("{} exception(s), {} without a reason", lines.len(), without);
+  0
+}
+
 /// `--print-config`, as the standard formatter prints it: the formatting settings as TOML,
 /// ready for a `rustfmt.toml`. `default` and `minimal` go to PATH when given, else stdout;
 /// `current` prints the settings for PATH (a file or folder; the current folder by default).
@@ -2719,6 +2808,7 @@ mod tests {
       &["doctor", "trust"],
       &["doctor", "keep", "all"],
       &["doctor", "recheck"],
+      &["pins", "src", "--json"],
       &["doctor", "release", "all"],
       &["doctor", "last"],
       &["report"],

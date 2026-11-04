@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 23
+  total: 24
 in_mto:
-  supported: 22
+  supported: 23
   partial: 1
   missing: 0
   not_planned: 0
@@ -40,6 +40,20 @@ result alone; imports and declarations get the lower bound.
 *   Type: a whole number, zero or more.
 *   Default: `1`, in every style edition.
 *   In mto: supported.
+
+### `directive_reasons`
+
+With `required`, every `// mto: pin`, `// mto: hold` and `// mto: off` must give
+its reason after ` -- ` (`// mto: off -- aligned by hand`), so a project's
+exceptions do not pile up unexplained; `mto pins` lists them all.
+
+*   Type: one of the values below, as a string.
+*   Default: `"optional"`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `optional`: A directive may give its reason after ` -- `, or not.
+    *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
+        ` -- why` gets a warning, and with --strict fails its file.
 
 ### `generated_markers`
 

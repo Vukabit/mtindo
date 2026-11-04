@@ -64,6 +64,7 @@ ignore_dirs = [".git", "target", "node_modules", "vendor", "dist", ".venv"]
 generated_markers = ["@generated"]
 layout_generated_files = false
 blank_lines_between_blocks = 1
+directive_reasons = "optional"
 group_impls = true
 impl_method_order = "written"
 import_grouping = true

@@ -45,6 +45,9 @@ pub const STACK: usize = 16 << 20;
 /// shown removed and added whole, a correct diff if not the shortest.
 const MAX_EDITS: isize = 1024;
 
+/// What a directive without its reason is told, which `--strict` makes an error.
+const NO_REASON: &str = "gives no reason after ` -- `";
+
 /// `--message-format json`: every report, warning and error printed as JSON Lines.
 static JSON_MESSAGES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -289,6 +292,8 @@ pub struct RunOptions {
   pub allow_dirty: bool,
   /// `--unguarded`: no build guard for this run.
   pub unguarded: bool,
+  /// `--strict`: what would only warn (a directive without its reason) fails the file.
+  pub strict: bool,
 }
 
 /// How often a line id occurs in each side of a range, and where: patience diff's table,
@@ -922,6 +927,21 @@ pub fn run_file(
       ..
     }) => {
       report.holds = (!held.is_empty()).then_some(found);
+      // Under --strict, a directive that must say why and does not fails the file.
+      if opts.strict
+        && let Some((line, problem)) = directives.iter().find(|(_, p)| p.contains(NO_REASON))
+      {
+        report.stderr = format!(
+          "{}Error in {}:{}: {} (--strict){}\n",
+          c_red(),
+          shown,
+          line,
+          problem,
+          c_reset(true)
+        );
+        report.say("error", "directive", Some((*line, 1)), problem);
+        return report.with(Outcome::Failed);
+      }
       report
         .stderr
         .push_str(&directive_notes(&shown, &directives));
@@ -1119,6 +1139,13 @@ pub fn run_file(
   report.with(Outcome::Changed)
 }
 
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
 /// Runs every job on a pool of threads, printing each report as soon as every report
 /// before it has been printed, so the output is the same as one thread's.
 /// Each file written is added to the run's history record before it is replaced.
@@ -1136,13 +1163,6 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions, writes: &mut Writes) -> Vec<Don
     |_| true,
   );
   done
-}
-
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
 }
 
 /// [`run_jobs`] while `walk` is still finding the jobs: it hands each to the function it is
@@ -1278,7 +1298,14 @@ pub fn shape(source: &str, settings: &Settings, held: &doctor::Held) -> Result<S
     found,
     relaid,
     unlaid,
-    directives: directive_problems(source, edition),
+    directives: directive_problems(
+      source,
+      edition,
+      settings
+        .layout
+        .as_ref()
+        .is_some_and(|c| c.directive_reasons_required),
+    ),
   })
 }
 
@@ -1805,13 +1832,32 @@ fn directive_notes(shown: &str, problems: &[(usize, String)]) -> String {
 }
 
 /// What is wrong with the directives in `source`, each with its line (from 1).
-fn directive_problems(source: &str, edition: syntax::Edition) -> Vec<(usize, String)> {
+fn directive_problems(
+  source: &str,
+  edition: syntax::Edition,
+  reasons_required: bool,
+) -> Vec<(usize, String)> {
   if !syntax::marker::mentions(source) {
     return Vec::new();
   }
   let parsed = syntax::parse_cached(source, edition);
-  syntax::marker::scan(&parsed.syntax_node(), source)
-    .warnings
+  let root = parsed.syntax_node();
+  let mut problems = syntax::marker::scan(&root, source).warnings;
+  if reasons_required {
+    for exception in syntax::marker::exceptions(&root, source) {
+      if exception.reason.is_none() && exception.kind != "rustfmt::skip" {
+        problems.push((
+          exception.at,
+          format!(
+            "`// mto: {}` {} (`directive_reasons = \"required\"`)",
+            exception.kind, NO_REASON
+          ),
+        ));
+      }
+    }
+    problems.sort_by_key(|(at, _)| *at);
+  }
+  problems
     .into_iter()
     .map(|(at, problem)| (source[..at].matches('\n').count() + 1, problem))
     .collect()

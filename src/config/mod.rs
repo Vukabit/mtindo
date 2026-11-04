@@ -155,6 +155,8 @@ impl Config {
     config.group_impls = flag("group_impls", config.group_impls);
     config.keep_paragraphs = flag("keep_paragraphs", config.keep_paragraphs);
     config.keep_helpers_near = flag("keep_helpers_near", config.keep_helpers_near);
+    config.directive_reasons_required =
+      self.get("directive_reasons").and_then(Value::as_text) == Some("required");
     if let Some(keys) = self.get("order_keys").and_then(Value::as_list) {
       config.order_keys = keys.iter().filter_map(|k| OrderKey::named(k)).collect();
     }

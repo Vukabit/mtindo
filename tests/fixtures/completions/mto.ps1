@@ -9,6 +9,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--strict', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
     $flags['init'] = @('-h', '--help')
+    $flags['pins'] = @('-h', '--help', '--json')
     $flags['config'] = @('-h', '--help')
     $flags['config path'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
     $flags['config print'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
@@ -96,6 +97,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--under'] = 'Only the reports seen in files under PATH'
     $help['--older-than'] = 'Remove runs this old: 30 (days), 2w, 12h'
     $help['init'] = 'Write a default mto.toml'
+    $help['pins'] = 'List every place a project keeps code from mto, and why'
     $help['config'] = 'Show the configuration that applies in a folder, or every setting'
     $help['config path'] = 'List the configuration files that apply, and the history folder'
     $help['config print'] = 'Show every setting in effect, with where it came from'
@@ -146,7 +148,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $paths['--stdin-filepath'] = 'files'
     $paths['--config-path'] = 'files'
     $paths['--dir'] = 'dirs'
-    $commands = @('init', 'config', 'history', 'restore', 'doctor', 'report', 'debug', 'completions')
+    $commands = @('init', 'pins', 'config', 'history', 'restore', 'doctor', 'report', 'debug', 'completions')
     # Each command's subcommands.
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $subcommands['config'] = @('path', 'print', 'options', 'mirror')
@@ -158,6 +160,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # What a command's arguments complete to, after any subcommand.
     $operandPaths = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $operandPaths['init'] = 'dirs'
+    $operandPaths['pins'] = 'files'
     $operandPaths['config path'] = 'dirs'
     $operandPaths['config print'] = 'dirs'
     $operandPaths['config mirror'] = 'dirs'
@@ -260,6 +263,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
         'where_single_line' = @('true', 'false')
         'wrap_comments' = @('true', 'false')
         'blank_lines_between_blocks' = @()
+        'directive_reasons' = @('optional', 'required')
         'generated_markers' = @()
         'group_impls' = @('true', 'false')
         'ignore_dirs' = @()

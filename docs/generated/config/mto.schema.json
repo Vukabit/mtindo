@@ -17,6 +17,12 @@
       "minimum": 0,
       "default": 1
     },
+    "directive_reasons": {
+      "description": "With `required`, every `// mto: pin`, `// mto: hold` and `// mto: off` must give its reason after ` -- ` (`// mto: off -- aligned by hand`), so a project's exceptions do not pile up unexplained; `mto pins` lists them all.\n\nIn mto: supported.",
+      "type": "string",
+      "enum": ["optional", "required"],
+      "default": "optional"
+    },
     "generated_markers": {
       "description": "A file is generated when a comment among its first `generated_marker_line_search_limit` lines holds one of these texts. Layout leaves a generated file's items where they are unless `layout_generated_files` is set, and formatting leaves it as written when `format_generated_files = false`. A folder of generated code is better left out with `ignore_dirs`.\n\nIn mto: supported.",
       "type": "array",

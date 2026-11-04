@@ -127,6 +127,22 @@ pub const COMMANDS: &[CommandSpec] = &[
     examples: &["mto init", "mto init crates/core"],
   },
   CommandSpec {
+    name: "pins",
+    args: "[PATH]...",
+    summary: "List every place a project keeps code from mto, and why",
+    about: "Lists each `// mto: pin`, `// mto: hold` and `// mto: off` and each \
+                `#[rustfmt::skip]` in the files under PATH (default: the current \
+                directory), with its file, line and the reason given after ` -- `, so a \
+                project's exceptions are seen and none is forgotten. \
+                `directive_reasons = \"required\"` in mto.toml asks every directive for its \
+                reason.",
+    usage: &["mto pins [PATH]... [--json]"],
+    options: &[("options", "mto pins", &[Flag::Json])],
+    operand: Complete::Files,
+    subcommands: &[],
+    examples: &["mto pins", "mto pins src --json"],
+  },
+  CommandSpec {
     name: "config",
     args: "path|print|options|mirror [DIR]",
     summary: "Show the configuration that applies in a folder, or every setting",

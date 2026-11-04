@@ -84,11 +84,12 @@ _mto_settings() {
         trailing_semicolon type_punctuation_density unstable_features \
         use_field_init_shorthand use_small_heuristics use_try_shorthand \
         version where_single_line wrap_comments blank_lines_between_blocks \
-        generated_markers group_impls ignore_dirs impl_method_order \
-        import_grouping import_sort keep_helpers_near keep_paragraphs layout \
-        format layout_generated_files mto_version name_sort order_keys \
-        sections sort_alphabetically sort_imports test_module trait_impl_order \
-        trait_impl_sort type_order visibility_order; do
+        directive_reasons generated_markers group_impls ignore_dirs \
+        impl_method_order import_grouping import_sort keep_helpers_near \
+        keep_paragraphs layout format layout_generated_files mto_version \
+        name_sort order_keys sections sort_alphabetically sort_imports \
+        test_module trait_impl_order trait_impl_sort type_order \
+        visibility_order; do
         case "$1$head$key=" in
           "$_mto_cur"*) COMPREPLY+=("$1$head$key=") ;;
         esac
@@ -122,6 +123,7 @@ _mto_setting_values() {
     type_punctuation_density) echo Compressed Wide ;;
     use_small_heuristics) echo Off Max Default ;;
     version) echo One Two ;;
+    directive_reasons) echo optional required ;;
     impl_method_order) echo written trait ;;
     import_sort) echo style_edition 2015 2024 ;;
     name_sort) echo version bytes case_insensitive ;;
@@ -152,6 +154,7 @@ _mto_flags() {
   case "$1 $2" in
     " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --stdin-filepath --config --config-path --edition --print-config --strict --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-report --color -q --quiet -v --verbose -h --help --man -V --version --message-format ;;
     "init ") _mto_words "" -h --help ;;
+    "pins ") _mto_words "" -h --help --json ;;
     "config ") _mto_words "" -h --help ;;
     "config path") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
     "config print") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
@@ -206,7 +209,7 @@ _mto_subcommands() {
 _mto_operand() {
   case "$1 $2" in
     "init "|"config path"|"config print"|"config mirror") _mto_paths "" "$3" dirs ;;
-    "restore "|"report save"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle") _mto_paths "" "$3" ;;
+    "pins "|"restore "|"report save"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle") _mto_paths "" "$3" ;;
     "completions "|"completions install"|"completions uninstall"|"completions status") _mto_words "" bash zsh fish powershell ;;
   esac
 }
@@ -260,7 +263,7 @@ _mto() {
       -*) _mto_flags "$command" "$sub" ;;
       *)
         if [ -z "$command" ]; then
-          [ $operands -eq 0 ] && _mto_words "" init config history restore doctor report debug completions
+          [ $operands -eq 0 ] && _mto_words "" init pins config history restore doctor report debug completions
           _mto_paths "" "$_mto_cur"
         else
           if [ $operands -eq 0 ] && [ -z "$sub" ]; then
@@ -282,7 +285,7 @@ _mto() {
 # Whether $1 is one of mto's commands.
 _mto_is_command() {
   case "$1" in
-    init|config|history|restore|doctor|report|debug|completions) return 0 ;;
+    init|pins|config|history|restore|doctor|report|debug|completions) return 0 ;;
   esac
   return 1
 }

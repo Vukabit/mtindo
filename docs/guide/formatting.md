@@ -71,6 +71,12 @@ the [layout](layout.md); other items may pass it. `// mto: hold` keeps it
 between the same neighbours, and nothing moves across it: the strength of a
 [build guard](build-guard.md) hold, for an order the build depends on.
 
+`mto pins` lists every directive and `#[rustfmt::skip]` in a project, with
+its file, line and reason, so none is forgotten. With
+`directive_reasons = "required"` in `mto.toml`, a directive without its reason
+after ` -- ` gets a warning, and with `--strict` fails its file (exit code
+`3`).
+
 ## Every format is checked
 
 Formatting changes whitespace and the few tokens the Rust style rewrites (a

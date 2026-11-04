@@ -147,6 +147,8 @@ pub struct LayoutConfig {
   pub keep_helpers_near: bool,
   /// `order_keys`: what items are ordered by, in turn; none keeps the written order.
   pub order_keys: Vec<OrderKey>,
+  /// `directive_reasons = "required"`: a directive without ` -- why` gets a warning.
+  pub directive_reasons_required: bool,
   pub sort_imports: bool,
   pub import_grouping: bool,
   pub blank_lines_between_blocks: usize,
@@ -220,6 +222,7 @@ impl Default for LayoutConfig {
       sections: Sections::Off,
       keep_helpers_near: false,
       order_keys: vec![OrderKey::Kind, OrderKey::Visibility, OrderKey::Name],
+      directive_reasons_required: false,
       sort_imports: true,
       import_grouping: true,
       blank_lines_between_blocks: 1,

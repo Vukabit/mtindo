@@ -41,6 +41,11 @@ const RENAMED: &[(&str, &str, Option<&str>)] = &[
     Some("Compressed"),
   ),
   ("condense_wildcards", "condense_wildcard_suffixes", None),
+  (
+    "directive_reasons_required",
+    "directive_reasons",
+    Some("required"),
+  ),
   ("field_init_shorthand", "use_field_init_shorthand", None),
   ("float_trailing_zero", "float_literal_trailing_zero", None),
   (

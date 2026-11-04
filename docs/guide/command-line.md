@@ -124,6 +124,7 @@ other `mto` option goes after `--`, as `cargo mto -- --unguarded`.
 | Command | What it does |
 |---|---|
 | `mto init` | Write an `mto.toml` that turns layout on |
+| `mto pins` | Every directive and `#[rustfmt::skip]`, with its reason |
 | `mto config ...` | Settings in effect ([Configuration](configuration.md)) |
 | `mto history`, `restore` | Past runs, undoing them ([Safety](safety.md)) |
 | `mto report ...` | Bug reports mto kept ([Safety](safety.md#bug-reports)) |

@@ -46,6 +46,30 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "directive_reasons",
+    file: File::Mto,
+    kind: Kind::Choice(&[
+      choice(
+        "optional",
+        "A directive may give its reason after ` -- `, or not.",
+      ),
+      choice(
+        "required",
+        "A `// mto: pin`, `// mto: hold` or `// mto: off` without ` -- why` gets a \
+         warning, and with --strict fails its file.",
+      ),
+    ]),
+    default: "\"optional\"",
+    default_2024: None,
+    summary: "Whether a directive must say why",
+    doc: "With `required`, every `// mto: pin`, `// mto: hold` and `// mto: off` must give \
+              its reason after ` -- ` (`// mto: off -- aligned by hand`), so a project's \
+              exceptions do not pile up unexplained; `mto pins` lists them all.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "generated_markers",
     file: File::Mto,
     kind: Kind::List,

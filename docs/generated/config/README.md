@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 125
-  mto: 23
+  total: 126
+  mto: 24
   formatting: 90
   user: 12
 in_mto:
-  supported: 68
+  supported: 69
   partial: 29
   missing: 11
   not_planned: 5
@@ -212,6 +212,13 @@ behavior, so the column does not apply to them.
 <code>control_brace_style</code></a></td>
 <td>rustfmt.toml</td>
 <td>Brace style for control flow constructs.</td>
+<td>supported</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#directive_reasons">
+<code>directive_reasons</code></a></td>
+<td>mto.toml</td>
+<td>Whether a directive must say why</td>
 <td>supported</td>
 </tr>
 <tr>

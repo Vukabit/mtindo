@@ -140,6 +140,13 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `mto init [DIR]`: Writes an mto.toml with layout turned on and every mto
     setting at its default, each with its summary, into DIR (default: the
     current directory). An existing file is never overwritten.
+*   `mto pins [PATH]...`: Lists each `// mto: pin`, `// mto: hold` and
+    `// mto: off` and each `#[rustfmt::skip]` in the files under PATH (default:
+    the current directory), with its file, line and the reason given after
+    ` -- `, so a project's exceptions are seen and none is forgotten.
+    `directive_reasons = "required"` in mto.toml asks every directive for its
+    reason.
+    *   `--json` (after `mto pins`): As JSON, whose shape keeps its version.
 *   `mto config path|print|options|mirror [DIR]`: `path` lists the configuration
     files that apply in DIR (default: the current directory), and the history
     folder. `print` shows every setting in effect with where it came from, in
@@ -364,6 +371,18 @@ result alone; imports and declarations get the lower bound.
 
 *   Type: a whole number, zero or more.
 *   Default: `1`.
+
+#### `directive_reasons`
+With `required`, every `// mto: pin`, `// mto: hold` and `// mto: off` must give
+its reason after ` -- ` (`// mto: off -- aligned by hand`), so a project's
+exceptions do not pile up unexplained; `mto pins` lists them all.
+
+*   Type: one of the values below, as a string.
+*   Default: `"optional"`.
+*   Values:
+    *   `optional`: A directive may give its reason after ` -- `, or not.
+    *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
+        ` -- why` gets a warning, and with --strict fails its file.
 
 #### `generated_markers`
 A file is generated when a comment among its first

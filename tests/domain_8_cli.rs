@@ -2024,6 +2024,46 @@ fn test_cli_options_without_a_path_are_an_error() {
   );
 }
 
+/// `mto pins`: every directive and `#[rustfmt::skip]`, with its reason; with
+/// `directive_reasons = "required"`, one without warns, and fails its file under --strict.
+#[test]
+fn test_cli_pins_lists_the_exceptions_and_asks_for_reasons() {
+  let env = TestEnvironment::new();
+  env.write_file(
+    "mto.toml",
+    "layout = true\ndirective_reasons = \"required\"\n",
+  );
+  env.write_file(
+    "a.rs",
+    "// mto: pin\nfn a() {}\n\n// mto: hold -- E0433 when moved\nfn b() {}\n\n#[rustfmt::skip]\nfn c() {}\n",
+  );
+  let (code, out, _) = mto(&env, &["pins"]);
+  assert_eq!(code, 0);
+  assert!(out.contains("a.rs:1  pin  (no reason given)"), "{}", out);
+  assert!(out.contains("a.rs:4  hold  E0433 when moved"), "{}", out);
+  assert!(out.contains("a.rs:7  rustfmt::skip"), "{}", out);
+  assert!(
+    out.contains("3 exception(s), 2 without a reason"),
+    "{}",
+    out
+  );
+  let (code, out, _) = mto(&env, &["pins", "--json"]);
+  assert_eq!(code, 0);
+  assert!(
+    out.starts_with("{\"version\":1,\"kind\":\"pins\""),
+    "{}",
+    out
+  );
+  let (code, _, said) = mto(&env, &["--no-history", "--unguarded", "--check", "a.rs"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(said.contains("`// mto: pin` gives no reason"), "{}", said);
+  let (code, _, said) = mto(
+    &env,
+    &["--no-history", "--unguarded", "--check", "--strict", "a.rs"],
+  );
+  assert_eq!(code, 3, "{}", said);
+}
+
 #[test]
 fn test_cli_print_config_like_the_standard_formatter() {
   let env = TestEnvironment::new();

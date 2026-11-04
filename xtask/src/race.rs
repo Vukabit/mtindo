@@ -91,6 +91,8 @@ const LAYOUT_EXEMPT: &[&str] = &[
   "layout_generated_files",
   // A version pin: it changes no output, so there is nothing to time.
   "mto_version",
+  // Asks directives for reasons: it changes no output either.
+  "directive_reasons",
 ];
 
 /// The layout rows after the first: (label, the `mto.toml` lines it adds to `layout = true`,

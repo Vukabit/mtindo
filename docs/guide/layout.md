@@ -193,11 +193,18 @@ mto -l . > laid-out.txt  # names each file mto writes
 git add mto.toml $(cat laid-out.txt)
 rm laid-out.txt
 git commit -m "Lay out every file with mto"
+mto verify HEAD          # every Rust file reproduced: only mto's work
 git rev-parse HEAD >> .git-blame-ignore-revs
 git add .git-blame-ignore-revs
 git commit -m "Ignore the layout commit in git blame"
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
+
+A commit `git blame` looks past is a good place to hide a change, so a
+reviewer, or CI, can check one: `mto verify REV` runs `mto` on each Rust file
+the commit changed, from its parent, and passes only when every one comes out
+byte for byte as committed, its checks passing on the way. CI can run it for
+each commit listed in `.git-blame-ignore-revs`.
 
 `mto restore last` undoes the run if the result is not what you want; see
 [Safety and history](safety.md). How layout works inside is described in the

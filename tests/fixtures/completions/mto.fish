@@ -7,7 +7,8 @@ function __mto_state
     set -l takes_value --emit --stdin-filepath --config --config-path --edition \
         --print-config --style-edition --color --keep --dir --message-format \
         --runs --under --older-than
-    set -l commands init pins config history restore doctor report debug completions
+    set -l commands init verify pins config history restore doctor report debug \
+        completions
     set -l subcommands 'config path' 'config print' 'config options' 'config mirror' \
         'history show' 'history prune' 'doctor on' 'doctor off' 'doctor holds' \
         'doctor keep' 'doctor recheck' 'doctor trust' 'doctor release' \
@@ -203,6 +204,7 @@ complete -c mto -n '__mto_at - -' -l man -d 'Print the full manual'
 complete -c mto -n '__mto_at - -' -s V -l version -d 'Print the version and exit'
 complete -c mto -n '__mto_at - -' -l message-format -x -a 'human json' -d 'How the run reports: human (default), or json, one versioned JSON object per line for each file, message and the summary'
 complete -c mto -n '__mto_at - - 0' -a init -d 'Write a default mto.toml'
+complete -c mto -n '__mto_at - - 0' -a verify -d 'Prove a commit is mto\'s work: only moves and formatting, as mto writes them'
 complete -c mto -n '__mto_at - - 0' -a pins -d 'List every place a project keeps code from mto, and why'
 complete -c mto -n '__mto_at - - 0' -a config -d 'Show the configuration that applies in a folder, or every setting'
 complete -c mto -n '__mto_at - - 0' -a history -d 'List, show or prune the runs that wrote files'
@@ -216,6 +218,10 @@ complete -c mto -n '__mto_at - -' -a '(__fish_complete_suffix .rs)'
 # mto init
 complete -c mto -n '__mto_at init -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at init -' -a '(__fish_complete_directories (commandline -ct))'
+
+# mto verify
+complete -c mto -n '__mto_at verify -' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at verify -' -l json -d 'As JSON, whose shape keeps its version'
 
 # mto pins
 complete -c mto -n '__mto_at pins -' -s h -l help -d 'Show this help and exit'

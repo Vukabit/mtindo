@@ -127,6 +127,23 @@ pub const COMMANDS: &[CommandSpec] = &[
     examples: &["mto init", "mto init crates/core"],
   },
   CommandSpec {
+    name: "verify",
+    args: "<REV>",
+    summary: "Prove a commit is mto's work: only moves and formatting, as mto writes them",
+    about: "Checks the commit REV names against its parent, Rust file by Rust file, with \
+                the project's settings as they are now: `reproduced` when mto, run on the \
+                file before, gives the commit's text, its checks passing on the way; `safe` \
+                when mto gives other bytes but the change only moves whole items, or only \
+                changes what formatting may; `NOT SAFE` with what the checks found otherwise. \
+                Exits 0 when every file is reproduced, 1 otherwise. Made for the commits a \
+                project lists in `.git-blame-ignore-revs`. Needs git.",
+    usage: &["mto verify <REV> [--json]"],
+    options: &[("options", "mto verify", &[Flag::Json])],
+    operand: Complete::Nothing,
+    subcommands: &[],
+    examples: &["mto verify HEAD", "mto verify 3f2a91c --json"],
+  },
+  CommandSpec {
     name: "pins",
     args: "[PATH]...",
     summary: "List every place a project keeps code from mto, and why",

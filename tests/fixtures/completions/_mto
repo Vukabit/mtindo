@@ -84,6 +84,7 @@ _mto_commands() {
   local -a commands
   commands=(
     'init:Write a default mto.toml'
+    'verify:Prove a commit is mto'\''s work: only moves and formatting, as mto writes them'
     'pins:List every place a project keeps code from mto, and why'
     'config:Show the configuration that applies in a folder, or every setting'
     'history:List, show or prune the runs that wrote files'
@@ -100,6 +101,13 @@ _mto_init() {
   _arguments -s : \
     '(- *)'{-h,--help}'[Show this help and exit]' \
     '*: :_files -/'
+}
+
+_mto_verify() {
+  _arguments -s : \
+    '(- *)'{-h,--help}'[Show this help and exit]' \
+    '--json[As JSON, whose shape keeps its version]' \
+    '*: : '
 }
 
 _mto_pins() {
@@ -559,6 +567,7 @@ _mto() {
     (rest)
       case $words[1] in
         (init) _mto_init && ret=0 ;;
+        (verify) _mto_verify && ret=0 ;;
         (pins) _mto_pins && ret=0 ;;
         (config) _mto_config && ret=0 ;;
         (history) _mto_history && ret=0 ;;

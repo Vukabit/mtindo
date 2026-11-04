@@ -140,6 +140,15 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `mto init [DIR]`: Writes an mto.toml with layout turned on and every mto
     setting at its default, each with its summary, into DIR (default: the
     current directory). An existing file is never overwritten.
+*   `mto verify <REV>`: Checks the commit REV names against its parent, Rust
+    file by Rust file, with the project's settings as they are now: `reproduced`
+    when mto, run on the file before, gives the commit's text, its checks
+    passing on the way; `safe` when mto gives other bytes but the change only
+    moves whole items, or only changes what formatting may; `NOT SAFE` with what
+    the checks found otherwise. Exits 0 when every file is reproduced, 1
+    otherwise. Made for the commits a project lists in `.git-blame-ignore-revs`.
+    Needs git.
+    *   `--json` (after `mto verify`): As JSON, whose shape keeps its version.
 *   `mto pins [PATH]...`: Lists each `// mto: pin`, `// mto: hold` and
     `// mto: off` and each `#[rustfmt::skip]` in the files under PATH (default:
     the current directory), with its file, line and the reason given after

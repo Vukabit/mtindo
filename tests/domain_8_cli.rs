@@ -2323,6 +2323,37 @@ fn test_cli_verifier_stops_an_unsafe_write() {
   );
 }
 
+/// `mto verify REV`: a commit mto made is reproduced file by file, so it verifies; a commit
+/// that changes code does not.
+#[test]
+fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
+  let env = TestEnvironment::new();
+  env.git_init(".");
+  env.write_file("mto.toml", "layout = true\n");
+  env.write_file("src/lib.rs", "fn z() {}\n\nfn a() {}\n");
+  env.git(".", &["add", "."]);
+  env.git(".", &["commit", "-qm", "start"]);
+  let (code, _, said) = mto(&env, &["--no-history", "--unguarded", "--allow-dirty", "."]);
+  assert_eq!(code, 0, "{}", said);
+  env.git(".", &["commit", "-qam", "lay out"]);
+  let (code, out, said) = mto(&env, &["verify", "HEAD"]);
+  assert_eq!(code, 0, "{}{}", out, said);
+  assert!(out.contains("src/lib.rs  mto gives these bytes"), "{}", out);
+  assert!(
+    out.contains("verified, every Rust file reproduced"),
+    "{}",
+    out
+  );
+  env.write_file("src/lib.rs", "fn a() {}\n\nfn z() {\n    let x = 1;\n}\n");
+  env.git(".", &["commit", "-qam", "edit"]);
+  let (code, out, _) = mto(&env, &["verify", "HEAD"]);
+  assert_eq!(code, 1, "{}", out);
+  assert!(out.contains("NOT SAFE"), "{}", out);
+  let (code, out, _) = mto(&env, &["verify", "HEAD~1", "--json"]);
+  assert_eq!(code, 0, "{}", out);
+  assert!(out.contains("\"verified\":true"), "{}", out);
+}
+
 #[test]
 fn test_cli_version() {
   let env = TestEnvironment::new();

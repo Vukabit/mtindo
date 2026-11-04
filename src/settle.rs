@@ -41,6 +41,21 @@ impl Outcome {
   }
 }
 
+/// What `mto verify` finds for one file a commit changed, from its text before and after.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Verdict {
+  /// mto, run on the text before with these settings, gives the text after, its checks
+  /// passing on the way: the change is mto's, and proven safe.
+  Reproduced,
+  /// mto gives other bytes, but the change only moves whole items or only changes what
+  /// formatting may: safe, not this mto's.
+  Safe(&'static str),
+  /// The change does more than layout and formatting may: what the checks said.
+  Unsafe(Vec<String>),
+  /// mto leaves the text before alone (syntax errors, layout and formatting off).
+  LeftAlone(String),
+}
+
 /// One file's result.
 #[derive(Clone, Debug)]
 pub struct Settle {
@@ -142,6 +157,32 @@ pub fn settle(source: &str, settings: &Settings, runs: usize) -> Settle {
     moves,
     texts: None,
   }
+}
+
+/// The verdict on a change of one file from `before` to `after`, with `settings`.
+pub fn verdict(before: &str, after: &str, settings: &Settings) -> Verdict {
+  match once(before, settings) {
+    Ok((text, _)) if text == after => return Verdict::Reproduced,
+    Ok(_) => {}
+    Err(Outcome::LeftAlone(why)) => return Verdict::LeftAlone(why),
+    Err(_) => {}
+  }
+  let (edition, _) = crate::layout::parse_any_edition(before, settings.edition);
+  let layout = crate::verify::verify_layout(before, after, edition);
+  if layout.is_empty() {
+    return Verdict::Safe("only moves whole items");
+  }
+  let format = crate::verify::format::verify_format(before, after, edition);
+  if format.is_empty() {
+    return Verdict::Safe("only changes what formatting may");
+  }
+  Verdict::Unsafe(
+    layout
+      .iter()
+      .chain(&format)
+      .map(|v| format!("{}: {}", v.rule.name(), v.detail))
+      .collect(),
+  )
 }
 
 /// One run over `source`: the text it gives and how many units moved, or how it failed.

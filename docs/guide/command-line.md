@@ -125,6 +125,7 @@ other `mto` option goes after `--`, as `cargo mto -- --unguarded`.
 |---|---|
 | `mto init` | Write an `mto.toml` that turns layout on |
 | `mto pins` | Every directive and `#[rustfmt::skip]`, with its reason |
+| `mto verify REV` | Prove a commit is mto's work: reproduced, file by file |
 | `mto config ...` | Settings in effect ([Configuration](configuration.md)) |
 | `mto history`, `restore` | Past runs, undoing them ([Safety](safety.md)) |
 | `mto report ...` | Bug reports mto kept ([Safety](safety.md#bug-reports)) |

@@ -86,6 +86,10 @@ enum CliAction {
     paths: Vec<PathBuf>,
     json: bool,
   },
+  Verify {
+    rev: String,
+    json: bool,
+  },
   Debug {
     view: DebugView,
     /// The files (or folders, for `settle`); `-` is stdin.
@@ -580,6 +584,7 @@ fn main() {
     },
     CliAction::History { view, json } => run_history(view, json),
     CliAction::Pins { paths, json } => run_pins(&paths, json),
+    CliAction::Verify { rev, json } => run_verify(&rev, json),
     CliAction::Report { view } => run_report(view),
     CliAction::Restore { run, files, force } => run_restore(&run, &files, force),
     CliAction::Doctor { view, json } => run_doctor(view, json),
@@ -845,6 +850,16 @@ fn parse_command(command: &'static CommandSpec, args: &[String]) -> Result<CliAc
     "init" => Ok(CliAction::Init {
       target_path: args.first().map(PathBuf::from),
     }),
+    "verify" => {
+      let (json, args) = without_json(args);
+      match &args[..] {
+        [rev] if !rev.starts_with('-') => Ok(CliAction::Verify {
+          rev: rev.clone(),
+          json,
+        }),
+        _ => command_usage(command, None, None),
+      }
+    }
     "pins" => {
       let (json, args) = without_json(args);
       if let Some(bad) = args.iter().find(|a| a.starts_with('-')) {
@@ -2635,6 +2650,102 @@ fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) 
   finish(&done, opts)
 }
 
+/// `mto verify REV`: each Rust file the commit changed, reproduced or at least safe.
+fn run_verify(rev: &str, json: bool) -> i32 {
+  use mtindo::cli::verify::{Found, verify};
+  use mtindo::settle::Verdict;
+  use mtindo::text::color::{paint, tone};
+  use mtindo::text::json::Json;
+  let mut resolver = match resolver(&Overrides::default()) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let here = env::current_dir().unwrap_or_default();
+  let (commit, checked) = match verify(rev, &mut resolver, &here) {
+    Ok(found) => found,
+    Err(why) => return report_error(&MtoError::Usage(why)),
+  };
+  let on = mtindo::color_enabled(false);
+  let mut all_reproduced = true;
+  let mut entries = Vec::new();
+  for file in &checked {
+    let (id, said, tone_of) = match &file.found {
+      Found::Verdict(Verdict::Reproduced) => (
+        "reproduced",
+        "mto gives these bytes, its checks passing".to_string(),
+        tone::GOOD,
+      ),
+      Found::Verdict(Verdict::Safe(how)) => {
+        all_reproduced = false;
+        (
+          "safe",
+          format!("{}, but mto gives other bytes", how),
+          tone::WARN,
+        )
+      }
+      Found::Verdict(Verdict::Unsafe(why)) => {
+        all_reproduced = false;
+        ("not_safe", format!("NOT SAFE: {}", why.join("; ")), "1;31")
+      }
+      Found::Verdict(Verdict::LeftAlone(why)) => {
+        all_reproduced = false;
+        (
+          "left_alone",
+          format!("mto leaves it alone: {}", why),
+          tone::WARN,
+        )
+      }
+      Found::NotRust => (
+        "not_rust",
+        "not a Rust file: not checked".to_string(),
+        tone::QUIET,
+      ),
+      Found::Deleted => {
+        all_reproduced = false;
+        (
+          "deleted",
+          "deleted: layout and formatting delete nothing".to_string(),
+          "1;31",
+        )
+      }
+    };
+    entries.push(
+      Json::object()
+        .with("file", file.path.as_str())
+        .with("verdict", id)
+        .with("detail", said.as_str()),
+    );
+    if !json {
+      outln!("{}  {}", file.path, paint(on, tone_of, &said));
+    }
+  }
+  if json {
+    outln!(
+      "{}",
+      Json::output("verify")
+        .with("commit", commit.as_str())
+        .with("verified", all_reproduced)
+        .with("files", entries)
+        .text()
+    );
+  } else if all_reproduced {
+    outln!(
+      "{}",
+      paint(
+        on,
+        tone::GOOD,
+        &format!(
+          "{}: verified, every Rust file reproduced",
+          &commit[..10.min(commit.len())]
+        )
+      )
+    );
+  } else {
+    outln!("{}: not verified", &commit[..10.min(commit.len())]);
+  }
+  if all_reproduced { 0 } else { 1 }
+}
+
 /// A section heading with the command its flags follow: `layout: (mto <PATH>...)`.
 fn section_heading(p: &HelpPalette, heading: &str, command: &str) -> String {
   format!(
@@ -2809,6 +2920,7 @@ mod tests {
       &["doctor", "keep", "all"],
       &["doctor", "recheck"],
       &["pins", "src", "--json"],
+      &["verify", "HEAD", "--json"],
       &["doctor", "release", "all"],
       &["doctor", "last"],
       &["report"],

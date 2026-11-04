@@ -154,6 +154,7 @@ _mto_flags() {
   case "$1 $2" in
     " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --stdin-filepath --config --config-path --edition --print-config --strict --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-report --color -q --quiet -v --verbose -h --help --man -V --version --message-format ;;
     "init ") _mto_words "" -h --help ;;
+    "verify ") _mto_words "" -h --help --json ;;
     "pins ") _mto_words "" -h --help --json ;;
     "config ") _mto_words "" -h --help ;;
     "config path") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
@@ -263,7 +264,7 @@ _mto() {
       -*) _mto_flags "$command" "$sub" ;;
       *)
         if [ -z "$command" ]; then
-          [ $operands -eq 0 ] && _mto_words "" init pins config history restore doctor report debug completions
+          [ $operands -eq 0 ] && _mto_words "" init verify pins config history restore doctor report debug completions
           _mto_paths "" "$_mto_cur"
         else
           if [ $operands -eq 0 ] && [ -z "$sub" ]; then
@@ -285,7 +286,7 @@ _mto() {
 # Whether $1 is one of mto's commands.
 _mto_is_command() {
   case "$1" in
-    init|pins|config|history|restore|doctor|report|debug|completions) return 0 ;;
+    init|verify|pins|config|history|restore|doctor|report|debug|completions) return 0 ;;
   esac
   return 1
 }

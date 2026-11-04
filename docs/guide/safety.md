@@ -25,7 +25,10 @@ rule.
 
 A report holds what failed, the smallest part of the file that still fails
 (never the whole file), the command, the settings that differ from the
-defaults, and the build. The same bug seen again is counted, not kept twice.
+defaults, the build, and the machine: the system and its version, whether
+file names fold case, the threads a run may use and whether git is there,
+nothing that names you or the host. The same bug seen again is counted, not
+kept twice.
 Reports are kept beside history; one not seen for 90 days goes by itself.
 
 ```bash

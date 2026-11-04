@@ -44,6 +44,29 @@ fn test_a_long_title_keeps_the_place() {
   assert!(cut.ends_with('…'));
 }
 
+#[test]
+fn test_a_report_names_the_machine_and_no_one() {
+  let machine = machine();
+  for key in ["system: ", "file names: ", "threads: ", "git: "] {
+    assert!(machine.contains(key), "{}", machine);
+  }
+  assert!(machine.contains(std::env::consts::ARCH), "{}", machine);
+  let report = bug("said", "fn a() {}", "a.rs").markdown();
+  assert!(
+    report.contains("Machine:\n\n```text\nsystem: "),
+    "{}",
+    report
+  );
+  // Nothing that names the person or the host.
+  for name in ["USER", "USERNAME", "HOSTNAME"] {
+    if let Ok(value) = std::env::var(name)
+      && value.len() > 3
+    {
+      assert!(!machine.contains(&value), "{} in {}", name, machine);
+    }
+  }
+}
+
 /// The same bug seen again is counted, with each file it was seen in; another bug is
 /// another report; a prefix of an id finds it.
 #[test]

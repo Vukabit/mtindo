@@ -175,6 +175,7 @@ impl Bug {
       }
     ));
     out.push_str(&format!("Build:\n\n```text\n{}```\n", version::details()));
+    out.push_str(&format!("\nMachine:\n\n```text\n{}```\n", machine()));
     if let Some(backtrace) = &self.backtrace {
       out.push_str(&format!(
         "\n<details><summary>Backtrace</summary>\n\n```text\n{}\n```\n\n</details>\n",
@@ -359,6 +360,28 @@ impl Store {
   }
 }
 
+/// What about the machine can bear on a bug, read without running anything and naming
+/// no one: the system and its version, whether file names fold case (which path, config
+/// and module matching depend on), how many threads a run may use, and whether git is
+/// there for the guard against uncommitted changes.
+pub fn machine() -> String {
+  format!(
+    "system: {}
+file names: {}
+threads: {}
+git: {}
+",
+    system(),
+    match folds_case() {
+      Some(true) => "case folded",
+      Some(false) => "case kept",
+      None => "unknown",
+    },
+    std::thread::available_parallelism().map_or(1, |n| n.get()),
+    if on_path("git") { "found" } else { "not found" }
+  )
+}
+
 /// The names of the rules `violations` break, sorted, each once: what makes two verifier
 /// stops the same bug.
 pub fn rules(violations: &[Violation]) -> Vec<&'static str> {
@@ -366,6 +389,24 @@ pub fn rules(violations: &[Violation]) -> Vec<&'static str> {
   rules.sort_unstable();
   rules.dedup();
   rules
+}
+
+/// Whether the temporary folder is found under its name in another case: file names
+/// fold case there.
+fn folds_case() -> Option<bool> {
+  let dir = std::env::temp_dir();
+  let name = dir.to_str()?;
+  let swapped: String = name
+    .chars()
+    .map(|c| {
+      if c.is_ascii_lowercase() {
+        c.to_ascii_uppercase()
+      } else {
+        c.to_ascii_lowercase()
+      }
+    })
+    .collect();
+  (swapped != name).then(|| Path::new(&swapped).exists())
 }
 
 fn meta_text(entry: &Entry) -> String {
@@ -388,6 +429,18 @@ fn meta_text(entry: &Entry) -> String {
     out.push_str(&format!("rechecked {} {}\n", at, build));
   }
   out
+}
+
+/// Whether `program` is in a folder on PATH, without running it.
+fn on_path(program: &str) -> bool {
+  let names = if cfg!(windows) {
+    vec![format!("{}.exe", program)]
+  } else {
+    vec![program.to_string()]
+  };
+  std::env::var_os("PATH").is_some_and(|path| {
+    std::env::split_paths(&path).any(|dir| names.iter().any(|n| dir.join(n).is_file()))
+  })
 }
 
 fn read_entry(dir: &Path) -> Option<Entry> {
@@ -446,6 +499,33 @@ fn shorten(what: &str, limit: usize) -> String {
   out.push('…');
   out.push_str(place);
   out
+}
+
+/// The system's name and version, as its own files give them.
+fn system() -> String {
+  let os = std::env::consts::OS;
+  let version = match os {
+    "linux" => fs::read_to_string("/etc/os-release").ok().and_then(|text| {
+      text.lines().find_map(|line| {
+        line
+          .strip_prefix("PRETTY_NAME=")
+          .map(|name| name.trim_matches('"').to_string())
+      })
+    }),
+    "macos" => fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist")
+      .ok()
+      .and_then(|text| {
+        let after = &text[text.find("<key>ProductVersion</key>")?..];
+        let start = after.find("<string>")? + "<string>".len();
+        let end = after[start..].find("</string>")?;
+        Some(format!("macOS {}", &after[start..start + end]))
+      }),
+    _ => None,
+  };
+  match version {
+    Some(version) => format!("{} ({})", version, std::env::consts::ARCH),
+    None => format!("{} ({})", os, std::env::consts::ARCH),
+  }
 }
 
 /// Keeps `replay` in a report's folder.

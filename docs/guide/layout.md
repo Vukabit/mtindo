@@ -231,10 +231,11 @@ the commit changed, from its parent, and passes only when every one comes out
 byte for byte as committed, its checks passing on the way. Beside them the
 commit may change only `mto.toml` and `rustfmt.toml`: any other file could not
 be verified (nothing proves what changed in it), and a change the checks find
-mto never makes, or a deleted Rust file, is reported `NOT SAFE`. It uses the
-settings the commit holds, not today's, so an old layout commit still verifies
-after `mto.toml` changes. CI can run it for each commit listed in
-`.git-blame-ignore-revs`.
+mto never makes is reported `NOT SAFE`, as is a Rust file added, deleted,
+renamed, or with its mode or link changed. It uses the settings the commit
+holds, not today's and none from outside the repository, so an old layout
+commit still verifies after `mto.toml` changes, and on every machine alike.
+CI can run it for each commit listed in `.git-blame-ignore-revs`.
 
 `mto restore last` undoes the run if the result is not what you want; see
 [Safety and history](safety.md). How layout works inside is described in the

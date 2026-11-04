@@ -168,21 +168,60 @@ pub fn verdict(before: &str, after: &str, settings: &Settings) -> Verdict {
     Err(_) => {}
   }
   let (edition, _) = crate::layout::parse_any_edition(before, settings.edition);
-  let layout = crate::verify::verify_layout(before, after, edition);
+  let moves = |from: &str| crate::verify::verify_layout(from, after, edition);
+  let formats = |from: &str| crate::verify::format::verify_format(from, after, edition);
+  let layout = moves(before);
   if layout.is_empty() {
     return Verdict::Safe("only moves whole items");
   }
-  let format = crate::verify::format::verify_format(before, after, edition);
+  let format = formats(before);
   if format.is_empty() {
     return Verdict::Safe("only changes what formatting may");
   }
-  Verdict::Unsafe(
-    layout
-      .iter()
-      .chain(&format)
-      .map(|v| format!("{}: {}", v.rule.name(), v.detail))
-      .collect(),
-  )
+  // Both at once, through a step of mto's own (checked as it is made): its layout alone,
+  // the rest only formatting; or its formatting alone, the rest only moves. Their findings
+  // come first: past the steps mto takes, they point at what it would not do.
+  let mut found = Vec::new();
+  let format_only = Settings {
+    layout: None,
+    ..settings.clone()
+  };
+  let layout_only = Settings {
+    format: None,
+    ..settings.clone()
+  };
+  if settings.layout.is_some() && settings.format.is_some() {
+    if let Ok((laid_out, _)) = once(before, &layout_only) {
+      let rest = formats(&laid_out);
+      if rest.is_empty() {
+        return Verdict::Safe("only moves whole items and changes what formatting may");
+      }
+      found.push(rest);
+    }
+    if let Ok((formatted, _)) = once(before, &format_only) {
+      let rest = moves(&formatted);
+      if rest.is_empty() {
+        return Verdict::Safe("only moves whole items and changes what formatting may");
+      }
+      found.push(rest);
+    }
+  }
+  found.push(layout);
+  found.push(format);
+  // What the check closest to passing found: the fewest findings point at the change,
+  // not at every item mto moved or formatted on the way.
+  let closest = found
+    .into_iter()
+    .min_by_key(|findings| findings.len())
+    .unwrap_or_default();
+  let mut said: Vec<String> = Vec::new();
+  for finding in closest {
+    let line = format!("{}: {}", finding.rule.name(), finding.detail);
+    if !said.contains(&line) {
+      said.push(line);
+    }
+  }
+  Verdict::Unsafe(said)
 }
 
 /// One run over `source`: the text it gives and how many units moved, or how it failed.
@@ -230,6 +269,28 @@ mod tests {
       format: None,
       edition: syntax::Edition::E2021,
     }
+  }
+
+  /// A commit that moves items and formats them at once is safe, through mto's own steps;
+  /// an edit among them is not, and is named.
+  #[test]
+  fn test_a_verdict_takes_moves_and_formatting_together() {
+    let settings = Settings {
+      layout: Some(LayoutConfig::default()),
+      format: Some(Default::default()),
+      edition: syntax::Edition::E2021,
+    };
+    let before = "pub fn b( )->i32{2}\npub fn a( )->i32{1}\n";
+    let moved = "pub fn a() -> i32 {\n    1\n}\n\npub fn b() -> i32 {\n    2\n}\n\n";
+    assert!(matches!(
+      verdict(before, moved, &settings),
+      Verdict::Safe(_)
+    ));
+    let edited = moved.replace("    2", "    3");
+    let Verdict::Unsafe(said) = verdict(before, &edited, &settings) else {
+      panic!("an edit passes");
+    };
+    assert!(said.iter().any(|s| s.contains("`3`")), "{:?}", said);
   }
 
   #[test]

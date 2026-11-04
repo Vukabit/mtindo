@@ -1047,18 +1047,24 @@ fn first_difference(old: &[Token], input: &str, new: &[Token], output: &str) -> 
     .zip(new)
     .position(|(a, b)| a.text != b.text)
     .or_else(|| (old.len() != new.len()).then(|| old.len().min(new.len())))?;
+  // The line holding the token there, as written: canonical tokens (`outer DocA` for a
+  // doc comment) are what is compared, not what a reader wrote.
   let around = |tokens: &[Token], text: &str| -> String {
-    let start = at.saturating_sub(4);
-    let end = (at + 5).min(tokens.len());
-    // The 1-based line holding the token's start.
-    let line = tokens.get(at).or(tokens.last()).map_or(0, |t| {
-      1 + text.as_bytes()[..t.start as usize]
+    let start = tokens
+      .get(at)
+      .or(tokens.last())
+      .map_or(0, |t| (t.start as usize).min(text.len()));
+    let line = 1
+      + text.as_bytes()[..start]
         .iter()
         .filter(|&&b| b == b'\n')
-        .count()
-    });
-    let shown: Vec<&str> = tokens[start..end].iter().map(|t| t.text.as_ref()).collect();
-    format!("line {}: `{}`", line, shown.join(" "))
+        .count();
+    let from = text[..start].rfind('\n').map_or(0, |at| at + 1);
+    let to = text[start..].find('\n').map_or(text.len(), |at| start + at);
+    let written = text[from..to].trim();
+    let cut: String = written.chars().take(80).collect();
+    let more = if cut.len() < written.len() { "..." } else { "" };
+    format!("line {}: `{}{}`", line, cut, more)
   };
   Some(format!(
     "the tokens differ: input {}, output {}",

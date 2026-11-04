@@ -2476,6 +2476,30 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
     "{}",
     out
   );
+  // What mto never does is not safe, even when the text is as mto would write it: a file
+  // added, or renamed.
+  env.write_file("build.rs", "fn main() {}\n");
+  env.git(".", &["add", "build.rs"]);
+  env.git(".", &["commit", "-qm", "added"]);
+  let (code, out, _) = mto(&env, &["verify", "HEAD"]);
+  assert_eq!(code, 1, "{}", out);
+  assert!(out.contains("build.rs  NOT SAFE: added"), "{}", out);
+  env.git(".", &["mv", "build.rs", "other.rs"]);
+  env.git(".", &["commit", "-qm", "renamed"]);
+  let (_, out, _) = mto(&env, &["verify", "HEAD"]);
+  assert!(
+    out.contains("other.rs  NOT SAFE: renamed from build.rs"),
+    "{}",
+    out
+  );
+  // An error is JSON too, with --json.
+  let (code, out, _) = mto(&env, &["verify", "nowhere", "--json"]);
+  assert_eq!(code, 2, "{}", out);
+  assert!(
+    out.contains("\"error\":\"no commit is named `nowhere` here\""),
+    "{}",
+    out
+  );
 }
 
 #[test]

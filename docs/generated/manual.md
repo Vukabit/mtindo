@@ -149,15 +149,17 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     current directory). An existing file is never overwritten.
 *   `mto verify <REV>`: Checks the commit REV names against its parent, Rust
     file by Rust file, with the settings the commit holds (its mto.toml,
-    rustfmt.toml and Cargo.toml files, not the working tree's): `reproduced`
-    when mto, run on the file before, gives the commit's text, its checks
-    passing on the way; `settings` for an mto.toml or rustfmt.toml, which a
-    layout commit may change; `safe` when mto gives other bytes but the change
-    only moves whole items, or only changes what formatting may;
-    `could not verify` for a file nothing can be proved about (not Rust, or one
-    mto leaves alone); `NOT SAFE` when the checks find a change mto never makes,
-    or a Rust file is deleted. Exits 0 when every file is reproduced or
-    settings, 1 otherwise. Made for the commits a project lists in
+    rustfmt.toml and Cargo.toml files; not the working tree's, and none from
+    outside the repository): `reproduced` when mto, run on the file before,
+    gives the commit's text, its checks passing on the way; `settings` for an
+    mto.toml or rustfmt.toml, which a layout commit may change; `safe` when mto
+    gives other bytes but the change only moves whole items, or only changes
+    what formatting may; `could not verify` for a file nothing can be proved
+    about (not Rust, not UTF-8, a submodule, or one mto leaves alone);
+    `NOT SAFE` when the checks find a change mto never makes, or a Rust file is
+    added, deleted, renamed, or changes mode or link. Exits 0 when every file is
+    reproduced or settings, 1 otherwise, 2 when it cannot check (with --json,
+    the error as JSON). Made for the commits a project lists in
     `.git-blame-ignore-revs`. Needs git.
     *   `--json` (after `mto verify`): As JSON, whose shape keeps its version.
 *   `mto pins [PATH]...`: Lists each `// mto: pin`, `// mto: hold` and

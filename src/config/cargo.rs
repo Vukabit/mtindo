@@ -46,7 +46,8 @@ impl Manifests {
       Some(committed) if committed.holds(path) => {
         parse(path, committed.text(path)).map(|table| table.map(Rc::new))
       }
-      _ => read(path).map(|table| table.map(Rc::new)),
+      Some(_) => Ok(None),
+      None => read(path).map(|table| table.map(Rc::new)),
     };
     self.read.insert(path.to_path_buf(), found.clone());
     found

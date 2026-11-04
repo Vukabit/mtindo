@@ -911,7 +911,9 @@ fn parse_command(command: &'static CommandSpec, args: &[String]) -> Result<CliAc
           rev: rev.clone(),
           json,
         }),
-        _ => command_usage(command, None, None),
+        [] => usage_error("mto verify needs a <REV>: the commit to verify"),
+        [_, extra, ..] => usage_error(&format!("unexpected argument '{}'", extra)),
+        [flag] => usage_error(&format!("unexpected argument '{}'", flag)),
       }
     }
     "pins" => {
@@ -2768,21 +2770,51 @@ fn run_verify(rev: &str, json: bool) -> i32 {
   use mtindo::settle::Verdict;
   use mtindo::text::color::{paint, tone};
   use mtindo::text::json::Json;
+  let failed = |why: String| -> i32 {
+    if json {
+      outln!(
+        "{}",
+        Json::output("verify")
+          .with("rev", rev)
+          .with("error", why.as_str())
+          .text()
+      );
+      2
+    } else {
+      report_error(&MtoError::Usage(why))
+    }
+  };
   let mut resolver = match resolver(&Overrides::default()) {
     Ok(resolver) => resolver,
-    Err(e) => return report_error(&e),
+    Err(e) => return failed(e.to_string()),
   };
   let here = env::current_dir().unwrap_or_default();
-  let (commit, checked) = match verify(rev, &mut resolver, &here) {
-    Ok(found) => found,
-    Err(why) => return report_error(&MtoError::Usage(why)),
+  let checked = match verify(rev, &mut resolver, &here) {
+    Ok(checked) => checked,
+    Err(why) => return failed(why),
   };
   let on = mtindo::color_enabled(false);
+  let short = &checked.commit[..10.min(checked.commit.len())];
+  if !json {
+    for warning in &checked.warnings {
+      errln!("{}warning: {}{}", c_yellow(true), warning, c_reset(true));
+    }
+    if checked.merge {
+      outln!(
+        "{}",
+        paint(
+          on,
+          tone::QUIET,
+          &format!("{}: a merge, compared with its first parent", short)
+        )
+      );
+    }
+  }
   let (mut safe, mut unverified, mut not_safe) = (0, 0, 0);
   let mut entries = Vec::new();
-  for file in &checked {
-    // NOT SAFE only where the checks know: a change mto never makes. What cannot be
-    // judged either way could not be verified.
+  for file in &checked.files {
+    // NOT SAFE only where it is known: a change mto never makes. What cannot be judged
+    // either way could not be verified.
     let (id, said, tone_of) = match &file.found {
       Found::Verdict(Verdict::Reproduced) => (
         "reproduced",
@@ -2810,11 +2842,11 @@ fn run_verify(rev: &str, json: bool) -> i32 {
           tone::WARN,
         )
       }
-      Found::NotRust => {
+      Found::Unverified(why) => {
         unverified += 1;
         (
           "unverified",
-          "could not verify: not a Rust file".to_string(),
+          format!("could not verify: {}", why),
           tone::WARN,
         )
       }
@@ -2822,13 +2854,9 @@ fn run_verify(rev: &str, json: bool) -> i32 {
         not_safe += 1;
         ("not_safe", format!("NOT SAFE: {}", why.join("; ")), "1;31")
       }
-      Found::Deleted => {
+      Found::Never(what) => {
         not_safe += 1;
-        (
-          "not_safe",
-          "NOT SAFE: deleted, and mto never deletes a file".to_string(),
-          "1;31",
-        )
+        ("not_safe", format!("NOT SAFE: {}", what), "1;31")
       }
     };
     entries.push(
@@ -2842,14 +2870,20 @@ fn run_verify(rev: &str, json: bool) -> i32 {
     }
   }
   let verified = safe + unverified + not_safe == 0;
-  let short = &commit[..10.min(commit.len())];
   if json {
+    let warnings: Vec<Json> = checked
+      .warnings
+      .iter()
+      .map(|w| Json::from(w.as_str()))
+      .collect();
     outln!(
       "{}",
       Json::output("verify")
-        .with("commit", commit.as_str())
+        .with("commit", checked.commit.as_str())
+        .with("merge", checked.merge)
         .with("verified", verified)
         .with("files", entries)
+        .with("warnings", warnings)
         .text()
     );
   } else if verified {

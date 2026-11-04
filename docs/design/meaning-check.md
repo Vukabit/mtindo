@@ -155,8 +155,9 @@ the tokens differ: input line N: `...`, output line M: `...`
 ```
 
 It is the position where the streams first differ (or where the shorter one
-ends), with up to four canonical tokens before it and four after from each
-side, joined by spaces, and the 1-based line of the token there.
+ends): the 1-based line of the token there on each side, and that line as it
+is written (cut at 80 characters), not the canonical tokens, which are what
+is compared but not what anyone wrote.
 Tokens that came out of a re-parsed macro argument or transcriber carry the
 start of the macro, so the line points at the macro.
 

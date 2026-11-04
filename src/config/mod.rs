@@ -108,7 +108,8 @@ impl fmt::Display for Source {
 }
 
 /// The configuration files a commit holds (`mto verify`): inside the commit's tree they are
-/// read from here, not from the working tree, which may have changed since.
+/// read from here, not from the working tree, which may have changed since; outside it,
+/// nothing is read, so that every machine finds the same settings.
 #[derive(Debug, Default)]
 pub struct Committed {
   root: PathBuf,
@@ -1064,11 +1065,13 @@ impl Resolver {
     if let Some(found) = self.folders.get(folder) {
       return found.clone();
     }
+    // With a commit's files, only what it holds is read: no folder outside it counts.
     let found = match &self.committed {
       Some(committed) if committed.holds(folder) => {
         files::Folder::with(folder, |name| committed.text(&folder.join(name)).is_some())
       }
-      _ => files::Folder::scan(folder),
+      Some(_) => files::Folder::default(),
+      None => files::Folder::scan(folder),
     };
     self.folders.insert(folder.to_path_buf(), found.clone());
     found

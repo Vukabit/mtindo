@@ -41,7 +41,9 @@ them as written.
 
 `mto doctor recheck` tries each `// mto: hold` in the project without it and
 says which are still needed, so one whose cause has gone can be removed. It
-changes nothing.
+changes nothing. Building runs the project's code (its build scripts), so
+`keep` and `recheck` build only with the guard on and, for a project's own
+command, once it is trusted; otherwise they say why they could not tell.
 
 ## When the build already fails
 

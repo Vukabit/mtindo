@@ -51,6 +51,13 @@ pub fn dirty(files: &[PathBuf]) -> Dirty {
   out
 }
 
+/// `path` as the file system names it (symlinks resolved, and the name stored on disk:
+/// git spells a name from its index, which on a disk that ignores case or Unicode form may
+/// differ, `Cafe\u{301}.rs` against `café.rs`); as given when it cannot be resolved.
+pub(crate) fn on_disk(path: PathBuf) -> PathBuf {
+  crate::real_path(&path).unwrap_or(path)
+}
+
 /// The repository `folder` is in, remembered per folder on the way up.
 pub(crate) fn repository_of(
   folder: &Path,
@@ -89,11 +96,17 @@ pub(crate) fn status(root: &Path) -> io::Result<Vec<PathBuf>> {
       String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ));
   }
-  Ok(parse_status(root, &output.stdout))
+  Ok(
+    parse_status(root, &output.stdout)
+      .into_iter()
+      .map(on_disk)
+      .collect(),
+  )
 }
 
-/// Reads `git status --porcelain=v1 -z`: `XY PATH`, each ended by NUL; a rename or copy is
-/// followed by its old path, which is skipped.
+/// Reads `git status --porcelain=v1 -z`: `XY PATH`, each ended by NUL; a rename or copy,
+/// staged (`X`) or found in the work tree (`Y`), is followed by its old path, which is
+/// skipped.
 fn parse_status(root: &Path, out: &[u8]) -> Vec<PathBuf> {
   let mut paths = Vec::new();
   let mut fields = out.split(|b| *b == 0);
@@ -103,7 +116,7 @@ fn parse_status(root: &Path, out: &[u8]) -> Vec<PathBuf> {
     }
     let path = String::from_utf8_lossy(&field[3..]).to_string();
     paths.push(root.join(path));
-    if matches!(field[0], b'R' | b'C') {
+    if matches!(field[0], b'R' | b'C') || matches!(field[1], b'R' | b'C') {
       fields.next();
     }
   }
@@ -125,6 +138,15 @@ mod tests {
         PathBuf::from("/repo/src/b.rs"),
         PathBuf::from("/repo/new.rs"),
         PathBuf::from("/repo/c.rs"),
+      ]
+    );
+    // A rename found in the work tree has its old path after it too.
+    let out = b" R new.rs\0Rold.rs\0 M next.rs\0";
+    assert_eq!(
+      parse_status(Path::new("/repo"), out),
+      [
+        PathBuf::from("/repo/new.rs"),
+        PathBuf::from("/repo/next.rs")
       ]
     );
   }

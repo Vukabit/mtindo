@@ -246,8 +246,9 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     confirms a held move by trying it again (the build must fail twice) and
     writes `// mto: hold -- why` above the item, so the hold is the project's,
     seen by everyone; `recheck` tries each such line without it and says which
-    are no longer needed, changing nothing. A project may declare its own
-    command in its mto.toml (`doctor.command`, with `doctor.timeout` and
+    are no longer needed, changing nothing (both build the project, so only with
+    the guard on and its command trusted). A project may declare its own command
+    in its mto.toml (`doctor.command`, with `doctor.timeout` and
     `doctor.max_checks`): with the guard on, it runs in place of yours once you
     trust it, word for word, with `trust`; until then, and again after it
     changes, a guarded run there writes nothing (exit code 6). RUN narrows down

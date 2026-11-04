@@ -160,15 +160,16 @@ fn main() -> ExitCode {
   let listed: usize = targets.iter().map(|t| t.path.as_os_str().len() + 3).sum();
   let lines: Option<Vec<&str>> = targets.iter().map(|t| t.path.to_str()).collect();
   let list = match lines {
-    Some(lines) if listed > LONGEST_LINE => {
-      let file = env::temp_dir().join(format!("mtindo-paths-{}.txt", std::process::id()));
-      if let Err(e) = std::fs::write(&file, lines.join("\n")) {
-        errln!("Error: cannot write {}: {}", file.display(), e);
+    Some(lines) if listed > LONGEST_LINE => match private_file(&lines.join("\n")) {
+      Ok(file) => {
+        command.env(PATHS_FILE, &file);
+        Some(file)
+      }
+      Err(e) => {
+        errln!("Error: cannot write the list of targets for mto: {}", e);
         return ExitCode::from(2);
       }
-      command.env(PATHS_FILE, &file);
-      Some(file)
-    }
+    },
     _ => {
       command.args(targets.iter().map(|t| t.path.as_path()));
       None
@@ -176,7 +177,10 @@ fn main() -> ExitCode {
   };
   let status = command.status();
   if let Some(file) = list {
-    let _ = std::fs::remove_file(file);
+    let _ = std::fs::remove_file(&file);
+    if let Some(folder) = file.parent() {
+      let _ = std::fs::remove_dir(folder);
+    }
   }
   match status {
     // A code that does not fit one byte (a Windows crash's) must not read as another
@@ -290,6 +294,44 @@ fn parse(raw: &[String]) -> Result<Parsed, String> {
     return Err("quiet mode and verbose mode are not compatible".into());
   }
   Ok(Parsed::Run(args))
+}
+
+/// `text` in a file of a folder made for it alone in the temporary folder, which others on
+/// the machine may write to: the folder is new (never one already there), readable by its
+/// owner only, and the file is new in it, so nothing planted there is followed or read.
+fn private_file(text: &str) -> std::io::Result<std::path::PathBuf> {
+  use std::io::Write;
+  let base = env::temp_dir();
+  let stamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map_or(0, |d| d.as_nanos());
+  for attempt in 0..100u32 {
+    let folder = base.join(format!(
+      "mtindo-{}-{:x}-{}",
+      std::process::id(),
+      stamp,
+      attempt
+    ));
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(&folder) {
+      Ok(()) => {}
+      Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+      Err(e) => return Err(e),
+    }
+    let file = folder.join("paths.txt");
+    let mut out = std::fs::OpenOptions::new()
+      .write(true)
+      .create_new(true)
+      .open(&file)?;
+    out.write_all(text.as_bytes())?;
+    return Ok(file);
+  }
+  Err(std::io::Error::new(
+    std::io::ErrorKind::AlreadyExists,
+    "no new folder could be made in the temporary folder",
+  ))
 }
 
 /// A flag's line in the help, the short form first.

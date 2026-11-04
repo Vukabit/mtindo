@@ -312,7 +312,8 @@ fn is_whitespace_but_line_feed(grapheme: &str) -> bool {
 }
 
 /// The text without its line continuations: a `\` ending a line (not one escaped), the
-/// line break and the whitespace after it.
+/// line break and the whitespace after it that rustc skips (a space, tab, `\n`, `\r`: not a
+/// no-break space, which is part of the string).
 fn strip_line_breaks(text: &str) -> String {
   let bytes = text.as_bytes();
   let mut out = String::with_capacity(text.len());
@@ -323,7 +324,11 @@ fn strip_line_breaks(text: &str) -> String {
       let run = text[..=i].bytes().rev().take_while(|&b| b == b'\\').count();
       if run % 2 == 1 && i + 1 > run {
         i += 1;
-        while let Some(c) = text[i..].chars().next().filter(|c| c.is_whitespace()) {
+        while let Some(c) = text[i..]
+          .chars()
+          .next()
+          .filter(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
+        {
           i += c.len_utf8();
         }
         continue;

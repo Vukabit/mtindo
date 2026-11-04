@@ -199,6 +199,10 @@ impl<'a> Parser<'a> {
         None => return self.error("expected a key, found the end of the document"),
       };
       parts.push((part, start));
+      // Each part is a table inside the one before: as deep as values may nest, no more.
+      if parts.len() > MAX_DEPTH {
+        return self.error(format!("a key of more than {} parts", MAX_DEPTH));
+      }
       self.skip_ws();
       if !self.eat('.') {
         return Ok(parts);

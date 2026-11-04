@@ -213,7 +213,9 @@ fn canonical<'a>(
 }
 
 /// string-continuation: a `\` ending a line inside a string, the line break and the next
-/// line's leading whitespace are not part of the string, so they are dropped here.
+/// line's leading whitespace are not part of the string, so they are dropped here. Only
+/// ASCII whitespace is, as rustc skips it (a space, tab, `\n`, `\r`): a no-break space there
+/// is part of the string.
 fn continued(text: &str) -> String {
   let mut out = String::with_capacity(text.len());
   let mut chars = text.chars().peekable();
@@ -224,7 +226,10 @@ fn continued(text: &str) -> String {
     }
     match chars.peek() {
       Some('\n') | Some('\r') => {
-        while chars.peek().is_some_and(|c| c.is_whitespace()) {
+        while chars
+          .peek()
+          .is_some_and(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
+        {
           chars.next();
         }
       }

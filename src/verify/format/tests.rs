@@ -128,6 +128,11 @@ fn test_changes_of_meaning_are_caught() {
   changed("use a::b;\nuse a::c;\n", "use a::b;\n");
   // Whitespace inside a string without a continuation is part of it.
   changed("fn f() { g(\"a  b\"); }\n", "fn f() { g(\"a b\"); }\n");
+  // After a continuation only ASCII whitespace is skipped: a no-break space stays.
+  changed(
+    "fn f() { g(\"a\\\n\u{a0}b\"); }\n",
+    "fn f() { g(\"ab\"); }\n",
+  );
   // A `loop` yielding a value through `break` keeps the meaning of its `;`.
   changed(
     "fn f() { loop { break 5 }; }\n",

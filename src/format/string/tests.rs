@@ -16,6 +16,15 @@ fn literal(text: &str, width: usize, indent: &str) -> Option<String> {
   rewrite_string(text, &fmt, width.saturating_sub(2))
 }
 
+/// After a `\` ending a line, rustc skips only ASCII whitespace: a no-break space starting
+/// the next line is part of the string, and must survive the join (bug hunt, 2026-11-04).
+#[test]
+fn test_a_continuation_keeps_non_ascii_whitespace() {
+  let text = "one\\\n\u{a0}two";
+  assert_eq!(super::strip_line_breaks(text), "one\u{a0}two");
+  assert_eq!(super::strip_line_breaks("one\\\n \ttwo"), "onetwo");
+}
+
 /// A string literal breaks at the last space before the width, keeping the space before
 /// its `\`; one that fits, and one written with continuations that fits once joined, is
 /// written on one line.

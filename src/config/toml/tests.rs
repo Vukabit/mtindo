@@ -40,6 +40,15 @@ fn test_datetimes() {
 fn test_deep_nesting_is_refused_not_overflowed() {
   let deep = format!("a = {}{}\n", "[".repeat(10_000), "]".repeat(10_000));
   assert!(err(&deep).message.contains("nested more than"));
+  // A dotted key or a header of as many parts nests tables as deep: refused alike, never
+  // a stack overflow (bug hunt, 2026-11-04).
+  let parts = vec!["a"; 400_000].join(".");
+  assert!(
+    err(&format!("{} = 1\n", parts))
+      .message
+      .contains("more than")
+  );
+  assert!(err(&format!("[{}]\n", parts)).message.contains("more than"));
   let tables = format!("a = {}{}\n", "{ b = ".repeat(5_000), "}".repeat(5_000));
   assert!(parse(&tables).is_err());
 }

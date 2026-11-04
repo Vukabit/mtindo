@@ -6,8 +6,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
-use crate::history::git::{repository_of, status};
+use crate::history::git::{on_disk, repository_of, status};
 
 /// Whether a file goes on.
 #[derive(Debug, PartialEq, Eq)]
@@ -26,8 +27,11 @@ struct Answer {
   picked: HashSet<PathBuf>,
   /// `--staged`: files with changes not staged as well, left alone.
   unstaged: HashSet<PathBuf>,
-  /// `--tracked`: the files git tracks.
+  /// `--tracked`: the files git tracks, as git spells them.
   tracked: HashSet<PathBuf>,
+  /// The same, as the file system names them: resolved only when a file is not found under
+  /// git's spelling, as there may be many.
+  tracked_on_disk: OnceLock<HashSet<PathBuf>>,
 }
 
 /// What the run asks git for.
@@ -118,7 +122,14 @@ impl Selection {
     let Some(answer) = answer else {
       return Keep::No;
     };
-    if self.ask.tracked && walked && !answer.tracked.contains(real) {
+    if self.ask.tracked
+      && walked
+      && !answer.tracked.contains(real)
+      && !answer
+        .tracked_on_disk
+        .get_or_init(|| answer.tracked.iter().cloned().map(on_disk).collect())
+        .contains(real)
+    {
       return Keep::No;
     }
     if !self.ask.narrows() {
@@ -158,6 +169,7 @@ pub fn repository_folder(here: &Path) -> Option<PathBuf> {
 
 /// What the repository at `root` answers for `ask`.
 fn answer(ask: &Ask, root: &Path) -> Result<Answer, String> {
+  // As git spells them; `named` resolves each as the file system names it.
   let listed = |args: &[&str]| -> Result<HashSet<PathBuf>, String> {
     Ok(
       git(root, args)?
@@ -166,6 +178,9 @@ fn answer(ask: &Ask, root: &Path) -> Result<Answer, String> {
         .map(|p| root.join(p))
         .collect(),
     )
+  };
+  let named = |args: &[&str]| -> Result<HashSet<PathBuf>, String> {
+    Ok(listed(args)?.into_iter().map(on_disk).collect())
   };
   let mut answer = Answer::default();
   let base = match &ask.since {
@@ -187,14 +202,14 @@ fn answer(ask: &Ask, root: &Path) -> Result<Answer, String> {
     if let Some(base) = &base {
       args.push(base);
     }
-    answer.picked = listed(&args)?;
-    answer.unstaged = listed(&["diff", "--name-only", "-z"])?
+    answer.picked = named(&args)?;
+    answer.unstaged = named(&["diff", "--name-only", "-z"])?
       .intersection(&answer.picked)
       .cloned()
       .collect();
   } else if let Some(base) = &base {
-    answer.picked = listed(&["diff", "--name-only", "-z", "--diff-filter=ACMR", base])?;
-    answer.picked.extend(listed(&[
+    answer.picked = named(&["diff", "--name-only", "-z", "--diff-filter=ACMR", base])?;
+    answer.picked.extend(named(&[
       "ls-files",
       "--others",
       "--exclude-standard",

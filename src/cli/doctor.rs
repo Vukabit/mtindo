@@ -133,6 +133,25 @@ impl Settings {
     self.project.as_ref().filter(|p| !p.trusted)
   }
 
+  /// Whether a doctor command may build the project: only with the guard on and, when the
+  /// project names its command, that command trusted, as a guarded run would. Building runs
+  /// the project's code (its build scripts), so a command that looks read-only never does
+  /// it unasked. Why not, otherwise.
+  pub fn builds(&self) -> Result<(), String> {
+    if !self.enabled {
+      return Err("the build guard is off, so no build runs (`mto doctor on` turns it on)".into());
+    }
+    if let Some(project) = self.untrusted() {
+      return Err(format!(
+        "this project asks to build with `{}` ({}), which is not trusted here, so no build \
+         runs (`mto doctor trust` allows it)",
+        project.words.join(" "),
+        project.set_in
+      ));
+    }
+    Ok(())
+  }
+
   /// Trusts the project's command, word for word, for its project: it may run from now on,
   /// until it changes.
   pub fn trust(&self) -> Result<String, String> {
@@ -215,6 +234,10 @@ pub fn keep(settings: &Settings, resolver: &mut Resolver, which: &str, here: &Pa
   };
   if picked.is_empty() {
     return "No edits are held back.\n".into();
+  }
+  // Keeping one is confirmed by building with it moved, twice.
+  if let Err(why) = settings.builds() {
+    return format!("nothing was kept: {}\n", why);
   }
   let check = settings.guard(here, None, true).check;
   let mut out = String::new();
@@ -301,6 +324,9 @@ pub fn prune_reports(history: &History) -> io::Result<(usize, u64)> {
 pub fn recheck(settings: &Settings, resolver: &mut Resolver, here: &Path) -> String {
   let root = crate::cli::history::project_root(here);
   let check = settings.guard(here, None, true).check;
+  // Whether a hold is still needed is told by building without it, when building is
+  // allowed; one nothing would move without needs no build.
+  let builds = settings.builds();
   let opts = crate::RunOptions::default();
   let jobs = match crate::collect_jobs(std::slice::from_ref(&root), resolver, &opts) {
     Ok(collected) => collected.jobs,
@@ -331,6 +357,14 @@ pub fn recheck(settings: &Settings, resolver: &mut Resolver, here: &Path) -> Str
         Ok(free) if free.moves.is_empty() => {
           "no longer needed: without it nothing would move".to_string()
         }
+        Ok(_) if builds.is_err() => format!(
+          "cannot tell: {}",
+          builds
+            .as_ref()
+            .err()
+            .map(String::as_str)
+            .unwrap_or_default()
+        ),
         Ok(free) => match try_twice(&path, &source, &free.text, &check) {
           Ok(true) => "still needed: the build fails with the item moved".to_string(),
           Ok(false) => "likely no longer needed: the build passed with the item moved".to_string(),

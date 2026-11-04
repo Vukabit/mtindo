@@ -1363,6 +1363,16 @@ fn test_cli_doctor_keep_writes_a_confirmed_hold_into_the_file() {
   let (_, out, _) = mto(&env, &["doctor", "recheck"]);
   assert!(out.contains("likely no longer needed"), "{}", out);
   assert_eq!(env.read_file("src/lib.rs"), kept);
+  // With the guard off, neither builds: building runs the project's code (bug hunt,
+  // 2026-11-04).
+  assert_eq!(mto(&env, &["doctor", "off"]).0, 0);
+  let (code, out, _) = mto(&env, &["doctor", "recheck"]);
+  assert_eq!(code, 0, "{}", out);
+  assert!(
+    out.contains("cannot tell: the build guard is off, so no build runs"),
+    "{}",
+    out
+  );
 }
 
 /// Out of checks (`doctor.max_checks`), every changed file is held back whole: the files are
@@ -2578,6 +2588,16 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
     "{}",
     out
   );
+  // A Rust file git pairs as renamed into an mto.toml is gone, not a change of settings.
+  env.git(".", &["mv", "src/lib.rs", "src/mto.toml"]);
+  env.git(".", &["commit", "-qm", "hidden"]);
+  let (code, out, _) = mto(&env, &["verify", "HEAD"]);
+  assert_eq!(code, 1, "{}", out);
+  assert!(
+    out.contains("src/mto.toml  NOT SAFE: renamed from src/lib.rs"),
+    "{}",
+    out
+  );
   // Every commit the blame list names: a typo among them is not verified.
   env.write_file(
     ".git-blame-ignore-revs",
@@ -2604,6 +2624,23 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
   let (code, out, _) = mto(&env, &["verify", "--ignored-revs", "--json"]);
   assert_eq!(code, 0, "{}", out);
   assert!(out.contains("\"kind\":\"verify_list\""), "{}", out);
+  // git blame reads every file blame.ignoreRevsFile names, so verify does too.
+  env.write_file("more-revs", "nowhere\n");
+  env.git(
+    ".",
+    &["config", "blame.ignoreRevsFile", ".git-blame-ignore-revs"],
+  );
+  env.git(
+    ".",
+    &["config", "--add", "blame.ignoreRevsFile", "more-revs"],
+  );
+  let (code, out, said) = mto(&env, &["verify", "--ignored-revs"]);
+  assert_eq!(code, 1, "{}{}", out, said);
+  assert!(
+    said.contains("no commit is named `nowhere` here"),
+    "{}",
+    said
+  );
   // An error is JSON too, with --json.
   let (code, out, _) = mto(&env, &["verify", "nowhere", "--json"]);
   assert_eq!(code, 2, "{}", out);

@@ -647,6 +647,15 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Print the formatting settings as the standard formatter prints them, and exit",
   },
   FlagSpec {
+    flag: Flag::Strict,
+    group: Group::Configuration,
+    short: None,
+    long: "--strict",
+    value: "",
+    values: &[],
+    help: "Make a configuration warning an error (exit code 2), for CI",
+  },
+  FlagSpec {
     flag: Flag::StyleEdition,
     group: Group::Configuration,
     short: None,
@@ -994,6 +1003,7 @@ pub enum Flag {
   WithFile,
   All,
   Toml,
+  Strict,
   StyleEdition,
   Under,
   User,

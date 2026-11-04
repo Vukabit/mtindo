@@ -259,6 +259,7 @@ mto     flag:--recursive                                 supported    # tests/do
 mto     flag:--runs                                      supported    # tests/domain_8_cli.rs
 mto     flag:--skip-children                             supported    # tests/domain_8_cli.rs
 mto     flag:--stdin-filepath                            supported    # tests/domain_8_cli.rs
+mto     flag:--strict                                    supported    # tests/domain_8_cli.rs
 mto     flag:--style-edition                             supported    # tests/domain_8_cli.rs
 mto     flag:--toml                                      supported    # src/cli/options/tests.rs, tests/domain_8_cli.rs
 mto     flag:--under                                     supported    # tests/domain_8_cli.rs

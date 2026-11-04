@@ -714,6 +714,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
           return usage_error(&format!("{} only goes with `mto config print`", spec.long));
         }
         Flag::NoHistory => opts.no_history = true,
+        Flag::Strict => overrides.strict = true,
         Flag::NoReport => opts.no_report = true,
         Flag::AllowDirty => opts.allow_dirty = true,
         Flag::Unguarded => opts.unguarded = true,

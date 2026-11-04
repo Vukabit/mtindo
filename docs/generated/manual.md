@@ -104,6 +104,7 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     other.
 *   `--edition <YEAR>`: The Rust edition, over Cargo.toml and configuration
     files.
+*   `--strict`: Make a configuration warning an error (exit code 2), for CI.
 *   `--style-edition <YEAR>`: The style edition, which decides the defaults.
 *   `--unstable-features`: Accepted for compatibility; mto applies every setting
     on every channel.

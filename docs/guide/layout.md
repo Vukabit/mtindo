@@ -164,15 +164,20 @@ Some items depend on their position in the file. `mto` keeps them in place:
 ## Adopting layout in an existing project
 
 Laying out a whole project once moves many items. Do it in a commit of its
-own, and add that commit to `.git-blame-ignore-revs` so `git blame` looks past
-it:
+own, holding nothing but what mto wrote, and add that commit to
+`.git-blame-ignore-revs` so `git blame` looks past it. Start from a clean tree:
+anything else in the commit would be hidden from `git blame` too.
 
 ```bash
+git status --porcelain   # prints nothing on a clean tree; commit or stash first
 mto init
-mto .
-git add mto.toml
-git commit -am "Lay out every file with mto"
+mto -l . > laid-out.txt  # names each file mto writes
+git add mto.toml $(cat laid-out.txt)
+rm laid-out.txt
+git commit -m "Lay out every file with mto"
 git rev-parse HEAD >> .git-blame-ignore-revs
+git add .git-blame-ignore-revs
+git commit -m "Ignore the layout commit in git blame"
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 

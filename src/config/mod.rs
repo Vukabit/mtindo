@@ -532,6 +532,8 @@ pub struct Overrides {
   pub edition: Option<String>,
   /// `--style-edition`.
   pub style_edition: Option<String>,
+  /// `--strict`: a configuration warning stops the run, as an error.
+  pub strict: bool,
 }
 
 /// Finds and merges configuration for folders, reading each file once and printing each
@@ -549,6 +551,8 @@ pub struct Resolver {
   manifests: cargo::Manifests,
   warnings: Vec<String>,
   warned: HashSet<String>,
+  /// `--strict`: warnings are errors.
+  strict: bool,
 }
 
 impl Resolver {
@@ -566,6 +570,7 @@ impl Resolver {
       manifests: cargo::Manifests::default(),
       warnings: Vec::new(),
       warned: HashSet::new(),
+      strict: overrides.strict,
     };
     let mut settings: Vec<(&str, &str, &str)> = overrides
       .settings
@@ -613,6 +618,7 @@ impl Resolver {
     {
       resolver.user = Some(resolver.load(&path, FileKind::User)?);
     }
+    resolver.strictly()?;
     Ok(resolver)
   }
 
@@ -628,6 +634,7 @@ impl Resolver {
       return Ok(Rc::clone(config));
     }
     let config = Rc::new(self.resolve(&dir)?);
+    self.strictly()?;
     self.configs.insert(dir, Rc::clone(&config));
     Ok(config)
   }
@@ -1012,6 +1019,21 @@ impl Resolver {
       .into_iter()
       .flatten()
       .find_map(|folder| self.folder(&folder).standard)
+  }
+
+  /// Under `--strict`, the warnings so far as an error.
+  fn strictly(&mut self) -> Result<(), Error> {
+    if !self.strict || self.warnings.is_empty() {
+      return Ok(());
+    }
+    let warnings: Vec<String> = std::mem::take(&mut self.warnings)
+      .iter()
+      .map(|w| w.trim_end_matches("; ignored").to_string())
+      .collect();
+    Err(Error::new(format!(
+      "{} (--strict makes a configuration warning an error)",
+      warnings.join("; ")
+    )))
   }
 
   fn warn(&mut self, warning: String) {

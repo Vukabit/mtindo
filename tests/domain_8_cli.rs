@@ -2742,6 +2742,25 @@ fn test_reports_are_pruned_by_folder_and_removed_by_id() {
   assert!(listed.starts_with("no bug reports"), "{}", listed);
 }
 
+/// `--strict`: a configuration warning, such as a mistyped key, is an error with exit
+/// code 2, so it cannot pass a CI check unnoticed.
+#[test]
+fn test_strict_makes_a_configuration_warning_an_error() {
+  let env = TestEnvironment::new();
+  env.write_file("mto.toml", "layout = true\nkeep_paragraph = true\n");
+  env.write_file("a.rs", "fn a() {}\n");
+  let (code, _, said) = mto(&env, &["--no-history", "--check", "a.rs"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(said.contains("unknown key `keep_paragraph`"), "{}", said);
+  let (code, _, said) = mto(&env, &["--no-history", "--check", "--strict", "a.rs"]);
+  assert_eq!(code, 2, "{}", said);
+  assert!(
+    said.contains("--strict makes a configuration warning an error"),
+    "{}",
+    said
+  );
+}
+
 /// The command-line guide lists every top-level flag with its values, every command,
 /// and the exit codes.
 #[test]

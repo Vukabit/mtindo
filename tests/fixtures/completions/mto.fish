@@ -185,6 +185,7 @@ complete -c mto -n '__mto_at - -' -l config -x -a '(__mto_settings)' -d 'Set set
 complete -c mto -n '__mto_at - -' -l config-path -r -F -d 'Use only this configuration file; search for no other'
 complete -c mto -n '__mto_at - -' -l edition -x -a '2015 2018 2021 2024' -d 'The Rust edition, over Cargo.toml and configuration files'
 complete -c mto -n '__mto_at - -' -l print-config -x -a 'default minimal current' -d 'Print the formatting settings as the standard formatter prints them, and exit'
+complete -c mto -n '__mto_at - -' -l strict -d 'Make a configuration warning an error (exit code 2), for CI'
 complete -c mto -n '__mto_at - -' -l style-edition -x -a '2015 2018 2021 2024 2027' -d 'The style edition, which decides the defaults'
 complete -c mto -n '__mto_at - -' -l unstable-features -d 'Accepted for compatibility; mto applies every setting on every channel'
 complete -c mto -n '__mto_at - -' -l allow-dirty -d 'With history off, rewrite files that have uncommitted changes'

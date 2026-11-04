@@ -7,7 +7,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # The flags that may come before any command (''), after a command, and after a
     # subcommand.
     $flags = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
+    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--strict', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
     $flags['init'] = @('-h', '--help')
     $flags['config'] = @('-h', '--help')
     $flags['config path'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
@@ -57,6 +57,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--config-path'] = 'Use only this configuration file; search for no other'
     $help['--edition'] = 'The Rust edition, over Cargo.toml and configuration files'
     $help['--print-config'] = 'Print the formatting settings as the standard formatter prints them, and exit'
+    $help['--strict'] = 'Make a configuration warning an error (exit code 2), for CI'
     $help['--style-edition'] = 'The style edition, which decides the defaults'
     $help['--unstable-features'] = 'Accepted for compatibility; mto applies every setting on every channel'
     $help['--allow-dirty'] = 'With history off, rewrite files that have uncommitted changes'

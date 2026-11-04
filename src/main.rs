@@ -335,10 +335,57 @@ fn debug_input(
 
 /// Prints the JSON report and the summary for a run, and returns its exit code.
 fn finish(done: &[Done], opts: &RunOptions) -> i32 {
-  let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
+  finish_after(done, opts, 0)
+}
+
+/// [`finish`] for a run whose other steps (the build guard) gave exit code `after`: the code
+/// returned, and the one the JSON summary states, is the higher.
+fn finish_after(done: &[Done], opts: &RunOptions, after: i32) -> i32 {
   if mtindo::json_messages() {
-    return finish_json(done, opts);
+    return finish_json(done, opts, after);
   }
+  finish_text(done, opts).max(after)
+}
+
+/// [`finish`] under `--message-format json`: the closing summary line, and the same exit
+/// code a human run gives.
+fn finish_json(done: &[Done], opts: &RunOptions, after: i32) -> i32 {
+  use mtindo::text::json::Json;
+  let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
+  let changed = count(Outcome::Changed);
+  let code = if count(Outcome::VerifierFailed) > 0 {
+    4
+  } else if count(Outcome::Failed) + count(Outcome::SyntaxError) + count(Outcome::Dirty) > 0 {
+    3
+  } else if opts.check && changed > 0 {
+    1
+  } else {
+    0
+  }
+  .max(after);
+  let mut summary = Json::output("summary")
+    .with("files", done.len())
+    .with("check", opts.check);
+  for outcome in [
+    Outcome::Changed,
+    Outcome::Unchanged,
+    Outcome::LayoutOff,
+    Outcome::Skipped,
+    Outcome::SyntaxError,
+    Outcome::Failed,
+    Outcome::VerifierFailed,
+    Outcome::Dirty,
+    Outcome::Held,
+  ] {
+    summary = summary.with(outcome.id(), count(outcome));
+  }
+  outln!("{}", summary.with("exit", code as i64).text());
+  code
+}
+
+/// [`finish`] for people: what the run did, said on stderr, and its exit code.
+fn finish_text(done: &[Done], opts: &RunOptions) -> i32 {
+  let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
   if opts.emit == Emit::Json {
     let entries: Vec<&str> = done.iter().filter_map(|d| d.json.as_deref()).collect();
     outln!("[{}]", entries.join(","));
@@ -434,40 +481,6 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   0
 }
 
-/// [`finish`] under `--message-format json`: the closing summary line, and the same exit
-/// code a human run gives.
-fn finish_json(done: &[Done], opts: &RunOptions) -> i32 {
-  use mtindo::text::json::Json;
-  let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
-  let changed = count(Outcome::Changed);
-  let code = if count(Outcome::VerifierFailed) > 0 {
-    4
-  } else if count(Outcome::Failed) + count(Outcome::SyntaxError) + count(Outcome::Dirty) > 0 {
-    3
-  } else if opts.check && changed > 0 {
-    1
-  } else {
-    0
-  };
-  let mut summary = Json::output("summary")
-    .with("files", done.len())
-    .with("check", opts.check);
-  for outcome in [
-    Outcome::Changed,
-    Outcome::Unchanged,
-    Outcome::LayoutOff,
-    Outcome::Skipped,
-    Outcome::SyntaxError,
-    Outcome::Failed,
-    Outcome::VerifierFailed,
-    Outcome::Dirty,
-  ] {
-    summary = summary.with(outcome.id(), count(outcome));
-  }
-  outln!("{}", summary.with("exit", code as i64).text());
-  code
-}
-
 /// A flag's line in a help page: `  -q, --quiet   Print ...`, the short form first.
 fn flag_row(p: &HelpPalette, spec: &FlagSpec) -> String {
   let short = spec
@@ -488,15 +501,16 @@ fn flag_row(p: &HelpPalette, spec: &FlagSpec) -> String {
 /// The user's history settings, and the history folder (which is read even with history
 /// off, so earlier runs can still be restored).
 fn history_store() -> Result<(history::Settings, mtindo::history::History), i32> {
-  let resolver = resolver(&Overrides::default()).map_err(|e| report_error(&e))?;
-  let settings =
-    history::Settings::read(&resolver, false).map_err(|e| report_error(&MtoError::Usage(e)))?;
+  history_store_or().map_err(|e| report_error(&e))
+}
+
+/// [`history_store`], with the error not yet reported.
+fn history_store_or() -> Result<(history::Settings, mtindo::history::History), MtoError> {
+  let resolver = resolver(&Overrides::default())?;
+  let settings = history::Settings::read(&resolver, false).map_err(MtoError::Usage)?;
   mtindo::durable::set_mode(settings.sync);
-  let dir = config::user::history_dir(resolver.env()).ok_or_else(|| {
-    report_error(&MtoError::Usage(
-      "there is no history: no home folder to keep it in".into(),
-    ))
-  })?;
+  let dir = config::user::history_dir(resolver.env())
+    .ok_or_else(|| MtoError::Usage("there is no history: no home folder to keep it in".into()))?;
   Ok((settings, mtindo::history::History::new(dir)))
 }
 
@@ -883,18 +897,11 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   if recursive && paths.is_empty() {
     paths.push(PathBuf::from("."));
   }
-  // Asking git with no path takes the whole repository.
+  // Asking git with no path takes the whole repository; outside one, the run says so (as
+  // JSON too, with --message-format json).
   if git.any() && paths.is_empty() {
     let here = env::current_dir().unwrap_or_default();
-    match mtindo::cli::git_files::repository_folder(&here) {
-      Some(folder) => paths.push(folder),
-      None => {
-        return usage_error(
-          "not in a git repository: --changed, --staged, --since and --tracked ask git which \
-           files to take",
-        );
-      }
-    }
+    paths.push(mtindo::cli::git_files::repository_folder(&here).unwrap_or_else(|| ".".into()));
   }
   if paths.is_empty() {
     return usage_error(
@@ -2691,11 +2698,15 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
     }
   }
   if let Some((guard, before)) = guarded {
+    // What each planned file held, to tell after the guard which it left as they were.
+    let mut sources: Vec<(usize, PathBuf, String)> = Vec::new();
     let planned: Vec<Planned> = jobs
       .iter()
       .zip(done.iter_mut())
-      .filter_map(|((path, settings), finished)| {
+      .enumerate()
+      .filter_map(|(at, ((path, settings), finished))| {
         let (source, text) = finished.planned.take()?;
+        sources.push((at, path.clone(), source.clone()));
         let absolute = std::path::absolute(path).unwrap_or_else(|_| path.clone());
         Some(Planned {
           held: writes
@@ -2725,17 +2736,44 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       Ended::NotMto => code_after = 5,
       Ended::CannotGuard => code_after = 6,
     }
+    // A file still as it was is one the guard held back, not one the run formatted; its
+    // JSON line, held until now, says which.
+    for (at, path, source) in sources {
+      if std::fs::read_to_string(&path).is_ok_and(|now| now == source) {
+        done[at].outcome = Outcome::Held;
+      }
+      if mtindo::json_messages() {
+        outln!(
+          "{}",
+          mtindo::file_event(&path.display().to_string(), done[at].outcome)
+        );
+      }
+    }
   }
   if let Some(recorder) = writes.recorder.as_mut() {
     history::finish_record(recorder, settings.limits, opts.quiet);
   }
-  finish(&done, opts).max(code_after).max(unstaged_after)
+  finish_after(&done, opts, code_after.max(unstaged_after))
 }
 
 fn run_history(view: HistoryView, json: bool) -> i32 {
-  let (settings, store) = match history_store() {
+  // With --json an error is JSON too, so a tool reading stdout sees it.
+  let failed = |why: String| -> i32 {
+    if json {
+      outln!(
+        "{}",
+        mtindo::text::json::Json::output("history")
+          .with("error", why.as_str())
+          .text()
+      );
+      2
+    } else {
+      report_error(&MtoError::Usage(why))
+    }
+  };
+  let (settings, store) = match history_store_or() {
     Ok(found) => found,
-    Err(code) => return code,
+    Err(e) => return failed(e.to_string()),
   };
   let result = match view {
     HistoryView::List(_) if json => history::list_json(&store).map(|j| format!("{}\n", j.text())),
@@ -2754,7 +2792,7 @@ fn run_history(view: HistoryView, json: bool) -> i32 {
       out!("{}", text);
       0
     }
-    Err(e) => report_error(&MtoError::Usage(e)),
+    Err(e) => failed(e),
   }
 }
 
@@ -2958,7 +2996,8 @@ fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) 
 
 /// `mto verify REV`: each Rust file the commit changed, reproduced or at least safe.
 fn run_verify(rev: &str, json: bool) -> i32 {
-  let (code, entry) = verify_commit(rev, json, mtindo::text::json::Json::output("verify"));
+  let base = mtindo::text::json::Json::output("verify").with("rev", rev);
+  let (code, entry) = verify_commit(rev, json, base);
   if json {
     outln!("{}", entry.text());
   }
@@ -3133,13 +3172,7 @@ fn verify_commit(
     if !json {
       report_error(&MtoError::Usage(why.clone()));
     }
-    (
-      2,
-      base
-        .with("rev", rev)
-        .with("verified", false)
-        .with("error", why.as_str()),
-    )
+    (2, base.with("verified", false).with("error", why.as_str()))
   };
   let mut resolver = match resolver(&Overrides::default()) {
     Ok(resolver) => resolver,

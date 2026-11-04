@@ -419,6 +419,16 @@ impl Recorder {
       .write_all(line.as_bytes())
   }
 
+  /// Removes the record: for a run that, in the end, changed no file (each holds what it
+  /// held before), which there is nothing to undo of and no reason to keep.
+  pub fn discard(&mut self) -> io::Result<()> {
+    if self.file.take().is_some() {
+      fs::remove_file(self.history.run_path(&self.id))?;
+    }
+    self.paths.clear();
+    Ok(())
+  }
+
   /// Syncs the record. `true` when anything was recorded.
   pub fn finish(&mut self) -> io::Result<bool> {
     match &self.file {

@@ -121,6 +121,24 @@ pub fn finish_record(recorder: &mut history::Recorder, limits: Limits, quiet: bo
       return;
     }
   }
+  // Each file recorded before it is written: one the write failed for, or the build guard
+  // put back, holds what it held before. A run that in the end changed nothing has nothing
+  // to undo; kept, it would only push real runs out and offer a restore of nothing.
+  let changed_nothing = recorder
+    .history()
+    .read(recorder.id())
+    .is_ok_and(|run| run.entries.iter().all(|e| Run::state(e) == State::AsBefore));
+  if changed_nothing {
+    if let Err(e) = recorder.discard() {
+      errln!(
+        "{}warning: cannot remove the record of a run that changed nothing: {}{}",
+        c_yellow(true),
+        e,
+        c_reset(true)
+      );
+    }
+    return;
+  }
   if !quiet {
     let ids = recorder.history().ids().unwrap_or_default();
     let handle = id::handle(recorder.id(), &ids);

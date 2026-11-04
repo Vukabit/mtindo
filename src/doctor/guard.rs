@@ -74,14 +74,15 @@ pub fn finish(
       (None, Some(error)) => error.clone(),
       (None, None) => "it fails without an error the compiler's way".to_string(),
     };
-    errln!(
-      "{}doctor: `{}` already fails before mto changes anything ({}), so it cannot tell \
-       whether this run breaks the build; nothing was written. Fix the build, give the \
-       guard a command that passes (`mto doctor on -- COMMAND`), or pass --unguarded.{}",
-      c_red(),
-      guard.check.line(),
-      why,
-      c_reset(true)
+    tell(
+      "error",
+      &format!(
+        "doctor: `{}` already fails before mto changes anything ({}), so it cannot tell \
+         whether this run breaks the build; nothing was written. Fix the build, give the \
+         guard a command that passes (`mto doctor on -- COMMAND`), or pass --unguarded.",
+        guard.check.line(),
+        why
+      ),
     );
     return Ended::CannotGuard;
   }
@@ -92,7 +93,7 @@ pub fn finish(
     match result {
       Ok(()) => {
         written.push(file.text.clone());
-        if !guard.quiet {
+        if !guard.quiet && !crate::json_messages() {
           outln!(
             "{}Formatted:{} {}",
             c_green(),
@@ -102,7 +103,7 @@ pub fn finish(
         }
       }
       Err(e) => {
-        errln!("{}{}{}", c_red(), e, c_reset(true));
+        tell("error", &e.to_string());
         written.push(file.source.clone());
         ended = Ended::Failed;
       }
@@ -229,12 +230,13 @@ pub fn finish(
   }
   remember(&narrowed, &planned, remembered, &run);
   if let Err(e) = remembered.save() {
-    errln!(
-      "{}warning: cannot keep the holds in {}: {}{}",
-      c_yellow(true),
-      guard.dir.display(),
-      e,
-      c_reset(true)
+    tell(
+      "warning",
+      &format!(
+        "warning: cannot keep the holds in {}: {}",
+        guard.dir.display(),
+        e
+      ),
     );
   }
   note(recorder, "doctor closed");
@@ -409,7 +411,30 @@ fn remember(narrowed: &Narrowed, planned: &[Planned], holds: &mut Holds, run: &s
 
 fn say(guard: &Guard, line: &str) {
   if !guard.quiet {
+    tell("note", line);
+  }
+}
+
+/// A line of the guard's for people on stderr, or under `--message-format json` a message on
+/// stdout, as every other word of a run is there.
+fn tell(level: &'static str, line: &str) {
+  if crate::json_messages() {
+    let message = crate::Message {
+      level,
+      code: "build_guard",
+      at: None,
+      text: line.to_string(),
+    };
+    outln!("{}", crate::json_message(None, &message));
+  } else if level == "note" {
     errln!("{}", line);
+  } else {
+    let color = if level == "error" {
+      c_red()
+    } else {
+      c_yellow(true)
+    };
+    errln!("{}{}{}", color, line, c_reset(true));
   }
 }
 
@@ -532,12 +557,9 @@ fn write_report(
     std::fs::create_dir_all(guard.dir.join("reports")).and_then(|_| std::fs::write(&path, text));
   match saved {
     Ok(()) => say(guard, &format!("report: {}", path.display())),
-    Err(e) => errln!(
-      "{}warning: cannot write the report {}: {}{}",
-      c_yellow(true),
-      path.display(),
-      e,
-      c_reset(true)
+    Err(e) => tell(
+      "warning",
+      &format!("warning: cannot write the report {}: {}", path.display(), e),
     ),
   }
 }

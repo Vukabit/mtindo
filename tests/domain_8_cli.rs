@@ -1507,6 +1507,17 @@ fn test_cli_doctor_writes_nothing_without_a_baseline() {
   );
   assert!(stderr.contains("nothing was written"), "{}", stderr);
   assert_eq!(env.read_file("src/lib.rs"), UNSORTED);
+  // A run that wrote nothing is not recorded, nor offered to restore; as JSON every line
+  // says so, the file `held` and the summary's code the process's (bug hunt, 2026-11-04).
+  assert!(!stderr.contains("Recorded as run"), "{}", stderr);
+  let (_, listed, _) = mto(&env, &["history"]);
+  assert!(!listed.contains("mto ."), "{}", listed);
+  let (code, out, said) = mto(&env, &[".", "--message-format", "json"]);
+  assert_eq!(code, 6, "{}", said);
+  assert!(said.is_empty(), "{}", said);
+  assert!(out.contains("\"code\":\"build_guard\""), "{}", out);
+  assert!(out.contains("\"outcome\":\"held\""), "{}", out);
+  assert!(out.contains("\"exit\":6"), "{}", out);
   let (code, _, stderr) = mto(&env, &["--unguarded", "."]);
   assert_eq!(code, 0, "{}", stderr);
   assert_eq!(env.read_file("src/lib.rs"), SORTED);

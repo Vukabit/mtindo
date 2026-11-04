@@ -133,6 +133,9 @@ pub enum Outcome {
   SyntaxError,
   /// Left untouched by the git guard: it has uncommitted changes and history is off.
   Dirty,
+  /// Left as it was by the build guard: the run's edits to it were held back, or the guard
+  /// could not check them and wrote nothing.
+  Held,
 }
 
 impl Outcome {
@@ -147,6 +150,7 @@ impl Outcome {
       Outcome::LayoutOff => "off",
       Outcome::SyntaxError => "syntax_error",
       Outcome::Dirty => "uncommitted",
+      Outcome::Held => "held",
     }
   }
 }
@@ -207,14 +211,10 @@ pub struct FileReport {
 impl FileReport {
   pub fn print(&self) {
     if json_messages() {
-      use text::json::Json;
-      outln!(
-        "{}",
-        Json::output("file")
-          .with("file", self.file.as_str())
-          .with("outcome", self.outcome.id())
-          .text()
-      );
+      // A file the build guard has yet to check gets its line once it has (`file_event`).
+      if self.planned.is_none() {
+        outln!("{}", file_event(&self.file, self.outcome));
+      }
       for message in &self.messages {
         outln!("{}", json_message(Some(&self.file), message));
       }
@@ -566,6 +566,14 @@ pub fn explain_file(
   Ok(Some((source, notes, formatting)))
 }
 
+/// A file's line under `--message-format json`: what the run did to it.
+pub fn file_event(file: &str, outcome: Outcome) -> String {
+  text::json::Json::output("file")
+    .with("file", file)
+    .with("outcome", outcome.id())
+    .text()
+}
+
 /// The `mto.toml` that `mto init` writes: every mto setting at its default, with its
 /// summary.
 pub fn init_template() -> String {
@@ -646,9 +654,6 @@ pub fn json_messages() -> bool {
   JSON_MESSAGES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// `path` absolute with symlinks resolved, as [`fs::canonicalize`] gives it, but on Windows
-/// without the `\\?\` prefix when the plain path names the same file: mto shows these paths,
-/// and `\\?\C:\src` is not how anyone writes one.
 /// `settings` told which modules the file at `path` (its text `source`) declares whose own
 /// files make them `#[macro_use]` from inside (`#![macro_use]`): neither layout nor import
 /// sorting moves those, as the macros they export are visible only after them.
@@ -849,6 +854,9 @@ pub fn process_stdin(
   Ok(report.with(Outcome::Changed))
 }
 
+/// `path` absolute with symlinks resolved, as [`fs::canonicalize`] gives it, but on Windows
+/// without the `\\?\` prefix when the plain path names the same file: mto shows these paths,
+/// and `\\?\C:\src` is not how anyone writes one.
 pub fn real_path(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
   let real = fs::canonicalize(path)?;
   Ok(if cfg!(windows) {

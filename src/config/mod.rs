@@ -1339,7 +1339,13 @@ fn read(path: &Path, text: &str, kind: FileKind) -> Result<Loaded, Error> {
          yet, so every line is formatted",
         place
       )),
-      Ok(None) => {}
+      // The standard formatter's own working values (`width_heuristics`), which it refuses in
+      // a file: ignored, and said, as any setting mto does not honor is.
+      Ok(None) => loaded.warnings.push(format!(
+        "{}: `{}` is the standard formatter's internal value and cannot be set in a file, \
+         so it is ignored",
+        place, key
+      )),
       Err(message) => return Err(Error::new(format!("{}: {}", place, message))),
     }
   }

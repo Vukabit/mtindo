@@ -1829,6 +1829,53 @@ fn test_cli_man_prints_the_manual() {
   assert!(out.starts_with("# mtindo (mto)\n"), "{}", out);
 }
 
+/// `--message-format json`: one versioned JSON object per line, for each file, each message
+/// (with its line and column when known) and the run's summary, with the usual exit code.
+#[test]
+fn test_cli_message_format_json_streams_files_messages_and_a_summary() {
+  let env = TestEnvironment::new();
+  env.write_file("src/a.rs", "fn  a(){}\n");
+  env.write_file("src/b.rs", "fn a( {\n");
+  let (code, out, said) = mto(
+    &env,
+    &[
+      "--check",
+      "--no-history",
+      "--unguarded",
+      "--message-format",
+      "json",
+      "src",
+    ],
+  );
+  assert_eq!(code, 3, "{}", said);
+  let lines: Vec<&str> = out.lines().collect();
+  assert!(
+    lines
+      .iter()
+      .all(|l| l.starts_with("{\"version\":1,\"kind\":\"")),
+    "{}",
+    out
+  );
+  assert!(
+    out.contains("\"file\":\"src/a.rs\",\"outcome\":\"changed\""),
+    "{}",
+    out
+  );
+  assert!(
+    out.contains("\"level\":\"error\",\"code\":\"syntax\",\"line\":1,\"column\":7"),
+    "{}",
+    out
+  );
+  assert!(
+    lines.last().unwrap().contains("\"kind\":\"summary\""),
+    "{}",
+    out
+  );
+  assert!(lines.last().unwrap().contains("\"exit\":3"), "{}", out);
+  let (code, _, _) = mto(&env, &["--emit", "json", "--message-format", "json", "src"]);
+  assert_eq!(code, 2);
+}
+
 #[test]
 fn test_cli_options_without_a_path_are_an_error() {
   let env = TestEnvironment::new();

@@ -7,7 +7,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # The flags that may come before any command (''), after a command, and after a
     # subcommand.
     $flags = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version')
+    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
     $flags['init'] = @('-h', '--help')
     $flags['config'] = @('-h', '--help')
     $flags['config path'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
@@ -83,6 +83,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--keep'] = 'Keep only the newest N runs'
     $help['--with-file'] = 'Add the whole file the bug was found in'
     $help['--dir'] = 'Use this folder instead of the shell''s own'
+    $help['--message-format'] = 'How the run reports: human (default), or json, one versioned JSON object per line for each file, message and the summary'
     $help['--json'] = 'As JSON, whose shape keeps its version'
     $help['--runs'] = 'How many runs a file goes through (default 2)'
     $help['--diff'] = 'Show what a run changed again, for a file that does not settle'
@@ -122,7 +123,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['completions uninstall'] = 'Remove the script mto wrote'
     $help['completions status'] = 'Say where each shell''s script is, and whether it is current'
     # The flags followed by a value, and what the value completes to.
-    $takesValue = @('--emit', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--color', '--keep', '--dir', '--runs', '--under', '--older-than')
+    $takesValue = @('--emit', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--color', '--keep', '--dir', '--message-format', '--runs', '--under', '--older-than')
     # A flag's values, when they are a fixed set.
     $values = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $values['--emit'] = @('files', 'stdout', 'json')
@@ -130,6 +131,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $values['--print-config'] = @('default', 'minimal', 'current')
     $values['--style-edition'] = @('2015', '2018', '2021', '2024', '2027')
     $values['--color'] = @('always', 'never', 'auto')
+    $values['--message-format'] = @('human', 'json')
     # The flags that take a path.
     $paths = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $paths['--stdin-filepath'] = 'files'

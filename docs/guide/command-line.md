@@ -56,6 +56,9 @@ directory is walked.
   `minimal`).
 * `-q, --quiet`, `-v, --verbose`: Print less, or name each file.
 * `--color always|never|auto`: Color the output.
+* `--message-format human|json`: How the run reports; `json` prints one JSON
+  object per line for each file, message and the summary (see
+  [JSON output](#json-output)).
 * `--unstable-features`: Accepted; each setting mto supports applies on
   every channel.
 * `--stdin-filepath <PATH>`: With `-`, where the source belongs, for its
@@ -156,6 +159,15 @@ prints one JSON object on one line whose first field is `"version"` and second
 `"kind"`. Within a version fields are only added; a field renamed, removed or
 given another meaning raises the version. `--emit json` is separate: it keeps
 the standard formatter's own shape.
+
+`--message-format json` makes a whole run speak JSON Lines, for editors and
+CI: one object per line for each file (`"kind":"file"`, with its outcome), each
+message about it (`"kind":"message"`: level, a short code such as `syntax` or
+`directive`, line and column when known, the text), warnings and errors about
+the run itself, and a closing `"kind":"summary"` with the counts and the exit
+code. Nothing else is printed, and the exit code is the usual one. `cargo mto
+--message-format json` keeps `cargo fmt`'s meaning (`--emit json`); give mto's
+own after `--` (`cargo mto -- --message-format json`).
 
 ## Exit codes
 

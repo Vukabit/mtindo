@@ -45,6 +45,9 @@ pub const STACK: usize = 16 << 20;
 /// shown removed and added whole, a correct diff if not the shortest.
 const MAX_EDITS: isize = 1024;
 
+/// `--message-format json`: every report, warning and error printed as JSON Lines.
+static JSON_MESSAGES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 static UNIQUE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// A file found by the walk, with the settings of its folder; `None` when neither layout nor
@@ -129,6 +132,22 @@ pub enum Outcome {
   Dirty,
 }
 
+impl Outcome {
+  /// The outcome's name in `--message-format json`.
+  pub fn id(self) -> &'static str {
+    match self {
+      Outcome::Unchanged => "as_written",
+      Outcome::Changed => "changed",
+      Outcome::Skipped => "skipped",
+      Outcome::Failed => "failed",
+      Outcome::VerifierFailed => "bug",
+      Outcome::LayoutOff => "off",
+      Outcome::SyntaxError => "syntax_error",
+      Outcome::Dirty => "uncommitted",
+    }
+  }
+}
+
 /// Which check stopped a write: layout's output against the source, a second layout pass
 /// against the formatted text it was given, or formatting's output against what it was
 /// given.
@@ -167,6 +186,10 @@ pub struct Done {
 /// stderr.
 #[derive(Debug, Default)]
 pub struct FileReport {
+  /// The file as the run names it.
+  pub file: String,
+  /// What it says about the file, for `--message-format json`.
+  pub messages: Vec<Message>,
   pub outcome: Outcome,
   pub stdout: String,
   pub stderr: String,
@@ -180,6 +203,20 @@ pub struct FileReport {
 
 impl FileReport {
   pub fn print(&self) {
+    if json_messages() {
+      use text::json::Json;
+      outln!(
+        "{}",
+        Json::output("file")
+          .with("file", self.file.as_str())
+          .with("outcome", self.outcome.id())
+          .text()
+      );
+      for message in &self.messages {
+        outln!("{}", json_message(Some(&self.file), message));
+      }
+      return;
+    }
     if !self.stdout.is_empty() {
       out!("{}", self.stdout);
     }
@@ -188,10 +225,37 @@ impl FileReport {
     }
   }
 
+  /// Notes `text` as a message about the file.
+  fn say(
+    &mut self,
+    level: &'static str,
+    code: &'static str,
+    at: Option<(usize, usize)>,
+    text: &str,
+  ) {
+    self.messages.push(Message {
+      level,
+      code,
+      at,
+      text: text.to_string(),
+    });
+  }
+
   fn with(mut self, outcome: Outcome) -> FileReport {
     self.outcome = outcome;
     self
   }
+}
+
+/// One thing a run says about a file, for `--message-format json`: how bad, a short code
+/// naming the kind (`syntax`, `directive`, `bug`...), where when known, and the text.
+#[derive(Clone, Debug)]
+pub struct Message {
+  pub level: &'static str,
+  pub code: &'static str,
+  /// Line and column, from 1.
+  pub at: Option<(usize, usize)>,
+  pub text: String,
 }
 
 /// One changed region, as the standard formatter's diff groups them.
@@ -541,6 +605,24 @@ pub fn is_stale_temp(path: &Path) -> bool {
       .is_some_and(|age| age >= history::GRACE)
 }
 
+/// One `--message-format json` line: a message about `file` (none for the run itself).
+pub fn json_message(file: Option<&str>, message: &Message) -> String {
+  use text::json::Json;
+  Json::output("message")
+    .with("file", file)
+    .with("level", message.level)
+    .with("code", message.code)
+    .with("line", message.at.map(|(line, _)| line))
+    .with("column", message.at.map(|(_, column)| column))
+    .with("message", message.text.as_str())
+    .text()
+}
+
+/// Whether the run speaks in JSON Lines (`--message-format json`).
+pub fn json_messages() -> bool {
+  JSON_MESSAGES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Reads the layout settings of one file, as `--config-path` does: no other file is searched
 /// for.
 pub fn parse_toml_config(path: &Path) -> Result<LayoutConfig, MtoError> {
@@ -558,7 +640,17 @@ pub fn parse_toml_config(path: &Path) -> Result<LayoutConfig, MtoError> {
 /// Prints the configuration warnings found so far to stderr.
 pub fn print_warnings(resolver: &mut config::Resolver) {
   for warning in resolver.take_warnings() {
-    errln!("{}warning: {}{}", c_yellow(true), warning, c_reset(true));
+    if json_messages() {
+      let message = Message {
+        level: "warning",
+        code: "config",
+        at: None,
+        text: warning,
+      };
+      outln!("{}", json_message(None, &message));
+    } else {
+      errln!("{}warning: {}{}", c_yellow(true), warning, c_reset(true));
+    }
   }
 }
 
@@ -603,7 +695,10 @@ pub fn process_stdin(
   io::stdin()
     .read_to_string(&mut source)
     .map_err(|e| MtoError::Io(format!("cannot read stdin: {}", e)))?;
-  let mut report = FileReport::default();
+  let mut report = FileReport {
+    file: shown.clone(),
+    ..FileReport::default()
+  };
   let colored_as = settings
     .as_ref()
     .map_or(syntax::Edition::DEFAULT, |s| s.edition);
@@ -623,13 +718,18 @@ pub fn process_stdin(
       report
         .stderr
         .push_str(&directive_notes(&shown, &s.directives));
+      for (line, problem) in &s.directives {
+        report.say("warning", "directive", Some((*line, 1)), problem);
+      }
       if let Some(reason) = &s.unlaid {
         report.stderr.push_str(&unlaid_note(&shown, reason));
+        report.say("note", "not_laid_out", None, reason);
       }
       (s.laid_out, s.text, s.edition, s.relaid)
     }),
     Err(bug) => {
       report.stderr = deliver(&bug, reports.as_ref(), opts.no_report);
+      report.say("error", "bug", None, &bug.title());
       return Ok(unchanged(report, Outcome::VerifierFailed));
     }
   };
@@ -645,6 +745,12 @@ pub fn process_stdin(
         reason,
         c_reset(true)
       );
+      if syntax {
+        let (at, said) = syntax_error_at(&source, settings.edition);
+        report.say("error", "syntax", at, &said);
+      } else {
+        report.say("note", "skipped", None, &reason);
+      }
       let outcome = if syntax {
         Outcome::SyntaxError
       } else {
@@ -668,6 +774,7 @@ pub fn process_stdin(
     )
   }) {
     report.stderr = deliver(&bug, reports.as_ref(), opts.no_report);
+    report.say("error", "bug", None, &bug.title());
     return Ok(unchanged(report, Outcome::VerifierFailed));
   }
   if opts.emit == Emit::Json {
@@ -749,8 +856,11 @@ pub fn run_file(
   opts: &RunOptions,
   ctx: WriteContext,
 ) -> FileReport {
-  let mut report = FileReport::default();
   let shown = file_path.display().to_string();
+  let mut report = FileReport {
+    file: shown.clone(),
+    ..FileReport::default()
+  };
   // Layout, formatting and the verifiers parse the same few texts; each is parsed once.
   let _parses = syntax::ParseCache::open();
   let source = match fs::read_to_string(file_path) {
@@ -763,6 +873,7 @@ pub fn run_file(
         e,
         c_reset(true)
       );
+      report.say("error", "read", None, &e.to_string());
       return report.with(Outcome::Failed);
     }
   };
@@ -776,6 +887,7 @@ pub fn run_file(
     Ok(shaped) => shaped,
     Err(bug) => {
       report.stderr = deliver(&bug, ctx.reports, opts.no_report);
+      report.say("error", "bug", None, &bug.title());
       return report.with(Outcome::VerifierFailed);
     }
   };
@@ -795,8 +907,12 @@ pub fn run_file(
       report
         .stderr
         .push_str(&directive_notes(&shown, &directives));
+      for (line, problem) in &directives {
+        report.say("warning", "directive", Some((*line, 1)), problem);
+      }
       if let Some(reason) = &unlaid {
         report.stderr.push_str(&unlaid_note(&shown, reason));
+        report.say("note", "not_laid_out", None, reason);
       }
       // Named as the standard formatter names them: not the files that tell it to skip
       // them.
@@ -822,6 +938,12 @@ pub fn run_file(
         reason,
         c_reset(true)
       );
+      if syntax {
+        let (at, said) = syntax_error_at(&source, settings.edition);
+        report.say("error", "syntax", at, &said);
+      } else {
+        report.say("note", "skipped", None, &reason);
+      }
       let outcome = if syntax {
         Outcome::SyntaxError
       } else {
@@ -851,6 +973,7 @@ pub fn run_file(
     )
   }) {
     report.stderr = deliver(&bug, ctx.reports, opts.no_report);
+    report.say("error", "bug", None, &bug.title());
     return report.with(Outcome::VerifierFailed);
   }
   match opts.emit {
@@ -892,6 +1015,12 @@ pub fn run_file(
         shown,
         c_reset(true)
       );
+      report.say(
+        "warning",
+        "uncommitted",
+        None,
+        "uncommitted changes and history is off: left alone",
+      );
       return report.with(Outcome::Dirty);
     }
   }
@@ -926,6 +1055,7 @@ pub fn run_file(
           e,
           c_reset(true)
         );
+        report.say("error", "write", None, &e.to_string());
         return report.with(Outcome::Failed);
       }
     }
@@ -940,6 +1070,7 @@ pub fn run_file(
         e,
         c_reset(true)
       );
+      report.say("error", "write", None, &e.to_string());
       return report.with(Outcome::Failed);
     }
   }
@@ -951,6 +1082,7 @@ pub fn run_file(
       e,
       c_reset(true)
     );
+    report.say("error", "write", None, &e.to_string());
     return report.with(Outcome::Failed);
   }
   if opts.files_with_diff {
@@ -967,13 +1099,6 @@ pub fn run_file(
     shown
   ));
   report.with(Outcome::Changed)
-}
-
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
 }
 
 /// Runs every job on a pool of threads, printing each report as soon as every report
@@ -995,6 +1120,13 @@ pub fn run_jobs(jobs: &[Job], opts: &RunOptions, writes: &mut Writes) -> Vec<Don
   done
 }
 
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
 /// [`run_jobs`] while `walk` is still finding the jobs: it hands each to the function it is
 /// given, and the workers lay each out as soon as it is found. Once `walk` returns,
 /// `before_results` gets what it returned (to print what the walk noted, before any
@@ -1011,6 +1143,11 @@ pub fn run_jobs_walking<T>(
   before_results: impl FnOnce(&T) -> bool,
 ) -> (Vec<Job>, T, Vec<Done>) {
   walking(opts, writes, usize::MAX, walk, before_results)
+}
+
+/// Turns `--message-format json` on for the whole run.
+pub fn set_json_messages(on: bool) {
+  JSON_MESSAGES.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Lays out and formats `source` as `settings` say, holding back the edits `held` names
@@ -1923,6 +2060,21 @@ fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 /// The note for a file formatted with its items where they are, because layout left it.
+/// Where the first syntax error in `source` is (line and column, from 1) and what it says.
+fn syntax_error_at(source: &str, edition: syntax::Edition) -> (Option<(usize, usize)>, String) {
+  let (_, parsed) = layout::parse_any_edition(source, edition);
+  match parsed.errors().first() {
+    Some(error) => {
+      let start = (error.range.start as usize).min(source.len());
+      let before = &source[..start];
+      let line = before.matches('\n').count() + 1;
+      let column = before.len() - before.rfind('\n').map_or(0, |at| at + 1) + 1;
+      (Some((line, column)), error.message.to_string())
+    }
+    None => (None, layout::SYNTAX_ERRORS.to_string()),
+  }
+}
+
 fn unlaid_note(shown: &str, reason: &str) -> String {
   format!(
     "{}Not laid out {}: {} (formatted all the same){}\n",

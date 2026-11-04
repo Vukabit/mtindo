@@ -120,6 +120,9 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 ### Output (`mto <PATH>... | mto -`)
 *   `--color <always|never|auto>`: Color the output (default: auto, only on a
     terminal).
+*   `--message-format <human|json>`: How the run reports: human (default), or
+    json, one versioned JSON object per line for each file, message and the
+    summary.
 *   `-q, --quiet`: Print only errors and what was asked for.
 *   `-v, --verbose`: Name each file as it is formatted.
 

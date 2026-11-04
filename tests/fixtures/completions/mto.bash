@@ -4,7 +4,7 @@
 # Whether flag $1 is followed by its value.
 _mto_takes_value() {
   case "$1" in
-    --emit|--stdin-filepath|--config|--config-path|--edition|--print-config|--style-edition|--color|--keep|--dir|--runs|--under|--older-than) return 0 ;;
+    --emit|--stdin-filepath|--config|--config-path|--edition|--print-config|--style-edition|--color|--keep|--dir|--message-format|--runs|--under|--older-than) return 0 ;;
   esac
   return 1
 }
@@ -143,13 +143,14 @@ _mto_value() {
     --style-edition) _mto_words "$2" 2015 2018 2021 2024 2027 ;;
     --color) _mto_words "$2" always never auto ;;
     --dir) _mto_paths "$2" "$3" dirs ;;
+    --message-format) _mto_words "$2" human json ;;
   esac
 }
 
 # The flags that may follow command $1 and subcommand $2 (either may be empty).
 _mto_flags() {
   case "$1 $2" in
-    " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --stdin-filepath --config --config-path --edition --print-config --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-report --color -q --quiet -v --verbose -h --help --man -V --version ;;
+    " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --stdin-filepath --config --config-path --edition --print-config --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-report --color -q --quiet -v --verbose -h --help --man -V --version --message-format ;;
     "init ") _mto_words "" -h --help ;;
     "config ") _mto_words "" -h --help ;;
     "config path") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;

@@ -5,8 +5,8 @@
 # arguments followed them (-1 after `--`).
 function __mto_state
     set -l takes_value --emit --stdin-filepath --config --config-path --edition \
-        --print-config --style-edition --color --keep --dir --runs --under \
-        --older-than
+        --print-config --style-edition --color --keep --dir --message-format \
+        --runs --under --older-than
     set -l commands init config history restore doctor report debug completions
     set -l subcommands 'config path' 'config print' 'config options' 'history show' \
         'history prune' 'doctor on' 'doctor off' 'doctor holds' \
@@ -197,6 +197,7 @@ complete -c mto -n '__mto_at - -' -s v -l verbose -d 'Name each file as it is fo
 complete -c mto -n '__mto_at - -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at - -' -l man -d 'Print the full manual'
 complete -c mto -n '__mto_at - -' -s V -l version -d 'Print the version and exit'
+complete -c mto -n '__mto_at - -' -l message-format -x -a 'human json' -d 'How the run reports: human (default), or json, one versioned JSON object per line for each file, message and the summary'
 complete -c mto -n '__mto_at - - 0' -a init -d 'Write a default mto.toml'
 complete -c mto -n '__mto_at - - 0' -a config -d 'Show the configuration that applies in a folder, or every setting'
 complete -c mto -n '__mto_at - - 0' -a history -d 'List, show or prune the runs that wrote files'

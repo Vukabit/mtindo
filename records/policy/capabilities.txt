@@ -247,6 +247,7 @@ mto     flag:--json                                      supported    # tests/do
 mto     flag:--keep                                      supported    # tests/domain_8_cli.rs
 mto     flag:--layout-only                               supported    # tests/domain_8_cli.rs
 mto     flag:--man                                       supported    # tests/domain_8_cli.rs
+mto     flag:--message-format                            supported    # tests/domain_8_cli.rs
 mto     flag:--minimal                                   supported    # tests/domain_8_cli.rs
 mto     flag:--no-history                                supported    # tests/domain_8_cli.rs
 mto     flag:--no-report                                 supported    # tests/domain_8_cli.rs

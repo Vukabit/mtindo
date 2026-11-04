@@ -314,6 +314,9 @@ fn debug_input(
 /// Prints the JSON report and the summary for a run, and returns its exit code.
 fn finish(done: &[Done], opts: &RunOptions) -> i32 {
   let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
+  if mtindo::json_messages() {
+    return finish_json(done, opts);
+  }
   if opts.emit == Emit::Json {
     let entries: Vec<&str> = done.iter().filter_map(|d| d.json.as_deref()).collect();
     outln!("[{}]", entries.join(","));
@@ -407,6 +410,40 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
     }
   }
   0
+}
+
+/// [`finish`] under `--message-format json`: the closing summary line, and the same exit
+/// code a human run gives.
+fn finish_json(done: &[Done], opts: &RunOptions) -> i32 {
+  use mtindo::text::json::Json;
+  let count = |outcome: Outcome| done.iter().filter(|d| d.outcome == outcome).count();
+  let changed = count(Outcome::Changed);
+  let code = if count(Outcome::VerifierFailed) > 0 {
+    4
+  } else if count(Outcome::Failed) + count(Outcome::SyntaxError) + count(Outcome::Dirty) > 0 {
+    3
+  } else if opts.check && changed > 0 {
+    1
+  } else {
+    0
+  };
+  let mut summary = Json::output("summary")
+    .with("files", done.len())
+    .with("check", opts.check);
+  for outcome in [
+    Outcome::Changed,
+    Outcome::Unchanged,
+    Outcome::LayoutOff,
+    Outcome::Skipped,
+    Outcome::SyntaxError,
+    Outcome::Failed,
+    Outcome::VerifierFailed,
+    Outcome::Dirty,
+  ] {
+    summary = summary.with(outcome.id(), count(outcome));
+  }
+  outln!("{}", summary.with("exit", code as i64).text());
+  code
 }
 
 /// A flag's line in a help page: `  -q, --quiet   Print ...`, the short form first.
@@ -710,6 +747,14 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
         Flag::Runs | Flag::Diff | Flag::LayoutOnly => {
           return usage_error(&format!("{} only goes with `mto debug settle`", spec.long));
         }
+        Flag::MessageFormat => {
+          let json = match choice(spec, value(&mut i))? {
+            "json" => true,
+            "human" => false,
+            other => unreachable!("--message-format {} has no meaning", other),
+          };
+          mtindo::set_json_messages(json);
+        }
       }
     } else if arg == "-" && !read_stdin {
       read_stdin = true;
@@ -719,6 +764,11 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
       return usage_error(&format!("unexpected argument '{}'", arg));
     }
     i += 1;
+  }
+  if mtindo::json_messages() && opts.emit != Emit::Files {
+    return usage_error(
+      "--message-format json reports on each file; it does not go with --emit stdout or json",
+    );
   }
   // `cargo mto` gives a list of targets too long for a command line in a file.
   if let Some(list) = env::var_os(config::env::PATHS_FILE).filter(|l| !l.is_empty()) {
@@ -1412,7 +1462,17 @@ fn render_help(color: bool) -> String {
 }
 
 fn report_error(error: &MtoError) -> i32 {
-  errln!("{}Error: {}{}", c_red(), error, c_reset(true));
+  if mtindo::json_messages() {
+    let message = mtindo::Message {
+      level: "error",
+      code: "run",
+      at: None,
+      text: error.to_string(),
+    };
+    outln!("{}", mtindo::json_message(None, &message));
+  } else {
+    errln!("{}Error: {}{}", c_red(), error, c_reset(true));
+  }
   error.exit_code()
 }
 
@@ -2402,6 +2462,27 @@ fn usage_error<T>(message: &str) -> Result<T, ()> {
 /// What the walk noted, before any file's report: modules whose files are missing, and
 /// folders passed over.
 fn walk_notes(collected: &mtindo::Collected, opts: &RunOptions) {
+  if mtindo::json_messages() {
+    for problem in &collected.problems {
+      let message = mtindo::Message {
+        level: "warning",
+        code: "module",
+        at: None,
+        text: problem.clone(),
+      };
+      outln!("{}", mtindo::json_message(None, &message));
+    }
+    for nested in &collected.nested {
+      let message = mtindo::Message {
+        level: "note",
+        code: "nested_repository",
+        at: None,
+        text: format!("passed over {}: a repository of its own", nested.display()),
+      };
+      outln!("{}", mtindo::json_message(None, &message));
+    }
+    return;
+  }
   for problem in &collected.problems {
     errln!("{}warning: {}{}", c_yellow(true), problem, c_reset(true));
   }

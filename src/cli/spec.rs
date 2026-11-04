@@ -845,6 +845,16 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Use this folder instead of the shell's own",
   },
   FlagSpec {
+    flag: Flag::MessageFormat,
+    group: Group::Output,
+    short: None,
+    long: "--message-format",
+    value: "",
+    values: &["human", "json"],
+    help: "How the run reports: human (default), or json, one versioned JSON object per \
+           line for each file, message and the summary",
+  },
+  FlagSpec {
     flag: Flag::Json,
     group: Group::Command,
     short: None,
@@ -970,6 +980,7 @@ pub enum Flag {
   Json,
   LayoutOnly,
   Man,
+  MessageFormat,
   Minimal,
   Recursive,
   Runs,

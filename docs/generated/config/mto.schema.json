@@ -361,7 +361,7 @@
       "default": "Preserve"
     },
     "hard_tabs": {
-      "description": "Use tab characters for indentation, spaces for alignment\n\nIn mto: partial. With format = true, indentation uses tabs.",
+      "description": "Use tab characters for indentation, spaces for alignment\n\nIn mto: partial. Laid out as with spaces, indentation in tabs; differs where the standard formatter counts a tab as one column, and in code blocks of doc comments.",
       "type": "boolean",
       "default": false
     },

@@ -74,8 +74,7 @@ pub fn rewrite_closure_tail(
   indent: usize,
   config: &FormatConfig,
 ) -> Option<String> {
-  if config.hard_tabs
-    || config.tab_spaces == 0
+  if config.tab_spaces == 0
     || !(matches!(node.kind(), K::ExprStmt | K::LetStmt) || is_tail(node))
     || node.subtree_has(|kind| {
       matches!(kind, K::LineComment | K::BlockComment | K::Attr) || super::items::is_doc(kind)
@@ -188,8 +187,7 @@ pub fn rewrite_control_head_in(node: &SyntaxNode, shape: Shape) -> Option<Head> 
 /// line up to the block's `{`, which the whole-file pass writes with the block's insides.
 /// `None` for anything else, left to the rest of the formatter.
 pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Head> {
-  if config.hard_tabs || config.tab_spaces == 0 || !matches!(node.kind(), K::ExprStmt | K::LetStmt)
-  {
+  if config.tab_spaces == 0 || !matches!(node.kind(), K::ExprStmt | K::LetStmt) {
     return None;
   }
   let start = header_start(node)?;
@@ -484,7 +482,7 @@ pub fn rewrite_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
 /// the block's `}` on its line (`})`, `}) {` before a control expression's own body, which
 /// that pass writes too). `None` when the layout puts anything else around the block.
 pub fn rewrite_hole_head(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Head> {
-  if config.hard_tabs || config.tab_spaces == 0 {
+  if config.tab_spaces == 0 {
     return None;
   }
   let start = header_start(node).unwrap_or(node.text_range().start as usize);
@@ -1312,8 +1310,7 @@ fn braced(call: &SyntaxNode) -> bool {
 /// Whether the statement holds nothing laying it out would lose or misplace: a comment, a
 /// block, a macro, an attribute, a string spanning lines.
 fn clean(node: &SyntaxNode, config: &FormatConfig) -> bool {
-  // Indentation written with tabs is not laid out yet.
-  if config.hard_tabs || config.tab_spaces == 0 {
+  if config.tab_spaces == 0 {
     return false;
   }
   // From after its attributes and the comments before it, which are laid out on their own.
@@ -1369,7 +1366,7 @@ fn control_head(
   config: &FormatConfig,
   one_line_chains: bool,
 ) -> Option<Head> {
-  if config.hard_tabs || config.tab_spaces == 0 {
+  if config.tab_spaces == 0 {
     return None;
   }
   let children = node.children();

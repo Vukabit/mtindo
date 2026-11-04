@@ -488,7 +488,9 @@ Use tab characters for indentation, spaces for alignment
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
     1.11.0-nightly (nightly channel).
-*   In mto: partial. With format = true, indentation uses tabs.
+*   In mto: partial. Laid out as with spaces, indentation in tabs; differs where
+    the standard formatter counts a tab as one column, and in code blocks of doc
+    comments.
 
 ### `hex_literal_case`
 

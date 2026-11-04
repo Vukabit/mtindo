@@ -44,7 +44,7 @@ option  format_macro_matchers                            missing
 option  format_strings                                   partial      # with format = true; a string spanning lines in a macro's arguments or a match guard is left as written (src/format/string/tests.rs)
 option  generated_marker_line_search_limit               supported    # with format = true (src/format/file/tests.rs)
 option  group_imports                                    partial      # mto.toml's import_grouping groups use items (tests/domain_2_golden.rs); not rustfmt's StdExternalCrate
-option  hard_tabs                                        partial      # with format = true, indentation uses tabs (src/format/file/tests.rs)
+option  hard_tabs                                        partial      # laid out as with spaces, indentation in tabs; differs where the standard formatter counts a tab as one column, and in code blocks of doc comments (src/format/file/tests.rs)
 option  hex_literal_case                                 supported    # with format = true (src/format/reorder/tests.rs)
 option  hide_parse_errors                                not-planned  # deprecated in rustfmt in favour of show_parse_errors
 option  ignore                                           partial      # mto.toml's ignore_dirs skips directories by name (tests/domain_9_config_hierarchy.rs); no paths or globs

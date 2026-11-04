@@ -935,6 +935,35 @@ fn test_format_strings_breaks_long_strings() {
   );
 }
 
+/// With hard tabs, every layout runs as with spaces, its indentation then in tabs: a long
+/// signature or call breaks as the standard formatter breaks it; a string's lines keep
+/// their bytes; a comment in a derive settles.
+#[test]
+fn test_hard_tabs_lay_out_as_spaces_do() {
+  let tabs = FormatConfig {
+    hard_tabs: true,
+    max_width: 50,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "pub fn function_with_long_name(first: u32, second: u32, third: u32) -> u32 {\n    first\n}\n",
+      &tabs
+    ),
+    "pub fn function_with_long_name(\n\tfirst: u32,\n\tsecond: u32,\n\tthird: u32,\n) -> u32 {\n\tfirst\n}\n"
+  );
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n    let s = some_function_name(\"a\n    b\", argument_two, three);\n}\n",
+      &tabs
+    ),
+    "fn f() {\n\tlet s = some_function_name(\n\t\t\"a\n    b\",\n\t\targument_two,\n\t\tthree,\n\t);\n}\n"
+  );
+  let derive = "#[derive(\n/*\n    Some comment\n*/\nDebug, Clone,\n)]\nstruct Bar;\n";
+  let once = formatted_with(derive, &tabs);
+  assert_eq!(formatted_with(&once, &tabs), once);
+}
+
 /// With `use_small_heuristics = "Off"`, struct variants and literals and single-line
 /// `if`/`let ... else` bodies break while a call stays on its line (the standard
 /// formatter's `configs/use_small_heuristics/off.rs`).

@@ -27,7 +27,7 @@ pub fn rewrite_attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
 }
 
 fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
-  if config.hard_tabs || config.tab_spaces == 0 {
+  if config.tab_spaces == 0 {
     return None;
   }
   if has_comment(node) {
@@ -204,18 +204,23 @@ fn commented_derive(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> 
           inside.get(i + 1),
           Some(SyntaxElement::Token(w)) if w.kind() == K::Whitespace && w.text().contains('\n')
         );
-        // Its later lines kept as far past its first as they were.
-        let line_start = node.text().to_string()
+        // Its later lines kept as far past its first as they were, in columns: a tab
+        // counts `tab_spaces`, so the same comment indented with tabs reads the same.
+        let tab = config.tab_spaces.max(1);
+        let width = |s: &str| -> usize { s.chars().map(|c| if c == '\t' { tab } else { 1 }).sum() };
+        let before_token = node.text().to_string()
           [..(t.text_range().start - node.text_range().start) as usize]
-          .rfind('\n')
-          .map_or(0, |i| i + 1);
-        let column = (t.text_range().start - node.text_range().start) as usize - line_start;
+          .to_string();
+        let line_start = before_token.rfind('\n').map_or(0, |i| i + 1);
+        let column = width(&before_token[line_start..]);
         let mut lines = t.text().split('\n');
         let mut comment = lines.next().unwrap_or("").to_string();
         for line in lines {
-          let kept = line.len() - line.trim_start_matches(' ').len();
+          let rest = line.trim_start_matches([' ', '\t']);
+          let lead = width(&line[..line.len() - rest.len()]);
           comment.push('\n');
-          comment.push_str(&line[kept.min(column)..]);
+          comment.push_str(&" ".repeat(lead.saturating_sub(column)));
+          comment.push_str(rest);
         }
         before.push((comment, broken));
       }

@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-11-01T17:27:47.926Z"
-commit: "f3946ea-dirty.44ab751f"
+generated: "2026-11-04T23:05:10.806Z"
+commit: "6968844-dirty.d21c4174"
 command: "cargo xtask compare -- --update"
 sources:
   - records/results/compatibility.txt
@@ -20,11 +20,11 @@ metrics:
   compat.tests.lines_matched: 11192
   compat.tests.lines_total: 11205
   compat.tests.skipped: 0
-  compat.tests-with-settings.files: 77.10
-  compat.tests-with-settings.files_matched: 431
+  compat.tests-with-settings.files: 77.64
+  compat.tests-with-settings.files_matched: 434
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 92.39
-  compat.tests-with-settings.lines_matched: 20376
+  compat.tests-with-settings.lines: 92.70
+  compat.tests-with-settings.lines_matched: 20445
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
   compat.corpus.files: 99.97
@@ -122,7 +122,7 @@ The record as it stands (shares in percent):
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
 | tests | 455 of 460 | 98.91 | 11192 of 11205 | 99.88 | 0 |
-| tests-with-settings | 431 of 559 | 77.10 | 20376 of 22055 | 92.39 | 0 |
+| tests-with-settings | 434 of 559 | 77.64 | 20445 of 22055 | 92.70 | 0 |
 | corpus | 9358 of 9361 | 99.97 | 2653089 of 2653185 | 100.00 | 6 |
 | corpus-scrambled | 9267 of 9348 | 99.13 | 2774589 of 2776485 | 99.93 | 17 |
 <!-- end generated -->
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.88 | 92.39 | 100.00 | 99.93 | 99.13 |
+| current |  | 99.88 | 92.70 | 100.00 | 99.93 | 99.13 |
+| 2026-11-01 | 2fb0060 | 99.88 | 92.39 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | a536de7 | 99.88 | 92.10 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | 74797b0 | 99.88 | 92.10 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | 90b0ae0 | 99.88 | 91.80 | 100.00 | 99.93 | 99.13 |
@@ -224,14 +225,14 @@ on the machine that generated the page (.dev/logs/diff-scores.txt and
 does not check this part, and it may describe a newer run than the record.
 
 <!-- generated: last-run -->
-From the last `cargo xtask diff` run recorded on the machine that generated this
-page (2026-11-01), which need not be the run the record above was made from.
-Scored files by the share of their expected lines mto's output keeps:
+From the last `cargo xtask compare` run recorded on the machine that generated
+this page (2026-11-04), which need not be the run the record above was made
+from. Scored files by the share of their expected lines mto's output keeps:
 
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
 | tests | 456 | 0 | 1 | 3 |
-| tests-with-settings | 434 | 2 | 30 | 93 |
+| tests-with-settings | 437 | 2 | 30 | 90 |
 | corpus | 9358 | 0 | 1 | 2 |
 | corpus-scrambled | 9267 | 32 | 32 | 17 |
 
@@ -242,14 +243,14 @@ common over every set:
 |---|---:|
 | `LetStmt` | 28 |
 | `Use` | 22 |
-| `TokenTree` | 19 |
-| `BlockExpr` | 13 |
+| `TokenTree` | 18 |
+| `BlockExpr` | 14 |
 | `Fn` | 13 |
 | `MethodCallExpr` | 10 |
 | `MacroRules` | 9 |
 | `MatchArm` | 9 |
 | `Visibility` | 7 |
-| `RecordExpr` | 6 |
+| `SourceFile` | 6 |
 <!-- end generated -->
 
 ## 4 Threats to validity

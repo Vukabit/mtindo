@@ -41,7 +41,6 @@ enum AliasPiece {
 /// when that fits from column `indent`; `None` otherwise.
 pub fn const_block_item(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
   if node.kind() != K::Const
-    || config.hard_tabs
     || node
       .children_iter()
       .any(|c| matches!(c.kind(), K::Name | K::Attr))
@@ -203,11 +202,7 @@ pub fn rewrite_macro_item(
   indent: usize,
   config: &FormatConfig,
 ) -> Option<String> {
-  if config.hard_tabs
-    || config.tab_spaces == 0
-    || node.kind() != K::MacroCall
-    || super::file::skipped_macro(node)
-  {
+  if config.tab_spaces == 0 || node.kind() != K::MacroCall || super::file::skipped_macro(node) {
     return None;
   }
   let start = header_start(node)?;
@@ -1111,7 +1106,7 @@ fn empty_impl_where(
 }
 
 fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<(String, usize)> {
-  if config.hard_tabs || config.tab_spaces == 0 || !is_field(node) {
+  if config.tab_spaces == 0 || !is_field(node) {
     return None;
   }
   // A field's default value (`f: T = 0`) the standard formatter leaves as written.
@@ -1609,7 +1604,7 @@ fn is_last(node: &SyntaxNode) -> bool {
 }
 
 fn laid_header(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<(String, usize)> {
-  if config.hard_tabs || config.tab_spaces == 0 || !is_item(node.kind()) {
+  if config.tab_spaces == 0 || !is_item(node.kind()) {
     return None;
   }
   if let Some(text) = commented_type_alias(node, indent, config) {

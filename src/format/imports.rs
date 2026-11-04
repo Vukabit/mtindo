@@ -37,7 +37,7 @@ pub fn code_end(node: &SyntaxNode) -> usize {
 /// The declaration laid out, starting at column `indent` on a line of its own, its later
 /// lines indented in full; `None` when it is not one this module takes.
 pub fn rewrite_use(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<String> {
-  if config.hard_tabs || config.tab_spaces == 0 || node.kind() != K::Use {
+  if config.tab_spaces == 0 || node.kind() != K::Use {
     return None;
   }
   // From the visibility or `use` on; the attributes and comments before are laid out on

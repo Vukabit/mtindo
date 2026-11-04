@@ -717,6 +717,40 @@ pub(super) fn style_2024() -> bool {
   STYLE.with(|e| e.get()) >= 2024
 }
 
+/// `text`, laid out with spaces, its lines' indentation written with tabs (`hard_tabs`): a
+/// tab for each `tab_spaces` columns, the rest spaces, as the standard formatter writes an
+/// indent. A tab counts `tab_spaces` columns wherever widths are measured, so the layout is
+/// the one spaces give. Lines inside a string literal keep their bytes, which are its value.
+pub(super) fn tabbed(text: &str, config: &FormatConfig) -> String {
+  if !config.hard_tabs || config.tab_spaces == 0 || !text.contains('\n') {
+    return text.to_string();
+  }
+  // Where each string literal spanning lines starts and ends.
+  let mut strings = Vec::new();
+  let mut at = 0;
+  for token in crate::syntax::lexer::tokenize(text, Edition::E2021) {
+    let end = at + token.len as usize;
+    if token.kind.is_literal() && text[at..end].contains('\n') {
+      strings.push((at, end));
+    }
+    at = end;
+  }
+  let mut out = String::with_capacity(text.len());
+  let mut start = 0;
+  for line in text.split_inclusive('\n') {
+    let in_string = strings.iter().any(|&(s, e)| s < start && start < e);
+    if start > 0 && !in_string {
+      let spaces = line.len() - line.trim_start_matches(' ').len();
+      out.push_str(&indentation(spaces, config));
+      out.push_str(&line[spaces..]);
+    } else {
+      out.push_str(line);
+    }
+    start += line.len();
+  }
+  out
+}
+
 /// For a struct's fields, an enum's variants or a match's arms laid out one per line from
 /// column `indent`, the spaces before each item's comment after it on its line, as a list's
 /// are aligned (`write_list`); `None` where there is none.
@@ -3237,11 +3271,9 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
               );
               // A function's body after a header given up on follows it with no space (the
               // standard formatter's `visit_fn` copies the header up to the `{`, its spaces
-              // dropped); after a comment it stays on its line. Not with hard tabs, where no
-              // header is laid out, so none is given up on as the standard formatter would.
+              // dropped); after a comment it stays on its line.
               let glue_body = |node: &SyntaxNode| {
                 if node.kind() == SyntaxKind::Fn
-                  && !config.hard_tabs
                   && let Some(body) = node
                     .children_iter()
                     .find(|c| c.kind() == SyntaxKind::BlockExpr)
@@ -3281,7 +3313,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 gave_up.borrow_mut().push((tok.start, end));
                 glue_body(node);
               }
-              } else if laid.is_none() && node.kind() == SyntaxKind::Fn && !config.hard_tabs {
+              } else if laid.is_none() && node.kind() == SyntaxKind::Fn {
                 // Its written lines kept, spaced anew: a line that grows past the width
                 // gives the header up on the next pass, which runs now so that this run
                 // settles.
@@ -3361,7 +3393,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         }
       }
     {
-      out.push_str(&text);
+      out.push_str(&tabbed(&text, config));
       if let Some(at) = out.rfind('\n') {
         out_line_start = at + 1;
         // A `let`'s head across lines ending at its value's block's `{` (`let x =` with
@@ -3670,7 +3702,7 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         .get(&tok.start)
         .and_then(|open| open_indent.get(open))
       {
-        Some(&(_, new)) if !config.hard_tabs => " ".repeat(new),
+        Some(&(_, new)) => indentation(new, config),
         _ => line[..line.len() - line.trim_start().len()].to_string(),
       };
       out.push('\n');
@@ -4269,7 +4301,6 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
               && parent
                 .as_ref()
                 .is_some_and(crate::format::expr::unread_macro))
-          && !config.hard_tabs
         {
           roles
             .preserved

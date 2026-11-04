@@ -59,7 +59,7 @@ pub fn rewrite_arm_in(
   outer: &Limits,
 ) -> Option<Arm> {
   let inside_macro = outer.inside_macro;
-  if node.kind() != K::MatchArm || config.hard_tabs || config.tab_spaces == 0 {
+  if node.kind() != K::MatchArm || config.tab_spaces == 0 {
     return None;
   }
   let start = header_start(node)?;

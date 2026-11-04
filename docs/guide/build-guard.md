@@ -41,6 +41,32 @@ one run.
 project's folder, and says whether it passes there, so a command that cannot
 work here shows at once rather than on the first run.
 
+## A command the project declares
+
+How to check a project's build is a fact about the project, so a project can
+declare it in its `mto.toml`, committed and reviewed like the rest:
+
+```toml
+[doctor]
+command = ["cargo", "test", "-q"]
+timeout = 900       # seconds per check; the project knows how long it takes
+max_checks = 64     # checks a narrowing may make
+```
+
+A cloned project never makes `mto` run anything by itself. The guard stays off
+until you turn it on, and with it on, the project's command runs only once
+you trust it, word for word, for that project:
+
+```bash
+mto doctor          # shows the project's command and whether it is trusted
+mto doctor trust    # lets it run here
+```
+
+Until then, and again whenever the command changes (a pull can change it), a
+guarded run in the project writes nothing and exits with code `6`, rather than
+look guarded by another command. Trust is kept beside history, per project and
+command; nothing is written into the project.
+
 ## What runs, and when
 
 `mto` runs the command only with the guard on, and only that command. The

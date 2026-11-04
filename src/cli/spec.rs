@@ -263,22 +263,28 @@ pub const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "doctor",
-    args: "[on|off|holds|release|<RUN>]",
+    args: "[on|off|holds|release|trust|<RUN>]",
     summary: "Guard the build against mto's edits, or find the edit that broke it",
     about: "`on` turns the build guard on: each run that writes files then checks that the \
                 project still builds, and holds back the edits that break it. It runs \
                 the command given after `--` (default: `cargo check` over the whole \
                 workspace and all its targets) and no other; with the guard off, mto runs none. `off` turns \
                 it off. With no argument, says whether it is on, its command and the edits it \
-                holds. `holds` lists those edits; `release` drops one, or all. RUN narrows \
-                down a run already made the same way: RUN is `last` or `last~N`, counted \
-                among this project's runs, or a handle from `mto history`.",
+                holds. `holds` lists those edits; `release` drops one, or all. A project may \
+                declare its own command in its mto.toml (`doctor.command`, with \
+                `doctor.timeout` and `doctor.max_checks`): with the guard on, it runs in \
+                place of yours once you trust it, word for word, with `trust`; until then, \
+                and again after it changes, a guarded run there writes nothing (exit code \
+                6). RUN narrows down a run already made the same way: RUN is `last` or \
+                `last~N`, counted among this project's runs, or a handle from `mto \
+                history`.",
     usage: &[
       "mto doctor",
       "mto doctor on [-- <COMMAND>...]",
       "mto doctor off",
       "mto doctor holds",
       "mto doctor release <N|all>",
+      "mto doctor trust",
       "mto doctor <RUN> [-- <COMMAND>...]",
     ],
     options: &[("options", "mto doctor", &[Flag::Json])],
@@ -297,6 +303,11 @@ pub const COMMANDS: &[CommandSpec] = &[
       Subcommand {
         word: "holds",
         summary: "List the edits the guard holds back",
+        operand: Complete::Nothing,
+      },
+      Subcommand {
+        word: "trust",
+        summary: "Let the guard run the command this project's mto.toml declares",
         operand: Complete::Nothing,
       },
       Subcommand {

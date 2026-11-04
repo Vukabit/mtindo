@@ -22,11 +22,27 @@ pub const DEFAULT_COMMAND: [&str; 5] = [
   "--keep-going",
 ];
 
-/// The guard's settings, from the user config.
+/// A guard command a project declares in its mto.toml (`doctor.command`): it runs only
+/// once the user trusts it, as written, for that project.
+#[derive(Clone, Debug)]
+pub struct Project {
+  pub words: Vec<String>,
+  /// Where it is set: the mto.toml and line.
+  pub set_in: String,
+  /// The project's folder.
+  pub root: PathBuf,
+  /// The user trusts this command, word for word, for this project.
+  pub trusted: bool,
+}
+
+/// The guard's settings: from the user config, and the project's command when it
+/// declares one.
 #[derive(Clone, Debug)]
 pub struct Settings {
   pub enabled: bool,
   pub command: Vec<String>,
+  /// The project's own command, when its mto.toml declares one.
+  pub project: Option<Project>,
   /// `None`: no limit.
   pub timeout: Option<Duration>,
   pub max_checks: usize,
@@ -60,14 +76,104 @@ impl Settings {
       timeout: (timeout > 0).then(|| Duration::from_secs(timeout)),
       max_checks: number("doctor.max_checks", 64) as usize,
       dir: dir(resolver.env()),
+      project: None,
     }
   }
 
-  /// The guard for a run in `here`, checking with `command` (the setting's when `None`).
+  /// These settings with what the project of `here` declares in its mto.toml: its
+  /// command, trusted or not, and its limits, which win over the user's.
+  pub fn with_project(mut self, resolver: &mut Resolver, here: &Path) -> Settings {
+    let root = crate::cli::history::project_root(here);
+    let Ok(config) = resolver.config_for(&root) else {
+      return self;
+    };
+    // Only what the project's own mto.toml sets: the user config's values are the user's.
+    let from_file = |name: &str| match config.source(name) {
+      Some(crate::config::Source::File { path, line })
+        if path
+          .file_name()
+          .is_some_and(|f| f == "mto.toml" || f == ".mto.toml") =>
+      {
+        Some(format!("{}:{}", path.display(), line))
+      }
+      _ => None,
+    };
+    if from_file("doctor.timeout").is_some()
+      && let Some(seconds) = config.get("doctor.timeout").and_then(|v| v.as_integer())
+    {
+      self.timeout = (seconds > 0).then(|| Duration::from_secs(seconds));
+    }
+    if from_file("doctor.max_checks").is_some()
+      && let Some(checks) = config.get("doctor.max_checks").and_then(|v| v.as_integer())
+    {
+      self.max_checks = checks as usize;
+    }
+    if let Some(set_in) = from_file("doctor.command")
+      && let Some(words) = config.get("doctor.command").and_then(|v| v.as_list())
+      && !words.is_empty()
+    {
+      let words: Vec<String> = words.to_vec();
+      let trusted = self
+        .dir
+        .as_deref()
+        .is_some_and(|dir| trust_list(dir).contains(&trust_line(&root, &words)));
+      self.project = Some(Project {
+        words,
+        set_in,
+        root,
+        trusted,
+      });
+    }
+    self
+  }
+
+  /// The project's command when the user has not trusted it: then a guarded run writes
+  /// nothing.
+  pub fn untrusted(&self) -> Option<&Project> {
+    self.project.as_ref().filter(|p| !p.trusted)
+  }
+
+  /// Trusts the project's command, word for word, for its project: it may run from now on,
+  /// until it changes.
+  pub fn trust(&self) -> Result<String, String> {
+    let Some(project) = &self.project else {
+      return Err(
+        "this project declares no guard command (`doctor.command` in its mto.toml); the \
+         guard uses yours"
+          .into(),
+      );
+    };
+    let Some(dir) = &self.dir else {
+      return Err("there is no folder to keep the trust in: no home folder".into());
+    };
+    let mut list = trust_list(dir);
+    let line = trust_line(&project.root, &project.words);
+    if !list.contains(&line) {
+      list.push(line);
+    }
+    std::fs::create_dir_all(dir)
+      .and_then(|_| crate::write_atomic(&dir.join("trusted.txt"), &(list.join("\n") + "\n")))
+      .map_err(|e| format!("cannot keep the trust: {}", e))?;
+    Ok(format!(
+      "Trusted for {}:\n\n    {}\n\n(set in {}). A guarded run there now runs it; if the \
+       project changes it, mto asks again.\n",
+      project.root.display(),
+      project.words.join(" "),
+      project.set_in
+    ))
+  }
+
+  /// The guard for a run in `here`, checking with `command` (when `None`, the project's
+  /// trusted command, else the user's).
   pub fn guard(&self, here: &Path, command: Option<Vec<String>>, quiet: bool) -> Guard {
+    let ours = self
+      .project
+      .as_ref()
+      .filter(|p| p.trusted)
+      .map(|p| p.words.clone());
     Guard {
       check: Check {
-        words: command.unwrap_or_else(|| self.command.clone()),
+        words: command.or(ours).unwrap_or_else(|| self.command.clone()),
         dir: crate::cli::history::project_root(here),
         timeout: self.timeout,
       },
@@ -164,6 +270,32 @@ pub fn status(settings: &Settings, config: Option<&Path>) -> String {
     settings.command.join(" "),
     paint(on, tone::QUIET, "(in the project's folder)")
   );
+  if let Some(project) = &settings.project {
+    out.push_str(&format!(
+      "{} {} {}\n",
+      key("project's"),
+      project.words.join(" "),
+      if project.trusted {
+        paint(
+          on,
+          tone::GOOD,
+          &format!(
+            "(set in {}; trusted, so runs in place of yours)",
+            project.set_in
+          ),
+        )
+      } else {
+        paint(
+          on,
+          tone::WARN,
+          &format!(
+            "(set in {}; not trusted: guarded runs write nothing until `mto doctor trust`)",
+            project.set_in
+          ),
+        )
+      }
+    ));
+  }
   out.push_str(&format!(
     "{} {} per check, {} checks per narrowing\n",
     key("limits"),
@@ -214,9 +346,16 @@ pub fn status_json(settings: &Settings, config: Option<&Path>) -> crate::text::j
         .with("fix", hold.fix.as_str())
     })
     .collect();
+  let project = settings.project.as_ref().map(|p| {
+    Json::object()
+      .with("command", p.words.clone())
+      .with("set_in", p.set_in.as_str())
+      .with("trusted", p.trusted)
+  });
   Json::output("doctor")
     .with("enabled", settings.enabled)
     .with("command", settings.command.clone())
+    .with("project", project)
     .with("timeout_s", settings.timeout.map(|t| t.as_secs()))
     .with("max_checks", settings.max_checks)
     .with("holds", holds)
@@ -280,6 +419,23 @@ pub fn turn(path: &Path, on: bool, command: Option<&[String]>) -> Result<(), Str
 
 fn beside(history_dir: &Path) -> Option<PathBuf> {
   history_dir.parent().map(|p| p.join("doctor"))
+}
+
+/// A trusted command, as the list keeps it: the project's folder, then a hash of its words,
+/// so a command changed by a pull is not trusted.
+fn trust_line(root: &Path, words: &[String]) -> String {
+  format!(
+    "{}\t{}",
+    root.display(),
+    crate::history::sha256::hex(words.join("\u{0}").as_bytes())
+  )
+}
+
+/// The lines of the trust list: each project and command the user trusts.
+fn trust_list(dir: &Path) -> Vec<String> {
+  std::fs::read_to_string(dir.join("trusted.txt"))
+    .map(|text| text.lines().map(str::to_string).collect())
+    .unwrap_or_default()
 }
 
 #[cfg(test)]

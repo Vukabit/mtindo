@@ -22,6 +22,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags['doctor on'] = @('-h', '--help')
     $flags['doctor off'] = @('-h', '--help')
     $flags['doctor holds'] = @('-h', '--help')
+    $flags['doctor trust'] = @('-h', '--help')
     $flags['doctor release'] = @('-h', '--help')
     $flags['report'] = @('-h', '--help')
     $flags['report show'] = @('-h', '--help')
@@ -106,6 +107,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['doctor on'] = 'Turn the build guard on'
     $help['doctor off'] = 'Turn the build guard off'
     $help['doctor holds'] = 'List the edits the guard holds back'
+    $help['doctor trust'] = 'Let the guard run the command this project''s mto.toml declares'
     $help['doctor release'] = 'Drop one held edit, or all'
     $help['report'] = 'The bug reports mto keeps when it finds a bug in itself'
     $help['report show'] = 'Print one report'
@@ -145,7 +147,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $subcommands['config'] = @('path', 'print', 'options', 'mirror')
     $subcommands['history'] = @('show', 'prune')
-    $subcommands['doctor'] = @('on', 'off', 'holds', 'release')
+    $subcommands['doctor'] = @('on', 'off', 'holds', 'trust', 'release')
     $subcommands['report'] = @('show', 'save', 'send', 'recheck', 'remove', 'prune')
     $subcommands['debug'] = @('tokens', 'tree', 'kept', 'units', 'moves', 'settle')
     $subcommands['completions'] = @('install', 'uninstall', 'status')

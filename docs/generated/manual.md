@@ -192,15 +192,19 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     anywhere.
     *   `--force` (after `mto restore <RUN> [FILE...]`): Also restore files
         changed since the run, and missing ones.
-*   `mto doctor [on|off|holds|release|<RUN>]`: `on` turns the build guard on:
-    each run that writes files then checks that the project still builds, and
-    holds back the edits that break it. It runs the command given after `--`
+*   `mto doctor [on|off|holds|release|trust|<RUN>]`: `on` turns the build guard
+    on: each run that writes files then checks that the project still builds,
+    and holds back the edits that break it. It runs the command given after `--`
     (default: `cargo check` over the whole workspace and all its targets) and no
     other; with the guard off, mto runs none. `off` turns it off. With no
     argument, says whether it is on, its command and the edits it holds. `holds`
-    lists those edits; `release` drops one, or all. RUN narrows down a run
-    already made the same way: RUN is `last` or `last~N`, counted among this
-    project's runs, or a handle from `mto history`.
+    lists those edits; `release` drops one, or all. A project may declare its
+    own command in its mto.toml (`doctor.command`, with `doctor.timeout` and
+    `doctor.max_checks`): with the guard on, it runs in place of yours once you
+    trust it, word for word, with `trust`; until then, and again after it
+    changes, a guarded run there writes nothing (exit code 6). RUN narrows down
+    a run already made the same way: RUN is `last` or `last~N`, counted among
+    this project's runs, or a handle from `mto history`.
     *   `--json` (after `mto doctor`): As JSON, whose shape keeps its version.
 *   `mto report [show|save|send|recheck|remove|prune]`: When the verifier stops
     a write, or laying out a file fails, mto keeps a report beside history and
@@ -1508,7 +1512,10 @@ cannot set user settings, and the user configuration cannot set project ones.
 #### `doctor.command`
 The build guard runs it in the project's folder before and after each run that
 writes files, and while it narrows down a run that broke the build. It is run as
-these words, not through a shell. `mto doctor on -- COMMAND` sets it.
+these words, not through a shell. `mto doctor on -- COMMAND` sets it. A
+project's mto.toml may declare its own `doctor.command` (and `doctor.timeout`,
+`doctor.max_checks`), which runs in place of this one once you trust it with
+`mto doctor trust`.
 
 *   Type: an array of strings.
 *   Default: `["cargo", "check", "--workspace", "--all-targets",

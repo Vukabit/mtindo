@@ -14,7 +14,10 @@ pub(super) static SETTINGS: &[Setting] = &[
     summary: "The command the build guard runs, as its words",
     doc: "The build guard runs it in the project's folder before and after each run that \
               writes files, and while it narrows down a run that broke the build. It is run \
-              as these words, not through a shell. `mto doctor on -- COMMAND` sets it.",
+              as these words, not through a shell. `mto doctor on -- COMMAND` sets it. A \
+              project's mto.toml may declare its own `doctor.command` (and \
+              `doctor.timeout`, `doctor.max_checks`), which runs in place of this one once \
+              you trust it with `mto doctor trust`.",
     channels: None,
     hidden: false,
     replaced_by: None,

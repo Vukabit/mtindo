@@ -37,7 +37,10 @@ keep_days = 30
 
 The build guard runs it in the project's folder before and after each run that
 writes files, and while it narrows down a run that broke the build. It is run as
-these words, not through a shell. `mto doctor on -- COMMAND` sets it.
+these words, not through a shell. `mto doctor on -- COMMAND` sets it. A
+project's mto.toml may declare its own `doctor.command` (and `doctor.timeout`,
+`doctor.max_checks`), which runs in place of this one once you trust it with
+`mto doctor trust`.
 
 *   Type: an array of strings.
 *   Default: `["cargo", "check", "--workspace", "--all-targets",

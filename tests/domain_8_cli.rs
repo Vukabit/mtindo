@@ -1308,6 +1308,76 @@ fn test_cli_doctor_out_of_checks_holds_back_whole_files() {
   assert_eq!(env.read_file("src/other.rs"), "fn z() {}\nstruct Y;\n");
 }
 
+/// A guard command the project declares in its mto.toml runs only once the user trusts it,
+/// word for word: until then, and again after it changes, a guarded run writes nothing
+/// (exit code 6). The guard stays off unless the user turns it on.
+#[test]
+fn test_cli_doctor_runs_the_projects_command_once_trusted() {
+  let env = TestEnvironment::new();
+  // The pretend build passes whatever the run does: `mod generated` is in a comment below
+  // `struct A`, which layout keeps first.
+  env.write_file(
+    "src/lib.rs",
+    "struct A;\n\nfn b() {\n    // mod generated\n}\n",
+  );
+  env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
+  env.write_file("doctor-check", "order");
+  let project = format!("layout = true\n\n[doctor]\ncommand = {}\n", check_toml());
+  env.write_file("mto.toml", &project);
+  // Off: the project's command does not run, and nothing is refused.
+  let (code, _, stderr) = mto(&env, &["--no-history", "."]);
+  assert_eq!(code, 0, "{}", stderr);
+  env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
+  let words = check_words();
+  let mut on = vec!["doctor", "on", "--"];
+  on.extend(words.iter().map(String::as_str));
+  assert_eq!(mto(&env, &on).0, 0);
+  let (code, _, stderr) = mto(&env, &["--no-history", "."]);
+  assert_eq!(code, 6, "{}", stderr);
+  assert!(stderr.contains("it is not trusted here"), "{}", stderr);
+  assert_eq!(env.read_file("src/other.rs"), "fn z() {}\nstruct Y;\n");
+  let (_, status, _) = mto(&env, &["doctor"]);
+  assert!(status.contains("not trusted"), "{}", status);
+  let (code, said, stderr) = mto(&env, &["doctor", "trust"]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(said.contains("Trusted for"), "{}", said);
+  let (code, _, stderr) = mto(&env, &["--no-history", "."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(stderr.contains("doctor: before ✓  after ✓"), "{}", stderr);
+  assert_eq!(env.read_file("src/other.rs"), "struct Y;\n\nfn z() {}\n");
+  // Changed by a pull, it is a new command: trusted no more.
+  env.write_file(
+    "mto.toml",
+    &project.replace("'--quiet'", "'--quiet', '--quiet'"),
+  );
+  env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
+  let (code, _, stderr) = mto(&env, &["--no-history", "."]);
+  assert_eq!(code, 6, "{}", stderr);
+}
+
+/// The user's own guard command, in the user config, is not taken for one the project
+/// declares: it runs as before, with no trust asked.
+#[test]
+fn test_cli_doctor_the_users_command_needs_no_trust() {
+  let env = TestEnvironment::new();
+  env.write_file(
+    "src/lib.rs",
+    "struct A;\n\nfn b() {\n    // mod generated\n}\n",
+  );
+  env.write_file("src/other.rs", "fn z() {}\nstruct Y;\n");
+  env.write_file("doctor-check", "order");
+  env.write_file("mto.toml", "layout = true\n");
+  let words = check_words();
+  let mut on = vec!["doctor", "on", "--"];
+  on.extend(words.iter().map(String::as_str));
+  assert_eq!(mto(&env, &on).0, 0);
+  let (code, _, stderr) = mto(&env, &["--no-history", "."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(!stderr.contains("not trusted"), "{}", stderr);
+  let (_, status, _) = mto(&env, &["doctor"]);
+  assert!(!status.contains("project's:"), "{}", status);
+}
+
 /// A build guard whose command already fails before the run has no baseline: it cannot tell
 /// what the run would break, so nothing is written and mto says why (exit code 6, apart
 /// from 5, a build broken with every edit held back); `doctor on` tried it and said so

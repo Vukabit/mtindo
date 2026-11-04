@@ -165,6 +165,7 @@ _mto_flags() {
     "doctor on") _mto_words "" -h --help ;;
     "doctor off") _mto_words "" -h --help ;;
     "doctor holds") _mto_words "" -h --help ;;
+    "doctor trust") _mto_words "" -h --help ;;
     "doctor release") _mto_words "" -h --help ;;
     "report ") _mto_words "" -h --help ;;
     "report show") _mto_words "" -h --help ;;
@@ -192,7 +193,7 @@ _mto_subcommands() {
   case "$1" in
     config) _mto_words "" path print options mirror ;;
     history) _mto_words "" show prune ;;
-    doctor) _mto_words "" on off holds release ;;
+    doctor) _mto_words "" on off holds trust release ;;
     report) _mto_words "" show save send recheck remove prune ;;
     debug) _mto_words "" tokens tree kept units moves settle ;;
     completions) _mto_words "" install uninstall status ;;
@@ -287,7 +288,7 @@ _mto_is_command() {
 # Whether $2 is a subcommand of command $1.
 _mto_is_subcommand() {
   case "$1 $2" in
-    "config path"|"config print"|"config options"|"config mirror"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
+    "config path"|"config print"|"config options"|"config mirror"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor trust"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
   esac
   return 1
 }

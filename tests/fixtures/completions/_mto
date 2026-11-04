@@ -223,6 +223,7 @@ _mto_doctor_subcommands() {
     'on:Turn the build guard on'
     'off:Turn the build guard off'
     'holds:List the edits the guard holds back'
+    'trust:Let the guard run the command this project'\''s mto.toml declares'
     'release:Drop one held edit, or all'
   )
   _describe -t subcommands subcommand subcommands
@@ -252,6 +253,11 @@ _mto_doctor() {
             '*: : ' && ret=0
           ;;
         (holds)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '*: : ' && ret=0
+          ;;
+        (trust)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
             '*: : ' && ret=0

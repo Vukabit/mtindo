@@ -123,6 +123,8 @@ enum DebugView {
 /// What `mto doctor` was asked for.
 enum DoctorView {
   Status,
+  /// Trust the project's own guard command.
+  Trust,
   /// Turn the guard on, with the command after `--` when given.
   On(Option<Vec<String>>),
   Off,
@@ -1060,6 +1062,7 @@ fn parse_doctor_args(spec: &CommandSpec, args: &[String]) -> Result<CliAction, (
     (Some("on"), [_], command) => DoctorView::On(command),
     (Some("off"), [_], None) => DoctorView::Off,
     (Some("holds"), [_], None) => DoctorView::Holds,
+    (Some("trust"), [_], None) => DoctorView::Trust,
     (Some("release"), [_, which], None) => DoctorView::Release(which.to_string()),
     _ => return usage(),
   };
@@ -2001,9 +2004,11 @@ fn run_doctor(view: DoctorView, json: bool) -> i32 {
     Ok(resolver) => resolver,
     Err(e) => return report_error(&e),
   };
-  let settings = doctor_cli::Settings::read(&resolver);
+  let here = env::current_dir().unwrap_or_default();
+  let settings = doctor_cli::Settings::read(&resolver).with_project(&mut resolver, &here);
   let config_path = config::user::path(resolver.env()).ok().flatten();
   let result = match view {
+    DoctorView::Trust => settings.trust(),
     DoctorView::Status if json => Ok(format!(
       "{}\n",
       doctor_cli::status_json(&settings, config_path.as_deref()).text()
@@ -2150,6 +2155,19 @@ fn run_doctor_run(
     });
   }
   let cwd = env::current_dir().unwrap_or_default();
+  if command.is_none()
+    && let Some(project) = settings.untrusted()
+  {
+    errln!(
+      "{}doctor: this project asks to guard with `{}` ({}); it is not trusted here. `mto \
+       doctor trust` allows it, or give a command after `--`.{}",
+      c_red(),
+      project.words.join(" "),
+      project.set_in,
+      c_reset(true)
+    );
+    return 6;
+  }
   let guard = settings.guard(&cwd, command, false);
   let mut recorder = Some(store.recorder(&history::command_line(), &cwd, None));
   // As before the run, for the check before.
@@ -2284,8 +2302,8 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
       None => {}
     }
   }
-  let doctor = doctor_cli::Settings::read(&resolver);
   let cwd = env::current_dir().unwrap_or_default();
+  let doctor = doctor_cli::Settings::read(&resolver).with_project(&mut resolver, &cwd);
   let mut guarded = None;
   if writing {
     if let Some(store) = &settings.history {
@@ -2300,6 +2318,19 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
     // Editors name a single file; those runs are not guarded.
     let single = paths.len() == 1 && paths[0].is_file();
     if doctor.enabled && !opts.unguarded && !single {
+      // A command the project asks for runs only once trusted; until then nothing is
+      // written, rather than the run looking guarded by another command.
+      if let Some(project) = doctor.untrusted() {
+        errln!(
+          "{}doctor: this project asks to guard with `{}` ({}); it is not trusted here, so \
+           nothing was written. `mto doctor trust` allows it; --unguarded skips the guard.{}",
+          c_red(),
+          project.words.join(" "),
+          project.set_in,
+          c_reset(true)
+        );
+        return 6;
+      }
       let guard = doctor.guard(&cwd, None, opts.quiet);
       let check = guard.check.clone();
       // The check before runs while the files are laid out in memory.
@@ -2677,6 +2708,7 @@ mod tests {
       &["doctor", "on", "--", "cargo", "build"],
       &["doctor", "off"],
       &["doctor", "holds"],
+      &["doctor", "trust"],
       &["doctor", "release", "all"],
       &["doctor", "last"],
       &["report"],

@@ -10,10 +10,11 @@ function __mto_state
     set -l commands init config history restore doctor report debug completions
     set -l subcommands 'config path' 'config print' 'config options' 'config mirror' \
         'history show' 'history prune' 'doctor on' 'doctor off' 'doctor holds' \
-        'doctor release' 'report show' 'report save' 'report send' \
-        'report recheck' 'report remove' 'report prune' 'debug tokens' \
-        'debug tree' 'debug kept' 'debug units' 'debug moves' 'debug settle' \
-        'completions install' 'completions uninstall' 'completions status'
+        'doctor trust' 'doctor release' 'report show' 'report save' \
+        'report send' 'report recheck' 'report remove' 'report prune' \
+        'debug tokens' 'debug tree' 'debug kept' 'debug units' 'debug moves' \
+        'debug settle' 'completions install' 'completions uninstall' \
+        'completions status'
     set -l words (commandline -opc)
     set -e words[1]
     set -l command -
@@ -281,6 +282,7 @@ complete -c mto -n '__mto_at doctor -' -l json -d 'As JSON, whose shape keeps it
 complete -c mto -n '__mto_at doctor - 0' -a on -d 'Turn the build guard on'
 complete -c mto -n '__mto_at doctor - 0' -a off -d 'Turn the build guard off'
 complete -c mto -n '__mto_at doctor - 0' -a holds -d 'List the edits the guard holds back'
+complete -c mto -n '__mto_at doctor - 0' -a trust -d 'Let the guard run the command this project\'s mto.toml declares'
 complete -c mto -n '__mto_at doctor - 0' -a release -d 'Drop one held edit, or all'
 
 # mto doctor on
@@ -291,6 +293,9 @@ complete -c mto -n '__mto_at doctor off' -s h -l help -d 'Show this help and exi
 
 # mto doctor holds
 complete -c mto -n '__mto_at doctor holds' -s h -l help -d 'Show this help and exit'
+
+# mto doctor trust
+complete -c mto -n '__mto_at doctor trust' -s h -l help -d 'Show this help and exit'
 
 # mto doctor release
 complete -c mto -n '__mto_at doctor release' -s h -l help -d 'Show this help and exit'

@@ -45,6 +45,11 @@ use crate::options::layout::{
 use crate::options::{self, Channels, File, Setting, Stability};
 use crate::syntax::Edition;
 
+/// The build guard's settings an mto.toml may hold too, for the project: its command
+/// (which runs only once the user trusts it) and its limits. Turning the guard on stays the
+/// user's.
+pub const PROJECT_GUARD_KEYS: [&str; 3] = ["doctor.command", "doctor.timeout", "doctor.max_checks"];
+
 /// Keys mto used to accept, and the key that replaced each.
 const RENAMED: &[(&str, &str)] = &[("tab_width", "tab_spaces")];
 
@@ -1150,7 +1155,8 @@ fn file_label(kind: FileKind) -> &'static str {
   }
 }
 
-/// The keys of a table, with sub-tables of the user config flattened to `section.key`.
+/// The keys of a table, with sub-tables of the user config flattened to `section.key`, and
+/// an mto.toml's `[doctor]` table (the project's guard command) too.
 fn flatten<'a>(
   prefix: &str,
   table: &'a toml::Table,
@@ -1159,10 +1165,10 @@ fn flatten<'a>(
 ) {
   for entry in table.entries() {
     let key = format!("{}{}", prefix, entry.key);
+    let section = kind == FileKind::User
+      || (matches!(kind, FileKind::Mto | FileKind::Explicit) && key == "doctor");
     match &entry.value {
-      toml::Value::Table(inner) if kind == FileKind::User => {
-        flatten(&format!("{}.", key), inner, kind, out)
-      }
+      toml::Value::Table(inner) if section => flatten(&format!("{}.", key), inner, kind, out),
       _ => out.push((key, entry)),
     }
   }
@@ -1214,7 +1220,10 @@ fn read(path: &Path, text: &str, kind: FileKind) -> Result<Loaded, Error> {
       ));
       continue;
     };
-    if !kind.may_hold(setting.file) {
+    // A project may declare its own guard command; the user still decides to run it.
+    let project_guard = matches!(kind, FileKind::Mto | FileKind::Explicit)
+      && PROJECT_GUARD_KEYS.contains(&setting.name);
+    if !kind.may_hold(setting.file) && !project_guard {
       loaded.warnings.push(format!(
         "{}: `{}` cannot be set in {}; put it in {}; ignored",
         place,

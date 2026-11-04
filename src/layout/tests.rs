@@ -166,6 +166,21 @@ fn test_a_helper_whose_user_is_in_another_section_stays_in_its_own() {
   );
 }
 
+/// `// mto: hold` keeps the item under it between its neighbours, and nothing moves across
+/// it, as a build guard's hold does: stronger than `// mto: pin`, whose slot others pass.
+#[test]
+fn test_a_hold_directive_keeps_the_item_between_its_neighbours() {
+  let source = "fn z() {}\n\n// mto: hold -- moving it breaks the build: E0433\nmod generated {}\n\nfn a() {}\n";
+  let once = arranged(source);
+  assert_eq!(once, source);
+  let pinned = source.replace("hold", "pin");
+  // A pin keeps its slot, but `a` and `z` pass it.
+  assert_eq!(
+    arranged(&pinned),
+    "fn a() {}\n\n// mto: pin -- moving it breaks the build: E0433\nmod generated {}\n\nfn z() {}\n"
+  );
+}
+
 #[test]
 fn test_a_paragraph_ends_at_a_blank_line_even_below_a_comment() {
   let config = LayoutConfig {

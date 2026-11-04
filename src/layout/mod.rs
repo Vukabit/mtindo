@@ -159,6 +159,8 @@ pub struct Unit {
   pub caller: Option<usize>,
   /// Written after its user, so it stays below it rather than above.
   pub below: bool,
+  /// Under `// mto: hold`: it keeps its neighbours, and nothing moves across it.
+  pub held: bool,
 }
 
 /// The edition `config` names, read first by [`parse_any_edition`].
@@ -203,7 +205,7 @@ pub fn layout_holding(
   }
   let after = around_held(
     &split.units,
-    |u| held.contains(&u.span.0) || u.boundary,
+    |u| held.contains(&u.span.0) || u.boundary || u.held,
     |run| order::arrange(run, config),
   )?;
   moves.extend(moves_of(&after, |at| order::reason(&after, at, config)));
@@ -362,14 +364,15 @@ fn cut_sections(
     let loose_after = blank_line_in(&text[run.last().unwrap().1..after]);
     let section = says(run, Marker::Section);
     let boundary = !says(run, Marker::Pin)
+      && !says(run, Marker::Hold)
       && match config.sections {
         Sections::Off => false,
         Sections::Markers => section,
         Sections::Comments => section || loose_after,
         Sections::Headings => section || (loose_after && heading(text, run)),
       };
-    let kept =
-      boundary || (config.sections == Sections::Headings && loose_after && !says(run, Marker::Pin));
+    let directs = says(run, Marker::Pin) || says(run, Marker::Hold);
+    let kept = boundary || (config.sections == Sections::Headings && loose_after && !directs);
     if !kept {
       heading_element.extend(run);
       continue;
@@ -675,7 +678,7 @@ fn module_with_body_laid_out(
   }
   let arranged = around_held(
     &split.units,
-    |u| cx.holds(u.span.0) || u.boundary,
+    |u| cx.holds(u.span.0) || u.boundary || u.held,
     |run| order::arrange(run, config),
   )
   .ok()?;
@@ -1003,6 +1006,9 @@ fn split_container(
     let pinned_by_comment = pending
       .iter()
       .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Pin));
+    let held_by_comment = pending
+      .iter()
+      .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Hold));
     let loose_comments = !pending.is_empty();
     let mut pieces = std::mem::take(&mut pending);
     pieces.push((start, end));
@@ -1014,6 +1020,7 @@ fn split_container(
       config,
     );
     unit.pinned |= pinned_by_comment || (unit.test_module && config.test_module_in_place);
+    unit.held = held_by_comment;
     // An inline module's body is laid out by the same rules; its new text replaces the
     // item's at the end of the unit.
     let item_text = if unit.pinned {

@@ -22,6 +22,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags['doctor on'] = @('-h', '--help')
     $flags['doctor off'] = @('-h', '--help')
     $flags['doctor holds'] = @('-h', '--help')
+    $flags['doctor keep'] = @('-h', '--help')
+    $flags['doctor recheck'] = @('-h', '--help')
     $flags['doctor trust'] = @('-h', '--help')
     $flags['doctor release'] = @('-h', '--help')
     $flags['report'] = @('-h', '--help')
@@ -107,6 +109,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['doctor on'] = 'Turn the build guard on'
     $help['doctor off'] = 'Turn the build guard off'
     $help['doctor holds'] = 'List the edits the guard holds back'
+    $help['doctor keep'] = 'Confirm held moves and write them into their files as `// mto: hold`'
+    $help['doctor recheck'] = 'Try each `// mto: hold` without it, and say which are still needed'
     $help['doctor trust'] = 'Let the guard run the command this project''s mto.toml declares'
     $help['doctor release'] = 'Drop one held edit, or all'
     $help['report'] = 'The bug reports mto keeps when it finds a bug in itself'
@@ -147,7 +151,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $subcommands['config'] = @('path', 'print', 'options', 'mirror')
     $subcommands['history'] = @('show', 'prune')
-    $subcommands['doctor'] = @('on', 'off', 'holds', 'trust', 'release')
+    $subcommands['doctor'] = @('on', 'off', 'holds', 'keep', 'recheck', 'trust', 'release')
     $subcommands['report'] = @('show', 'save', 'send', 'recheck', 'remove', 'prune')
     $subcommands['debug'] = @('tokens', 'tree', 'kept', 'units', 'moves', 'settle')
     $subcommands['completions'] = @('install', 'uninstall', 'status')

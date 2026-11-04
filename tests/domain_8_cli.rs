@@ -1278,6 +1278,54 @@ fn test_cli_doctor_holds_back_what_breaks_the_build() {
   assert!(env.read_file("src/lib.rs").starts_with("mod generated"));
 }
 
+/// `mto doctor keep`: a held move, tried again and failing twice, becomes a
+/// `// mto: hold` line above the item, which every later run honors without the hold.
+#[test]
+fn test_cli_doctor_keep_writes_a_confirmed_hold_into_the_file() {
+  const LIB: &str = "struct A;\nfn b() {}\nmod generated {}\n";
+  let env = TestEnvironment::new();
+  env.write_file("src/lib.rs", LIB);
+  env.write_file("doctor-check", "order");
+  let words = check_words();
+  let mut on = vec!["doctor", "on", "--"];
+  on.extend(words.iter().map(String::as_str));
+  assert_eq!(mto(&env, &on).0, 0);
+  let (code, _, stderr) = mto(&env, &["."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(stderr.contains("held back 1 edit"), "{}", stderr);
+  let before = env.read_file("src/lib.rs");
+  let (code, out, stderr) = mto(&env, &["doctor", "keep", "1"]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert!(out.contains("confirmed (the build failed twice"), "{}", out);
+  let kept = env.read_file("src/lib.rs");
+  assert_eq!(
+    kept,
+    before.replace(
+      "mod generated",
+      "// mto: hold -- error[E0433]: failed to resolve: generated\nmod generated"
+    )
+  );
+  let (_, holds, _) = mto(&env, &["doctor", "holds"]);
+  assert!(holds.contains("No edits are held back"), "{}", holds);
+  // The directive holds it now, guard or no guard.
+  let (code, _, _) = mto(&env, &[".", "--unguarded"]);
+  assert_eq!(code, 0);
+  assert_eq!(env.read_file("src/lib.rs"), kept);
+  // Rechecked: still needed while the build depends on the order; not once it does not.
+  let (code, out, stderr) = mto(&env, &["doctor", "recheck"]);
+  assert_eq!(code, 0, "{}", stderr);
+  let line = kept.lines().position(|l| l.contains("mto: hold")).unwrap() + 1;
+  assert!(
+    out.contains(&format!("src/lib.rs:{}  still needed", line)),
+    "{}",
+    out
+  );
+  std::fs::remove_file(env.dir.path().join("doctor-check")).unwrap();
+  let (_, out, _) = mto(&env, &["doctor", "recheck"]);
+  assert!(out.contains("likely no longer needed"), "{}", out);
+  assert_eq!(env.read_file("src/lib.rs"), kept);
+}
+
 /// Out of checks (`doctor.max_checks`), every changed file is held back whole: the files are
 /// as before the run, which the check before passed, and the run ends without an error.
 #[test]

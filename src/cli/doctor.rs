@@ -193,6 +193,76 @@ pub fn dir(env: &Environment) -> Option<PathBuf> {
   user::history_dir(env).and_then(|h| beside(&h))
 }
 
+/// `mto doctor keep N|all`: each held move, confirmed by trying it again (twice, the build
+/// must fail both times), written into its file as `// mto: hold -- why` above the item,
+/// and dropped from the holds the user keeps; a held change of lines is named, as more
+/// likely a bug in mto, with how to keep it.
+pub fn keep(settings: &Settings, resolver: &mut Resolver, which: &str, here: &Path) -> String {
+  let mut holds = settings.holds();
+  let count = holds.list.len();
+  let picked: Vec<usize> = if which == "all" {
+    (0..count).collect()
+  } else {
+    match which.parse::<usize>() {
+      Ok(n) if (1..=count).contains(&n) => vec![n - 1],
+      _ => {
+        return format!(
+          "`{}` is not a hold: give all, or a number from 1 to {} (`mto doctor holds`)\n",
+          which, count
+        );
+      }
+    }
+  };
+  if picked.is_empty() {
+    return "No edits are held back.\n".into();
+  }
+  let check = settings.guard(here, None, true).check;
+  let mut out = String::new();
+  let mut kept = Vec::new();
+  for at in picked {
+    let hold = &holds.list[at];
+    let crate::doctor::holds::Kind::Move(id) = &hold.kind else {
+      out.push_str(&format!(
+        "{}. {}: {}\n    a changed line held back is more likely a bug in mto: the guard's \
+         report for run {} shows it (`mto report` keeps mto's own); to keep the lines as \
+         written, put `// mto: off` and `// mto: on` around them\n",
+        at + 1,
+        hold.path.display(),
+        hold.what,
+        hold.run
+      ));
+      continue;
+    };
+    match keep_move(resolver, &hold.path, id, &check, &holds) {
+      Ok(reason) => {
+        out.push_str(&format!(
+          "{}. {}: {}\n    confirmed (the build failed twice with it moved); wrote \
+           `// mto: hold -- {}` above it\n",
+          at + 1,
+          hold.path.display(),
+          hold.what,
+          reason
+        ));
+        kept.push(at);
+      }
+      Err(why) => out.push_str(&format!(
+        "{}. {}: {}\n    not kept: {}\n",
+        at + 1,
+        hold.path.display(),
+        hold.what,
+        why
+      )),
+    }
+  }
+  for at in kept.into_iter().rev() {
+    holds.list.remove(at);
+  }
+  if let Err(e) = holds.save() {
+    out.push_str(&format!("cannot update the holds: {}\n", e));
+  }
+  out
+}
+
 /// `mto doctor holds`: each held edit, numbered for `release`.
 pub fn list(settings: &Settings) -> String {
   let holds = settings.holds();
@@ -223,6 +293,57 @@ pub fn prune_reports(history: &History) -> io::Result<(usize, u64)> {
   let runs: HashSet<String> = history.ids()?.into_iter().collect();
   let held: HashSet<String> = Holds::load(&dir).list.into_iter().map(|h| h.run).collect();
   report::prune(&dir.join("reports"), &runs, &held)
+}
+
+/// `mto doctor recheck`: each `// mto: hold` in the project of `here`, tried without it:
+/// still needed when the build fails with the item moved, else named as no longer needed.
+/// Nothing is changed: the line is the project's, for a person to remove.
+pub fn recheck(settings: &Settings, resolver: &mut Resolver, here: &Path) -> String {
+  let root = crate::cli::history::project_root(here);
+  let check = settings.guard(here, None, true).check;
+  let opts = crate::RunOptions::default();
+  let jobs = match crate::collect_jobs(std::slice::from_ref(&root), resolver, &opts) {
+    Ok(collected) => collected.jobs,
+    Err(e) => return format!("cannot walk {}: {}\n", root.display(), e),
+  };
+  let holds = settings.holds();
+  let mut out = String::new();
+  let mut seen = 0;
+  for (path, file_settings) in jobs {
+    let (Ok(source), Some(file_settings)) = (std::fs::read_to_string(&path), file_settings) else {
+      continue;
+    };
+    if !source.contains("mto: hold") {
+      continue;
+    }
+    let parsed = crate::syntax::parse(&source, file_settings.edition);
+    let found = crate::syntax::marker::scan(&parsed.syntax_node(), &source);
+    for start in found.holds {
+      seen += 1;
+      let line_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+      let line_end = source[start..]
+        .find('\n')
+        .map_or(source.len(), |at| start + at + 1);
+      let line = source[..start].matches('\n').count() + 1;
+      let without = format!("{}{}", &source[..line_start], &source[line_end..]);
+      let verdict = match crate::shape(&without, &file_settings, &holds.held_for(&path)) {
+        Err(e) => format!("cannot tell: {}", e),
+        Ok(free) if free.moves.is_empty() => {
+          "no longer needed: without it nothing would move".to_string()
+        }
+        Ok(free) => match try_twice(&path, &source, &free.text, &check) {
+          Ok(true) => "still needed: the build fails with the item moved".to_string(),
+          Ok(false) => "likely no longer needed: the build passed with the item moved".to_string(),
+          Err(e) => format!("cannot tell: {}", e),
+        },
+      };
+      out.push_str(&format!("{}:{}  {}\n", path.display(), line, verdict));
+    }
+  }
+  if seen == 0 {
+    return format!("No `// mto: hold` lines in {}.\n", root.display());
+  }
+  out
 }
 
 /// `mto doctor release N|all`.
@@ -421,6 +542,72 @@ fn beside(history_dir: &Path) -> Option<PathBuf> {
   history_dir.parent().map(|p| p.join("doctor"))
 }
 
+/// Confirms the hold on the move `id` of `path` and writes its directive: the reason, from
+/// the first error the build gave with the move made.
+fn keep_move(
+  resolver: &mut Resolver,
+  path: &Path,
+  id: &crate::doctor::MoveId,
+  check: &Check,
+  holds: &Holds,
+) -> Result<String, String> {
+  let source = std::fs::read_to_string(path).map_err(|e| format!("cannot read it: {}", e))?;
+  let dir = path.parent().unwrap_or(Path::new("."));
+  let settings = resolver
+    .config_for(dir)
+    .ok()
+    .and_then(|c| crate::Settings::of(&c))
+    .ok_or("layout is off there")?;
+  // The file's other holds still hold; this one is let go.
+  let mut held = holds.held_for(path);
+  held.move_ids.retain(|other| other != id);
+  let free = crate::shape(&source, &settings, &held).map_err(|e| e.to_string())?;
+  let Some(moved) = free
+    .moves
+    .iter()
+    .find(|m| &crate::doctor::move_id(&source, m) == id)
+  else {
+    return Err("the item no longer moves; `mto doctor release` drops the hold".into());
+  };
+  let mut errors = Vec::new();
+  for _ in 0..2 {
+    crate::write_atomic(path, &free.text).map_err(|e| format!("cannot try it: {}", e))?;
+    let said = check.run();
+    crate::write_atomic(path, &source).map_err(|e| format!("cannot put it back: {}", e))?;
+    if said.passed {
+      return Err(
+        "the build passed with it moved, so the hold may come from a flaky command; \
+         `mto doctor release` drops it"
+          .into(),
+      );
+    }
+    errors.extend(said.errors.iter().cloned());
+  }
+  let reason = errors
+    .first()
+    .map(|e| e.chars().take(70).collect::<String>())
+    .unwrap_or_else(|| "moving it breaks the build".into());
+  // Above the unit's first line, at its indentation, with the file's line ending.
+  let text = crate::text::source::normalize(&source).map_err(|e| e.to_string())?;
+  let line = text.text[..moved.span.0.min(text.text.len())]
+    .matches('\n')
+    .count();
+  let ending = if source.contains("\r\n") {
+    "\r\n"
+  } else {
+    "\n"
+  };
+  let mut lines: Vec<&str> = source.split_inclusive('\n').collect();
+  let indent: String = lines
+    .get(line)
+    .map(|l| l.chars().take_while(|c| *c == ' ' || *c == '\t').collect())
+    .unwrap_or_default();
+  let directive = format!("{}// mto: hold -- {}{}", indent, reason, ending);
+  lines.insert(line.min(lines.len()), &directive);
+  crate::write_atomic(path, &lines.concat()).map_err(|e| format!("cannot write it: {}", e))?;
+  Ok(reason)
+}
+
 /// A trusted command, as the list keeps it: the project's folder, then a hash of its words,
 /// so a command changed by a pull is not trusted.
 fn trust_line(root: &Path, words: &[String]) -> String {
@@ -436,6 +623,20 @@ fn trust_list(dir: &Path) -> Vec<String> {
   std::fs::read_to_string(dir.join("trusted.txt"))
     .map(|text| text.lines().map(str::to_string).collect())
     .unwrap_or_default()
+}
+
+/// Whether the build fails twice with `path` holding `text`; the file is put back as
+/// `source` after each try.
+fn try_twice(path: &Path, source: &str, text: &str, check: &Check) -> Result<bool, String> {
+  for _ in 0..2 {
+    crate::write_atomic(path, text).map_err(|e| format!("cannot try it: {}", e))?;
+    let said = check.run();
+    crate::write_atomic(path, source).map_err(|e| format!("cannot put it back: {}", e))?;
+    if said.passed {
+      return Ok(false);
+    }
+  }
+  Ok(true)
 }
 
 #[cfg(test)]

@@ -157,6 +157,8 @@ Some items depend on their position in the file. `mto` keeps them in place:
   their original position in the file.
 * **Items marked to stay:** `#[rustfmt::skip]` items, and the item under a
   `// mto: pin` line (a comment may stand between them), keep their position.
+  The item under a `// mto: hold` line keeps its neighbours too: nothing moves
+  across it.
   A file whose header has `#![rustfmt::skip]` is left alone.
 * **Generated files:** a file with a comment near its top holding one of
   `generated_markers` (`@generated` by default) keeps its items where they

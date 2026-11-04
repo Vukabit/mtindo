@@ -67,7 +67,9 @@ Between them nothing is moved or changed, the markers included.
   each get a warning naming the line.
 
 `// mto: pin` on a line of its own keeps the item below it in its place in
-the [layout](layout.md).
+the [layout](layout.md); other items may pass it. `// mto: hold` keeps it
+between the same neighbours, and nothing moves across it: the strength of a
+[build guard](build-guard.md) hold, for an order the build depends on.
 
 ## Every format is checked
 

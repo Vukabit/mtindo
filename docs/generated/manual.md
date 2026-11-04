@@ -192,14 +192,18 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     anywhere.
     *   `--force` (after `mto restore <RUN> [FILE...]`): Also restore files
         changed since the run, and missing ones.
-*   `mto doctor [on|off|holds|release|trust|<RUN>]`: `on` turns the build guard
-    on: each run that writes files then checks that the project still builds,
-    and holds back the edits that break it. It runs the command given after `--`
-    (default: `cargo check` over the whole workspace and all its targets) and no
-    other; with the guard off, mto runs none. `off` turns it off. With no
-    argument, says whether it is on, its command and the edits it holds. `holds`
-    lists those edits; `release` drops one, or all. A project may declare its
-    own command in its mto.toml (`doctor.command`, with `doctor.timeout` and
+*   `mto doctor [on|off|holds|release|keep|recheck|trust|<RUN>]`: `on` turns the
+    build guard on: each run that writes files then checks that the project
+    still builds, and holds back the edits that break it. It runs the command
+    given after `--` (default: `cargo check` over the whole workspace and all
+    its targets) and no other; with the guard off, mto runs none. `off` turns it
+    off. With no argument, says whether it is on, its command and the edits it
+    holds. `holds` lists those edits; `release` drops one, or all; `keep`
+    confirms a held move by trying it again (the build must fail twice) and
+    writes `// mto: hold -- why` above the item, so the hold is the project's,
+    seen by everyone; `recheck` tries each such line without it and says which
+    are no longer needed, changing nothing. A project may declare its own
+    command in its mto.toml (`doctor.command`, with `doctor.timeout` and
     `doctor.max_checks`): with the guard on, it runs in place of yours once you
     trust it, word for word, with `trust`; until then, and again after it
     changes, a guarded run there writes nothing (exit code 6). RUN narrows down

@@ -628,7 +628,9 @@ fn move_found(i: usize, file: &File, moved: &Move) -> Found {
       line,
       now
     ),
-    fix: "`// mto: pin` on the line above it keeps it where it is".into(),
+    fix: "`// mto: hold -- why` on the line above it keeps it between its neighbours, as \
+          the hold does; `mto doctor keep` writes it"
+      .into(),
     errors: Vec::new(),
     moved: Some(moved.clone()),
   }

@@ -125,6 +125,10 @@ enum DoctorView {
   Status,
   /// Trust the project's own guard command.
   Trust,
+  /// Write the confirmed holds into their files as `// mto: hold`.
+  Keep(String),
+  /// Try each `// mto: hold` without it.
+  Recheck,
   /// Turn the guard on, with the command after `--` when given.
   On(Option<Vec<String>>),
   Off,
@@ -1063,6 +1067,8 @@ fn parse_doctor_args(spec: &CommandSpec, args: &[String]) -> Result<CliAction, (
     (Some("off"), [_], None) => DoctorView::Off,
     (Some("holds"), [_], None) => DoctorView::Holds,
     (Some("trust"), [_], None) => DoctorView::Trust,
+    (Some("keep"), [_, which], None) => DoctorView::Keep(which.to_string()),
+    (Some("recheck"), [_], None) => DoctorView::Recheck,
     (Some("release"), [_, which], None) => DoctorView::Release(which.to_string()),
     _ => return usage(),
   };
@@ -2009,6 +2015,8 @@ fn run_doctor(view: DoctorView, json: bool) -> i32 {
   let config_path = config::user::path(resolver.env()).ok().flatten();
   let result = match view {
     DoctorView::Trust => settings.trust(),
+    DoctorView::Keep(which) => Ok(doctor_cli::keep(&settings, &mut resolver, &which, &here)),
+    DoctorView::Recheck => Ok(doctor_cli::recheck(&settings, &mut resolver, &here)),
     DoctorView::Status if json => Ok(format!(
       "{}\n",
       doctor_cli::status_json(&settings, config_path.as_deref()).text()
@@ -2709,6 +2717,8 @@ mod tests {
       &["doctor", "off"],
       &["doctor", "holds"],
       &["doctor", "trust"],
+      &["doctor", "keep", "all"],
+      &["doctor", "recheck"],
       &["doctor", "release", "all"],
       &["doctor", "last"],
       &["report"],

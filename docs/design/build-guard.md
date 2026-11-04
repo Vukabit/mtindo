@@ -128,8 +128,9 @@ which writes every edit for that run. A hold lapses when:
 - the text it is about is no longer found in the file.
 
 `mto doctor holds` lists the holds, with how to keep each edit for good
-without the guard: `// mto: pin` above a moved item, `// mto: off` and
-`// mto: on` around changed lines. `mto doctor release N` drops one, and
+without the guard: `// mto: hold` above a moved item (as strong as the hold:
+the item keeps its neighbours), `// mto: off` and `// mto: on` around changed
+lines. `mto doctor release N` drops one, and
 `release all` drops every one.
 
 ## The report

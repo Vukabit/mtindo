@@ -282,6 +282,9 @@ fn notes(units: &[Unit], names: &[HashSet<&str>], at: usize, config: &LayoutConf
   } else if unit.pinned {
     notes.push(format!("pinned, keeps its slot: {}", pin_reason(unit)));
   }
+  if unit.held {
+    notes.push("held by `// mto: hold`: keeps its neighbours, nothing moves across it".to_string());
+  }
   if unit.paragraph {
     notes.push("a paragraph: items written with no blank line between them".to_string());
   } else if unit.cfg && unit.text.matches("#[cfg").count() > 1 {

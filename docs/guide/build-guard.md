@@ -22,12 +22,26 @@ mto doctor off
 the fewest files that break the build, then, within them, one moved item or
 changed line at a time until the build passes. It
 writes every other edit, checks once more, and writes a report naming each
-held edit, the errors it caused and how to keep it (`// mto: pin`,
+held edit, the errors it caused and how to keep it (`// mto: hold`,
 `// mto: off`); reports are pruned with the runs they belong to. Held edits
 stay held on later runs, without the command and with the guard off too,
 until mto's build or the text changes; `--unguarded` writes every edit for
 its run. An editor formatting through stdin keeps them as well when it names
 the file with `--stdin-filepath`.
+
+A hold is yours alone: it lives beside your history, so a teammate's run, or
+CI, would make the move again. To keep it for everyone, `mto doctor keep N`
+(or `all`) tries the move once more, twice, with the guard's command; when the
+build fails both times it writes `// mto: hold -- the first error` above the
+item, which every run then honors, and drops your hold. A move the build
+passes with is not kept: the hold may have come from a flaky command. A held
+change of lines is not written either: it is more likely a bug in mto, and the
+guard's report shows it; `// mto: off` and `// mto: on` around the lines keep
+them as written.
+
+`mto doctor recheck` tries each `// mto: hold` in the project without it and
+says which are still needed, so one whose cause has gone can be removed. It
+changes nothing.
 
 ## When the build already fails
 

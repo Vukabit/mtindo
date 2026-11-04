@@ -263,14 +263,18 @@ pub const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "doctor",
-    args: "[on|off|holds|release|trust|<RUN>]",
+    args: "[on|off|holds|release|keep|recheck|trust|<RUN>]",
     summary: "Guard the build against mto's edits, or find the edit that broke it",
     about: "`on` turns the build guard on: each run that writes files then checks that the \
                 project still builds, and holds back the edits that break it. It runs \
                 the command given after `--` (default: `cargo check` over the whole \
                 workspace and all its targets) and no other; with the guard off, mto runs none. `off` turns \
                 it off. With no argument, says whether it is on, its command and the edits it \
-                holds. `holds` lists those edits; `release` drops one, or all. A project may \
+                holds. `holds` lists those edits; `release` drops one, or all; `keep` \
+                confirms a held move by trying it again (the build must fail twice) and \
+                writes `// mto: hold -- why` above the item, so the hold is the project's, \
+                seen by everyone; `recheck` tries each such line without it and says which \
+                are no longer needed, changing nothing. A project may \
                 declare its own command in its mto.toml (`doctor.command`, with \
                 `doctor.timeout` and `doctor.max_checks`): with the guard on, it runs in \
                 place of yours once you trust it, word for word, with `trust`; until then, \
@@ -285,6 +289,8 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto doctor holds",
       "mto doctor release <N|all>",
       "mto doctor trust",
+      "mto doctor keep <N|all>",
+      "mto doctor recheck",
       "mto doctor <RUN> [-- <COMMAND>...]",
     ],
     options: &[("options", "mto doctor", &[Flag::Json])],
@@ -303,6 +309,16 @@ pub const COMMANDS: &[CommandSpec] = &[
       Subcommand {
         word: "holds",
         summary: "List the edits the guard holds back",
+        operand: Complete::Nothing,
+      },
+      Subcommand {
+        word: "keep",
+        summary: "Confirm held moves and write them into their files as `// mto: hold`",
+        operand: Complete::Nothing,
+      },
+      Subcommand {
+        word: "recheck",
+        summary: "Try each `// mto: hold` without it, and say which are still needed",
         operand: Complete::Nothing,
       },
       Subcommand {

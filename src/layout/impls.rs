@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use super::order::macro_moved_past_user;
-use super::{Cx, Unit, around_held, split_container};
+use super::{Cx, Rule, Unit, around_held, split_container};
 use crate::options::layout::{ItemKind, LayoutConfig};
 use crate::syntax::ast::Item;
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
@@ -160,7 +160,12 @@ pub(super) fn impl_with_items_ordered(
   {
     return None;
   }
-  cx.note(&arranged);
+  let rule = if config.reorder_impl_items {
+    Rule::ImplItems
+  } else {
+    Rule::TraitOrder
+  };
+  cx.note(&arranged, |_| rule);
   let mut out = String::new();
   let node_range = node.text_range();
   out.push_str(&text[node_range.start as usize..units[0].span.0]);

@@ -36,6 +36,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 
 pub use classify::import_group_of_text;
+pub use order::Rule;
 
 use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Sections, Visibility};
 use crate::syntax::ast::{Attr, Item};
@@ -61,9 +62,10 @@ impl Cx<'_> {
     self.held.contains(&start)
   }
 
-  /// Notes the moves between `units` and their new order.
-  pub(super) fn note(&self, arranged: &[Unit]) {
-    self.moves.borrow_mut().extend(moves_of(arranged));
+  /// Notes the moves between `units` and their new order, each with the rule `why` gives
+  /// for the unit at its position.
+  pub(super) fn note(&self, arranged: &[Unit], why: impl Fn(usize) -> Rule) {
+    self.moves.borrow_mut().extend(moves_of(arranged, why));
   }
 }
 
@@ -93,6 +95,8 @@ pub struct Move {
   pub identifier: String,
   /// The unit it now comes right before, if any: its kind and name.
   pub before: Option<(ItemKind, String)>,
+  /// Why it moved.
+  pub rule: Rule,
 }
 
 /// The parsed file, cut into header, units and tail.
@@ -198,7 +202,7 @@ pub fn layout_holding(
     |u| held.contains(&u.span.0) || u.boundary,
     |run| order::arrange(run, config),
   )?;
-  moves.extend(moves_of(&after));
+  moves.extend(moves_of(&after, |at| order::reason(&after, at, config)));
   moves.sort_by_key(|m| m.span);
   let text = render(&split, &after, config, "", true);
   Ok(Layout {
@@ -623,7 +627,7 @@ fn module_with_body_laid_out(
     |run| order::arrange(run, config),
   )
   .ok()?;
-  cx.note(&arranged);
+  cx.note(&arranged, |at| order::reason(&arranged, at, config));
   let inner = render(&split, &arranged, config, indent, false);
   let item_range = node.text_range();
   Some(format!(
@@ -637,7 +641,7 @@ fn module_with_body_laid_out(
 }
 
 /// The units of `arranged` that are not in the longest run kept in their order as written.
-fn moves_of(arranged: &[Unit]) -> Vec<Move> {
+fn moves_of(arranged: &[Unit], why: impl Fn(usize) -> Rule) -> Vec<Move> {
   let order: Vec<usize> = arranged.iter().map(|u| u.index).collect();
   let stay = longest_increasing(&order);
   arranged
@@ -651,6 +655,7 @@ fn moves_of(arranged: &[Unit]) -> Vec<Move> {
       before: arranged
         .get(at + 1)
         .map(|u| (u.kind.clone(), u.identifier.clone())),
+      rule: why(at),
     })
     .collect()
 }

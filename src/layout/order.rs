@@ -28,6 +28,70 @@ use super::Unit;
 use crate::options::layout::{ItemKind, LayoutConfig, NameSort, TraitImplSort, Visibility};
 use crate::order::version_sort;
 
+/// Why a unit moved: the rule that put it before the unit it now precedes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rule {
+  /// `#[cfg(test)]` modules go last.
+  TestModuleLast,
+  /// Macro definitions go first, so nothing ends up above a definition it uses.
+  MacrosFirst,
+  /// Imports in their groups (`import_grouping`).
+  ImportGroups,
+  /// Imports in the Rust style's order (`sort_imports`).
+  Imports,
+  /// The order of kinds (`type_order`).
+  TypeOrder,
+  /// An impl beside the type it is for, types by name (`group_impls`).
+  GroupImpls,
+  /// `#[macro_use]` modules first.
+  MacroUseModules,
+  /// Modules by name.
+  Modules,
+  /// Impls of one type: its own first, then trait impls (`trait_impl_order`,
+  /// `trait_impl_sort`).
+  ImplsOfOneType,
+  /// The order of visibilities (`visibility_order`).
+  Visibility,
+  /// Names (`name_sort`).
+  Name,
+  /// Kept in the order written; others moved past it.
+  Written,
+  /// A pinned unit keeps its slot; others moved past it.
+  Slot,
+  /// Above the one item that uses it (`keep_helpers_near`).
+  Helper,
+  /// Items in an impl in the standard formatter's order (`reorder_impl_items`).
+  ImplItems,
+  /// An impl's functions in its trait's order (`impl_method_order`).
+  TraitOrder,
+}
+
+impl Rule {
+  /// What the rule says, for `mto debug moves`.
+  pub fn says(self) -> &'static str {
+    match self {
+      Rule::TestModuleLast => "a #[cfg(test)] module goes last",
+      Rule::MacrosFirst => "macro definitions go first, so nothing ends up above one it uses",
+      Rule::ImportGroups => "imports in groups: std, external, this crate (import_grouping)",
+      Rule::Imports => "imports in the Rust style's order (sort_imports)",
+      Rule::TypeOrder => "the order of kinds (type_order)",
+      Rule::GroupImpls => "an impl beside its type, types by name (group_impls)",
+      Rule::MacroUseModules => "#[macro_use] modules first",
+      Rule::Modules => "modules by name",
+      Rule::ImplsOfOneType => {
+        "a type's own impls first, then trait impls (trait_impl_order, trait_impl_sort)"
+      }
+      Rule::Visibility => "the order of visibilities (visibility_order)",
+      Rule::Name => "by name (name_sort)",
+      Rule::Written => "kept as written; others moved past it",
+      Rule::Slot => "pinned: keeps its slot while others move past it",
+      Rule::Helper => "above the one item that uses it (keep_helpers_near)",
+      Rule::ImplItems => "the standard formatter's order of impl items (reorder_impl_items)",
+      Rule::TraitOrder => "the trait's order of functions (impl_method_order)",
+    }
+  }
+}
+
 /// The units in their new order.
 pub(super) fn arrange(units: &[Unit], config: &LayoutConfig) -> Result<Vec<Unit>, String> {
   let mut arranged = sorted(units, config, false);
@@ -47,33 +111,47 @@ pub(super) fn compare(
   families: &[(String, ItemKind)],
   macros_first: bool,
 ) -> Ordering {
+  compare_by(a, b, config, families, macros_first).0
+}
+
+/// [`compare`], with the rule that decided it.
+pub(super) fn compare_by(
+  a: &Unit,
+  b: &Unit,
+  config: &LayoutConfig,
+  families: &[(String, ItemKind)],
+  macros_first: bool,
+) -> (Ordering, Rule) {
   if macros_first {
     let (macro_a, macro_b) = (defines_macros(a), defines_macros(b));
     if macro_a != macro_b {
-      return macro_b.cmp(&macro_a);
+      return (macro_b.cmp(&macro_a), Rule::MacrosFirst);
     }
     if macro_a {
       // Macro definitions keep their written order among themselves.
-      return a.index.cmp(&b.index);
+      return (a.index.cmp(&b.index), Rule::MacrosFirst);
     }
   }
   if a.test_module != b.test_module {
-    return a.test_module.cmp(&b.test_module);
+    return (a.test_module.cmp(&b.test_module), Rule::TestModuleLast);
   }
   if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && !config.sort_imports {
     // Unsorted imports keep their written order; sorting them by name would read
     // names from text that the standard formatter rewrites, so the order would not settle.
-    return a.index.cmp(&b.index);
+    return (a.index.cmp(&b.index), Rule::Written);
   }
   if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && config.sort_imports {
     if config.import_grouping && a.import_group != b.import_group {
-      return a.import_group.cmp(&b.import_group);
+      return (a.import_group.cmp(&b.import_group), Rule::ImportGroups);
     }
     let version = config.version_sorted_imports();
-    return match (&a.use_tree, &b.use_tree) {
-      (Some(x), Some(y)) => x.compare(y, version),
-      _ => a.identifier.cmp(&b.identifier),
-    };
+    return (
+      match (&a.use_tree, &b.use_tree) {
+        (Some(x), Some(y)) => x.compare(y, version),
+        _ => a.identifier.cmp(&b.identifier),
+      },
+      Rule::Imports,
+    );
   }
   let family = |unit: &Unit| -> String {
     if config.group_impls && unit.kind == ItemKind::ImplBlock {
@@ -98,7 +176,7 @@ pub(super) fn compare(
     rank(&family_kind(b, &family_b)),
   );
   if rank_a != rank_b {
-    return rank_a.cmp(&rank_b);
+    return (rank_a.cmp(&rank_b), Rule::TypeOrder);
   }
   if config.group_impls {
     let groupable = |k: &ItemKind| {
@@ -112,24 +190,24 @@ pub(super) fn compare(
       )
     };
     if groupable(&a.kind) && groupable(&b.kind) && family_a != family_b {
-      return names(&family_a, &family_b, config);
+      return (names(&family_a, &family_b, config), Rule::GroupImpls);
     }
   }
   let (own_a, own_b) = (rank(&a.kind), rank(&b.kind));
   if own_a != own_b {
-    return own_a.cmp(&own_b);
+    return (own_a.cmp(&own_b), Rule::GroupImpls);
   }
   // Macros are scoped by textual order, so they never change places with each other.
   if a.kind == ItemKind::MacroDecl && b.kind == ItemKind::MacroDecl {
-    return a.index.cmp(&b.index);
+    return (a.index.cmp(&b.index), Rule::Written);
   }
   if a.kind == ItemKind::ModDecl && b.kind == ItemKind::ModDecl {
     // A #[macro_use] module stays ahead of the modules that rely on its macros.
     if a.macro_use != b.macro_use {
-      return b.macro_use.cmp(&a.macro_use);
+      return (b.macro_use.cmp(&a.macro_use), Rule::MacroUseModules);
     }
     if a.macro_use {
-      return a.index.cmp(&b.index);
+      return (a.index.cmp(&b.index), Rule::MacroUseModules);
     }
     if config.sort_alphabetically {
       // As the standard formatter orders `mod` declarations: by bytes through style
@@ -138,16 +216,17 @@ pub(super) fn compare(
         a.identifier.trim_start_matches("r#"),
         b.identifier.trim_start_matches("r#"),
       );
-      return if config.style_edition > 2024 {
+      let order = if config.style_edition > 2024 {
         version_sort(x, y)
       } else {
         x.cmp(y)
       };
+      return (order, Rule::Modules);
     }
-    return Ordering::Equal;
+    return (Ordering::Equal, Rule::Written);
   }
   if a.kind == ItemKind::ImplBlock && b.kind == ItemKind::ImplBlock {
-    return impls(a, b, config);
+    return (impls(a, b, config), Rule::ImplsOfOneType);
   }
   if a.visibility != b.visibility {
     let rank = |v: &Visibility| {
@@ -157,12 +236,15 @@ pub(super) fn compare(
         .position(|o| o == v)
         .unwrap_or(usize::MAX)
     };
-    return rank(&a.visibility).cmp(&rank(&b.visibility));
+    return (
+      rank(&a.visibility).cmp(&rank(&b.visibility)),
+      Rule::Visibility,
+    );
   }
   if config.sort_alphabetically {
-    names(&a.identifier, &b.identifier, config)
+    (names(&a.identifier, &b.identifier, config), Rule::Name)
   } else {
-    Ordering::Equal
+    (Ordering::Equal, Rule::Written)
   }
 }
 
@@ -178,9 +260,68 @@ pub(super) fn macro_moved_past_user(units: &[Unit]) -> bool {
   false
 }
 
+/// The rule that put `unit` where it is in `arranged`, at `at`: above its user, by a pin,
+/// or by the comparison with the unit after it (before it, for the last).
+pub(super) fn reason(arranged: &[Unit], at: usize, config: &LayoutConfig) -> Rule {
+  let unit = &arranged[at];
+  if unit.pinned {
+    return Rule::Slot;
+  }
+  // Above its user: the first unit after it that is not another helper of that user.
+  if let Some(caller) = unit.caller {
+    let user = (at + 1..arranged.len())
+      .find(|&next| arranged[next].caller != Some(caller) && !arranged[next].pinned);
+    if user.is_some_and(|next| super::first_variant(arranged, next) == caller) {
+      return Rule::Helper;
+    }
+  }
+  let families = families(arranged, config);
+  let free = |u: &&Unit| !u.pinned && !u.comments_only;
+  let (rule, ordering) = match arranged[at + 1..].iter().find(free) {
+    Some(next) => {
+      let (ordering, rule) = compare_by(unit, next, config, &families, false);
+      (rule, ordering)
+    }
+    None => match arranged[..at].iter().rev().find(free) {
+      Some(previous) => {
+        let (ordering, rule) = compare_by(previous, unit, config, &families, false);
+        (rule, ordering)
+      }
+      None => return Rule::Written,
+    },
+  };
+  match ordering {
+    Ordering::Less => rule,
+    // The plain order would not have put it here: the macro rule did.
+    Ordering::Greater if defines_macros(unit) || arranged.iter().any(defines_macros) => {
+      Rule::MacrosFirst
+    }
+    _ => Rule::Written,
+  }
+}
+
 /// A `macro_rules!`, or a `#[macro_use]` module, whose macros are visible after it.
 fn defines_macros(unit: &Unit) -> bool {
   unit.defines_macros
+}
+
+/// The types among `units`, by name, the one placed first first: what an impl of a name
+/// two types share joins.
+fn families(units: &[Unit], config: &LayoutConfig) -> Vec<(String, ItemKind)> {
+  let mut families: Vec<(String, ItemKind)> = units
+    .iter()
+    .filter(|u| {
+      matches!(
+        u.kind,
+        ItemKind::StructDecl | ItemKind::EnumDecl | ItemKind::Union | ItemKind::TraitDecl
+      )
+    })
+    .map(|u| (u.identifier.clone(), u.kind.clone()))
+    .collect();
+  // Of types sharing a name (in different modules, or under `cfg`), an impl goes with the
+  // one placed first, whatever the order they were written in.
+  families.sort_by_key(|(_, kind)| kind_rank(kind, config));
+  families
 }
 
 /// Pinned units at their own positions, the others sorted into the remaining ones.
@@ -278,19 +419,7 @@ fn near_callers(free: Vec<Unit>) -> Vec<Unit> {
 }
 
 fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit> {
-  let mut families: Vec<(String, ItemKind)> = units
-    .iter()
-    .filter(|u| {
-      matches!(
-        u.kind,
-        ItemKind::StructDecl | ItemKind::EnumDecl | ItemKind::Union | ItemKind::TraitDecl
-      )
-    })
-    .map(|u| (u.identifier.clone(), u.kind.clone()))
-    .collect();
-  // Of types sharing a name (in different modules, or under `cfg`), an impl goes with the
-  // one placed first, whatever the order they were written in.
-  families.sort_by_key(|(_, kind)| kind_rank(kind, config));
+  let families = families(units, config);
   let mut free: Vec<Unit> = units.iter().filter(|u| !u.pinned).cloned().collect();
   free.sort_by(|a, b| compare(a, b, config, &families, macros_first));
   if free.iter().any(|u| u.caller.is_some()) {

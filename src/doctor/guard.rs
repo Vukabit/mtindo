@@ -18,9 +18,11 @@ pub enum Ended {
   Written,
   /// Some files could not be written; the report says which.
   Failed,
-  /// The build fails with every edit held back, or failed before any: the files are as
-  /// they were.
+  /// The build fails with every edit held back: the files are as they were.
   NotMto,
+  /// The command already failed before mto changed anything, so it cannot guard the run:
+  /// nothing was written.
+  CannotGuard,
 }
 
 /// How the guard runs: its command, its limit, and where it keeps holds and reports.
@@ -81,7 +83,7 @@ pub fn finish(
       why,
       c_reset(true)
     );
-    return Ended::NotMto;
+    return Ended::CannotGuard;
   }
   let mut ended = Ended::Written;
   let mut written: Vec<String> = Vec::with_capacity(planned.len());

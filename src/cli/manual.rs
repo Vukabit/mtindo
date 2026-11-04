@@ -118,7 +118,7 @@ changed): the files are put back as they were, and mto says so (exit code
 
 A command that already fails before the run cannot guard it, as a crate that
 does not build hides what an edit would break after it: mto writes nothing,
-says why, and exits with code 5. Fix the build, give the guard a command that
+says why, and exits with code 6. Fix the build, give the guard a command that
 passes, or pass `--unguarded`.
 
 Held edits are remembered, in the doctor's folder next to history, so the

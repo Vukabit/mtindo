@@ -303,8 +303,10 @@ The manifests are read directly; Cargo is not run. Options after `--` go to
     or, with history off, it has uncommitted changes.
 *   `4`: a bug in mto: the meaning check stopped a write, or formatting a file
     failed; the file is unchanged.
-*   `5`: the build guard's command failed with every edit held back, or already
-    failed before the run; the files are as they were.
+*   `5`: the build guard's command failed with every edit held back; the files
+    are as they were.
+*   `6`: the build guard's command already fails here, so it cannot guard the
+    run; nothing was written.
 
 ## Configuration
 mto reads the settings for each folder it formats from, lowest precedence first:
@@ -1703,7 +1705,7 @@ as they were, and mto says so (exit code 5).
 
 A command that already fails before the run cannot guard it, as a crate that
 does not build hides what an edit would break after it: mto writes nothing, says
-why, and exits with code 5. Fix the build, give the guard a command that passes,
+why, and exits with code 6. Fix the build, give the guard a command that passes,
 or pass `--unguarded`.
 
 Held edits are remembered, in the doctor's folder next to history, so the next

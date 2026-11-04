@@ -179,7 +179,8 @@ own after `--` (`cargo mto -- --message-format json`).
 | 2 | Bad arguments or configuration, or a path that does not exist |
 | 3 | A file could not be read, written or parsed, or has uncommitted changes |
 | 4 | A bug in mto, kept as a report; the file is unchanged |
-| 5 | The guard's command failed before the run, or with every edit held back |
+| 5 | The guard's command still failed with every edit held back |
+| 6 | The guard's command already fails here, so it cannot guard the run |
 
 Every flag and command, with its details, is in the
 [manual](../generated/manual.md) (`mto --man`).

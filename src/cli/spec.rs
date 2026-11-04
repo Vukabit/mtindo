@@ -532,8 +532,13 @@ pub const EXIT_CODES: &[(&str, &str)] = &[
   ),
   (
     "5",
-    "the build guard's command failed with every edit held back, or already failed \
-         before the run; the files are as they were",
+    "the build guard's command failed with every edit held back; the files are as they \
+         were",
+  ),
+  (
+    "6",
+    "the build guard's command already fails here, so it cannot guard the run; nothing \
+         was written",
   ),
 ];
 

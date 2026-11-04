@@ -32,9 +32,13 @@ its run.
 
 A tree whose command already fails before the run cannot be guarded: a crate
 that does not build hides what an edit would break after it. `mto` writes
-nothing, says why, and exits with code `5`. Fix the build, give the guard a
+nothing, says why, and exits with code `6`. Fix the build, give the guard a
 command that passes (`mto doctor on -- COMMAND`), or pass `--unguarded` for
 one run.
+
+`mto doctor on` runs the command once as it turns the guard on, in the
+project's folder, and says whether it passes there, so a command that cannot
+work here shows at once rather than on the first run.
 
 ## What runs, and when
 

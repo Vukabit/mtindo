@@ -1985,14 +1985,36 @@ fn run_doctor(view: DoctorView, json: bool) -> i32 {
       };
       doctor_cli::turn(path, true, command.as_deref()).map(|()| {
         let words = command.unwrap_or_else(|| settings.command.clone());
-        format!(
+        let mut said = format!(
           "The build guard is on. Each run that writes files now runs, in the project's \
            folder,\n\n    {}\n\nbefore and after it, and holds back the edits that break \
            the build. mto runs no other command. `mto doctor off` turns it off \
            ({}).\n",
           words.join(" "),
           path.display()
-        )
+        );
+        // Tried once here, now, rather than found out on the first run.
+        let here = std::env::current_dir().unwrap_or_default();
+        let guard = settings.guard(&here, Some(words), true);
+        let tried = guard.check.run();
+        if tried.passed {
+          said.push_str(&format!(
+            "\nIt passes here now ({} s, in {}).\n",
+            tried.took.as_secs(),
+            guard.check.dir.display()
+          ));
+        } else {
+          said.push_str(&format!(
+            "\n{}It already fails here ({}): until it passes, a guarded run in {} writes \
+             nothing and exits with code 6. Fix the build, or give the guard a command \
+             that passes here (`mto doctor on -- COMMAND`).{}\n",
+            c_yellow(true),
+            tried.summary(),
+            guard.check.dir.display(),
+            c_reset(true)
+          ));
+        }
+        said
       })
     }
     DoctorView::Off => match &config_path {
@@ -2127,6 +2149,7 @@ fn run_doctor_run(
     Ended::Written => 0,
     Ended::Failed => 3,
     Ended::NotMto => 5,
+    Ended::CannotGuard => 6,
   }
 }
 
@@ -2299,6 +2322,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions) -> i3
       Ended::Written => {}
       Ended::Failed => code_after = 3,
       Ended::NotMto => code_after = 5,
+      Ended::CannotGuard => code_after = 6,
     }
   }
   if let Some(recorder) = writes.recorder.as_mut() {

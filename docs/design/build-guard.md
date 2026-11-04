@@ -43,7 +43,7 @@ it runs. The one other source is the user's own command line:
 
 1. The command runs on a thread while mto lays out and formats the files in
    memory. Nothing is written until it ends.
-2. If that check fails, nothing is written and mto exits with code 5. A
+2. If that check fails, nothing is written and mto exits with code 6. A
    build that already fails cannot guard a run: a crate that does not build
    hides every error an edit would cause in the crates after it, so the run
    would look checked when it is not. mto says to fix the build, give a

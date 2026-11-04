@@ -1300,8 +1300,9 @@ fn test_cli_doctor_out_of_checks_holds_back_whole_files() {
 }
 
 /// A build guard whose command already fails before the run has no baseline: it cannot tell
-/// what the run would break, so nothing is written and mto says why (exit code 5);
-/// `--unguarded` writes as usual.
+/// what the run would break, so nothing is written and mto says why (exit code 6, apart
+/// from 5, a build broken with every edit held back); `doctor on` tried it and said so
+/// first; `--unguarded` writes as usual.
 #[test]
 fn test_cli_doctor_writes_nothing_without_a_baseline() {
   let env = TestEnvironment::new();
@@ -1310,10 +1311,11 @@ fn test_cli_doctor_writes_nothing_without_a_baseline() {
   let words = check_words();
   let mut on = vec!["doctor", "on", "--"];
   on.extend(words.iter().map(String::as_str));
-  let (code, _, stderr) = mto(&env, &on);
+  let (code, said, stderr) = mto(&env, &on);
   assert_eq!(code, 0, "{}", stderr);
+  assert!(said.contains("It already fails here"), "{}", said);
   let (code, _, stderr) = mto(&env, &["."]);
-  assert_eq!(code, 5, "{}", stderr);
+  assert_eq!(code, 6, "{}", stderr);
   assert!(
     stderr.contains("already fails before mto changes anything (error[E0425]"),
     "{}",

@@ -1,0 +1,14 @@
+# `cargo xtask corpus try` on the pinned corpus (2 runs a file), for `first-slice`.
+# Columns: files, changed, moves, left alone, check failed, panicked, unsettled.
+try  keep_paragraphs=true
+settings  layout=true,keep_paragraphs=true
+total  10842     8244  54977        204            0         0         0
+try  sections=headings
+settings  layout=true,sections=headings
+total  10842     8350 101915        204            0         0         0
+try  keep_helpers_near=true
+settings  layout=true,keep_helpers_near=true
+total  10842     8379 103309        204            0         0         0
+try  all together
+settings  layout=true,keep_paragraphs=true,sections=headings,keep_helpers_near=true
+total  10842     8273  55350        204            0         0         0

@@ -68,10 +68,15 @@ pub fn mirror(config: &Config, dir: &Path, dry_run: bool) -> Result<Mirrored, (S
   }
   if !dry_run {
     // Named from the folder, as the file is committed and read elsewhere.
-    let here = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    // Both resolved, as one folder can be named two ways (a Windows short name).
+    let real = |p: &Path| crate::real_path(p).unwrap_or_else(|_| p.to_path_buf());
+    let here = real(dir);
     let from: Vec<String> = from
       .iter()
-      .map(|p| p.strip_prefix(&here).unwrap_or(p).display().to_string())
+      .map(|p| {
+        let p = real(p);
+        p.strip_prefix(&here).unwrap_or(&p).display().to_string()
+      })
       .collect();
     let mut text = format!(
       "{} {}; run it again after changing them there.\n",

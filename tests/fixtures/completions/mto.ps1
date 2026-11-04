@@ -67,7 +67,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--config'] = 'Set settings for this run, over every file'
     $help['--config-path'] = 'Use only this configuration file; search for no other'
     $help['--edition'] = 'The Rust edition, over Cargo.toml and configuration files'
-    $help['--print-config'] = 'Print the formatting settings as the standard formatter prints them, and exit'
+    $help['--print-config'] = 'Print the formatting settings as the standard formatter prints them (default and minimal: to PATH, when given), and exit'
     $help['--strict'] = 'Make a configuration warning an error (exit code 2), for CI'
     $help['--style-edition'] = 'The style edition, which decides the defaults'
     $help['--unstable-features'] = 'Accepted for compatibility; mto applies every setting on every channel'

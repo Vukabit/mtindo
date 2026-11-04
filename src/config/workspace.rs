@@ -116,6 +116,22 @@ pub fn targets(
   Ok(found.into_iter().collect())
 }
 
+/// Whether the package in `dir` names `root` as its workspace (`package.workspace`).
+fn claims(dir: &Path, root: &Path) -> bool {
+  let Ok(text) = fs::read_to_string(dir.join("Cargo.toml")) else {
+    return false;
+  };
+  let Ok(manifest) = crate::config::toml::parse(&text) else {
+    return false;
+  };
+  manifest
+    .get("package")
+    .and_then(Value::as_table)
+    .and_then(|package| package.get("workspace"))
+    .and_then(Value::as_str)
+    .is_some_and(|named| normalized(&dir.join(named)) == normalized(root))
+}
+
 /// The folders a member pattern names; `*` and `?` match within one path part.
 fn expand(root: &Path, pattern: &str) -> Vec<PathBuf> {
   let mut dirs = vec![root.to_path_buf()];
@@ -169,11 +185,36 @@ fn members(root: &Path, workspace: &Table) -> Result<Vec<PathBuf>, String> {
   for pattern in strings("members") {
     for dir in expand(root, &pattern) {
       if dir.join("Cargo.toml").is_file() && !excluded.contains(&dir) && !found.contains(&dir) {
+        // As cargo: a member outside the root belongs only if it says so itself, by its
+        // `package.workspace`; else the workspace is wrong, and mto touches nothing.
+        if !normalized(&dir).starts_with(normalized(root)) && !claims(&dir, root) {
+          return Err(format!(
+            "workspace member {} is not below the workspace root {}, and its \
+             package.workspace does not name it; cargo refuses it too",
+            dir.display(),
+            root.display()
+          ));
+        }
         found.push(dir);
       }
     }
   }
   Ok(found)
+}
+
+/// `path` with its `.` and `..` parts worked out, as written (no links followed).
+fn normalized(path: &Path) -> PathBuf {
+  let mut out = PathBuf::new();
+  for part in path.components() {
+    match part {
+      std::path::Component::CurDir => {}
+      std::path::Component::ParentDir => {
+        out.pop();
+      }
+      other => out.push(other),
+    }
+  }
+  out
 }
 
 /// The package's targets, as Cargo discovers them.
@@ -418,6 +459,33 @@ mod tests {
     fn drop(&mut self) {
       let _ = fs::remove_dir_all(&self.0);
     }
+  }
+
+  /// A member outside the root is cargo's error unless it names the root itself: mto
+  /// refuses it rather than writing into a sibling repository (bug hunt, 2026-11-04).
+  #[test]
+  fn test_members_outside_the_root_are_refused() {
+    let dir = Dir::new(&[
+      ("ws/Cargo.toml", "[workspace]\nmembers = [\"../*\"]\n"),
+      (
+        "victim/Cargo.toml",
+        "[package]\nname = \"v\"\nversion = \"0.1.0\"\n",
+      ),
+      ("victim/src/main.rs", "fn main() {}\n"),
+      (
+        "ours/Cargo.toml",
+        "[package]\nname = \"o\"\nworkspace = \"../ws\"\n",
+      ),
+      ("ours/src/main.rs", "fn main() {}\n"),
+    ]);
+    let found = targets(None, &dir.0.join("ws"), &Selection::Root);
+    assert!(
+      found
+        .as_ref()
+        .is_err_and(|e| e.contains("not below the workspace root")),
+      "{:?}",
+      found.map(|t| dir.names(&t))
+    );
   }
 
   #[test]

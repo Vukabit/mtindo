@@ -423,6 +423,19 @@ pub fn restore(
   let mut skipped = 0;
   for entry in run.entries.iter().filter(|e| wanted.contains(&e.path)) {
     let shown = entry.path.display();
+    // A run records each file where it really was; a link put there since (the file, or a
+    // folder above it) would carry the write somewhere else: never, even forced.
+    if let Some(why) = led_elsewhere(&entry.path) {
+      errln!(
+        "{}Skipped {}: {}; mto writes only where the run wrote{}",
+        c_yellow(true),
+        shown,
+        why,
+        c_reset(true)
+      );
+      skipped += 1;
+      continue;
+    }
     match (Run::state(entry), force) {
       (State::AsBefore, _) => {
         outln!("{} already holds what it held before run {}", shown, handle);
@@ -637,6 +650,23 @@ fn is_under(path: &Path, root: &Path) -> bool {
     .and_then(resolved)
     .map(|parent| parent.join(path.file_name().unwrap_or_default()));
   matches!((path, resolved(root)), (Some(path), Some(root)) if path.starts_with(&root))
+}
+
+/// Why writing `path` (recorded with every link resolved) would now land elsewhere: it is a
+/// link itself, or a folder above it leads to another place; `None` when it would not.
+fn led_elsewhere(path: &Path) -> Option<String> {
+  if fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+    return Some("it is now a symbolic link".to_string());
+  }
+  let folder = path.ancestors().skip(1).find(|a| a.exists())?;
+  match crate::real_path(folder) {
+    Ok(real) if real != folder => Some(format!(
+      "{} now leads to {}",
+      folder.display(),
+      real.display()
+    )),
+    _ => None,
+  }
 }
 
 /// A run's command, folder, what it restored and each file with where it stands.

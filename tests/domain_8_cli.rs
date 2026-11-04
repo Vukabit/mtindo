@@ -1273,6 +1273,14 @@ fn test_cli_doctor_holds_back_what_breaks_the_build() {
   let (code, _, stderr) = mto(&env, &["."]);
   assert_eq!(code, 0, "{}", stderr);
   assert!(stderr.contains("doctor: before ✓  after ✓"), "{}", stderr);
+  // A check agrees with the write: the held edit is not a change it reports, for a folder
+  // or a file; unguarded it is (bug hunt, 2026-11-04).
+  let (code, out, said) = mto(&env, &["--check", "src/lib.rs"]);
+  assert_eq!(code, 0, "{}{}", out, said);
+  let (code, out, said) = mto(&env, &["--check", "."]);
+  assert_eq!(code, 0, "{}{}", out, said);
+  let (code, _, _) = mto(&env, &["--check", "--unguarded", "src/lib.rs"]);
+  assert_eq!(code, 1);
   // Unguarded, no check runs and the hold does not apply: every edit is written.
   env.write_file("src/lib.rs", LIB);
   let (code, _, stderr) = mto(&env, &[".", "--unguarded"]);
@@ -1817,9 +1825,16 @@ fn test_cli_git_flags_take_the_files_git_names() {
   let (code, files, said) = listed(&["--changed"]);
   assert_eq!(code, 1, "{}", said);
   assert_eq!(files, ["src/a.rs", "src/b.rs", "src/c.rs", "src/new.rs"]);
-  // A staged file with changes not staged as well is left alone, with a warning.
-  let (_, files, said) = listed(&["--staged"]);
+  // A staged file with changes not staged as well is left alone, with a warning; a check
+  // cannot see what the commit gets, so it fails.
+  let (code, files, said) = listed(&["--staged"]);
+  assert_eq!(code, 1, "{}", said);
   assert_eq!(files, ["src/b.rs"]);
+  env.git(".", &["reset", "-q", "src/b.rs"]);
+  let (code, files, said) = listed(&["--staged"]);
+  assert_eq!((code, files.len()), (1, 0), "{}", said);
+  assert!(!said.contains("nothing was checked"), "{}", said);
+  env.git(".", &["add", "src/b.rs"]);
   assert!(
     said.contains("src/c.rs: staged, with changes not staged"),
     "{}",
@@ -2264,6 +2279,15 @@ fn test_cli_print_config_like_the_standard_formatter() {
     .assert()
     .success();
   assert!(env.read_file("out.toml").contains("hard_tabs = false"));
+  // Never over a Rust file, which would be lost (bug hunt, 2026-11-04).
+  env.write_file("main.rs", "fn main() {}\n");
+  let output = env
+    .mto_cmd()
+    .args(["--print-config", "default", "main.rs"])
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(2));
+  assert_eq!(env.read_file("main.rs"), "fn main() {}\n");
 }
 
 #[test]

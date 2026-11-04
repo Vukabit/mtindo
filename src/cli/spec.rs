@@ -788,7 +788,7 @@ pub const FLAGS: &[FlagSpec] = &[
     long: "--print-config",
     value: "[PATH]",
     values: &["default", "minimal", "current"],
-    help: "Print the formatting settings as the standard formatter prints them, and exit",
+    help: "Print the formatting settings as the standard formatter prints them (default and minimal: to PATH, when given), and exit",
   },
   FlagSpec {
     flag: Flag::Strict,

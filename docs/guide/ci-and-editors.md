@@ -60,8 +60,9 @@ any folder in it. A run git leaves nothing to take says so, even under `-q`,
 and exits `0`. Outside a repository, or without git installed, nothing runs
 and the exit code is `2`. With `--staged`, a file with changes that are not
 staged as well is left alone, with a warning, so the commit gets what was
-staged; a staged file is written even with history off, as git keeps it
-as staged.
+staged; `--check` cannot see what the commit gets there, so it fails (exit
+`1`) and a hook refuses the commit. A staged file is written even with
+history off, as git keeps it as staged.
 
 ## Git hooks
 

@@ -77,6 +77,33 @@ fn test_a_run_killed_anywhere_leaves_files_whole_and_restorable() {
   eprintln!("{} of 12 runs cut short mid-write", cut_short);
 }
 
+/// A restore never writes through a link put in place since the run: the file swapped
+/// for one, or a folder above it (bug hunt, 2026-11-04).
+#[cfg(unix)]
+#[test]
+fn test_restore_never_writes_through_a_link_put_there_since() {
+  let env = TestEnvironment::new();
+  let outside = TestEnvironment::new();
+  env.write_file("src/a.rs", "fn  a() {}\n");
+  let precious = outside.write_file("precious.txt", "precious\n");
+  assert_eq!(
+    env.mto_cmd().arg("src").output().unwrap().status.code(),
+    Some(0)
+  );
+  fs::remove_file(env.dir.path().join("src/a.rs")).unwrap();
+  std::os::unix::fs::symlink(&precious, env.dir.path().join("src/a.rs")).unwrap();
+  for args in [&["restore", "last"][..], &["restore", "last", "--force"]] {
+    let output = env.mto_cmd().args(args).output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    assert!(
+      String::from_utf8_lossy(&output.stderr).contains("now a symbolic link"),
+      "{}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+  }
+  assert_eq!(fs::read_to_string(&precious).unwrap(), "precious\n");
+}
+
 /// A temporary file a run cut short left behind goes with the next run that writes, once it
 /// is too old to be another run's; a check leaves it.
 #[test]
@@ -86,8 +113,12 @@ fn test_stale_temporary_files_are_removed_by_a_run_that_writes() {
   let stale = env.write_file("src/.a.rs.123.0.tmp_mtindo", "fn b");
   let young = env.write_file("src/.a.rs.124.0.tmp_mtindo", "fn b");
   let mine = env.write_file("src/notes.tmp_mtindo", "mine");
+  // Shaped nearly as mto's, but the user's: no file of that name beside it, or not mto's
+  // fields (bug hunt, 2026-11-04).
+  let orphan = env.write_file("src/.backup.tmp_mtindo", "mine");
+  let no_target = env.write_file("src/.gone.rs.123.0.tmp_mtindo", "mine");
   let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
-  for path in [&stale, &mine] {
+  for path in [&stale, &mine, &orphan, &no_target] {
     fs::OpenOptions::new()
       .write(true)
       .open(path)
@@ -116,6 +147,7 @@ fn test_stale_temporary_files_are_removed_by_a_run_that_writes() {
   assert!(!stale.exists());
   // Another run's, still young; and a file not named as mto names them.
   assert!(young.exists() && mine.exists());
+  assert!(orphan.exists() && no_target.exists());
 }
 
 #[cfg(unix)]

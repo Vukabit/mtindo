@@ -136,7 +136,8 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 
 ### Compatibility (`mto`)
 *   `--print-config <default|minimal|current> [PATH]`: Print the formatting
-    settings as the standard formatter prints them, and exit.
+    settings as the standard formatter prints them (default and minimal: to
+    PATH, when given), and exit.
 
 ### General (`mto`)
 *   `-h, --help`: Show this help and exit.

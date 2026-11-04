@@ -607,8 +607,19 @@ pub fn init_template() -> String {
 /// at the same time is still writing it.
 pub fn is_stale_temp(path: &Path) -> bool {
   let name = path.file_name().unwrap_or_default().to_string_lossy();
-  name.starts_with('.')
-    && name.ends_with(".tmp_mtindo")
+  // `.NAME.PID.N.tmp_mtindo` exactly, beside the NAME it was for: a file of the user's
+  // that only ends the same way is never taken for one.
+  let shaped = name
+    .strip_prefix('.')
+    .and_then(|rest| rest.strip_suffix(".tmp_mtindo"))
+    .and_then(|rest| {
+      let mut parts = rest.rsplitn(3, '.');
+      let (n, pid, target) = (parts.next()?, parts.next()?, parts.next()?);
+      let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+      (digits(n) && digits(pid) && !target.is_empty()).then_some(target)
+    })
+    .is_some_and(|target| path.with_file_name(target).is_file());
+  shaped
     && fs::symlink_metadata(path)
       .ok()
       .filter(|m| m.is_file())

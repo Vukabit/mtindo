@@ -2507,6 +2507,15 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       reports: mtindo::cli::report::store(&resolver),
       ..Writes::default()
     };
+    // A check sees the edits a write would hold back as held too, so the two agree.
+    if !opts.unguarded {
+      let cwd = env::current_dir().unwrap_or_default();
+      writes.holds = Some(
+        doctor_cli::Settings::read(&resolver)
+          .with_project(&mut resolver, &cwd)
+          .holds(),
+      );
+    }
     let (jobs, (collected, unstaged), done) = run_jobs_walking(
       opts,
       &mut writes,
@@ -2523,7 +2532,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       |(collected, unstaged)| match collected {
         Ok(collected) => {
           walk_notes(collected, opts);
-          unstaged_notes(unstaged);
+          unstaged_notes(unstaged, opts);
           true
         }
         Err(_) => false,
@@ -2533,7 +2542,12 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       return nothing_from_git(git, opts);
     }
     return match collected {
-      Ok(_) => finish(&done, opts),
+      Ok(_) if jobs.is_empty() && !unstaged.is_empty() => unstaged_code(opts),
+      Ok(_) => finish(&done, opts).max(if unstaged.is_empty() {
+        0
+      } else {
+        unstaged_code(opts)
+      }),
       Err(e) => report_error(&e),
     };
   }
@@ -2551,10 +2565,18 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       Keep::No => {}
     }
   }
-  unstaged_notes(&unstaged);
+  unstaged_notes(&unstaged, opts);
   if jobs.is_empty() && unstaged.is_empty() && git.any() {
     return nothing_from_git(git, opts);
   }
+  if jobs.is_empty() && !unstaged.is_empty() {
+    return unstaged_code(opts);
+  }
+  let unstaged_after = if unstaged.is_empty() {
+    0
+  } else {
+    unstaged_code(opts)
+  };
   let settings = match history::Settings::read(&resolver, opts.no_history) {
     Ok(settings) => settings,
     Err(e) => return report_error(&MtoError::Usage(e)),
@@ -2650,6 +2672,10 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       writes.defer = true;
     }
   }
+  // A check sees the edits a write would hold back as held too, so the two agree.
+  if !writing && !opts.unguarded {
+    writes.holds = Some(doctor.holds());
+  }
   let mut done = run_jobs(&jobs, opts, &mut writes);
   let mut code_after = 0;
   if let Some(holds) = writes.holds.as_mut() {
@@ -2703,7 +2729,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
   if let Some(recorder) = writes.recorder.as_mut() {
     history::finish_record(recorder, settings.limits, opts.quiet);
   }
-  finish(&done, opts).max(code_after)
+  finish(&done, opts).max(code_after).max(unstaged_after)
 }
 
 fn run_history(view: HistoryView, json: bool) -> i32 {
@@ -2839,6 +2865,15 @@ fn run_print_config(kind: PrintKind, path: Option<&Path>, overrides: &Overrides)
   }
   match (kind, path) {
     (PrintKind::Default | PrintKind::Minimal, Some(file)) => {
+      // A Rust source is never where settings are meant to go: writing there would lose it
+      // (the standard formatter would, for `default`).
+      if file.extension().is_some_and(|e| e == "rs") {
+        return report_error(&MtoError::Usage(format!(
+          "--print-config writes the settings to PATH, and {} is a Rust file; name a .toml \
+           file, or leave PATH out to print them",
+          file.display()
+        )));
+      }
       if let Err(e) = std::fs::write(file, &text) {
         return report_error(&MtoError::Io(format!(
           "cannot write {}: {}",
@@ -3025,14 +3060,29 @@ fn split_pairs(text: &str) -> Vec<&str> {
   pairs.into_iter().filter(|p| !p.trim().is_empty()).collect()
 }
 
+/// The exit code for staged files left alone because they have changes not staged as well:
+/// a check could not see what the commit gets, so it fails (a hook then refuses the
+/// commit); a write leaves them, and is done.
+fn unstaged_code(opts: &RunOptions) -> i32 {
+  if opts.check { 1 } else { 0 }
+}
+
 /// The warning for each staged file left alone because it has changes not staged as well.
-fn unstaged_notes(unstaged: &[PathBuf]) {
+fn unstaged_notes(unstaged: &[PathBuf], opts: &RunOptions) {
   for path in unstaged {
-    let text = format!(
-      "{}: staged, with changes not staged as well; left alone, so the commit gets what \
-       was staged",
-      path.display()
-    );
+    let text = if opts.check {
+      format!(
+        "{}: staged, with changes not staged as well, so what the commit gets cannot be \
+         checked; stage the rest, or set it aside, and check again",
+        path.display()
+      )
+    } else {
+      format!(
+        "{}: staged, with changes not staged as well; left alone, so the commit gets what \
+         was staged",
+        path.display()
+      )
+    };
     if mtindo::json_messages() {
       let message = mtindo::Message {
         level: "warning",

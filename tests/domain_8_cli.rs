@@ -1260,6 +1260,15 @@ fn test_cli_doctor_holds_back_what_breaks_the_build() {
   assert_eq!(code, 0, "{}", stderr);
   assert!(!stderr.contains("doctor:"), "{}", stderr);
   assert!(env.read_file("src/lib.rs").starts_with("struct A;"));
+  // Through stdin, as an editor formats the file, the hold applies too.
+  let stdin = |args: &[&str]| {
+    let output = env.mto_cmd().args(args).write_stdin(LIB).output().unwrap();
+    printed(&output.stdout).to_string()
+  };
+  assert!(stdin(&["-", "--stdin-filepath", "src/lib.rs"]).starts_with("struct A;"));
+  assert!(
+    stdin(&["-", "--stdin-filepath", "src/lib.rs", "--unguarded"]).starts_with("mod generated")
+  );
   // Released, the move is made again.
   let (code, stdout, _) = mto(&env, &["doctor", "release", "all"]);
   assert_eq!(code, 0);

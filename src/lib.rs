@@ -711,8 +711,19 @@ pub fn process_stdin(
   let Some(settings) = settings else {
     return Ok(unchanged(report, Outcome::LayoutOff));
   };
+  // The edits the build guard holds back for this file, as a run that writes it keeps
+  // them: an editor formatting through stdin must not make an edit the build rejected.
+  let held = match name {
+    Some(name) if !opts.unguarded => cli::doctor::dir(resolver.env())
+      .map(|dir| {
+        doctor::holds::Holds::load(&dir)
+          .held_for(&std::path::absolute(name).unwrap_or_else(|_| name.to_path_buf()))
+      })
+      .unwrap_or_default(),
+    _ => doctor::Held::default(),
+  };
   let shaped = match caught(&shown, &source, &settings, || {
-    shape(&source, &settings, &doctor::Held::default())
+    shape(&source, &settings, &held)
   }) {
     Ok(shaped) => shaped.map(|s| {
       report

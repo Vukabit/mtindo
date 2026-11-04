@@ -26,7 +26,8 @@ held edit, the errors it caused and how to keep it (`// mto: pin`,
 `// mto: off`); reports are pruned with the runs they belong to. Held edits
 stay held on later runs, without the command and with the guard off too,
 until mto's build or the text changes; `--unguarded` writes every edit for
-its run.
+its run. An editor formatting through stdin keeps them as well when it names
+the file with `--stdin-filepath`.
 
 ## When the build already fails
 

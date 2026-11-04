@@ -55,6 +55,10 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
 - **[results/history.txt](results/history.txt)** (result): each tracked record
   as it stood at every change. Written by `cargo xtask docs`; read by metrics
   pages; shown in the pages' history tables.
+- **[results/toggles/first-slice.txt](results/toggles/first-slice.txt)**
+  (result): the first layout settings tried on the whole corpus, alone and
+  together. Written by `cargo xtask corpus try --each ... --record first-slice`;
+  read by people.
 - **[archive/2026-10-optimization.txt](archive/2026-10-optimization.txt)**
   (archive): every figure before the October optimization rounds. Read by `cargo
   xtask metrics compare`.

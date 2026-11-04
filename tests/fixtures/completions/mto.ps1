@@ -19,7 +19,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags['config derive'] = @('-h', '--help', '--write', '--json')
     $flags['history'] = @('-h', '--help', '--all', '--json')
     $flags['history show'] = @('-h', '--help')
-    $flags['history prune'] = @('-h', '--help', '--keep', '--older-than')
+    $flags['history prune'] = @('-h', '--help', '--keep', '--older-than', '--all')
     $flags['restore'] = @('-h', '--help', '--force')
     $flags['doctor'] = @('-h', '--help', '--json')
     $flags['doctor on'] = @('-h', '--help')

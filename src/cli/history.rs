@@ -17,6 +17,8 @@ use crate::{c_green, c_red, c_reset, c_yellow, errln, outln, write_atomic};
 pub struct PruneArgs {
   pub older_than_days: Option<u64>,
   pub keep: Option<usize>,
+  /// `--all`: every project's runs, not only this one's.
+  pub all: bool,
 }
 
 /// The user's history settings, with the command line's `--no-history` applied.
@@ -358,14 +360,31 @@ pub fn prune(history: &History, mut limits: Limits, args: PruneArgs) -> Result<S
   if let Some(keep) = args.keep {
     limits.keep_runs = keep;
   }
+  // This project's runs, as `mto history` lists them, unless --all: pruning here never
+  // takes another project's undo away unasked.
+  let root = (!args.all)
+    .then(std::env::current_dir)
+    .transpose()
+    .map_err(|e| format!("cannot read the current folder: {}", e))?
+    .map(|here| project_root(&here));
   let pruned = history
-    .prune(limits, true)
+    .prune_where(limits, true, |run| {
+      root
+        .as_ref()
+        .is_none_or(|root| run.entries.iter().any(|e| is_under(&e.path, root)))
+    })
     .map_err(|e| format!("cannot prune history: {}", e))?;
   let (reports, report_bytes) = crate::cli::doctor::prune_reports(history)
     .map_err(|e| format!("cannot prune the build guard's reports: {}", e))?;
   let mut out = format!(
-    "Removed {} run(s) and {} stored file(s)",
-    pruned.runs, pruned.objects
+    "Removed {} run(s){} and {} stored file(s)",
+    pruned.runs,
+    if root.is_some() {
+      " of this project (--all prunes every project's)"
+    } else {
+      ""
+    },
+    pruned.objects
   );
   if reports > 0 {
     out.push_str(&format!(" and {} build guard report(s)", reports));
@@ -439,6 +458,7 @@ pub fn restore(
     .as_ref()
     .map(|h| h.recorder(&command_line(), &cwd, Some(&id)));
   let mut skipped = 0;
+  let mut failed = 0;
   for entry in run.entries.iter().filter(|e| wanted.contains(&e.path)) {
     let shown = crate::text::terminal::name_shown(&entry.path.display().to_string()).into_owned();
     // A run records each file where it really was; a link put there since (the file, or a
@@ -508,7 +528,8 @@ pub fn restore(
       }
       if let Err(e) = fs::remove_file(&entry.path) {
         errln!("{}Cannot remove {}: {}{}", c_red(), shown, e, c_reset(true));
-        return Ok(3);
+        failed += 1;
+        continue;
       }
       outln!(
         "{}Removed{} {}, which run {} created",
@@ -549,9 +570,12 @@ pub fn restore(
     if let Some(parent) = entry.path.parent() {
       fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    // One that cannot be written is said, and the rest are restored all the same: a
+    // restore half done is still recorded, so `mto restore last` can take it back.
     if let Err(e) = write_atomic(&entry.path, &before) {
       errln!("{}Cannot write {}: {}{}", c_red(), shown, e, c_reset(true));
-      return Ok(3);
+      failed += 1;
+      continue;
     }
     outln!("{}Restored{} {}", c_green(), c_reset(false), shown);
     if let (Some(recorder), Some(record)) = (recorder.as_mut(), record)
@@ -568,6 +592,17 @@ pub fn restore(
   }
   if let Some(recorder) = recorder.as_mut() {
     finish_record(recorder, settings.limits, false);
+  }
+  if failed > 0 {
+    errln!(
+      "{}{} file(s) could not be restored; the others were. Make them writable and run \
+       `mto restore {}` again for them.{}",
+      c_red(),
+      failed,
+      handle,
+      c_reset(true)
+    );
+    return Ok(3);
   }
   Ok(if skipped > 0 { 1 } else { 0 })
 }

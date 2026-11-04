@@ -231,6 +231,7 @@ _mto_history() {
             '(- *)'{-h,--help}'[Show this help and exit]' \
             '--keep=[Keep only the newest N runs]:n: ' \
             '--older-than=[Remove runs this old: 30 (days), 2w, 12h]:days: ' \
+            '--all[List every project'\''s runs]' \
             '*: : ' && ret=0
           ;;
       esac

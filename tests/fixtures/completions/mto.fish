@@ -302,6 +302,7 @@ complete -c mto -n '__mto_at history show' -s h -l help -d 'Show this help and e
 complete -c mto -n '__mto_at history prune' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at history prune' -l keep -x -d 'Keep only the newest N runs'
 complete -c mto -n '__mto_at history prune' -l older-than -x -d 'Remove runs this old: 30 (days), 2w, 12h'
+complete -c mto -n '__mto_at history prune' -l all -d 'List every project\'s runs'
 
 # mto restore
 complete -c mto -n '__mto_at restore -' -s h -l help -d 'Show this help and exit'

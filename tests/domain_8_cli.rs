@@ -2882,7 +2882,7 @@ fn test_completions_bash_completes_from_the_tables() {
     let prune = offers(&["mto", "history", "prune", "--"]);
     assert_eq!(
       prune,
-      ["--help ", "--keep ", "--older-than "],
+      ["--help ", "--keep ", "--older-than ", "--all "],
       "{}",
       context
     );
@@ -3348,6 +3348,32 @@ fn test_config_mirror_writes_what_the_standard_formatter_takes() {
   let (code, _, said) = mto(&env, &["config", "mirror"]);
   assert_eq!(code, 3, "{}", said);
   assert_eq!(env.read_file("rustfmt.toml"), "max_width = 70\n");
+  // A `.rustfmt.toml` is the file both tools read there: a rustfmt.toml beside it would do
+  // nothing (bug hunt, 2026-11-04).
+  env.write_file("dot/mto.toml", "layout = true\nmax_width = 90\n");
+  env.write_file("dot/.rustfmt.toml", "max_width = 60\n");
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("dot"))
+    .args(["config", "mirror"])
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(3));
+  assert!(!env.dir.path().join("dot/rustfmt.toml").exists());
+  // A new rustfmt.toml hides the one above from both tools: what that one sets is carried.
+  let env = TestEnvironment::new();
+  env.write_file("up/rustfmt.toml", "max_width = 40\n");
+  env.write_file("up/proj/mto.toml", "layout = true\n");
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("up/proj"))
+    .args(["config", "mirror"])
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(0));
+  let written = env.read_file("up/proj/rustfmt.toml");
+  assert!(written.contains("from ../rustfmt.toml;"), "{}", written);
+  assert!(written.ends_with("\nmax_width = 40\n"), "{}", written);
 }
 
 /// `prune --under` removes the reports seen only in files under a folder; `remove` removes

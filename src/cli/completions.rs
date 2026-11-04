@@ -364,8 +364,13 @@ pub fn install(
     State::Foreign => {
       return Err((
         format!(
-          "{} exists and mto did not write it; remove it, or pass --dir",
-          path.display()
+          "{} exists and mto did not write it; remove it, or {}",
+          path.display(),
+          if dir.is_some() {
+            "give --dir another folder"
+          } else {
+            "pass --dir to install somewhere else"
+          }
         ),
         3,
       ));

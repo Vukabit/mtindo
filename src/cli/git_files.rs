@@ -185,8 +185,19 @@ fn answer(ask: &Ask, root: &Path) -> Result<Answer, String> {
   let mut answer = Answer::default();
   let base = match &ask.since {
     Some(rev) => {
-      let base =
-        git(root, &["merge-base", rev, "HEAD"]).map_err(|e| format!("--since {}: {}", rev, e))?;
+      // git says nothing when there is no merge base: said here, with the likely why.
+      let base = git(root, &["merge-base", rev, "HEAD"]).map_err(|e| {
+        if e.is_empty() {
+          format!(
+            "--since {}: {} and HEAD share no commit here (a shallow clone, as CI makes by \
+             default, or histories with nothing in common); fetch more history (`git fetch \
+             --unshallow`) or name a commit they share",
+            rev, rev
+          )
+        } else {
+          format!("--since {}: {}", rev, e)
+        }
+      })?;
       Some(base.trim().to_string())
     }
     None => None,

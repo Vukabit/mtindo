@@ -220,15 +220,17 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     recorded. With no argument, lists the runs that wrote files in this folder's
     project (the nearest folder above holding .git, else Cargo.toml), newest
     first, or every run when there are none; --all lists every project's. `show`
-    lists one run's files and where each stands now. `prune` removes old runs,
-    and the build guard's reports of them, by the user config's limits unless
-    told otherwise. RUN is `last` or `last~N`, counted among this project's
-    runs, or a handle from the list, which names its run anywhere.
+    lists one run's files and where each stands now. `prune` removes this
+    project's old runs (every project's with --all), and the build guard's
+    reports of them, by the user config's limits unless told otherwise. RUN is
+    `last` or `last~N`, counted among this project's runs, or a handle from the
+    list, which names its run anywhere.
     *   `--all` (after `mto history`): List every project's runs.
     *   `--json` (after `mto history`): As JSON, whose shape keeps its version.
     *   `--keep <N>` (after `mto history prune`): Keep only the newest N runs.
     *   `--older-than <DAYS>` (after `mto history prune`): Remove runs this old:
         30 (days), 2w, 12h.
+    *   `--all` (after `mto history prune`): List every project's runs.
 *   `mto restore <RUN> [FILE...]`: Puts back what RUN replaced, in every file it
     wrote or only the FILEs named. A file changed or deleted since is skipped
     (exit code 1) unless --force. The restore is recorded as a run of its own,
@@ -238,23 +240,24 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     *   `--force` (after `mto restore <RUN> [FILE...]`): Also restore files
         changed since the run, and missing ones.
 *   `mto doctor [on|off|holds|release|keep|recheck|trust|<RUN>]`: `on` turns the
-    build guard on: each run that writes files then checks that the project
-    still builds, and holds back the edits that break it. It runs the command
-    given after `--` (default: `cargo check` over the whole workspace and all
-    its targets) and no other; with the guard off, mto runs none. `off` turns it
-    off. With no argument, says whether it is on, its command and the edits it
-    holds. `holds` lists those edits; `release` drops one, or all; `keep`
-    confirms a held move by trying it again (the build must fail twice) and
-    writes `// mto: hold -- why` above the item, so the hold is the project's,
-    seen by everyone; `recheck` tries each such line without it and says which
-    are no longer needed, changing nothing (both build the project, so only with
-    the guard on and its command trusted). A project may declare its own command
-    in its mto.toml (`doctor.command`, with `doctor.timeout` and
-    `doctor.max_checks`): with the guard on, it runs in place of yours once you
-    trust it, word for word, with `trust`; until then, and again after it
-    changes, a guarded run there writes nothing (exit code 6). RUN narrows down
-    a run already made the same way: RUN is `last` or `last~N`, counted among
-    this project's runs, or a handle from `mto history`.
+    build guard on: each run that writes files (but one naming a single file, as
+    an editor's does) then checks that the project still builds, and holds back
+    the edits that break it. It runs the command given after `--` (default:
+    `cargo check` over the whole workspace and all its targets) and no other;
+    with the guard off, mto runs none. `off` turns it off. With no argument,
+    says whether it is on, its command and the edits it holds. `holds` lists
+    those edits; `release` drops one, or all; `keep` confirms a held move by
+    trying it again (the build must fail twice) and writes `// mto: hold -- why`
+    above the item, so the hold is the project's, seen by everyone; `recheck`
+    tries each such line without it and says which are no longer needed,
+    changing nothing (both build the project, so only with the guard on and its
+    command trusted). A project may declare its own command in its mto.toml
+    (`doctor.command`, with `doctor.timeout` and `doctor.max_checks`): with the
+    guard on, it runs in place of yours once you trust it, word for word, with
+    `trust`; until then, and again after it changes, a guarded run there writes
+    nothing (exit code 6). RUN narrows down a run already made the same way: RUN
+    is `last` or `last~N`, counted among this project's runs, or a handle from
+    `mto history`.
     *   `--json` (after `mto doctor`): As JSON, whose shape keeps its version.
 *   `mto report [show|save|send|recheck|remove|prune]`: When the verifier stops
     a write, or laying out a file fails, mto keeps a report beside history and

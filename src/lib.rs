@@ -1349,6 +1349,9 @@ pub fn shape(source: &str, settings: &Settings, held: &doctor::Held) -> Result<S
   {
     let formatted = format::file::format_file(&again, edition, format_config);
     relaid = Some((std::mem::replace(&mut text, formatted), again));
+    // Laid out after all, once formatting made it so (one line ending throughout): the
+    // first pass's reason no longer holds.
+    unlaid = None;
   }
   if !held.lines.is_empty() && text != laid_out {
     let hunks = doctor::hunks(&laid_out, &text);

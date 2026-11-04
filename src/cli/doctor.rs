@@ -218,12 +218,13 @@ pub fn dir(env: &Environment) -> Option<PathBuf> {
 /// likely a bug in mto, with how to keep it.
 pub fn keep(settings: &Settings, resolver: &mut Resolver, which: &str, here: &Path) -> String {
   let mut holds = settings.holds();
-  let count = holds.list.len();
+  let mine = in_project(&holds, here);
+  let count = mine.len();
   let picked: Vec<usize> = if which == "all" {
-    (0..count).collect()
+    mine.clone()
   } else {
     match which.parse::<usize>() {
-      Ok(n) if (1..=count).contains(&n) => vec![n - 1],
+      Ok(n) if (1..=count).contains(&n) => vec![mine[n - 1]],
       _ => {
         return format!(
           "`{}` is not a hold: give all, or a number from 1 to {} (`mto doctor holds`)\n",
@@ -296,14 +297,22 @@ pub fn keep(settings: &Settings, resolver: &mut Resolver, which: &str, here: &Pa
   out
 }
 
-/// `mto doctor holds`: each held edit, numbered for `release`.
-pub fn list(settings: &Settings) -> String {
+pub fn list(settings: &Settings, here: &Path) -> String {
   let holds = settings.holds();
-  if holds.list.is_empty() {
-    return "No edits are held back.\n".into();
+  let mine = in_project(&holds, here);
+  let others = holds.list.len() - mine.len();
+  let elsewhere = match others {
+    0 => String::new(),
+    n => format!(
+      "{} more held in other projects; run `mto doctor holds` there to see them\n",
+      n
+    ),
+  };
+  if mine.is_empty() {
+    return format!("No edits are held back here.\n{}", elsewhere);
   }
   let mut out = String::new();
-  for (n, hold) in holds.list.iter().enumerate() {
+  for (n, hold) in mine.iter().map(|&at| &holds.list[at]).enumerate() {
     let what = hold.what.replace('\n', "\n     ");
     out.push_str(&format!(
       "{:>2}. {}\n    {}\n    held since run {}; to keep it for good: {}\n",
@@ -314,6 +323,7 @@ pub fn list(settings: &Settings) -> String {
       hold.fix
     ));
   }
+  out.push_str(&elsewhere);
   out
 }
 
@@ -391,11 +401,15 @@ pub fn recheck(settings: &Settings, resolver: &mut Resolver, here: &Path) -> Str
 }
 
 /// `mto doctor release N|all`.
-pub fn release(settings: &Settings, which: &str) -> Result<String, String> {
+pub fn release(settings: &Settings, which: &str, here: &Path) -> Result<String, String> {
   let mut holds = settings.holds();
-  let count = holds.list.len();
+  let total = holds.list.len();
+  let mine = in_project(&holds, here);
+  let count = mine.len();
   if which == "all" {
-    holds.list.clear();
+    for at in mine.into_iter().rev() {
+      holds.list.remove(at);
+    }
   } else {
     let n: usize = which
       .parse()
@@ -407,8 +421,9 @@ pub fn release(settings: &Settings, which: &str) -> Result<String, String> {
           which, count
         )
       })?;
-    holds.list.remove(n - 1);
+    holds.list.remove(mine[n - 1]);
   }
+  let count = total;
   holds
     .save()
     .map_err(|e| format!("cannot write the holds: {}", e))?;
@@ -584,6 +599,20 @@ pub fn turn(path: &Path, on: bool, command: Option<&[String]>) -> Result<(), Str
 
 fn beside(history_dir: &Path) -> Option<PathBuf> {
   history_dir.parent().map(|p| p.join("doctor"))
+}
+
+/// `mto doctor holds`: each held edit, numbered for `release`.
+/// The holds on files of the project `here` is in, by their places in the list: what the
+/// doctor's commands run there see and act on, as `mto history` shows this project's runs.
+fn in_project(holds: &Holds, here: &Path) -> Vec<usize> {
+  let root = crate::cli::history::project_root(here);
+  let real_root = crate::real_path(&root).unwrap_or_else(|_| root.clone());
+  (0..holds.list.len())
+    .filter(|&at| {
+      let path = &holds.list[at].path;
+      path.starts_with(&root) || path.starts_with(&real_root)
+    })
+    .collect()
 }
 
 /// Confirms the hold on the move `id` of `path` and writes its directive: the reason, from

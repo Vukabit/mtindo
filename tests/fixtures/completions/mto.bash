@@ -166,7 +166,7 @@ _mto_flags() {
     "config derive") _mto_words "" -h --help --write --json ;;
     "history ") _mto_words "" -h --help --all --json ;;
     "history show") _mto_words "" -h --help ;;
-    "history prune") _mto_words "" -h --help --keep --older-than ;;
+    "history prune") _mto_words "" -h --help --keep --older-than --all ;;
     "restore ") _mto_words "" -h --help --force ;;
     "doctor ") _mto_words "" -h --help --json ;;
     "doctor on") _mto_words "" -h --help ;;

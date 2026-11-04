@@ -288,7 +288,12 @@ fn config_json(view: ConfigView, config: &Config) -> mtindo::text::json::Json {
     let shown = match view {
       ConfigView::User => setting.file == File::User,
       ConfigView::Default | ConfigView::Current => setting.file != File::User && !setting.hidden,
-      _ => setting.file != File::User && !matches!(source, Source::Default | Source::Derived(_)),
+      // Set somewhere, to something but its default: a file may write a default out.
+      _ => {
+        setting.file != File::User
+          && !matches!(source, Source::Default | Source::Derived(_))
+          && value.to_toml() != setting.default_for(config.style_edition())
+      }
     };
     if !shown {
       continue;
@@ -1210,6 +1215,11 @@ fn parse_history_args(command: &CommandSpec, args: &[String]) -> Result<CliActio
       let mut prune = PruneArgs::default();
       let mut i = 1;
       while i < args.len() {
+        if args[i] == spec_of(Flag::All).long {
+          prune.all = true;
+          i += 1;
+          continue;
+        }
         let (arg, inline) = match args[i].split_once('=') {
           Some((flag, value)) => (flag, Some(value.to_string())),
           None => (args[i].as_str(), None),
@@ -1523,7 +1533,11 @@ fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String
         && match view {
           ConfigView::Default => !setting.hidden,
           ConfigView::Current => !setting.hidden || *source != Source::Default,
-          _ => !matches!(source, Source::Default | Source::Derived(_)),
+          // Set somewhere, to something but its default: a file may write a default out.
+          _ => {
+            !matches!(source, Source::Default | Source::Derived(_))
+              && value.to_toml() != setting.default_for(config.style_edition())
+          }
         };
       if !shown {
         continue;
@@ -1859,6 +1873,28 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides, js
           outln!("left out, as the standard formatter's stable release does not take them:");
           for line in &done.left_out {
             outln!("  {}", line);
+          }
+        }
+        if !done.carried.is_empty() {
+          outln!(
+            "carried from the standard formatter's file above, which {} would hide from \
+             both tools:",
+            done.path.display()
+          );
+          for line in &done.carried {
+            outln!("  {}", line);
+          }
+        }
+        if !done.replaced.is_empty() {
+          errln!(
+            "{}warning: {} {} these lines it held (formatting settings belong in mto.toml):{}",
+            c_yellow(true),
+            if dry_run { "would replace" } else { "replaced" },
+            done.path.display(),
+            c_reset(true)
+          );
+          for line in &done.replaced {
+            errln!("  {}", line);
           }
         }
         0
@@ -2320,8 +2356,8 @@ fn run_doctor(view: DoctorView, json: bool) -> i32 {
         .map(|()| "The build guard is off: mto runs no command.\n".to_string()),
       None => Ok("The build guard is off.\n".to_string()),
     },
-    DoctorView::Holds => Ok(doctor_cli::list(&settings)),
-    DoctorView::Release(which) => doctor_cli::release(&settings, &which),
+    DoctorView::Holds => Ok(doctor_cli::list(&settings, &here)),
+    DoctorView::Release(which) => doctor_cli::release(&settings, &which, &here),
     DoctorView::Run { run, command } => {
       if command.is_none() && !settings.enabled {
         return report_error(&MtoError::Usage(format!(
@@ -2487,9 +2523,11 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
   } else {
     None
   };
-  let folders: Vec<PathBuf> = paths
+  // Only a file named on the command line is taken as named; one a walk found, or a module
+  // a named file brought, is `--tracked`'s to judge.
+  let named: Vec<PathBuf> = paths
     .iter()
-    .filter(|p| p.is_dir())
+    .filter(|p| !p.is_dir())
     .map(|p| real(p))
     .collect();
   let keep = |job: &mtindo::Job| -> Keep {
@@ -2497,8 +2535,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       return Keep::Yes;
     };
     let file = real(&job.0);
-    let walked = folders.iter().any(|folder| file.starts_with(folder));
-    selection.keeps(&file, walked)
+    selection.keeps(&file, !named.contains(&file))
   };
   let writing = opts.emit == Emit::Files && !opts.check && !opts.dry_run;
   // A run that writes nothing lays files out while the walk is still finding them; one
@@ -2675,8 +2712,14 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
     if !opts.unguarded {
       writes.holds = Some(doctor.holds());
     }
-    // Editors name a single file; those runs are not guarded.
+    // Editors name a single file; those runs are not guarded, and say so.
     let single = paths.len() == 1 && paths[0].is_file();
+    if single && doctor.enabled && !opts.unguarded && !opts.quiet {
+      errln!(
+        "note: the build guard is on, but a run naming one file is not guarded (an \
+         editor's); name its folder to guard it"
+      );
+    }
     if doctor.enabled && !opts.unguarded && !single && projects.len() > 1 {
       errln!(
         "{}doctor: the paths are in {} projects, and the guard builds one; nothing was \
@@ -2837,11 +2880,22 @@ fn run_pins(paths: &[PathBuf], json: bool) -> i32 {
   } else {
     paths.to_vec()
   };
+  // A path that is not there is a typo to say, not a project with nothing in it.
+  if let Some(missing) = paths.iter().find(|p| !p.exists()) {
+    return report_error(&MtoError::Usage(format!(
+      "target path '{}' does not exist",
+      missing.display()
+    )));
+  }
   let opts = RunOptions::default();
-  let jobs = match collect_jobs(&paths, &mut resolver, &opts) {
-    Ok(collected) => collected.jobs,
+  let collected = match collect_jobs(&paths, &mut resolver, &opts) {
+    Ok(collected) => collected,
     Err(e) => return report_error(&e),
   };
+  if !json && !collected.nested.is_empty() {
+    errln!("{}", nested_note(&collected.nested, false));
+  }
+  let jobs = collected.jobs;
   let on = mtindo::text::terminal::code_in_color();
   let mut entries = Vec::new();
   let mut lines = Vec::new();

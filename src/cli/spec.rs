@@ -273,21 +273,22 @@ pub const COMMANDS: &[CommandSpec] = &[
                 wrote files in this folder's project (the nearest folder above holding .git, \
                 else Cargo.toml), newest first, or every run when there are none; --all lists \
                 every project's. `show` lists one run's files and where each stands now. `prune` \
-                removes old runs, and the build guard's reports of them, by the user \
-                config's limits unless told otherwise. RUN is \
+                removes this project's old runs (every project's with --all), and the \
+                build guard's reports of them, by the user config's limits unless told \
+                otherwise. RUN is \
                 `last` or `last~N`, counted among this project's runs, or a handle from the \
                 list, which names its run anywhere.",
     usage: &[
       "mto history [--all] [--json]",
       "mto history show <RUN>",
-      "mto history prune [--older-than DAYS] [--keep N]",
+      "mto history prune [--older-than DAYS] [--keep N] [--all]",
     ],
     options: &[
       ("options", "mto history", &[Flag::All, Flag::Json]),
       (
         "options",
         "mto history prune",
-        &[Flag::Keep, Flag::OlderThan],
+        &[Flag::Keep, Flag::OlderThan, Flag::All],
       ),
     ],
     operand: Complete::Nothing,
@@ -329,7 +330,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     name: "doctor",
     args: "[on|off|holds|release|keep|recheck|trust|<RUN>]",
     summary: "Guard the build against mto's edits, or find the edit that broke it",
-    about: "`on` turns the build guard on: each run that writes files then checks that the \
+    about: "`on` turns the build guard on: each run that writes files (but one naming a \
+                single file, as an editor's does) then checks that the \
                 project still builds, and holds back the edits that break it. It runs \
                 the command given after `--` (default: `cargo check` over the whole \
                 workspace and all its targets) and no other; with the guard off, mto runs none. `off` turns \

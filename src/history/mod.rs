@@ -104,6 +104,17 @@ impl History {
   /// removed, or with `sweep` (which also finds what a run cut short left behind), since
   /// otherwise none can have lost its last use.
   pub fn prune(&self, limits: Limits, sweep: bool) -> io::Result<Pruned> {
+    self.prune_where(limits, sweep, |_| true)
+  }
+
+  /// [`History::prune`] over the runs `in_scope` takes alone: the others are kept, and do not
+  /// count toward the limits.
+  pub fn prune_where(
+    &self,
+    limits: Limits,
+    sweep: bool,
+    in_scope: impl Fn(&Run) -> bool,
+  ) -> io::Result<Pruned> {
     let now = now_millis();
     let ids = self.ids()?;
     let mut runs = Vec::new();
@@ -112,10 +123,12 @@ impl History {
         runs.push(run);
       }
     }
-    // Newest first: keep while within the count and the age.
+    // Newest first: keep while within the count and the age. Runs out of scope are kept,
+    // and never given up for the size.
+    let others: Vec<&Run> = runs.iter().filter(|run| !in_scope(run)).collect();
     let mut kept: Vec<&Run> = Vec::new();
     let mut removed: Vec<&str> = Vec::new();
-    for (i, run) in runs.iter().enumerate() {
+    for (i, run) in runs.iter().filter(|run| in_scope(run)).enumerate() {
       let age_days = now.saturating_sub(id::millis(&run.id)) / 86_400_000;
       let too_many = limits.keep_runs > 0 && i >= limits.keep_runs;
       let too_old = limits.keep_days > 0 && age_days >= limits.keep_days;
@@ -127,7 +140,7 @@ impl History {
     }
     if limits.max_bytes > 0 {
       let mut uses: HashMap<&str, usize> = HashMap::new();
-      for run in &kept {
+      for run in kept.iter().chain(&others) {
         for hash in run.hashes() {
           *uses.entry(hash).or_default() += 1;
         }
@@ -162,7 +175,11 @@ impl History {
     if unreadable || (removed.is_empty() && !sweep) {
       return Ok(pruned);
     }
-    let used: HashSet<&str> = kept.iter().flat_map(|run| run.hashes()).collect();
+    let used: HashSet<&str> = kept
+      .iter()
+      .chain(&others)
+      .flat_map(|run| run.hashes())
+      .collect();
     let objects = self.dir.join("objects");
     let Ok(shards) = fs::read_dir(&objects) else {
       return Ok(pruned);

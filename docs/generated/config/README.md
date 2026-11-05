@@ -14,8 +14,8 @@ keys:
   formatting: 90
   user: 12
 in_mto:
-  supported: 74
-  partial: 29
+  supported: 75
+  partial: 28
   missing: 11
   not_planned: 5
 ---
@@ -457,7 +457,7 @@ behavior, so the column does not apply to them.
 <code>group_imports</code></a></td>
 <td>rustfmt.toml</td>
 <td>Controls the strategy for how imports are grouped together.</td>
-<td>partial</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#hard_tabs">

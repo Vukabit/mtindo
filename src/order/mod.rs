@@ -245,6 +245,18 @@ impl UseTree {
     segments.join("::")
   }
 
+  /// The group `group_imports = "StdExternalCrate"` puts the tree in, by its first segment
+  /// as the standard formatter's `group_imports` reads it: 0 for the standard library's
+  /// (`std`, `core`, `alloc`), 2 for the crate's own (`self`, `super`, `crate`), 1 for any
+  /// other, a root `::` too.
+  pub fn group(&self) -> usize {
+    match self.path.first() {
+      Some(Segment::Ident(name, _)) if matches!(name.as_str(), "std" | "core" | "alloc") => 0,
+      Some(Segment::Slf(_) | Segment::Super(_) | Segment::Crate(_)) => 2,
+      _ => 1,
+    }
+  }
+
   /// Whether the tree imports nothing (`a::{}`), which normalizing leaves without a path.
   pub fn is_empty(&self) -> bool {
     self.path.is_empty()

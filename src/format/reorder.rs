@@ -14,7 +14,7 @@
 
 use SyntaxKind as K;
 
-use crate::options::format::FormatConfig;
+use crate::options::format::{FormatConfig, GroupImports};
 use crate::order::{UseTree, version_sort};
 use crate::syntax::ast::Attr;
 use crate::syntax::marker;
@@ -712,12 +712,14 @@ pub fn granular_imports(
     for run in runs(
       node,
       config.blank_lines_upper_bound > 0,
+      config.group_imports != GroupImports::Preserve,
       &config.macro_use_modules,
     ) {
       if run[0].kind() != K::Use {
         continue;
       }
-      let start = run[0].text_range().start as usize;
+      // The comments the first carries before it stay before the run, as when it is sorted.
+      let start = code_start(&run[0]);
       let end = run[run.len() - 1].text_range().end as usize;
       let doc = root
         .token_texts_between(start as u32, end as u32)
@@ -754,9 +756,18 @@ pub fn granular_imports(
             version,
           );
           // One with a comment in it is kept as written.
+          let from = if item == &run[0] {
+            start
+          } else {
+            item.text_range().start as usize
+          };
           let written = item
-            .subtree_has(|kind| matches!(kind, K::LineComment | K::BlockComment))
-            .then(|| item.text().to_string());
+            .descendants_with_tokens_iter()
+            .any(|e| {
+              matches!(e.kind(), K::LineComment | K::BlockComment)
+                && e.text_range().start as usize >= from
+            })
+            .then(|| text[from..item.text_range().end as usize].to_string());
           (!tree.is_empty()).then_some(Import {
             attributes,
             visibility,
@@ -1229,7 +1240,8 @@ pub fn reorder(
   edition: Edition,
   config: &FormatConfig,
 ) -> Option<String> {
-  if !config.reorder_imports && !config.reorder_modules {
+  let grouped = config.group_imports != GroupImports::Preserve;
+  if !config.reorder_imports && !config.reorder_modules && !grouped {
     return None;
   }
   // Found only once a run could move.
@@ -1240,6 +1252,7 @@ pub fn reorder(
     for run in runs(
       node,
       config.blank_lines_upper_bound > 0,
+      config.group_imports != GroupImports::Preserve,
       &config.macro_use_modules,
     ) {
       let start = run[0].text_range().start as usize;
@@ -1251,8 +1264,79 @@ pub fn reorder(
       if off.iter().any(|&(s, e)| s < end && start < e) {
         continue;
       }
+      // The first item's leading comments stay in the first slot, before the run.
+      let start_of = |i: usize| {
+        if i == 0 {
+          code_start(&run[0])
+        } else {
+          run[i].text_range().start as usize
+        }
+      };
+      // The last item's comments after its code stay in the last slot, after the run.
+      let last = run.len() - 1;
+      let end_of = |i: usize| {
+        if i == last {
+          code_end(&run[last])
+        } else {
+          run[i].text_range().end as usize
+        }
+      };
       let mut order: Vec<usize> = (0..run.len()).collect();
       match run[0].kind() {
+        // Cut into groups, each sorted when imports are, and written again whole: a blank
+        // line between the groups and none inside one (the standard formatter's
+        // `group_imports`).
+        K::Use if grouped => {
+          let version = config.version_sorted_imports();
+          let global_paths = edition >= Edition::E2018;
+          let trees: Vec<UseTree> = run
+            .iter()
+            .map(|item| {
+              item
+                .children_iter()
+                .find(|c| c.kind() == K::UseTree)
+                .map(|t| UseTree::from_syntax(&t, global_paths, version))
+            })
+            .collect::<Option<Vec<_>>>()?;
+          let mut groups: Vec<Vec<usize>> = match config.group_imports {
+            GroupImports::StdExternalCrate => (0..3)
+              .map(|group| {
+                order
+                  .iter()
+                  .copied()
+                  .filter(|&i| trees[i].group() == group)
+                  .collect()
+              })
+              .collect(),
+            _ => vec![order],
+          };
+          if config.reorder_imports {
+            for group in &mut groups {
+              group.sort_by(|&a, &b| trees[a].compare(&trees[b], version));
+            }
+          }
+          let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+          let indent = &text[line_start..start];
+          if !indent.trim().is_empty() {
+            continue;
+          }
+          let written: Vec<String> = groups
+            .iter()
+            .filter(|group| !group.is_empty())
+            .map(|group| {
+              let items: Vec<&str> = group
+                .iter()
+                .map(|&i| &text[start_of(i)..end_of(i)])
+                .collect();
+              items.join(&format!("\n{}", indent))
+            })
+            .collect();
+          let whole = written.join(&format!("\n\n{}", indent));
+          if whole != text[start_of(0)..end_of(last)] {
+            moves.push((start_of(0), end_of(last), whole));
+          }
+          continue;
+        }
         K::Use if config.reorder_imports => {
           let version = config.version_sorted_imports();
           let global_paths = edition >= Edition::E2018;
@@ -1318,23 +1402,6 @@ pub fn reorder(
       if order.iter().enumerate().all(|(i, &o)| i == o) {
         continue;
       }
-      // The first item's leading comments stay in the first slot, before the run.
-      let start_of = |i: usize| {
-        if i == 0 {
-          code_start(&run[0])
-        } else {
-          run[i].text_range().start as usize
-        }
-      };
-      // The last item's comments after its code stay in the last slot, after the run.
-      let last = run.len() - 1;
-      let end_of = |i: usize| {
-        if i == last {
-          code_end(&run[last])
-        } else {
-          run[i].text_range().end as usize
-        }
-      };
       for (slot, &from) in order.iter().enumerate() {
         let mut moved = text[start_of(from)..end_of(from)].to_string();
         // One ending in a line comment, put where code follows on the line, ends its line.
@@ -2264,19 +2331,22 @@ fn plain_block_body(arm: &SyntaxNode) -> bool {
     })
 }
 
+/// The runs of declarations in `container`. A blank line ends one when `blank_ends_run`,
+/// and a comment on a line of its own before a declaration does, but between two `use`s
+/// when `grouped` (`group_imports`, which regroups them).
 fn runs(
   container: &SyntaxNode,
   blank_ends_run: bool,
+  grouped: bool,
   macro_use: &[String],
 ) -> Vec<Vec<SyntaxNode>> {
   let mut runs: Vec<Vec<SyntaxNode>> = Vec::new();
   let mut current: Vec<SyntaxNode> = Vec::new();
+  let mut blank = false;
   for element in container.children_with_tokens_iter() {
     match &element {
       SyntaxElement::Token(t) if t.kind() == K::Whitespace => {
-        if blank_ends_run && t.text().matches('\n').count() > 1 {
-          runs.push(std::mem::take(&mut current));
-        }
+        blank |= blank_ends_run && t.text().matches('\n').count() > 1;
       }
       // A comment between declarations ends the run, as one carried before a declaration
       // on a line of its own does.
@@ -2285,13 +2355,21 @@ fn runs(
       }
       SyntaxElement::Token(t) if t.kind().is_trivia() => {}
       SyntaxElement::Node(n) if sortable(n) && !exports_macros(n, macro_use) => {
-        // A comment on a line of its own before it ends the run before.
-        if current.first().is_some_and(|f| f.kind() != n.kind()) || own_line_comment(n) {
+        let regrouped =
+          grouped && n.kind() == K::Use && current.first().is_some_and(|f| f.kind() == K::Use);
+        // A comment on a line of its own before it ends the run before; but for imports
+        // regrouped, which it moves with, as the standard formatter moves it.
+        if (blank || own_line_comment(n)) && !regrouped
+          || current.first().is_some_and(|f| f.kind() != n.kind())
+        {
           runs.push(std::mem::take(&mut current));
         }
         current.push(n.clone());
       }
       _ => runs.push(std::mem::take(&mut current)),
+    }
+    if !matches!(&element, SyntaxElement::Token(t) if t.kind() == K::Whitespace) {
+      blank = false;
     }
   }
   runs.push(current);

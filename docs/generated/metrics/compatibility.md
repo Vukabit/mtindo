@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-11-05T05:38:48.263Z"
-commit: "e417cb4-dirty.1c94c8a9"
+generated: "2026-11-05T23:53:05.773Z"
+commit: "2c9aa3c-dirty.6db7e49a"
 command: "cargo xtask compare -- --update"
 sources:
   - records/results/compatibility.txt
@@ -20,11 +20,11 @@ metrics:
   compat.tests.lines_matched: 11192
   compat.tests.lines_total: 11205
   compat.tests.skipped: 0
-  compat.tests-with-settings.files: 77.64
-  compat.tests-with-settings.files_matched: 434
+  compat.tests-with-settings.files: 79.43
+  compat.tests-with-settings.files_matched: 444
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 92.72
-  compat.tests-with-settings.lines_matched: 20449
+  compat.tests-with-settings.lines: 93.03
+  compat.tests-with-settings.lines_matched: 20518
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
   compat.corpus.files: 99.97
@@ -34,11 +34,11 @@ metrics:
   compat.corpus.lines_matched: 2653089
   compat.corpus.lines_total: 2653185
   compat.corpus.skipped: 6
-  compat.corpus-unformatted.files: 99.13
-  compat.corpus-unformatted.files_matched: 9267
+  compat.corpus-unformatted.files: 99.22
+  compat.corpus-unformatted.files_matched: 9275
   compat.corpus-unformatted.files_scored: 9348
-  compat.corpus-unformatted.lines: 99.93
-  compat.corpus-unformatted.lines_matched: 2774589
+  compat.corpus-unformatted.lines: 99.94
+  compat.corpus-unformatted.lines_matched: 2774753
   compat.corpus-unformatted.lines_total: 2776485
   compat.corpus-unformatted.skipped: 17
   compat.corpus.repositories: 44
@@ -52,7 +52,7 @@ metrics:
 Against the standard formatter 1.10.0-stable (58cf8f9c35 2026-10-13), mto's
 output equals the expected output for 455 of 460 test files (98.91%) and for
 9358 of 9361 corpus files (99.97%). On whitespace-scrambled corpus files it
-matches 9267 of 9348 files (99.13%) and keeps 99.93% of the expected lines.
+matches 9275 of 9348 files (99.22%) and keeps 99.94% of the expected lines.
 <!-- end generated -->
 
 ## 1 Question
@@ -122,9 +122,9 @@ The record as it stands (shares in percent):
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
 | tests | 455 of 460 | 98.91 | 11192 of 11205 | 99.88 | 0 |
-| tests-with-settings | 434 of 559 | 77.64 | 20449 of 22055 | 92.72 | 0 |
+| tests-with-settings | 444 of 559 | 79.43 | 20518 of 22055 | 93.03 | 0 |
 | corpus | 9358 of 9361 | 99.97 | 2653089 of 2653185 | 100.00 | 6 |
-| corpus-scrambled | 9267 of 9348 | 99.13 | 2774589 of 2776485 | 99.93 | 17 |
+| corpus-scrambled | 9275 of 9348 | 99.22 | 2774753 of 2776485 | 99.94 | 17 |
 <!-- end generated -->
 
 ### History
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.88 | 92.72 | 100.00 | 99.93 | 99.13 |
+| current |  | 99.88 | 93.03 | 100.00 | 99.94 | 99.22 |
+| 2026-11-05 | e417cb4 | 99.88 | 92.72 | 100.00 | 99.93 | 99.13 |
 | 2026-11-04 | 6968844 | 99.88 | 92.70 | 100.00 | 99.93 | 99.13 |
 | 2026-11-01 | 2fb0060 | 99.88 | 92.39 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | a536de7 | 99.88 | 92.10 | 100.00 | 99.93 | 99.13 |
@@ -233,20 +234,20 @@ from. Scored files by the share of their expected lines mto's output keeps:
 | set | every line | 99% or more | 90% to 99% | under 90% |
 |---|---:|---:|---:|---:|
 | tests | 456 | 0 | 1 | 3 |
-| tests-with-settings | 437 | 2 | 30 | 90 |
+| tests-with-settings | 445 | 2 | 31 | 81 |
 | corpus | 9358 | 0 | 1 | 2 |
-| corpus-scrambled | 9267 | 32 | 32 | 17 |
+| corpus-scrambled | 9275 | 29 | 30 | 14 |
 
 The syntax at the first line where a mismatching file differs, the ten most
 common over every set:
 
 | syntax kind | files |
 |---|---:|
-| `LetStmt` | 28 |
-| `Use` | 22 |
-| `TokenTree` | 18 |
+| `LetStmt` | 26 |
 | `BlockExpr` | 14 |
+| `TokenTree` | 14 |
 | `Fn` | 13 |
+| `Use` | 12 |
 | `MethodCallExpr` | 10 |
 | `MacroRules` | 9 |
 | `MatchArm` | 9 |

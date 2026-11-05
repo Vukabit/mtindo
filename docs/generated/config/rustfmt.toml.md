@@ -12,8 +12,8 @@ keys:
   total: 90
   hidden: 7
 in_mto:
-  supported: 46
-  partial: 28
+  supported: 47
+  partial: 27
   missing: 11
   not_planned: 5
 ---
@@ -470,15 +470,15 @@ but other statements between imports will result in different grouping sets.
 *   Default: `"Preserve"`; from style edition 2024: `"Preserve"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
     1.11.0-nightly (nightly channel).
-*   In mto: partial. Mto.toml's import_grouping groups use items; not the
-    standard formatter's StdExternalCrate.
+*   In mto: supported. With format = true; mto.toml's import_grouping groups at
+    layout.
 *   Values:
-    *   `Preserve`: Keep groups as they are. In mto: missing.
+    *   `Preserve`: Keep groups as they are.
     *   `StdExternalCrate`: Discard existing groups, and create new groups for
         1. `std` / `core` / `alloc` imports 2. other imports 3. `self` / `crate`
-        / `super` imports. In mto: missing.
+        / `super` imports.
     *   `One`: Discard existing groups, and create a single group for
-        everything. In mto: missing.
+        everything.
 
 ### `hard_tabs`
 

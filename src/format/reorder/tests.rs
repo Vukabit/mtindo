@@ -182,6 +182,58 @@ fn test_imports_granularity() {
     formatted("use a::b::f;\nuse a::b::f as g;\nuse a::b::h;\n", &one),
     "use a::b::{f, f as g, h};\n"
   );
+  // A comment before the first stays before the run, which is split all the same.
+  let item = FormatConfig {
+    imports_granularity: Granularity::Item,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted("// c\nuse a::{b, c};\n", &item),
+    "// c\nuse a::b;\nuse a::c;\n"
+  );
+}
+
+#[test]
+fn test_imports_grouped_by_group_imports() {
+  // A run of imports goes on past blank lines and comments, which move with the next import,
+  // to the next item that is not one; each group sorted when imports are.
+  use crate::options::format::GroupImports;
+  let source = "use crate::a;\nuse ::std::b;\n\nuse core::c;\nuse x::y;\nextern crate z;\nuse super::d;\n\nuse std::e;\nmod m {\n    use b::x;\n    // apart\n    use a::y;\n\n    use c::z; // after\n    use self::w;\n}\n";
+  for (groups, sorted, expected) in [
+    (
+      GroupImports::StdExternalCrate,
+      true,
+      "use core::c;\n\nuse ::std::b;\nuse x::y;\n\nuse crate::a;\nextern crate z;\nuse std::e;\n\nuse super::d;\nmod m {\n    // apart\n    use a::y;\n    use b::x;\n    use c::z; // after\n\n    use self::w;\n}\n",
+    ),
+    (
+      GroupImports::StdExternalCrate,
+      false,
+      "use core::c;\n\nuse ::std::b;\nuse x::y;\n\nuse crate::a;\nextern crate z;\nuse std::e;\n\nuse super::d;\nmod m {\n    use b::x;\n    // apart\n    use a::y;\n    use c::z; // after\n\n    use self::w;\n}\n",
+    ),
+    (
+      GroupImports::One,
+      true,
+      "use crate::a;\nuse ::std::b;\nuse core::c;\nuse x::y;\nextern crate z;\nuse super::d;\nuse std::e;\nmod m {\n    use self::w;\n    // apart\n    use a::y;\n    use b::x;\n    use c::z; // after\n}\n",
+    ),
+    (
+      GroupImports::One,
+      false,
+      "use crate::a;\nuse ::std::b;\nuse core::c;\nuse x::y;\nextern crate z;\nuse super::d;\nuse std::e;\nmod m {\n    use b::x;\n    // apart\n    use a::y;\n    use c::z; // after\n    use self::w;\n}\n",
+    ),
+  ] {
+    let config = FormatConfig {
+      group_imports: groups,
+      reorder_imports: sorted,
+      ..FormatConfig::default()
+    };
+    assert_eq!(
+      formatted(source, &config),
+      expected,
+      "{:?} {}",
+      groups,
+      sorted
+    );
+  }
 }
 
 /// mto's `import_sort` picks the order formatting sorts imports by, as it does layout's:

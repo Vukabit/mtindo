@@ -932,7 +932,8 @@ fn chain_value(node: &SyntaxNode) -> bool {
 /// line or code; code goes to the next line. So after one ending an item's line, between
 /// items. Not after one ending a statement's line, nor among a list's items. (Its first run
 /// puts those comments at column 1, which its second moves back: written where it settles.)
-fn comment_runs(_root: &SyntaxNode, roles: &mut Roles) {
+/// But one a sorted declaration carries ([`sorted_pre_comment`]).
+fn comment_runs(roles: &mut Roles, config: &FormatConfig) {
   let containers = |kind: SyntaxKind| {
     matches!(
       kind,
@@ -971,6 +972,17 @@ fn comment_runs(_root: &SyntaxNode, roles: &mut Roles) {
       || comment.text().contains('\n')
       || !between(comment)
     {
+      continue;
+    }
+    // One space after it, as a list writes its item's pre-comment.
+    if sorted_pre_comment(comment, config) {
+      if tokens
+        .get(i + 1)
+        .is_some_and(|t| t.kind() == SyntaxKind::Whitespace)
+        && let Some(next) = tokens.get(i + 2)
+      {
+        roles.spaced.insert(next.text_range().start as usize);
+      }
       continue;
     }
     // Before it on its line.
@@ -4627,7 +4639,7 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
   line_starts(&walked, &mut roles, config);
   control_comment_lines(&walked, &mut roles);
   else_close_comments(&walked, &mut roles, config);
-  comment_runs(root, &mut roles);
+  comment_runs(&mut roles, config);
   // A skipped `mod name;` at the top of the file keeps the indentation its first line is
   // written at, byte for byte, unless an item or a comment follows it on that line (with
   // only skipped items after it, it keeps it); any other is indented as any item.
@@ -4902,6 +4914,47 @@ fn skips_itself(root: &SyntaxNode) -> bool {
     .children_iter()
     .filter_map(Attr::cast)
     .any(|a| a.is_inner() && a.is_rustfmt_skip())
+}
+
+/// Whether a block comment is one a `use`, `extern crate` or `mod name;` carries before
+/// its code on its line, after another of its kind in a run the standard formatter sorts
+/// (`reorder_imports`, `reorder_modules`, `group_imports`): written with it as a list's
+/// item, the comment its pre-comment (`itemize_list`), it stays on that line.
+fn sorted_pre_comment(comment: &SyntaxToken, config: &FormatConfig) -> bool {
+  use crate::options::format::GroupImports;
+  let item = comment.parent();
+  let grouped = config.group_imports != GroupImports::Preserve;
+  let sorted = match item.kind() {
+    SyntaxKind::Use => config.reorder_imports || grouped,
+    SyntaxKind::ExternCrate => config.reorder_imports,
+    SyntaxKind::Module => config.reorder_modules,
+    _ => false,
+  };
+  if !sorted || !crate::format::reorder::sortable(&item) {
+    return false;
+  }
+  let Some(code) = crate::format::items::header_start(&item) else {
+    return false;
+  };
+  let at = comment.text_range().end as usize;
+  let base = item.text_range().start as usize;
+  if at > code || item.text().to_string()[at - base..code - base].contains('\n') {
+    return false;
+  }
+  // The one before, past whitespace only: of its kind, no blank line between but for
+  // imports regrouped.
+  let mut newlines = 0;
+  let mut before = item.prev_sibling_or_token();
+  while let Some(SyntaxElement::Token(t)) = &before
+    && t.kind() == SyntaxKind::Whitespace
+  {
+    newlines += t.text().matches('\n').count();
+    before = t.prev_sibling_or_token();
+  }
+  matches!(&before, Some(SyntaxElement::Node(n))
+    if n.kind() == item.kind()
+      && crate::format::reorder::sortable(n)
+      && (newlines <= 1 || grouped && item.kind() == SyntaxKind::Use))
 }
 
 /// Whether `text`, its spaces aside, ends with `mark`: read back from its end, without

@@ -488,6 +488,11 @@ impl Config {
       Some("one") => crate::options::format::ImportsGranularity::One,
       _ => crate::options::format::ImportsGranularity::Preserve,
     };
+    config.group_imports = match choice("group_imports").as_deref() {
+      Some("stdexternalcrate") => crate::options::format::GroupImports::StdExternalCrate,
+      Some("one") => crate::options::format::GroupImports::One,
+      _ => crate::options::format::GroupImports::Preserve,
+    };
     config.control_brace_style = match choice("control_brace_style").as_deref() {
       Some("closingnextline") => crate::options::format::ControlBraceStyle::ClosingNextLine,
       Some("alwaysnextline") => crate::options::format::ControlBraceStyle::AlwaysNextLine,

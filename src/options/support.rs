@@ -4,13 +4,8 @@
 
 /// The values not honored yet of the options honored in part (`partial`), as (option,
 /// value), sorted.
-pub const MISSING_VALUES: &[(&str, &str)] = &[
-  ("group_imports", "One"),
-  ("group_imports", "Preserve"),
-  ("group_imports", "StdExternalCrate"),
-  ("indent_style", "Visual"),
-  ("trailing_comma", "Always"),
-];
+pub const MISSING_VALUES: &[(&str, &str)] =
+  &[("indent_style", "Visual"), ("trailing_comma", "Always")];
 
 /// Each option's name and status (`supported`, `partial`, `missing`, `not-planned`),
 /// sorted by name.
@@ -50,7 +45,7 @@ pub const OPTIONS: &[(&str, &str)] = &[
   ("format_macro_matchers", "missing"),
   ("format_strings", "partial"),
   ("generated_marker_line_search_limit", "supported"),
-  ("group_imports", "partial"),
+  ("group_imports", "supported"),
   ("hard_tabs", "partial"),
   ("hex_literal_case", "supported"),
   ("hide_parse_errors", "not-planned"),

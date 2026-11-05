@@ -39,6 +39,19 @@ pub enum FnParamsLayout {
   Vertical,
 }
 
+/// How a run of imports is cut into groups, a blank line between each (`group_imports`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GroupImports {
+  /// As written: a blank line ends a group.
+  #[default]
+  Preserve,
+  /// The standard library's (`std`, `core`, `alloc`), then other crates', then the crate's
+  /// own (`self`, `super`, `crate`).
+  StdExternalCrate,
+  /// All in one.
+  One,
+}
+
 /// How the items of a `use` list are laid out when they do not fit on one line
 /// (`imports_layout`).
 /// How a hex literal's digits are written (`hex_literal_case`).
@@ -207,6 +220,8 @@ pub struct FormatConfig {
   pub overflow_delimited_expr: bool,
   /// `imports_granularity`.
   pub imports_granularity: ImportsGranularity,
+  /// `group_imports`.
+  pub group_imports: GroupImports,
   /// `empty_item_single_line`: an empty function, impl or trait body written `{}`.
   pub empty_item_single_line: bool,
   /// `fn_single_line`: a function of one simple statement on one line.
@@ -355,6 +370,7 @@ impl FormatConfig {
       force_multiline_blocks: false,
       overflow_delimited_expr: false,
       imports_granularity: ImportsGranularity::Preserve,
+      group_imports: GroupImports::Preserve,
       empty_item_single_line: true,
       fn_single_line: false,
       where_single_line: false,

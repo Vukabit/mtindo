@@ -411,6 +411,30 @@ fn test_blank_lines_between_variant_fields() {
   );
 }
 
+/// Comments after a field's or a variant's comma, as the standard formatter writes them:
+/// a line comment one space after it, a block comment before the next one going to its
+/// line with it, and a tuple variant holding a line comment one field per line. Found by
+/// the bug hunt of 2026-11-04.
+#[test]
+fn test_block_comments_before_sorted_declarations() {
+  // A block comment before a `use`, `extern crate` or `mod name;` on its line, after
+  // another in a run that is sorted, stays on that line with one space after it, as a
+  // list's pre-comment; first in a run, or with sorting off, it takes a line of its own.
+  let source = "use a::x;\n/* lead */   use b::v;\nextern crate a;\n/* lead */ extern crate b;\n\nuse c::x;\n\n/* apart */ use d::v;\nfn f() {}\n/* first */ use e::x;\nmod m {\n    use b::x;\n    /* lead */ use std::v;\n}\n";
+  assert_eq!(
+    formatted(source),
+    "use a::x;\n/* lead */ use b::v;\nextern crate a;\n/* lead */ extern crate b;\n\nuse c::x;\n\n/* apart */\nuse d::v;\nfn f() {}\n/* first */\nuse e::x;\nmod m {\n    use b::x;\n    /* lead */ use std::v;\n}\n"
+  );
+  let unsorted = FormatConfig {
+    reorder_imports: false,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(source, &unsorted),
+    "use a::x;\n/* lead */\nuse b::v;\nextern crate a;\n/* lead */\nextern crate b;\n\nuse c::x;\n\n/* apart */\nuse d::v;\nfn f() {}\n/* first */\nuse e::x;\nmod m {\n    use b::x;\n    /* lead */\n    use std::v;\n}\n"
+  );
+}
+
 #[test]
 fn test_blocks_standing_as_statements_and_commented_chains() {
   // A block standing as a statement, with attributes too, is on lines around a statement given
@@ -552,10 +576,6 @@ fn test_closure_block_where_no_room_is_left() {
   );
 }
 
-/// Comments after a field's or a variant's comma, as the standard formatter writes them:
-/// a line comment one space after it, a block comment before the next one going to its
-/// line with it, and a tuple variant holding a line comment one field per line. Found by
-/// the bug hunt of 2026-11-04.
 #[test]
 fn test_comments_after_a_comma_in_fields_and_variants() {
   assert_eq!(

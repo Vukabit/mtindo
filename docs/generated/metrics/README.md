@@ -33,10 +33,10 @@ on the machine it names).
 | measure | now |
 |---|---|
 | test pairs, default settings | 455 of 460 files (98.9%) |
-| test pairs with settings | 434 of 559 files (77.6%) |
+| test pairs with settings | 444 of 559 files (79.4%) |
 | corpus as fetched, lines | 100.00% |
-| corpus scrambled, lines | 99.93% |
-| options honored | 46 of 90; 28 in part, 11 missing, 5 not planned |
+| corpus scrambled, lines | 99.94% |
+| options honored | 47 of 90; 27 in part, 11 missing, 5 not planned |
 | standard outputs changing meaning | 21 listed |
 | answer-key disagreements | 25, 0 to triage |
 | fuzz targets, kept inputs | 8, 178 |
@@ -51,7 +51,7 @@ The headline figure of each paper:
 <!-- generated: index -->
 | paper | headline |
 |---|---|
-| [compatibility](compatibility.md) | 99.93% of scrambled-corpus lines match |
+| [compatibility](compatibility.md) | 99.94% of scrambled-corpus lines match |
 | [meaning](meaning.md) | 21 exceptions listed, 5 not modelled yet |
 | [fuzzing](fuzzing.md) | 8 targets, 178 kept regression inputs |
 | [performance](performance.md) | 9.103 MB/s formatting on one thread |

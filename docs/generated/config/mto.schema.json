@@ -373,7 +373,7 @@
       "default": 5
     },
     "group_imports": {
-      "description": "Controls the strategy for how consecutive imports are grouped together.\n\nControls the strategy for grouping sets of consecutive imports. Imports may contain newlines between imports and still be grouped together as a single set, but other statements between imports will result in different grouping sets.\n\nIn mto: partial. Mto.toml's import_grouping groups use items; not the standard formatter's StdExternalCrate.",
+      "description": "Controls the strategy for how consecutive imports are grouped together.\n\nControls the strategy for grouping sets of consecutive imports. Imports may contain newlines between imports and still be grouped together as a single set, but other statements between imports will result in different grouping sets.\n\nIn mto: supported. With format = true; mto.toml's import_grouping groups at layout.",
       "type": "string",
       "enum": ["Preserve", "StdExternalCrate", "One"],
       "default": "Preserve"

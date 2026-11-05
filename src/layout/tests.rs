@@ -1,6 +1,6 @@
 use super::*;
 use crate::options::layout::{
-  CfgGroups, Flow, ItemKind, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort,
+  CfgGroups, Flow, ItemKind, MethodOrder, NameSort, OrderKey, Reexports, Sections, TraitImplSort,
 };
 
 fn arranged(source: &str) -> String {
@@ -1207,6 +1207,34 @@ fn test_pinned_items_keep_their_slot() {
     arranged(source),
     "fn a() {}\n\nextern crate alloc;\n\nfn b() {}\n"
   );
+}
+
+/// `reexports`: `pub use` as a group of its own after the other imports, or after every
+/// other item of its section.
+#[test]
+fn test_reexports_go_apart_or_last() {
+  let source = "pub use crate::b::B;\nuse std::fmt;\npub(crate) use crate::a::A;\nuse crate::c::C;\n\nfn f() {}\n";
+  let apart = LayoutConfig {
+    reexports: Reexports::Apart,
+    ..LayoutConfig::default()
+  };
+  let once = arranged_with(source, &apart);
+  assert_eq!(
+    once,
+    "use std::fmt;\n\nuse crate::c::C;\n\npub(crate) use crate::a::A;\npub use crate::b::B;\n\nfn f() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &apart), once);
+  let last = LayoutConfig {
+    reexports: Reexports::Last,
+    ..LayoutConfig::default()
+  };
+  let once = arranged_with(source, &last);
+  assert_eq!(
+    once,
+    "use std::fmt;\n\nuse crate::c::C;\n\nfn f() {}\n\npub(crate) use crate::a::A;\npub use crate::b::B;\n"
+  );
+  assert_eq!(arranged_with(&once, &last), once);
+  assert!(crate::verify::verify_layout(source, &once, crate::syntax::Edition::E2021).is_empty());
 }
 
 #[test]

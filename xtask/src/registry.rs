@@ -145,6 +145,14 @@ pub const ENTRIES: &[Entry] = &[
     shown_in: "—",
   },
   Entry {
+    path: "records/results/toggles/reexports.txt",
+    kind: Kind::Result,
+    holds: "reexports, apart and last, tried on the whole corpus",
+    written_by: "`cargo xtask corpus try --each ... --record reexports`",
+    read_by: "people",
+    shown_in: "—",
+  },
+  Entry {
     path: "records/archive/2026-10-optimization.txt",
     kind: Kind::Archive,
     holds: "every figure before the October optimization rounds",

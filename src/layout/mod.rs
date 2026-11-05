@@ -41,7 +41,7 @@ pub use inspect::{Container, Inspection, MoveView, UnitView, inspect, line_of};
 pub use order::Rule;
 
 use crate::options::layout::{
-  CfgGroups, ImportGroup, ItemKind, LayoutConfig, Sections, Visibility,
+  CfgGroups, ImportGroup, ItemKind, LayoutConfig, Reexports, Sections, Visibility,
 };
 use crate::syntax::ast::{Attr, Item};
 use crate::syntax::lexer::tokenize;
@@ -829,8 +829,10 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
   for unit in units {
     if let Some(prev) = previous {
       let both_imports = prev.kind == ItemKind::UseDecl && unit.kind == ItemKind::UseDecl;
-      let new_group =
-        config.sort_imports && config.import_grouping && prev.import_group != unit.import_group;
+      let new_group = config.sort_imports
+        && ((config.import_grouping && prev.import_group != unit.import_group)
+          || (config.reexports != Reexports::WithImports
+            && order::reexport(prev) != order::reexport(unit)));
       // A `#[cfg(test)] mod tests;` sorted last stands apart, or the standard
       // formatter would sort it back among the declarations above it.
       let declarations = prev.module_declaration && unit.module_declaration;

@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 129
-  mto: 27
+  total: 130
+  mto: 28
   formatting: 90
   user: 12
 in_mto:
-  supported: 72
+  supported: 73
   partial: 29
   missing: 11
   not_planned: 5
@@ -737,6 +737,13 @@ behavior, so the column does not apply to them.
     of files that would be formatted when used with <code>--check</code>
     mode.</td>
 <td>missing</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#reexports">
+<code>reexports</code></a></td>
+<td>mto.toml</td>
+<td>Where pub use re-exports go</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#remove_nested_parens">

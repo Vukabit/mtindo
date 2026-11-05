@@ -33,7 +33,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use super::Unit;
 use crate::options::layout::{
-  CfgGroups, Flow, ItemKind, LayoutConfig, NameSort, OrderKey, TraitImplSort, Visibility,
+  CfgGroups, Flow, ItemKind, LayoutConfig, NameSort, OrderKey, Reexports, TraitImplSort, Visibility,
 };
 use crate::order::version_sort;
 
@@ -87,6 +87,8 @@ pub enum Rule {
   End,
   /// After the first item under the same `#[cfg(...)]` (`cfg_groups`).
   CfgGroup,
+  /// Re-exports apart from the other imports, or last (`reexports`).
+  Reexports,
 }
 
 impl Rule {
@@ -116,6 +118,7 @@ impl Rule {
       Rule::Hidden => "hidden",
       Rule::End => "end",
       Rule::CfgGroup => "cfg_group",
+      Rule::Reexports => "reexports",
     }
   }
 
@@ -147,6 +150,7 @@ impl Rule {
       Rule::Hidden => "#[doc(hidden)] items last (order_keys)",
       Rule::End => "at an end of its section (// mto: first, // mto: last)",
       Rule::CfgGroup => "with the items under the same #[cfg(...)] (cfg_groups)",
+      Rule::Reexports => "pub use apart from the other imports, or last (reexports)",
     }
   }
 }
@@ -214,12 +218,18 @@ pub(super) fn compare_by(
   if a.test_module != b.test_module {
     return (a.test_module.cmp(&b.test_module), Rule::TestModuleLast);
   }
+  if config.reexports == Reexports::Last && reexport(a) != reexport(b) {
+    return (reexport(a).cmp(&reexport(b)), Rule::Reexports);
+  }
   if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && !config.sort_imports {
     // Unsorted imports keep their written order; sorting them by name would read
     // names from text that the standard formatter rewrites, so the order would not settle.
     return (a.index.cmp(&b.index), Rule::Written);
   }
   if a.kind == ItemKind::UseDecl && b.kind == ItemKind::UseDecl && config.sort_imports {
+    if config.reexports == Reexports::Apart && reexport(a) != reexport(b) {
+      return (reexport(a).cmp(&reexport(b)), Rule::Reexports);
+    }
     if config.import_grouping && a.import_group != b.import_group {
       return (a.import_group.cmp(&b.import_group), Rule::ImportGroups);
     }
@@ -436,6 +446,11 @@ pub(super) fn reason(arranged: &[Unit], at: usize, config: &LayoutConfig) -> Rul
     }
     _ => Rule::Written,
   }
+}
+
+/// Whether `unit` is a re-export: a `use` that is not private (`reexports`).
+pub(super) fn reexport(unit: &Unit) -> bool {
+  unit.kind == ItemKind::UseDecl && unit.visibility != Visibility::Private
 }
 
 /// The strongly connected components of the graph `after` (Tarjan's, without recursion):

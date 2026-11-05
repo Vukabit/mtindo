@@ -426,6 +426,20 @@ exceptions do not pile up unexplained; `mto pins` lists them all.
     *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
         ` -- why` gets a warning, and with --strict fails its file.
 
+#### `reexports`
+A re-export is a `use` with any visibility but private: the module's API, apart
+from what it uses. With `last` they close their section, as a module's list of
+what it offers; with `order_keys = []` they keep their place.
+
+*   Type: one of the values below, as a string.
+*   Default: `"with_imports"`.
+*   Values:
+    *   `with_imports`: Among the other imports, as the standard formatter sorts
+        them.
+    *   `apart`: A group of their own after the other imports, a blank line
+        between.
+    *   `last`: After the other items of their section.
+
 #### `cfg_groups`
 Keeps code for one platform or feature in one place. Predicates are the same
 when their text is, spacing aside. A group written together is ordered as its

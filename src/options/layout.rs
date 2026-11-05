@@ -124,6 +124,17 @@ impl OrderKey {
   }
 }
 
+/// Where `pub use` re-exports go (`reexports`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reexports {
+  /// Among the other imports, as the standard formatter sorts them.
+  WithImports,
+  /// A group of their own, after the other imports.
+  Apart,
+  /// After the other items of their section.
+  Last,
+}
+
 /// Which loose comments start a section items never leave (`sections`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sections {
@@ -191,6 +202,8 @@ pub struct LayoutConfig {
   pub flow: Flow,
   /// `cfg_groups`: items under the same `#[cfg(...)]` that move as one.
   pub cfg_groups: CfgGroups,
+  /// `reexports`: where `pub use` re-exports go.
+  pub reexports: Reexports,
   /// `inherent_method_order`: the order of the functions in an impl with no trait.
   pub inherent_method_order: MethodOrder,
   /// `order_keys`: what items are ordered by, in turn; none keeps the written order.
@@ -274,6 +287,7 @@ impl Default for LayoutConfig {
       keep_helpers_near: false,
       flow: Flow::Off,
       cfg_groups: CfgGroups::Off,
+      reexports: Reexports::WithImports,
       inherent_method_order: MethodOrder::Written,
       order_keys: vec![OrderKey::Kind, OrderKey::Visibility, OrderKey::Name],
       directive_reasons_required: false,

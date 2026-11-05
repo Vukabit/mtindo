@@ -77,6 +77,9 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
   (result): the order keys entry, deprecated and hidden tried on the whole
   corpus. Written by `cargo xtask corpus try --each ... --record order-marks`;
   read by people.
+- **[results/toggles/reexports.txt](results/toggles/reexports.txt)** (result):
+  reexports, apart and last, tried on the whole corpus. Written by `cargo xtask
+  corpus try --each ... --record reexports`; read by people.
 - **[archive/2026-10-optimization.txt](archive/2026-10-optimization.txt)**
   (archive): every figure before the October optimization rounds. Read by `cargo
   xtask metrics compare`.

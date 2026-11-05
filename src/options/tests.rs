@@ -1,6 +1,6 @@
 use super::*;
 use crate::options::layout::{
-  CfgGroups, Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Visibility,
+  CfgGroups, Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Reexports, Visibility,
 };
 
 /// The strings of a TOML array of strings, as written in a default.
@@ -112,6 +112,8 @@ fn test_mto_defaults_match_the_layout_config() {
   assert_eq!(config.flow, Flow::Off);
   assert_eq!(default("cfg_groups"), "\"off\"");
   assert_eq!(config.cfg_groups, CfgGroups::Off);
+  assert_eq!(default("reexports"), "\"with_imports\"");
+  assert_eq!(config.reexports, Reexports::WithImports);
   assert_eq!(default("inherent_method_order"), "\"written\"");
   assert_eq!(config.inherent_method_order, MethodOrder::Written);
   assert_eq!(strings(default("ignore_dirs")), config.ignore_dirs);

@@ -1,0 +1,11 @@
+# `cargo xtask corpus try` on the pinned corpus (2 runs a file), for `reexports`.
+# Columns: files, changed, moves, left alone, check failed, panicked, unsettled.
+try  reexports=apart
+settings  layout=true,reexports=apart
+total  10842     8370 102631        204            0         0         0
+try  reexports=last
+settings  layout=true,reexports=last
+total  10842     8388 103088        204            0         0         0
+try  all together
+settings  layout=true,reexports=apart,reexports=last
+total  10842     8388 103088        204            0         0         0

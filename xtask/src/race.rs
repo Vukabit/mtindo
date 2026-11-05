@@ -146,6 +146,7 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "name_sort = \"case_insensitive\"",
     "",
   ),
+  ("layout + reexports=apart", "reexports = \"apart\"", ""),
   (
     "layout + reorder_impl_items=true",
     "reorder_impl_items = true",

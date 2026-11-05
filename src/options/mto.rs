@@ -70,6 +70,30 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "reexports",
+    file: File::Mto,
+    kind: Kind::Choice(&[
+      choice(
+        "with_imports",
+        "Among the other imports, as the standard formatter sorts them.",
+      ),
+      choice(
+        "apart",
+        "A group of their own after the other imports, a blank line between.",
+      ),
+      choice("last", "After the other items of their section."),
+    ]),
+    default: "\"with_imports\"",
+    default_2024: None,
+    summary: "Where pub use re-exports go",
+    doc: "A re-export is a `use` with any visibility but private: the module's API, apart \
+              from what it uses. With `last` they close their section, as a module's \
+              list of what it offers; with `order_keys = []` they keep their place.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "cfg_groups",
     file: File::Mto,
     kind: Kind::Choice(&[

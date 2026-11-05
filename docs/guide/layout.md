@@ -184,6 +184,16 @@ together; items that use each other in a circle keep the keys' order among
 themselves. Uses are found by name, without type checking, like
 `keep_helpers_near`.
 
+`reexports` sets apart a module's re-exports (`pub use`, `pub(crate) use` and
+the like), its API, from the imports it uses:
+
+* `"with_imports"`, the default: among the other imports, as the standard
+  formatter sorts them;
+* `"apart"`: a group of their own after the other imports, with a blank line
+  between;
+* `"last"`: after every other item of their section. With `order_keys = []`
+  they keep their place.
+
 ## What mto never moves
 
 Some items depend on their position in the file. `mto` keeps them in place:

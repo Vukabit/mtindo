@@ -226,6 +226,7 @@ mto     config:layout_generated_files                    supported    # tests/do
 mto     config:mto_version                               supported    # tests/domain_8_cli.rs
 mto     config:name_sort                                 supported    # src/layout/tests.rs
 mto     config:order_keys                                supported    # src/layout/tests.rs
+mto     config:reexports                                 supported    # src/layout/tests.rs
 mto     config:sections                                  supported    # src/layout/tests.rs
 mto     config:sort_alphabetically                       supported    # tests/domain_11_matrix.rs
 mto     config:sort_imports                              supported    # tests/domain_2_golden.rs

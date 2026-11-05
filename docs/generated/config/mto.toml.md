@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 27
+  total: 28
 in_mto:
-  supported: 26
+  supported: 27
   partial: 1
   missing: 0
   not_planned: 0
@@ -54,6 +54,22 @@ exceptions do not pile up unexplained; `mto pins` lists them all.
     *   `optional`: A directive may give its reason after ` -- `, or not.
     *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
         ` -- why` gets a warning, and with --strict fails its file.
+
+### `reexports`
+
+A re-export is a `use` with any visibility but private: the module's API, apart
+from what it uses. With `last` they close their section, as a module's list of
+what it offers; with `order_keys = []` they keep their place.
+
+*   Type: one of the values below, as a string.
+*   Default: `"with_imports"`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `with_imports`: Among the other imports, as the standard formatter sorts
+        them.
+    *   `apart`: A group of their own after the other imports, a blank line
+        between.
+    *   `last`: After the other items of their section.
 
 ### `cfg_groups`
 

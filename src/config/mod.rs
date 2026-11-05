@@ -40,7 +40,7 @@ pub use value::Value;
 
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
 use crate::options::layout::{
-  CfgGroups, Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Sections,
+  CfgGroups, Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Reexports, Sections,
   TraitImplSort, Visibility,
 };
 use crate::options::{self, Channels, File, Setting, Stability};
@@ -213,6 +213,11 @@ impl Config {
       Some("headings") => Sections::Headings,
       Some("markers") => Sections::Markers,
       _ => Sections::Off,
+    };
+    config.reexports = match self.get("reexports").and_then(Value::as_text) {
+      Some("apart") => Reexports::Apart,
+      Some("last") => Reexports::Last,
+      _ => Reexports::WithImports,
     };
     config.cfg_groups = match self.get("cfg_groups").and_then(Value::as_text) {
       Some("together") => CfgGroups::Together,

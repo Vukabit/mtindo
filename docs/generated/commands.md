@@ -171,6 +171,39 @@ cargo xtask corpus try [--config KEY=VALUE,...] [--each KEY=VALUE,...] [--runs
 - `--record NAME`: Write the totals to records/results/toggles/NAME.txt
 - `--with-rust`: Also the opt-in repositories (rust-lang/rust)
 
+## `cargo xtask hunt`
+
+A bug hunt's ground and what it found: a frozen build of a commit with its
+sandbox (prepare), then the reproduced findings filed as incidents and the
+hunters' coverage kept (collect)
+
+```text
+cargo xtask hunt prepare|collect
+```
+
+## `cargo xtask hunt prepare`
+
+Make .dev/hunt/ID: the commit's worktree and release mto, its guide, the known
+gaps, and env.sh, each hunter's sandbox
+
+```text
+cargo xtask hunt prepare [--rev REV]
+```
+
+- `--rev REV`: The commit to hunt in (default: HEAD)
+
+## `cargo xtask hunt collect`
+
+File each finding a verifier reproduced as a hunt incident, its repro script the
+input, and add the coverage to .dev/hunt/map.txt
+
+```text
+cargo xtask hunt collect RESULT [--hunt ID]
+```
+
+- `RESULT`: The hunt's result: JSON holding a ledger, and its coverage
+- `--hunt ID`: The hunt it came from (.dev/hunt/ID)
+
 ## `cargo xtask docs`
 
 Regenerate everything under docs/generated/: the settings reference and
@@ -428,9 +461,9 @@ cargo xtask incidents list [--kind KIND] [--status open|flaky|fixed|wont-fix]
 ```
 
 - `--kind KIND`: Only this kind; repeatable (one of: fuzz-crash, fuzz-oom,
-  fuzz-timeout, fuzz-slow, fuzz-leak, meaning, unstable, panic, compat-break,
-  compile-break, scrambler-bug, speed-regression, memory-regression, mismatch,
-  doctor-regression)
+  fuzz-timeout, fuzz-slow, fuzz-leak, meaning, unstable, panic, hunt,
+  compat-break, compile-break, scrambler-bug, speed-regression,
+  memory-regression, mismatch, doctor-regression)
 - `--status open|flaky|fixed|wont-fix`: Only this status; repeatable
 
 ## `cargo xtask incidents show`

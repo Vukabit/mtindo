@@ -258,6 +258,7 @@ pub fn tree() -> Command {
       .arg(flag("json", "As JSON (schema mtindo.xtask.checks/1)")),
     compare(),
     corpus(),
+    hunt(),
     docs(),
     fix_up(),
     flow(),
@@ -773,6 +774,42 @@ fn gates_command() -> Command {
       .default_value("all")
       .help("One gate, or all"),
   )
+}
+
+fn hunt() -> Command {
+  Command::new("hunt")
+    .about(
+      "A bug hunt's ground and what it found: a frozen build of a commit with its sandbox \
+       (prepare), then the reproduced findings filed as incidents and the hunters' coverage \
+       kept (collect)",
+    )
+    .subcommand_required(true)
+    .subcommand(
+      Command::new("prepare")
+        .about(
+          "Make .dev/hunt/ID: the commit's worktree and release mto, its guide, the known \
+           gaps, and env.sh, each hunter's sandbox",
+        )
+        .arg(option(
+          "rev",
+          "REV",
+          "The commit to hunt in (default: HEAD)",
+        )),
+    )
+    .subcommand(
+      Command::new("collect")
+        .about(
+          "File each finding a verifier reproduced as a hunt incident, its repro script the \
+           input, and add the coverage to .dev/hunt/map.txt",
+        )
+        .arg(
+          Arg::new("result")
+            .value_name("RESULT")
+            .required(true)
+            .help("The hunt's result: JSON holding a ledger, and its coverage"),
+        )
+        .arg(option("hunt", "ID", "The hunt it came from (.dev/hunt/ID)")),
+    )
 }
 
 fn incidents() -> Command {

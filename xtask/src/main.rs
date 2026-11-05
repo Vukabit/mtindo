@@ -24,6 +24,7 @@ mod fuzz_diff;
 mod fuzz_soak;
 mod gaps;
 mod gates;
+mod hunt;
 mod incidents;
 mod instructions;
 mod io;
@@ -157,6 +158,7 @@ fn dispatch(root: &Path, name: &str, m: &ArgMatches) -> ExitCode {
     "flow" => flow::run(root, m),
     "fuzz" => fuzz::run(root, m),
     "gates" => gates::run(root, m),
+    "hunt" => hunt::run(root, m),
     "incidents" => incidents::run(root, m),
     "io" => io::run(root, m),
     "perf" => perf::run(root, m),

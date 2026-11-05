@@ -53,6 +53,11 @@ pub const KINDS: &[(&str, &str, bool)] = &[
   ("unstable", "formatting mto's output again changes it", true),
   ("panic", "mto panicked", true),
   (
+    "hunt",
+    "a bug hunt's finding, reproduced by an independent verifier (`cargo xtask hunt collect`)",
+    false,
+  ),
+  (
     "compat-break",
     "the standard formatter leaves a file as written and mto changes it",
     false,

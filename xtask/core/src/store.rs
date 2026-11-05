@@ -12,6 +12,8 @@
 //!     cache/      what is fetched or built again when missing (corpus, releases)
 //!     fuzz/       each fuzz target's corpus, by target
 //!     upstream/   cases where the reference formatter is wrong, kept for reports
+//!     hunt/       each bug hunt's frozen build and sandboxes, and the map of what hunts
+//!                 covered
 //! ```
 
 use std::fs;
@@ -58,11 +60,18 @@ pub const AREAS: &[Area] = &[
     holds: "cases where the reference formatter is wrong, kept for reports",
     kept: "all of it",
   },
+  Area {
+    name: HUNT,
+    holds: "each bug hunt's frozen build, guide and sandboxes, and the map of what hunts covered",
+    kept: "until removed by hand (`git worktree remove` each hunt's src first); the map always",
+  },
 ];
 
 pub const CACHE: &str = "cache";
 
 pub const FUZZ: &str = "fuzz";
+
+pub const HUNT: &str = "hunt";
 
 pub const INCIDENTS: &str = "incidents";
 

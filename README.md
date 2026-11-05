@@ -29,7 +29,25 @@ sha256sum --check --ignore-missing SHA256SUMS      # Linux
 shasum -a 256 --check --ignore-missing SHA256SUMS  # macOS
 ```
 
-Or install it from crates.io with Cargo, which needs Rust 1.88 or later:
+Each archive is also attested as built by the release workflow from its tag.
+With the [GitHub CLI](https://cli.github.com), check one before you run it:
+
+```bash
+gh attestation verify mto-VERSION-TARGET.tar.gz --repo Vukabit/mtindo
+```
+
+The release's `mto-VERSION.spdx.json` is its bill of materials in SPDX form,
+attested the same way: mtindo alone, as it depends on nothing but Rust's
+standard library.
+
+With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), Cargo
+fetches the release archive for your platform instead of building:
+
+```bash
+cargo binstall mtindo
+```
+
+Or build it from crates.io with Cargo, which needs Rust 1.88 or later:
 
 ```bash
 cargo install mtindo

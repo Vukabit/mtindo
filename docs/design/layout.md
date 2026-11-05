@@ -178,38 +178,101 @@ bodies are collected through `Cx::note`, so holding works at every level.
 
 ## The order
 
-`order::compare` decides between two free units; the sort is stable, so units
-the rules call equal keep their written order. In turn:
+`order::sorted` arranges one run of units: a whole container, or the part
+between two held units or section starts (`around_held`). Pinned units keep
+their slots; the free ones go through these steps, each keeping the order the
+one before left wherever it has nothing to say:
 
-1. A `#[cfg(test)]` module goes last (`test_test_module_last_or_in_place`).
-2. Two imports: with `sort_imports` off, as written; on, by import group when
-   `import_grouping` is on, then by `UseTree::compare` from `src/order/mod.rs`.
-   Through style edition 2021 names compare snake_case, then CamelCase, then
-   UPPER_SNAKE_CASE, each by bytes; from 2024 by version sort. `import_sort`
-   overrides the style edition for imports
+1. **Sort**, by `order::compare` (below); the sort is stable, so units the
+   rules call equal keep their written order. With `order_keys = []` there is
+   no sort: test modules go last, `#[cfg(test)]` items before them with
+   `test_helpers = "last"`, and `sort_runs` sorts only runs of imports and of
+   `mod name;` declarations where they stand
+   (`test_no_order_keys_keeps_the_written_order`).
+2. **Flow** (`flow`): within each run of one kind, an item above or below
+   the items it uses (`flowed`, Tarjan components for circles). Imports,
+   modules, macros, test modules and test items are fixed.
+3. **Gather** (`cfg_groups = "gather"`): each unit under a `#[cfg(...)]`
+   moves up to follow the first in the order under the same predicate
+   (`gathered`). It depends on the order alone, not on where units were
+   written, so a second run gathers the same; the units stay apart, so the
+   macro check below still sees each one
+   (`test_cfg_groups_move_items_under_one_predicate_as_one`).
+4. **Ends**: units under `// mto: first` go to the front, those under
+   `// mto: last` to the back (`to_ends`, also used in impl bodies)
+   (`test_first_and_last_put_an_item_at_an_end_of_its_section`).
+5. **Helpers** (`keep_helpers_near`): each helper next to its one user, on
+   the side it was written on (`near_callers`).
+6. **Slots**: the free units fill the slots the pinned ones left.
+
+`arrange` then runs the macro check (below) on the result, and sorts again
+with macros first, or around each definition, if it fails.
+
+`order::compare` decides between two free units, in turn:
+
+1. With macros first (the second try), definers first, as written.
+2. A `#[cfg(test)]` module goes last (`test_test_module_last_or_in_place`);
+   with `test_helpers = "last"`, other `#[cfg(test)]` items (not imports,
+   declarations or macros) just before it
+   (`test_test_helpers_go_with_the_tests`).
+3. With `reexports = "last"`, a `use` that is not private after everything
+   else (`test_reexports_go_apart_or_last`).
+4. Two imports: with `sort_imports` off, as written; on, re-exports after the
+   others with `reexports = "apart"`, then by import group when
+   `import_grouping` is on, then by `UseTree::compare` from
+   `src/order/mod.rs`. Through style edition 2021 names compare snake_case,
+   then CamelCase, then UPPER_SNAKE_CASE, each by bytes; from 2024 by version
+   sort. `import_sort` overrides the style edition for imports
    (`test_imports_sort_as_the_standard_formatter_does_for_the_style_edition`).
-3. The `type_order` rank, an impl taking the rank of the type it is for when
-   `group_impls` is on. Kinds missing from `type_order` follow the listed ones
-   in their default order, so no two kinds share a rank and the comparison
-   stays one order (`test_items_compare_as_one_order_under_any_type_order`).
-4. With `group_impls`, structs, enums, unions, traits and impls of different
-   types order by the type's name, which puts each type's impls next to it. Of
-   types sharing a name, impls join the one ranked first
-   (`test_an_impl_of_a_shared_name_settles`).
-5. The unit's own `type_order` rank, so a type comes before its impls.
-6. Two `macro_rules!` keep their written order.
-7. Two modules: `#[macro_use]` modules first, as written; then, with
-   `sort_alphabetically`, by name without `r#`, by bytes through style edition
-   2024 and by version sort after it
-   (`test_modules_sort_as_the_standard_formatter_does`).
-8. Two impls of one type: inherent impls first, as written; then trait impls
-   listed in `trait_impl_order`, in its order; then by trait name with
-   `trait_impl_sort = "name"` and `sort_alphabetically` on, or as written
-   (`test_impls_under_a_type`).
-9. Visibility, by `visibility_order`.
-10. With `sort_alphabetically`, the name by `name_sort`: version sort (the
-    Rust style guide's), bytes, or case-insensitive version sort with case as
-    the tie-break (`test_name_sort_and_visibility_order`).
+5. Unless `kind` is the first of `order_keys`, imports, `mod` declarations
+   and macros come first anyway, each kind by its own rules, and everything
+   else is one group the keys order.
+6. Each of `order_keys` in turn, the first that tells the two apart deciding:
+   - `kind`: the `type_order` rank, an impl taking its type's with
+     `group_impls`. Kinds missing from `type_order` follow the listed ones in
+     their default order, so no two kinds share a rank and the comparison
+     stays one order (`test_items_compare_as_one_order_under_any_type_order`).
+     With `group_impls`, types and impls of different types order by the
+     type's name, which puts each type's impls next to it; of types sharing a
+     name, impls join the one ranked first
+     (`test_an_impl_of_a_shared_name_settles`). Then each kind's own rules:
+     two `macro_rules!` as written; two modules, `#[macro_use]` ones first as
+     written, then with `sort_alphabetically` by name without `r#`, by bytes
+     through style edition 2024 and by version sort after it
+     (`test_modules_sort_as_the_standard_formatter_does`).
+   - `visibility`: by `visibility_order`, an impl at its type's visibility
+     with `group_impls`
+     (`test_visibility_first_puts_the_public_items_first_with_their_impls`).
+   - `name`: with `sort_alphabetically`, by `name_sort`: version sort (the
+     Rust style guide's), bytes, or case-insensitive version sort with case
+     as the tie-break (`test_name_sort_and_visibility_order`).
+   - `entry`: `fn main` first
+     (`test_entry_puts_main_at_the_top_of_the_functions`).
+   - `deprecated`, `hidden`: `#[deprecated]` and `#[doc(hidden)]` items
+     last, an impl as its type with `group_impls`
+     (`test_deprecated_and_hidden_items_sink_to_the_bottom_of_their_kind`).
+7. Ties the keys leave: a type before its impls; two impls of one type,
+   inherent impls first as written, then trait impls in `trait_impl_order`,
+   then by trait name with `trait_impl_sort = "name"` and
+   `sort_alphabetically`, or as written (`test_impls_under_a_type`).
+
+Units join before any of this, in `split_container`: `#[cfg]` variants of one
+item written next to each other, paragraphs (`keep_paragraphs`), and items
+under one predicate written with no blank line between
+(`cfg_groups = "together"`). Joining only what is written touching keeps a
+second run from finding new groups: a laid-out file has a blank line between
+any two units. A joined unit sorts as its first item.
+
+### What no setting moves
+
+Some orders carry meaning, so no setting reorders them, now or as more are
+added: struct fields (memory layout, drop order, derived `Ord`, positional
+construction), enum variants (discriminants, derived `Ord`), match arms,
+statements, function parameters, and anything inside an item but impl and
+module bodies. Among items, a macro definition never moves past a use of it
+(below), pinned items keep their slots, held items and section starts their
+neighbours, and `// mto: off` regions stay as written. The meaning check
+([meaning-check.md](meaning-check.md)) holds every result to this.
 
 ## Macro definitions
 

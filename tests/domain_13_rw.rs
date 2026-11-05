@@ -153,7 +153,7 @@ fn test_realworld_compilation_invariance() {
       let format_output = env
         .mto_cmd()
         // Recorded in the test's own history, for `mto doctor` to narrow down a break.
-        .args(["-q", "-R", "."])
+        .args(["-q", "-R"])
         .current_dir(&repo_dir)
         .output()
         .unwrap();

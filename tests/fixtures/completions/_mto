@@ -549,7 +549,7 @@ _mto() {
     '--emit=[Write the files (default), print them, or report changes as JSON]:value:(files stdout json)'
     '(-l --files-with-diff)'{-l,--files-with-diff}'[Name the files that change (or would, with --check) instead of showing how]'
     '--follow-links[Also follow symlinked files and directories]'
-    '(-R --recursive)'{-R,--recursive}'[Format every .rs file under the current directory]'
+    '(-R --recursive)'{-R,--recursive}'[The same as `mto .`: every .rs file under the current directory]'
     '--skip-children[A file argument is that file alone, not the modules it declares]'
     '--changed[Only the files git sees changed: modified, staged or untracked]'
     '--staged[Only the files staged for the next commit; one with unstaged changes is left alone]'

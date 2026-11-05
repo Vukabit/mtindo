@@ -901,6 +901,8 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   }
   if recursive && paths.is_empty() {
     paths.push(PathBuf::from("."));
+  } else if recursive {
+    recursive_ignored();
   }
   // Asking git with no path takes the whole repository; outside one, the run says so (as
   // JSON too, with --message-format json).
@@ -910,7 +912,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   }
   if paths.is_empty() {
     return usage_error(
-      "no path given: pass files or directories, -R for the current directory, or - to read stdin",
+      "no path given: pass files or directories (. for the current one), or - to read stdin",
     );
   }
   Ok(Some(CliAction::Format {
@@ -1451,6 +1453,23 @@ fn quiet_on_closed_pipe() {
     }
     default(info);
   }));
+}
+
+/// `-R` with paths named: a folder is always walked, so it adds nothing, and says so rather
+/// than pass unnoticed.
+fn recursive_ignored() {
+  let text = "-R is ignored when paths are given: every folder named is walked anyway";
+  if mtindo::json_messages() {
+    let message = mtindo::Message {
+      level: "warning",
+      code: "recursive_ignored",
+      at: None,
+      text: text.to_string(),
+    };
+    outln!("{}", mtindo::json_message(None, &message));
+  } else {
+    errln!("{}warning: {}{}", c_yellow(true), text, c_reset(true));
+  }
 }
 
 /// A command's help page: `mto history -h`.

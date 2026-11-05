@@ -107,7 +107,7 @@ fn test_massive_repository_lifecycle_with_compilation() {
 
   let start_time = Instant::now();
   let mut format_cmd = env.mto_cmd();
-  format_cmd.arg("-R").arg(".");
+  format_cmd.arg("-R");
   format_cmd.assert().success();
   let elapsed = start_time.elapsed();
   println!(

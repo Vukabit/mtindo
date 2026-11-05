@@ -609,7 +609,7 @@ pub const COMMANDS: &[CommandSpec] = &[
 
 pub const EXAMPLES: &[&str] = &[
   "mto src/main.rs",
-  "mto -R --check",
+  "mto --check .",
   "mto --check -l src/lib.rs src/main.rs",
   "mto --emit json --check src/",
   "cat src/main.rs | mto -",
@@ -700,7 +700,7 @@ pub const FLAGS: &[FlagSpec] = &[
     long: "--recursive",
     value: "",
     values: &[],
-    help: "Format every .rs file under the current directory",
+    help: "The same as `mto .`: every .rs file under the current directory",
   },
   FlagSpec {
     flag: Flag::SkipChildren,

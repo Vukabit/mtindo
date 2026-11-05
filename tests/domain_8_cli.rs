@@ -2387,6 +2387,21 @@ fn test_cli_quiet_verbose_color_and_unstable_features() {
   assert_eq!(env.read_file("main.rs"), "fn a() {}\n\nfn b() {}\n");
 }
 
+/// `-R` alone is `mto .`; with paths named it adds nothing, and warns.
+#[test]
+fn test_cli_recursive_alone_is_the_current_folder_and_warns_beside_paths() {
+  let env = TestEnvironment::new();
+  env.write_file("src/a.rs", "fn a( ) {}\n");
+  env.mto_cmd().arg("-R").assert().success();
+  assert_eq!(env.read_file("src/a.rs"), "fn a() {}\n");
+
+  env.write_file("src/b.rs", "fn b( ) {}\n");
+  let output = env.mto_cmd().args(["-R", "src"]).output().unwrap();
+  assert!(output.status.success());
+  assert!(String::from_utf8_lossy(&output.stderr).contains("-R is ignored when paths are given"));
+  assert_eq!(env.read_file("src/b.rs"), "fn b() {}\n");
+}
+
 /// A forced restore that makes a gone file again is recorded like any other, and undoing it
 /// removes the file again (bug hunt, 2026-11-04).
 #[test]

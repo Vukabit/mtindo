@@ -91,7 +91,8 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 ### Files (`mto <PATH>...`)
 *   `--changed`: Only the files git sees changed: modified, staged or untracked.
 *   `--follow-links`: Also follow symlinked files and directories.
-*   `-R, --recursive`: Format every .rs file under the current directory.
+*   `-R, --recursive`: The same as `mto .`: every .rs file under the current
+    directory.
 *   `--since <REV>`: Only the files changed since REV (its merge base with
     HEAD), committed or not.
 *   `--skip-children`: A file argument is that file alone, not the modules it

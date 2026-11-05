@@ -194,7 +194,7 @@ complete -c mto -n '__mto_at - -' -s d -l dry-run -d 'List the files that would 
 complete -c mto -n '__mto_at - -' -l emit -x -a 'files stdout json' -d 'Write the files (default), print them, or report changes as JSON'
 complete -c mto -n '__mto_at - -' -s l -l files-with-diff -d 'Name the files that change (or would, with --check) instead of showing how'
 complete -c mto -n '__mto_at - -' -l follow-links -d 'Also follow symlinked files and directories'
-complete -c mto -n '__mto_at - -' -s R -l recursive -d 'Format every .rs file under the current directory'
+complete -c mto -n '__mto_at - -' -s R -l recursive -d 'The same as `mto .`: every .rs file under the current directory'
 complete -c mto -n '__mto_at - -' -l skip-children -d 'A file argument is that file alone, not the modules it declares'
 complete -c mto -n '__mto_at - -' -l changed -d 'Only the files git sees changed: modified, staged or untracked'
 complete -c mto -n '__mto_at - -' -l staged -d 'Only the files staged for the next commit; one with unstaged changes is left alone'

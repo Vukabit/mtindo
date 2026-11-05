@@ -73,7 +73,8 @@ directory is walked.
 * `--stdin-filepath <PATH>`: With `-`, where the source belongs, for its
   settings and in messages.
 * `-d, --dry-run`: List the files that would change without writing to disk.
-* `-R, --recursive`: Format every `.rs` file under the current directory.
+* `-R, --recursive`: The same as `mto .`: every `.rs` file under the current
+  directory. With paths given it adds nothing, and warns.
 * `--follow-links`: Also follow symlinked files and directories.
 * `--no-history`: Do not record this run, so it cannot be restored.
 * `--no-report`: Keep no [bug report](safety.md#bug-reports); name each bug

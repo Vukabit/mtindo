@@ -1139,12 +1139,17 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
           .descendant_nodes_where(|kind| kind == K::BlockExpr)
           .any(|b| b.parent().is_none_or(|p| p.kind() != K::ConstArg))
         // A comment but one on a line in a tuple type's elements, laid out with them
-        // (`rewrite_tuple`).
+        // (`rewrite_tuple`), or one between a tuple variant's fields, laid out with them as
+        // a list's are.
         || n.descendants_with_tokens_iter().any(|d| match d {
           SyntaxElement::Token(t) => {
             t.kind().is_trivia()
               && t.kind() != K::Whitespace
               && !(t.parent().kind() == K::TupleType && !t.text().contains('\n'))
+              && !(t.parent().kind() == K::TupleFieldList
+                && node.kind() == K::Variant
+                && t.parent().children_of_kind(K::TupleField).next().is_some()
+                && !t.text().contains('\n'))
           }
           SyntaxElement::Node(_) => false,
         })

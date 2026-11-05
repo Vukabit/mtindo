@@ -2,8 +2,8 @@
 paper: "compatibility"
 title: "Compatibility with the standard formatter"
 status: "measured"
-generated: "2026-11-04T23:05:10.806Z"
-commit: "6968844-dirty.d21c4174"
+generated: "2026-11-05T05:38:48.263Z"
+commit: "e417cb4-dirty.1c94c8a9"
 command: "cargo xtask compare -- --update"
 sources:
   - records/results/compatibility.txt
@@ -23,8 +23,8 @@ metrics:
   compat.tests-with-settings.files: 77.64
   compat.tests-with-settings.files_matched: 434
   compat.tests-with-settings.files_scored: 559
-  compat.tests-with-settings.lines: 92.70
-  compat.tests-with-settings.lines_matched: 20445
+  compat.tests-with-settings.lines: 92.72
+  compat.tests-with-settings.lines_matched: 20449
   compat.tests-with-settings.lines_total: 22055
   compat.tests-with-settings.skipped: 0
   compat.corpus.files: 99.97
@@ -122,7 +122,7 @@ The record as it stands (shares in percent):
 | set | files matching | % | lines matching | % | skipped |
 |---|---:|---:|---:|---:|---:|
 | tests | 455 of 460 | 98.91 | 11192 of 11205 | 99.88 | 0 |
-| tests-with-settings | 434 of 559 | 77.64 | 20445 of 22055 | 92.70 | 0 |
+| tests-with-settings | 434 of 559 | 77.64 | 20449 of 22055 | 92.72 | 0 |
 | corpus | 9358 of 9361 | 99.97 | 2653089 of 2653185 | 100.00 | 6 |
 | corpus-scrambled | 9267 of 9348 | 99.13 | 2774589 of 2776485 | 99.93 | 17 |
 <!-- end generated -->
@@ -137,7 +137,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | tests | with settings | corpus | scrambled | scrambled files |
 |---|---|---:|---:|---:|---:|---:|
-| current |  | 99.88 | 92.70 | 100.00 | 99.93 | 99.13 |
+| current |  | 99.88 | 92.72 | 100.00 | 99.93 | 99.13 |
+| 2026-11-04 | 6968844 | 99.88 | 92.70 | 100.00 | 99.93 | 99.13 |
 | 2026-11-01 | 2fb0060 | 99.88 | 92.39 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | a536de7 | 99.88 | 92.10 | 100.00 | 99.93 | 99.13 |
 | 2026-10-31 | 74797b0 | 99.88 | 92.10 | 100.00 | 99.93 | 99.13 |
@@ -226,7 +227,7 @@ does not check this part, and it may describe a newer run than the record.
 
 <!-- generated: last-run -->
 From the last `cargo xtask compare` run recorded on the machine that generated
-this page (2026-11-04), which need not be the run the record above was made
+this page (2026-11-05), which need not be the run the record above was made
 from. Scored files by the share of their expected lines mto's output keeps:
 
 | set | every line | 99% or more | 90% to 99% | under 90% |

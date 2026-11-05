@@ -552,6 +552,38 @@ fn test_closure_block_where_no_room_is_left() {
   );
 }
 
+/// Comments after a field's or a variant's comma, as the standard formatter writes them:
+/// a line comment one space after it, a block comment before the next one going to its
+/// line with it, and a tuple variant holding a line comment one field per line. Found by
+/// the bug hunt of 2026-11-04.
+#[test]
+fn test_comments_after_a_comma_in_fields_and_variants() {
+  assert_eq!(
+    formatted("enum E{A,// c\nB}\n"),
+    "enum E {\n    A, // c\n    B,\n}\n"
+  );
+  assert_eq!(
+    formatted("fn f() {\n    g(a,// x\n      b);\n}\n"),
+    "fn f() {\n    g(\n        a, // x\n        b,\n    );\n}\n"
+  );
+  assert_eq!(
+    formatted("struct S{a:T,/* c */ b:U}\n"),
+    "struct S {\n    a: T,\n    /* c */ b: U,\n}\n"
+  );
+  assert_eq!(
+    formatted("struct S{a:T,\n/* c */ b:U}\n"),
+    "struct S {\n    a: T,\n    /* c */ b: U,\n}\n"
+  );
+  assert_eq!(
+    formatted("enum E{A,/* c */ B}\n"),
+    "enum E {\n    A,\n    /* c */ B,\n}\n"
+  );
+  assert_eq!(
+    formatted("enum E {\n    B(i32, // c\n    i64) = 3,\n    C(i32, /* c */ i64),\n}\n"),
+    "enum E {\n    B(\n        i32, // c\n        i64,\n    ) = 3,\n    C(i32, /* c */ i64),\n}\n"
+  );
+}
+
 #[test]
 fn test_comments_after_a_trailing_comment_and_before_a_brace() {
   // Comment lines after a statement's trailing comment align under it, before the 2024

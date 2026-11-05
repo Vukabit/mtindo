@@ -755,6 +755,18 @@ pub(super) fn tabbed(text: &str, config: &FormatConfig) -> String {
   out
 }
 
+/// The list and the index of the item a token ends (a field's or variant's comma, an arm's
+/// comma or last `}`), for a comment after it.
+/// Whether `line`, the output's line so far, is indentation and one block comment on it,
+/// a space after: the pre-comment of the field or variant that follows.
+fn after_pre_comment(line: &str) -> bool {
+  let code = line.trim_start_matches([' ', '\t']);
+  code.starts_with("/*")
+    && code.ends_with("*/ ")
+    && code.matches("*/").count() == 1
+    && !code.contains('\n')
+}
+
 /// For a struct's fields, an enum's variants or a match's arms laid out one per line from
 /// column `indent`, the spaces before each item's comment after it on its line, as a list's
 /// are aligned (`write_list`); `None` where there is none.
@@ -1827,8 +1839,6 @@ fn is_generics(kind: SyntaxKind) -> bool {
   )
 }
 
-/// The list and the index of the item a token ends (a field's or variant's comma, an arm's
-/// comma or last `}`), for a comment after it.
 fn item_before(token: &SyntaxToken) -> Option<(SyntaxNode, usize)> {
   let end = token.text_range().end as usize;
   let (list, item) = match token.kind() {
@@ -2093,7 +2103,43 @@ fn line_starts(walked: &[SyntaxNode], roles: &mut Roles, config: &FormatConfig) 
       if !after_block_comment {
         roles.breaks.insert(start);
       }
+      // That comment written after the item before (`a: T, /* c */ b: U`) starts the
+      // line, the item with it.
+      // (Not an arm's: the standard formatter loses the comma there.)
+      let mut comment_start = None;
+      if after_block_comment && child.kind() != SyntaxKind::MatchArm {
+        let mut before = child.prev_sibling_or_token();
+        while let Some(SyntaxElement::Token(t)) = &before
+          && t.kind() == SyntaxKind::Whitespace
+        {
+          before = t.prev_sibling_or_token();
+        }
+        if let Some(SyntaxElement::Token(comment)) = &before {
+          let mut prior = comment.prev_sibling_or_token();
+          while let Some(SyntaxElement::Token(t)) = &prior
+            && t.kind() == SyntaxKind::Whitespace
+            && !t.text().contains('\n')
+          {
+            prior = t.prev_sibling_or_token();
+          }
+          let on_its_line = match &prior {
+            None => true,
+            Some(SyntaxElement::Token(t)) => {
+              matches!(t.kind(), SyntaxKind::Whitespace | SyntaxKind::LBrace)
+            }
+            Some(SyntaxElement::Node(_)) => false,
+          };
+          if !on_its_line {
+            let at = comment.text_range().start as usize;
+            roles.breaks.insert(at);
+            comment_start = Some(at);
+          }
+        }
+      }
       let container = roles.starts.get(&start).copied();
+      if let (Some(at), Some(container)) = (comment_start, container) {
+        roles.starts.entry(at).or_insert(container);
+      }
       // Indented as the item; `breaks` also starts a line wherever it is written.
       let mut mark = |at: usize, breaks: bool| {
         if breaks {
@@ -3015,6 +3061,33 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     if tok.kind == SyntaxKind::Whitespace && next.is_none() {
       break;
     }
+    // A line comment written touching the comma before it (`A,// c`): spaced as one
+    // written after a space would be, aligned with the list's other comments.
+    if tok.kind == SyntaxKind::LineComment
+      && i > 0
+      && tokens[i - 1].kind == SyntaxKind::Comma
+      && !in_verbatim(tok.start)
+      && out.ends_with(',')
+    {
+      let mut count = 1;
+      if let Some((list, index)) = item_before(&tokens[i - 1].token) {
+        let key = list.text_range().start as usize;
+        if !comment_spaces.borrow().contains_key(&key) {
+          let line = &out[out_line_start..];
+          let indent = width_of(&line[..line.len() - line.trim_start().len()], tab);
+          let spaces = align_list_comments(&list, indent, config);
+          comment_spaces.borrow_mut().insert(key, spaces);
+        }
+        if let Some(Some(Some(aligned))) = comment_spaces
+          .borrow()
+          .get(&key)
+          .map(|spaces| spaces.as_ref().and_then(|s| s.get(index).copied()))
+        {
+          count = aligned;
+        }
+      }
+      out.push_str(&" ".repeat(count));
+    }
     // Spaces within a line: as the Rust style spaces the two tokens around them; before a
     // line comment right after an item laid out to its `;` or `}`, though a region left as
     // written covers it.
@@ -3173,7 +3246,10 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       && (out[out_line_start..].chars().all(|c| c == ' ' || c == '\t')
         || follows_skipped
         || node.kind() == SyntaxKind::IfExpr
-          && node.parent().is_some_and(|p| p.kind() == SyntaxKind::IfExpr))
+          && node.parent().is_some_and(|p| p.kind() == SyntaxKind::IfExpr)
+        // A field or variant after its block comment on the line (`/* c */ b: U`).
+        || matches!(node.kind(), SyntaxKind::RecordField | SyntaxKind::Variant)
+          && after_pre_comment(&out[out_line_start..]))
       && let Some((text, to)) = {
         let line = &out[out_line_start..];
         let indent = if follows_skipped {

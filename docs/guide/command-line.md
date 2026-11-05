@@ -58,7 +58,10 @@ directory is walked.
 * `--print-config default|minimal|current [PATH]`: Print the formatting
   settings as the standard formatter does (to PATH for `default` and
   `minimal`).
-* `-q, --quiet`, `-v, --verbose`: Print less, or name each file.
+* `-q, --quiet`, `-v, --verbose`: Print less, or name each file. On a
+  terminal, a run over many files that takes more than a second shows how
+  far it has got on one line, redrawn in place and gone when it ends;
+  `--quiet` and `--message-format json` leave it out.
 * `--color always|never|auto`: Color the output.
 * `--strict`: Make every configuration warning (an unknown key, a value mto
   does not honor) an error with exit code 2, so a typo cannot pass in CI.

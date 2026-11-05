@@ -234,6 +234,7 @@ fn try_all(
   let tallies: Mutex<BTreeMap<String, Tally>> = Mutex::new(BTreeMap::new());
   let failures: Mutex<Vec<(String, Outcome)>> = Mutex::new(Vec::new());
   let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+  let progress = xtask_core::progress::Progress::new("trying", files.len());
   std::thread::scope(|scope| {
     for _ in 0..workers {
       scope.spawn(|| {
@@ -255,15 +256,17 @@ fn try_all(
           let Some((name, path)) = files.get(at) else {
             break;
           };
-          let Ok(text) = std::fs::read_to_string(path) else {
-            continue;
-          };
-          let dir = path.parent().unwrap_or(Path::new("."));
-          let resolved = resolver.config_for(dir).ok();
-          let Some(file_settings) = resolved.as_deref().and_then(mtindo::Settings::of) else {
+          let read = std::fs::read_to_string(path).ok().and_then(|text| {
+            let dir = path.parent().unwrap_or(Path::new("."));
+            let resolved = resolver.config_for(dir).ok()?;
+            Some((text, mtindo::Settings::of(&resolved)?))
+          });
+          let Some((text, file_settings)) = read else {
+            progress.tick();
             continue;
           };
           let done = settle(&text, &file_settings, runs);
+          progress.tick();
           if matches!(
             done.outcome,
             Outcome::CheckFailed(_) | Outcome::Panicked(_) | Outcome::Unsettled { .. }
@@ -283,6 +286,7 @@ fn try_all(
       });
     }
   });
+  progress.finish();
   let mut failures = failures.into_inner().unwrap();
   failures.sort_by(|a, b| a.0.cmp(&b.0));
   (tallies.into_inner().unwrap(), failures)

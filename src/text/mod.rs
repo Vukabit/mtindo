@@ -5,6 +5,7 @@ pub mod color;
 pub mod console;
 pub mod json;
 pub mod line_index;
+pub mod progress;
 pub mod source;
 pub mod terminal;
 pub mod unicode;

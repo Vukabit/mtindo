@@ -111,6 +111,13 @@ pub fn name_shown(name: &str) -> Cow<'_, str> {
   Cow::Owned(out)
 }
 
+/// Whether stderr can have a line drawn over in place: not a `TERM=dumb` terminal, and on
+/// Windows only once its console reads escape codes, which mto asks for color.
+pub fn redraws() -> bool {
+  let dumb = std::env::var_os("TERM").is_some_and(|term| term == "dumb");
+  !dumb && (!cfg!(windows) || color_enabled(true))
+}
+
 /// `text` with every character that could control a terminal shown instead, but for the
 /// color codes in `COLORS` when `color` is on. Lines and tabs are kept; a carriage return
 /// is kept only before a line end, since alone it lets a line write over the one shown.
@@ -144,6 +151,15 @@ pub fn shown(text: &str, color: bool) -> Cow<'_, str> {
     rest = &rest[len..];
   }
   Cow::Owned(out)
+}
+
+/// Draws `line`, mto's own text, as stderr's status line over the one there (`""` takes
+/// it away): the one write that goes back over what was printed, for progress.
+#[allow(clippy::disallowed_methods, reason = "the one place that writes")]
+pub fn status(line: &str) {
+  let mut err = std::io::stderr().lock();
+  let _ = write!(err, "\r{}\x1b[K", line);
+  let _ = err.flush();
 }
 
 /// Writes `args` to `stream`, as `print!` does: shown safe on a terminal, and on stderr

@@ -2488,12 +2488,26 @@ fn walking<T>(
     let wanted = before_results(&walked);
     let mut outcomes = Vec::new();
     let mut waiting = BTreeMap::new();
+    let total = lock(&queue).jobs.len();
+    let label = if opts.check || opts.dry_run {
+      "checking"
+    } else {
+      "formatting"
+    };
+    let mut progress = (wanted && !opts.quiet && !json_messages())
+      .then(|| text::progress::Progress::new(label, total))
+      .flatten();
     for (idx, report) in receiver {
       if !wanted {
         continue;
       }
       waiting.insert(idx, report);
       while let Some(report) = waiting.remove(&outcomes.len()) {
+        if let Some(progress) = progress.as_mut()
+          && !(report.stdout.is_empty() && report.stderr.is_empty())
+        {
+          progress.clear();
+        }
         report.print();
         outcomes.push(Done {
           outcome: report.outcome,
@@ -2502,6 +2516,12 @@ fn walking<T>(
           holds: report.holds,
         });
       }
+      if let Some(progress) = progress.as_mut() {
+        progress.update(outcomes.len());
+      }
+    }
+    if let Some(progress) = progress.as_mut() {
+      progress.clear();
     }
     let jobs = std::mem::take(&mut lock(&queue).jobs);
     (jobs, walked, outcomes)

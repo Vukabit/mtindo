@@ -104,6 +104,7 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "blank_lines_between_blocks = 0",
     "",
   ),
+  ("layout + cfg_groups=gather", "cfg_groups = \"gather\"", ""),
   ("layout + flow=top_down", "flow = \"top_down\"", ""),
   ("layout + group_impls=false", "group_impls = false", ""),
   (

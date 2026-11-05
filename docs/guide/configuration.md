@@ -65,6 +65,7 @@ generated_markers = ["@generated"]
 layout_generated_files = false
 blank_lines_between_blocks = 1
 directive_reasons = "optional"
+cfg_groups = "off"
 flow = "off"
 group_impls = true
 impl_method_order = "written"

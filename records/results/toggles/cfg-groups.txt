@@ -1,0 +1,11 @@
+# `cargo xtask corpus try` on the pinned corpus (2 runs a file), for `cfg-groups`.
+# Columns: files, changed, moves, left alone, check failed, panicked, unsettled.
+try  cfg_groups=together
+settings  layout=true,cfg_groups=together
+total  10842     8358 102387        204            0         0         0
+try  cfg_groups=gather
+settings  layout=true,cfg_groups=gather
+total  10842     8361 102820        204            0         0         0
+try  all together
+settings  layout=true,cfg_groups=together,cfg_groups=gather
+total  10842     8361 102820        204            0         0         0

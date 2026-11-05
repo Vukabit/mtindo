@@ -1,5 +1,16 @@
 //! Layout settings and the item categories they refer to: plain data, no parsing or I/O.
 
+/// Items under the same `#[cfg(...)]` that move as one (`cfg_groups`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CfgGroups {
+  /// Each item moves alone.
+  Off,
+  /// Items written one after another under the same predicate.
+  Together,
+  /// Every item under a predicate joins the first one under it.
+  Gather,
+}
+
 /// Callers and the items they use, within one rank (`flow`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
@@ -178,6 +189,8 @@ pub struct LayoutConfig {
   pub keep_helpers_near: bool,
   /// `flow`: within one rank, an item above (or below) the items it uses.
   pub flow: Flow,
+  /// `cfg_groups`: items under the same `#[cfg(...)]` that move as one.
+  pub cfg_groups: CfgGroups,
   /// `inherent_method_order`: the order of the functions in an impl with no trait.
   pub inherent_method_order: MethodOrder,
   /// `order_keys`: what items are ordered by, in turn; none keeps the written order.
@@ -260,6 +273,7 @@ impl Default for LayoutConfig {
       sections: Sections::Off,
       keep_helpers_near: false,
       flow: Flow::Off,
+      cfg_groups: CfgGroups::Off,
       inherent_method_order: MethodOrder::Written,
       order_keys: vec![OrderKey::Kind, OrderKey::Visibility, OrderKey::Name],
       directive_reasons_required: false,

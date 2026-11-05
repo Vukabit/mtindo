@@ -40,7 +40,9 @@ pub use classify::import_group_of_text;
 pub use inspect::{Container, Inspection, MoveView, UnitView, inspect, line_of};
 pub use order::Rule;
 
-use crate::options::layout::{ImportGroup, ItemKind, LayoutConfig, Sections, Visibility};
+use crate::options::layout::{
+  CfgGroups, ImportGroup, ItemKind, LayoutConfig, Sections, Visibility,
+};
 use crate::syntax::ast::{Attr, Item};
 use crate::syntax::lexer::tokenize;
 use crate::syntax::marker::{self, Marker};
@@ -174,6 +176,10 @@ pub struct Unit {
   pub held: bool,
   /// Under `// mto: first` or `// mto: last`: where in its section it goes.
   pub end: Option<End>,
+  /// Its `#[cfg(...)]` predicates' text, spacing aside, when it has any.
+  pub cfg_predicate: Option<String>,
+  /// Items under one `#[cfg(...)]` joined into one unit (`cfg_groups`).
+  pub cfg_group: bool,
 }
 
 /// The edition `config` names, read first by [`parse_any_edition`].
@@ -318,6 +324,16 @@ pub(super) fn first_variant(units: &[Unit], at: usize) -> usize {
     .map(|u| u.index)
     .min()
     .unwrap_or(unit.index)
+}
+
+/// Whether `unit` may join others under its `#[cfg(...)]` (`cfg_groups`): as for a
+/// paragraph, not one already, and not held or marked to an end of its section.
+pub(super) fn in_cfg_group(unit: &Unit) -> bool {
+  unit.cfg_predicate.is_some()
+    && in_paragraph(unit)
+    && !unit.paragraph
+    && !unit.held
+    && unit.end.is_none()
 }
 
 /// `free`, in its order, with the units marked first ahead of the rest and those marked
@@ -1108,6 +1124,24 @@ fn split_container(
       // unless every variant is a `mod name;` declaration.
       previous.module_declaration &= unit.module_declaration;
       previous.span.1 = end;
+      last_item_end = Some(end);
+      continue;
+    }
+    // Under the same predicate as the item before it, with no blank line between, it
+    // joins it, gap and all, as in a paragraph: a sorted file never makes two such
+    // neighbours, so a second run finds the same groups.
+    if config.cfg_groups == CfgGroups::Together
+      && let Some(previous) = units.last_mut()
+      && last_item_end == Some(previous.span.1)
+      && in_cfg_group(previous)
+      && in_cfg_group(&unit)
+      && previous.cfg_predicate == unit.cfg_predicate
+      && !blank_line_in(&text[previous.span.1..start])
+    {
+      previous.text.push_str(&text[previous.span.1..unit_start]);
+      previous.text.push_str(&unit.text);
+      previous.span.1 = end;
+      previous.cfg_group = true;
       last_item_end = Some(end);
       continue;
     }

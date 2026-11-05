@@ -70,6 +70,35 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "cfg_groups",
+    file: File::Mto,
+    kind: Kind::Choice(&[
+      choice("off", "Each item moves on its own."),
+      choice(
+        "together",
+        "Items under the same `#[cfg(...)]` written with no blank line between them move \
+         as one, kept as written.",
+      ),
+      choice(
+        "gather",
+        "Every item under a `#[cfg(...)]` follows the first of them in the order, \
+         within its section.",
+      ),
+    ]),
+    default: "\"off\"",
+    default_2024: None,
+    summary: "Items under the same #[cfg(...)] moving as one",
+    doc: "Keeps code for one platform or feature in one place. Predicates are the same \
+              when their text is, spacing aside. A group written together is ordered as \
+              its first item is; a gathered one goes where its first item in the order \
+              does, never past a held item, a section's start or a macro definition one \
+              of them uses. Imports, `mod name;` declarations, `#[cfg(test)]` modules \
+              and macro definitions are never grouped.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "flow",
     file: File::Mto,
     kind: Kind::Choice(&[

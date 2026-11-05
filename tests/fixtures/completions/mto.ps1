@@ -275,6 +275,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
         'wrap_comments' = @('true', 'false')
         'blank_lines_between_blocks' = @()
         'directive_reasons' = @('optional', 'required')
+        'cfg_groups' = @('off', 'together', 'gather')
         'flow' = @('off', 'top_down', 'bottom_up')
         'generated_markers' = @()
         'group_impls' = @('true', 'false')

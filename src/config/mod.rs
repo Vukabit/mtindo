@@ -40,8 +40,8 @@ pub use value::Value;
 
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
 use crate::options::layout::{
-  Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort,
-  Visibility,
+  CfgGroups, Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Sections,
+  TraitImplSort, Visibility,
 };
 use crate::options::{self, Channels, File, Setting, Stability};
 use crate::syntax::Edition;
@@ -213,6 +213,11 @@ impl Config {
       Some("headings") => Sections::Headings,
       Some("markers") => Sections::Markers,
       _ => Sections::Off,
+    };
+    config.cfg_groups = match self.get("cfg_groups").and_then(Value::as_text) {
+      Some("together") => CfgGroups::Together,
+      Some("gather") => CfgGroups::Gather,
+      _ => CfgGroups::Off,
     };
     config.flow = match self.get("flow").and_then(Value::as_text) {
       Some("top_down") => Flow::TopDown,

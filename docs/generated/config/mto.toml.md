@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 26
+  total: 27
 in_mto:
-  supported: 25
+  supported: 26
   partial: 1
   missing: 0
   not_planned: 0
@@ -54,6 +54,25 @@ exceptions do not pile up unexplained; `mto pins` lists them all.
     *   `optional`: A directive may give its reason after ` -- `, or not.
     *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
         ` -- why` gets a warning, and with --strict fails its file.
+
+### `cfg_groups`
+
+Keeps code for one platform or feature in one place. Predicates are the same
+when their text is, spacing aside. A group written together is ordered as its
+first item is; a gathered one goes where its first item in the order does, never
+past a held item, a section's start or a macro definition one of them uses.
+Imports, `mod name;` declarations, `#[cfg(test)]` modules and macro definitions
+are never grouped.
+
+*   Type: one of the values below, as a string.
+*   Default: `"off"`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `off`: Each item moves on its own.
+    *   `together`: Items under the same `#[cfg(...)]` written with no blank
+        line between them move as one, kept as written.
+    *   `gather`: Every item under a `#[cfg(...)]` follows the first of them in
+        the order, within its section.
 
 ### `flow`
 

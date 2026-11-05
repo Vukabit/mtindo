@@ -294,6 +294,12 @@ fn notes(units: &[Unit], names: &[HashSet<&str>], at: usize, config: &LayoutConf
   if unit.held {
     notes.push("held by `// mto: hold`: keeps its neighbours, nothing moves across it".to_string());
   }
+  if unit.cfg_group {
+    notes.push(format!(
+      "a cfg group: items under #[{}] moving as one (cfg_groups)",
+      unit.cfg_predicate.as_deref().unwrap_or_default()
+    ));
+  }
   if unit.paragraph {
     notes.push("a paragraph: items written with no blank line between them".to_string());
   } else if unit.cfg && unit.text.matches("#[cfg").count() > 1 {

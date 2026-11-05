@@ -121,6 +121,18 @@ all off by default, keep that grouping:
   the item it helps. Uses are found by name, without type checking, so
   anything unclear sorts as usual: a name defined twice, an item used by two
   others, or one whose user is in another section or keeps its place.
+* **`cfg_groups`:** items under the same `#[cfg(...)]` move as one, so the
+  code for one platform or feature stays in one place:
+
+  * `"together"`: items under the same predicate written with no blank line
+    between them, kept as written and ordered as the first of them is;
+  * `"gather"`: every item under a predicate follows the first of them in the
+    order, within its section, but never above a macro definition one of
+    them uses.
+
+  Predicates are the same when their text is, spacing aside. Imports,
+  `mod name;` declarations, `#[cfg(test)]` modules and macro definitions are
+  never grouped. Off by default.
 
 ## Choosing what decides the order
 

@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 128
-  mto: 26
+  total: 129
+  mto: 27
   formatting: 90
   user: 12
 in_mto:
-  supported: 71
+  supported: 72
   partial: 29
   missing: 11
   not_planned: 5
@@ -171,6 +171,13 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Brace style for items.</td>
 <td>partial</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#cfg_groups">
+<code>cfg_groups</code></a></td>
+<td>mto.toml</td>
+<td>Items under the same #[cfg(...)] moving as one</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#chain_width">

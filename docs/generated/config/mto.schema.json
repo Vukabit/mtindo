@@ -23,6 +23,12 @@
       "enum": ["optional", "required"],
       "default": "optional"
     },
+    "cfg_groups": {
+      "description": "Keeps code for one platform or feature in one place. Predicates are the same when their text is, spacing aside. A group written together is ordered as its first item is; a gathered one goes where its first item in the order does, never past a held item, a section's start or a macro definition one of them uses. Imports, `mod name;` declarations, `#[cfg(test)]` modules and macro definitions are never grouped.\n\nIn mto: supported.",
+      "type": "string",
+      "enum": ["off", "together", "gather"],
+      "default": "off"
+    },
     "flow": {
       "description": "Within one kind (functions among functions, types among types; among all items but imports, modules and macros when `kind` is not in `order_keys`), puts an item above or below the items it uses, keeping the sort keys' order wherever no use decides. Uses are found by name, without type checking. Items that use each other in a circle keep the sort keys' order among themselves; a type moves with its impls, and `#[cfg]` variants together.\n\nIn mto: supported.",
       "type": "string",

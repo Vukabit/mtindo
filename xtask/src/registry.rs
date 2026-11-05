@@ -97,6 +97,14 @@ pub const ENTRIES: &[Entry] = &[
     shown_in: "the pages' history tables",
   },
   Entry {
+    path: "records/results/toggles/cfg-groups.txt",
+    kind: Kind::Result,
+    holds: "cfg_groups, together and gather, tried on the whole corpus",
+    written_by: "`cargo xtask corpus try --each ... --record cfg-groups`",
+    read_by: "people",
+    shown_in: "—",
+  },
+  Entry {
     path: "records/results/toggles/first-slice.txt",
     kind: Kind::Result,
     holds: "the first layout settings tried on the whole corpus, alone and together",

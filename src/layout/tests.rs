@@ -1,6 +1,6 @@
 use super::*;
 use crate::options::layout::{
-  Flow, ItemKind, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort,
+  CfgGroups, Flow, ItemKind, MethodOrder, NameSort, OrderKey, Sections, TraitImplSort,
 };
 
 fn arranged(source: &str) -> String {
@@ -258,6 +258,46 @@ fn test_an_impl_of_a_shared_name_settles() {
     );
     assert_eq!(arranged(&once), once);
   }
+}
+
+/// `cfg_groups`: items under the same `#[cfg(...)]` move as one: written with no blank
+/// line between them, or, with "gather", anywhere in their section, following the first
+/// to sort; never above a macro definition they use.
+#[test]
+fn test_cfg_groups_move_items_under_one_predicate_as_one() {
+  let together = LayoutConfig {
+    cfg_groups: CfgGroups::Together,
+    ..LayoutConfig::default()
+  };
+  let tight = "fn z() {}\n\n#[cfg(unix)]\nfn y() {}\n#[cfg( unix )]\nstruct U;\n\nfn b() {}\n\n#[cfg(unix)]\nfn a() {}\n";
+  let once = arranged_with(tight, &together);
+  assert_eq!(
+    once,
+    "#[cfg(unix)]\nfn a() {}\n\nfn b() {}\n\n#[cfg(unix)]\nfn y() {}\n#[cfg( unix )]\nstruct U;\n\nfn z() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &together), once);
+  let gather = LayoutConfig {
+    cfg_groups: CfgGroups::Gather,
+    ..LayoutConfig::default()
+  };
+  let source = "fn z() {}\n\n#[cfg(unix)]\nfn y() {}\n\n#[cfg( unix )]\nstruct U;\n\nfn b() {}\n\n#[cfg(windows)]\nfn w() {}\n\n#[cfg(unix)]\nfn a() {}\n";
+  let once = arranged_with(source, &gather);
+  assert_eq!(
+    once,
+    "#[cfg( unix )]\nstruct U;\n\n#[cfg(unix)]\nfn a() {}\n\n#[cfg(unix)]\nfn y() {}\n\nfn b() {}\n\n#[cfg(windows)]\nfn w() {}\n\nfn z() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &gather), once);
+  assert!(crate::verify::verify_layout(source, &once, crate::syntax::Edition::E2021).is_empty());
+  // Never above the macro a member uses: `a` calls `m!`, defined after `y`.
+  let macros = "#[cfg(unix)]\nfn y() {}\n\nmacro_rules! m {\n    () => {};\n}\n\nfn b() {}\n\n#[cfg(unix)]\nfn a() {\n    m!();\n}\n";
+  let laid = arranged_with(macros, &gather);
+  assert!(crate::verify::verify_layout(macros, &laid, crate::syntax::Edition::E2021).is_empty());
+  assert!(
+    laid.find("macro_rules").unwrap() < laid.find("fn a").unwrap(),
+    "{}",
+    laid
+  );
+  assert_eq!(arranged_with(&laid, &gather), laid);
 }
 
 #[test]

@@ -33,7 +33,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use super::Unit;
 use crate::options::layout::{
-  Flow, ItemKind, LayoutConfig, NameSort, OrderKey, TraitImplSort, Visibility,
+  CfgGroups, Flow, ItemKind, LayoutConfig, NameSort, OrderKey, TraitImplSort, Visibility,
 };
 use crate::order::version_sort;
 
@@ -85,6 +85,8 @@ pub enum Rule {
   Hidden,
   /// At the top or the bottom of its section (`// mto: first`, `// mto: last`).
   End,
+  /// After the first item under the same `#[cfg(...)]` (`cfg_groups`).
+  CfgGroup,
 }
 
 impl Rule {
@@ -113,6 +115,7 @@ impl Rule {
       Rule::Deprecated => "deprecated",
       Rule::Hidden => "hidden",
       Rule::End => "end",
+      Rule::CfgGroup => "cfg_group",
     }
   }
 
@@ -143,6 +146,7 @@ impl Rule {
       Rule::Deprecated => "#[deprecated] items last (order_keys)",
       Rule::Hidden => "#[doc(hidden)] items last (order_keys)",
       Rule::End => "at an end of its section (// mto: first, // mto: last)",
+      Rule::CfgGroup => "with the items under the same #[cfg(...)] (cfg_groups)",
     }
   }
 }
@@ -382,6 +386,15 @@ pub(super) fn reason(arranged: &[Unit], at: usize, config: &LayoutConfig) -> Rul
   }
   if unit.end.is_some() {
     return Rule::End;
+  }
+  // Right after an item under the same predicate it was gathered to.
+  if config.cfg_groups == CfgGroups::Gather
+    && super::in_cfg_group(unit)
+    && at > 0
+    && super::in_cfg_group(&arranged[at - 1])
+    && arranged[at - 1].cfg_predicate == unit.cfg_predicate
+  {
+    return Rule::CfgGroup;
   }
   // Next to its user: the first unit after it (before it, for one kept below) that is
   // not another helper of that user.
@@ -686,6 +699,30 @@ fn flowed(free: Vec<Unit>, config: &LayoutConfig, families: &[Family]) -> Vec<Un
   order.into_iter().filter_map(|at| free[at].take()).collect()
 }
 
+/// `free`, in its order, with each unit under a `#[cfg(...)]` (`cfg_groups = "gather"`)
+/// moved up to follow the first under the same predicate. It depends on the order alone,
+/// not on where the units were written, so a second run gathers the same.
+fn gathered(free: Vec<Unit>) -> Vec<Unit> {
+  let mut groups: Vec<Vec<Unit>> = Vec::new();
+  let mut at: HashMap<String, usize> = HashMap::new();
+  for unit in free {
+    let key = unit
+      .cfg_predicate
+      .clone()
+      .filter(|_| super::in_cfg_group(&unit));
+    match key.as_ref().and_then(|k| at.get(k)) {
+      Some(&group) => groups[group].push(unit),
+      None => {
+        if let Some(key) = key {
+          at.insert(key, groups.len());
+        }
+        groups.push(vec![unit]);
+      }
+    }
+  }
+  groups.into_iter().flatten().collect()
+}
+
 /// Pinned units at their own positions, the others sorted into the remaining ones.
 /// Two impl blocks: by the type they are for, then the type's own impls (as written), then
 /// trait impls: those in `trait_impl_order` first, in its order, then by trait name or as
@@ -970,6 +1007,9 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
   }
   if config.flow != Flow::Off {
     free = flowed(free, config, &families);
+  }
+  if config.cfg_groups == CfgGroups::Gather {
+    free = gathered(free);
   }
   free = super::to_ends(free);
   if free.iter().any(|u| u.caller.is_some()) {

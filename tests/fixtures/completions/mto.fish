@@ -100,7 +100,7 @@ function __mto_settings
             trailing_comma trailing_semicolon type_punctuation_density \
             unstable_features use_field_init_shorthand use_small_heuristics \
             use_try_shorthand version where_single_line wrap_comments \
-            blank_lines_between_blocks directive_reasons flow \
+            blank_lines_between_blocks directive_reasons cfg_groups flow \
             generated_markers group_impls ignore_dirs impl_method_order \
             import_grouping import_sort inherent_method_order \
             keep_helpers_near keep_paragraphs layout format \
@@ -161,6 +161,8 @@ function __mto_setting_values
             printf '%s\n' One Two
         case directive_reasons
             printf '%s\n' optional required
+        case cfg_groups
+            printf '%s\n' off together gather
         case flow
             printf '%s\n' off top_down bottom_up
         case impl_method_order

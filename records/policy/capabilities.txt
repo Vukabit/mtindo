@@ -208,6 +208,7 @@ mto     command:report                                   supported    # tests/do
 mto     command:restore                                  supported    # tests/domain_8_cli.rs
 mto     command:verify                                   supported    # tests/domain_8_cli.rs
 mto     config:blank_lines_between_blocks                supported    # tests/domain_11_matrix.rs
+mto     config:cfg_groups                                supported    # src/layout/tests.rs
 mto     config:directive_reasons                         supported    # tests/domain_8_cli.rs
 mto     config:flow                                      supported    # src/layout/tests.rs
 mto     config:format                                    partial      # every construct, matching the standard formatter on the corpus (cargo xtask compare); some of its settings not yet (mto config options); what it gives up on is left as written (src/format/file/tests.rs, tests/domain_8_cli.rs)

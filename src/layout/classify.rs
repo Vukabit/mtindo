@@ -64,6 +64,8 @@ pub(super) fn pinned_region(text: &str, start: usize, end: usize, index: usize) 
     below: false,
     held: false,
     end: None,
+    cfg_predicate: None,
+    cfg_group: false,
   }
 }
 
@@ -156,6 +158,16 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
     below: false,
     held: false,
     end: None,
+    cfg_predicate: Some(
+      attrs
+        .iter()
+        .filter(|a| a.path() == "cfg")
+        .map(attr_body)
+        .collect::<Vec<_>>()
+        .join(", "),
+    )
+    .filter(|predicates| !predicates.is_empty()),
+    cfg_group: false,
   }
 }
 

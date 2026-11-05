@@ -147,6 +147,33 @@ pub(super) fn format_item(text: &str, indent: usize, config: &FormatConfig) -> O
   Some(lines.join("\n"))
 }
 
+/// Code formatted as a file of its own, as the standard formatter's `format_snippet`
+/// does for a macro definition: `None` when it does not parse, when a macro call in it
+/// could not be laid out, or when a line keeps trailing whitespace.
+pub(super) fn format_snippet(
+  text: &str,
+  edition: Edition,
+  config: &FormatConfig,
+) -> Option<String> {
+  let parsed = parse(text, edition);
+  if !parsed.errors().is_empty() || untyped_parameter(&parsed.syntax_node(), edition) {
+    return None;
+  }
+  let before = MACRO_FAILURE.with(|f| f.replace(false));
+  let out = super::file::format_text(text, edition, config, false);
+  let failed = MACRO_FAILURE.with(|f| f.replace(before));
+  if failed || out.is_empty() && !text.is_empty() {
+    return None;
+  }
+  let continued = in_string(&out, edition);
+  let lines: Vec<&str> = out.split('\n').collect();
+  let trailing = lines.iter().enumerate().any(|(i, line)| {
+    let ends_in_string = continued.get(i + 1).copied().unwrap_or(false);
+    !ends_in_string && line.ends_with([' ', '\t'])
+  });
+  (!trailing).then_some(out)
+}
+
 /// A `lazy_static!` call's braces as the standard formatter's `format_lazy_static` writes
 /// them: each `static ref NAME: TYPE = VALUE;`, with its visibility, on a line of its own
 /// one level in from `indent`, its value placed as an assignment's is. `None` for a call
@@ -407,29 +434,6 @@ fn fits(code: &str, max_width: usize, indent: usize, width: usize) -> bool {
     return false;
   }
   str_width(code.rsplit('\n').next().unwrap_or("")) <= indent + width
-}
-
-/// Code formatted as a file of its own, as the standard formatter's `format_snippet`
-/// does for a macro definition: `None` when it does not parse, when a macro call in it
-/// could not be laid out, or when a line keeps trailing whitespace.
-fn format_snippet(text: &str, edition: Edition, config: &FormatConfig) -> Option<String> {
-  let parsed = parse(text, edition);
-  if !parsed.errors().is_empty() || untyped_parameter(&parsed.syntax_node(), edition) {
-    return None;
-  }
-  let before = MACRO_FAILURE.with(|f| f.replace(false));
-  let out = super::file::format_text(text, edition, config, false);
-  let failed = MACRO_FAILURE.with(|f| f.replace(before));
-  if failed || out.is_empty() && !text.is_empty() {
-    return None;
-  }
-  let continued = in_string(&out, edition);
-  let lines: Vec<&str> = out.split('\n').collect();
-  let trailing = lines.iter().enumerate().any(|(i, line)| {
-    let ends_in_string = continued.get(i + 1).copied().unwrap_or(false);
-    !ends_in_string && line.ends_with([' ', '\t'])
-  });
-  (!trailing).then_some(out)
 }
 
 /// For each line of `text`, whether it starts inside a string literal.

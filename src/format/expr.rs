@@ -4415,14 +4415,8 @@ fn rewrite_macro_call(node: &SyntaxNode, shape: Shape) -> Option<String> {
   if commas + 1 != items.len() && commas != items.len() {
     return None;
   }
-  // An attribute inside an argument: left as written, as a statement holding one is. One on
-  // an argument goes on a line of its own before it.
-  if list
-    .descendant_nodes_where(|kind| kind == SyntaxKind::Attr)
-    .any(|d| d.parent().as_ref() != Some(&list))
-  {
-    return None;
-  }
+  // An attribute on an argument goes on a line of its own before it; one inside an argument
+  // (on a statement in its block, an arm, a field) is laid out where it stands.
   let shape = Shape {
     limits: Limits {
       // `vec![...]` follows the array rule, unless it is inside another macro.

@@ -499,6 +499,7 @@ fn block_body_once(block: &SyntaxNode, shape: Shape) -> Option<String> {
           _ => None,
         }
       })
+      .or_else(|| nested_item(node, inner, &config))
     }
     _ => None,
   })?;
@@ -1013,6 +1014,41 @@ fn macro_as_written(node: &SyntaxNode) -> Option<String> {
 fn match_body(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let text = rewrite_match(node, shape)?;
   Some(text[text.find('{')?..].to_string())
+}
+
+/// An item with something in its body standing in a block laid out here (an `impl` with its
+/// methods, a `mod`, a struct with fields), as the standard formatter visits it: laid out
+/// by the whole-file pass inside as many functions as its indent takes, which then come
+/// off. `None` at an indent no number of levels gives.
+fn nested_item(
+  node: &SyntaxNode,
+  shape: Shape,
+  config: &crate::options::format::FormatConfig,
+) -> Option<String> {
+  let tab = config.tab_spaces;
+  if tab == 0 || !shape.indent.is_multiple_of(tab) {
+    return None;
+  }
+  let depth = shape.indent / tab;
+  // In spaces: the pass this text joins writes the tabs.
+  let config = crate::options::format::FormatConfig {
+    hard_tabs: false,
+    ..config.clone()
+  };
+  let opening = "fn __mto() {\n".repeat(depth);
+  let closing = "}\n".repeat(depth);
+  let source = format!("{}{}\n{}", opening, node.text().to_string().trim(), closing);
+  let out = super::macros::format_snippet(&source, super::file::edition(), &config)?;
+  let lines: Vec<&str> = out.trim_end().split('\n').collect();
+  let item = lines.get(depth..lines.len().checked_sub(depth)?)?;
+  let wrapper = lines[..depth].iter().all(|l| l.trim() == "fn __mto() {")
+    && lines[lines.len() - depth..].iter().all(|l| l.trim() == "}");
+  if !wrapper || item.is_empty() {
+    return None;
+  }
+  let text = item.join("\n");
+  let text = text.strip_prefix(&" ".repeat(shape.indent))?.to_string();
+  super::stmt::same_tokens(node, &text).then_some(text)
 }
 
 /// A statement inside a block laid out from `shape`'s indentation, as the whole-file pass

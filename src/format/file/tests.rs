@@ -1137,6 +1137,18 @@ fn test_item_alone_as_macro_argument() {
 }
 
 #[test]
+fn test_items_and_attributes_in_a_block_in_macro_arguments() {
+  // An item with members and an attribute inside a closure's or a block's body in a
+  // macro's arguments are laid out there, as in a call's.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    assert!(even .foo(|_| { impl Foo { fn d(&self) { x(); } } }));\n    assert!(|_| { #[inline] fn d() {} });\n    assert!({ #[allow(x)] let a = 1; a }, b);\n    assert!(match x { #[cfg(a)] _ => 1 });\n    m!(|| { mod m { struct S { a: u8 } } });\n}\n"
+    ),
+    "fn f() {\n    assert!(even.foo(|_| {\n        impl Foo {\n            fn d(&self) {\n                x();\n            }\n        }\n    }));\n    assert!(|_| {\n        #[inline]\n        fn d() {}\n    });\n    assert!(\n        {\n            #[allow(x)]\n            let a = 1;\n            a\n        },\n        b\n    );\n    assert!(match x {\n        #[cfg(a)]\n        _ => 1,\n    });\n    m!(|| {\n        mod m {\n            struct S {\n                a: u8,\n            }\n        }\n    });\n}\n"
+  );
+}
+
+#[test]
 fn test_leading_pipes_dropped() {
   // A `|` before a pattern's first alternative goes.
   assert_eq!(

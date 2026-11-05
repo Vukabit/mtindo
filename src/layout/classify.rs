@@ -48,6 +48,8 @@ pub(super) fn pinned_region(text: &str, start: usize, end: usize, index: usize) 
     macro_call: false,
     index,
     cfg: false,
+    deprecated: false,
+    hidden: false,
     test_module: false,
     macro_use: false,
     // A region left as written may hold definitions too.
@@ -130,6 +132,8 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
     macro_call: item.kind() == ast::ItemKind::MacroCall,
     index,
     cfg: attrs.iter().any(|a| a.path() == "cfg"),
+    deprecated: attrs.iter().any(|a| a.path() == "deprecated"),
+    hidden: attrs.iter().any(|a| attr_body(a) == "doc(hidden)"),
     test_module: is_module && attrs.iter().any(|a| attr_body(a) == "cfg(test)"),
     macro_use: item.is_macro_use() || declared_macro_use(item, config),
     defines_macros: item.defines_macros() || declared_macro_use(item, config),

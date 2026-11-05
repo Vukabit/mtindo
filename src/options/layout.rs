@@ -91,6 +91,12 @@ pub enum OrderKey {
   Visibility,
   /// Names, by `name_sort`, when `sort_alphabetically` is on.
   Name,
+  /// `fn main` before the other items.
+  Entry,
+  /// `#[deprecated]` items after the others.
+  Deprecated,
+  /// `#[doc(hidden)]` items after the others.
+  Hidden,
 }
 
 impl OrderKey {
@@ -99,6 +105,9 @@ impl OrderKey {
       "kind" => Some(OrderKey::Kind),
       "visibility" => Some(OrderKey::Visibility),
       "name" => Some(OrderKey::Name),
+      "entry" => Some(OrderKey::Entry),
+      "deprecated" => Some(OrderKey::Deprecated),
+      "hidden" => Some(OrderKey::Hidden),
       _ => None,
     }
   }

@@ -77,6 +77,12 @@ pub enum Rule {
   Flow,
   /// An inherent impl's functions in the order of `inherent_method_order`.
   MethodOrder,
+  /// `fn main` first (`order_keys`).
+  Entry,
+  /// `#[deprecated]` items last (`order_keys`).
+  Deprecated,
+  /// `#[doc(hidden)]` items last (`order_keys`).
+  Hidden,
 }
 
 impl Rule {
@@ -101,6 +107,9 @@ impl Rule {
       Rule::TraitOrder => "trait_order",
       Rule::Flow => "flow",
       Rule::MethodOrder => "method_order",
+      Rule::Entry => "entry",
+      Rule::Deprecated => "deprecated",
+      Rule::Hidden => "hidden",
     }
   }
 
@@ -127,8 +136,20 @@ impl Rule {
       Rule::TraitOrder => "the trait's order of functions (impl_method_order)",
       Rule::Flow => "above or below the items it uses (flow)",
       Rule::MethodOrder => "the order of an impl's functions (inherent_method_order)",
+      Rule::Entry => "fn main first (order_keys)",
+      Rule::Deprecated => "#[deprecated] items last (order_keys)",
+      Rule::Hidden => "#[doc(hidden)] items last (order_keys)",
     }
   }
+}
+
+/// A type an impl goes with (`group_impls`), and what of it its impls take on.
+pub(super) struct Family {
+  name: String,
+  kind: ItemKind,
+  visibility: Visibility,
+  deprecated: bool,
+  hidden: bool,
 }
 
 /// The units in their new order.
@@ -158,7 +179,7 @@ pub(super) fn compare(
   a: &Unit,
   b: &Unit,
   config: &LayoutConfig,
-  families: &[(String, ItemKind, Visibility)],
+  families: &[Family],
   macros_first: bool,
 ) -> Ordering {
   compare_by(a, b, config, families, macros_first).0
@@ -169,7 +190,7 @@ pub(super) fn compare_by(
   a: &Unit,
   b: &Unit,
   config: &LayoutConfig,
-  families: &[(String, ItemKind, Visibility)],
+  families: &[Family],
   macros_first: bool,
 ) -> (Ordering, Rule) {
   if macros_first {
@@ -243,7 +264,12 @@ pub(super) fn compare_by(
         let visibility = |unit: &Unit, name: &str| {
           // An impl goes with its type, at the type's visibility.
           let of_type = (config.group_impls && unit.kind == ItemKind::ImplBlock)
-            .then(|| families.iter().find(|(n, _, _)| n == name).map(|f| &f.2))
+            .then(|| {
+              families
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| &f.visibility)
+            })
             .flatten();
           let shown = of_type.unwrap_or(&unit.visibility);
           config
@@ -260,6 +286,31 @@ pub(super) fn compare_by(
         (order != Ordering::Equal).then_some((order, Rule::Name))
       }
       OrderKey::Name => None,
+      OrderKey::Entry => {
+        let later = |unit: &Unit| !(unit.kind == ItemKind::FnDecl && unit.identifier == "main");
+        (later(a) != later(b)).then(|| (later(a).cmp(&later(b)), Rule::Entry))
+      }
+      OrderKey::Deprecated => {
+        let marked = |unit: &Unit, name: &str| {
+          marked(
+            unit,
+            name,
+            config,
+            families,
+            |u| u.deprecated,
+            |f| f.deprecated,
+          )
+        };
+        let (da, db) = (marked(a, &family_a), marked(b, &family_b));
+        (da != db).then(|| (da.cmp(&db), Rule::Deprecated))
+      }
+      OrderKey::Hidden => {
+        let marked = |unit: &Unit, name: &str| {
+          marked(unit, name, config, families, |u| u.hidden, |f| f.hidden)
+        };
+        let (ha, hb) = (marked(a, &family_a), marked(b, &family_b));
+        (ha != hb).then(|| (ha.cmp(&hb), Rule::Hidden))
+      }
     };
     if let Some(decided) = decided {
       return decided;
@@ -428,8 +479,8 @@ fn defines_macros(unit: &Unit) -> bool {
 
 /// The types among `units`, by name, the one placed first first: what an impl of a name
 /// two types share joins.
-fn families(units: &[Unit], config: &LayoutConfig) -> Vec<(String, ItemKind, Visibility)> {
-  let mut families: Vec<(String, ItemKind, Visibility)> = units
+fn families(units: &[Unit], config: &LayoutConfig) -> Vec<Family> {
+  let mut families: Vec<Family> = units
     .iter()
     .filter(|u| {
       matches!(
@@ -437,11 +488,17 @@ fn families(units: &[Unit], config: &LayoutConfig) -> Vec<(String, ItemKind, Vis
         ItemKind::StructDecl | ItemKind::EnumDecl | ItemKind::Union | ItemKind::TraitDecl
       )
     })
-    .map(|u| (u.identifier.clone(), u.kind.clone(), u.visibility.clone()))
+    .map(|u| Family {
+      name: u.identifier.clone(),
+      kind: u.kind.clone(),
+      visibility: u.visibility.clone(),
+      deprecated: u.deprecated,
+      hidden: u.hidden,
+    })
     .collect();
   // Of types sharing a name (in different modules, or under `cfg`), an impl goes with the
   // one placed first, whatever the order they were written in.
-  families.sort_by_key(|(_, kind, _)| kind_rank(kind, config));
+  families.sort_by_key(|f| kind_rank(&f.kind, config));
   families
 }
 
@@ -577,17 +634,13 @@ fn flow_run(
 /// keep the sorted order among themselves, and wherever no use decides, the sorted order
 /// does: of the nodes free to go next, the one sorted first goes. So an order that already
 /// follows the uses is kept as it is, and a second run changes nothing.
-fn flowed(
-  free: Vec<Unit>,
-  config: &LayoutConfig,
-  families: &[(String, ItemKind, Visibility)],
-) -> Vec<Unit> {
+fn flowed(free: Vec<Unit>, config: &LayoutConfig, families: &[Family]) -> Vec<Unit> {
   let family_kind = |unit: &Unit| -> ItemKind {
     if config.group_impls
       && unit.kind == ItemKind::ImplBlock
-      && let Some((_, kind, _)) = families.iter().find(|(n, _, _)| *n == unit.parent_target)
+      && let Some(family) = families.iter().find(|f| f.name == unit.parent_target)
     {
-      return kind.clone();
+      return family.kind.clone();
     }
     unit.kind.clone()
   };
@@ -719,16 +772,16 @@ fn kind_step(
   a: &Unit,
   b: &Unit,
   config: &LayoutConfig,
-  families: &[(String, ItemKind, Visibility)],
+  families: &[Family],
   family_a: &str,
   family_b: &str,
 ) -> Option<(Ordering, Rule)> {
   let family_kind = |unit: &Unit, name: &str| -> ItemKind {
     if config.group_impls
       && unit.kind == ItemKind::ImplBlock
-      && let Some((_, kind, _)) = families.iter().find(|(n, _, _)| n == name)
+      && let Some(family) = families.iter().find(|f| f.name == name)
     {
-      return kind.clone();
+      return family.kind.clone();
     }
     unit.kind.clone()
   };
@@ -791,6 +844,25 @@ fn macros_defined(unit: &Unit) -> Option<HashSet<String>> {
     })
     .collect();
   (!names.is_empty()).then_some(names)
+}
+
+/// Whether `unit` is marked so, by `own`; an impl going with its type (`group_impls`) is as
+/// its type is, by `of_type`.
+fn marked(
+  unit: &Unit,
+  name: &str,
+  config: &LayoutConfig,
+  families: &[Family],
+  own: fn(&Unit) -> bool,
+  of_type: fn(&Family) -> bool,
+) -> bool {
+  if config.group_impls
+    && unit.kind == ItemKind::ImplBlock
+    && let Some(family) = families.iter().find(|f| f.name == name)
+  {
+    return of_type(family);
+  }
+  own(unit)
 }
 
 /// Two names in the order of `name_sort`.
@@ -859,11 +931,7 @@ fn near_callers(free: Vec<Unit>) -> Vec<Unit> {
 /// together in `units` (the order as it will be written) sorted where it stands, as the
 /// standard formatter sorts them, and so each run of `mod name;` declarations. Runs are
 /// found in the order the output has, so the next run finds the same ones.
-fn sort_runs(
-  units: &mut [Unit],
-  config: &LayoutConfig,
-  families: &[(String, ItemKind, Visibility)],
-) {
+fn sort_runs(units: &mut [Unit], config: &LayoutConfig, families: &[Family]) {
   let class = |unit: &Unit| match unit.kind {
     _ if unit.pinned || unit.test_module => 0,
     ItemKind::UseDecl if config.sort_imports => 1,

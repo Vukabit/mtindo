@@ -268,12 +268,13 @@ they are always sorted exactly as the standard formatter sorts them.
 ### `order_keys`
 
 What items are ordered by, the first deciding and the next breaking its ties.
-`["visibility", "kind", "name"]` puts the public items first. Unless `kind`
-comes first, imports, `mod` declarations and macros still come first, each kind
-with its own rules, and an impl goes with its type. `[]` keeps the written
-order: only runs of imports and of `mod` declarations are sorted where they
-stand, `#[cfg(test)]` modules go last, and the settings that keep structure
-(`sections`, `keep_paragraphs`, `keep_helpers_near`) still apply.
+`["visibility", "kind", "name"]` puts the public items first; `["kind",
+"deprecated", "visibility", "name"]` sinks deprecated items to the bottom of
+their kind. Unless `kind` comes first, imports, `mod` declarations and macros
+still come first, each kind with its own rules, and an impl goes with its type.
+`[]` keeps the written order: only runs of imports and of `mod` declarations are
+sorted where they stand, `#[cfg(test)]` modules go last, and the settings that
+keep structure (`sections`, `keep_paragraphs`, `keep_helpers_near`) still apply.
 
 *   Type: an array of the values below, each at most once.
 *   Default: `["kind", "visibility", "name"]`, in every style edition.
@@ -283,6 +284,11 @@ stand, `#[cfg(test)]` modules go last, and the settings that keep structure
         `group_impls`.
     *   `visibility`: The order of visibilities, `visibility_order`.
     *   `name`: Names, by `name_sort`, when `sort_alphabetically` is on.
+    *   `entry`: `fn main` before the other items.
+    *   `deprecated`: `#[deprecated]` items after the others; an impl as its
+        type, with `group_impls`.
+    *   `hidden`: `#[doc(hidden)]` items after the others; an impl as its type,
+        with `group_impls`.
 
 ### `sections`
 

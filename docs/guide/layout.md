@@ -138,6 +138,19 @@ is the order described above.
   `keep_helpers_near` still apply. Use it to take only the parts of layout a
   project wants.
 
+Three more keys can join the list, each sorting one kind of item ahead of or
+behind the rest:
+
+* `"entry"`: `fn main` goes before the other items. `["kind", "entry",
+  "visibility", "name"]` puts it at the top of the functions.
+* `"deprecated"`: `#[deprecated]` items go after the others.
+  `["kind", "deprecated", "visibility", "name"]` sinks them to the bottom of
+  their kind.
+* `"hidden"`: `#[doc(hidden)]` items go after the others, in the same way.
+
+With `group_impls`, an impl goes where its type does: a deprecated type's
+impls sink with it.
+
 `flow` then orders items by their uses, within one kind (functions among
 functions, types among types; among everything but imports, modules and
 macros when `kind` is not a key):

@@ -345,6 +345,26 @@ fn test_crlf_and_bom_come_back() {
   assert_eq!(arranged(source), "\u{feff}fn a() {}\r\n\r\nfn b() {}\r\n");
 }
 
+#[test]
+fn test_deprecated_and_hidden_items_sink_to_the_bottom_of_their_kind() {
+  let config = with_keys(vec![
+    OrderKey::Kind,
+    OrderKey::Deprecated,
+    OrderKey::Hidden,
+    OrderKey::Visibility,
+    OrderKey::Name,
+  ]);
+  let source = "#[deprecated]\npub fn a() {}\n\n#[doc(hidden)]\npub fn b() {}\n\nfn c() {}\n\n#[deprecated]\npub struct Old;\n\nimpl Old {}\n\npub struct New;\n\nimpl New {}\n";
+  let once = arranged_with(source, &config);
+  // A deprecated type's impl sinks with it.
+  assert_eq!(
+    once,
+    "pub struct New;\n\nimpl New {}\n\n#[deprecated]\npub struct Old;\n\nimpl Old {}\n\nfn c() {}\n\n#[doc(hidden)]\npub fn b() {}\n\n#[deprecated]\npub fn a() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+  assert!(crate::verify::verify_layout(source, &once, crate::syntax::Edition::E2021).is_empty());
+}
+
 /// A directive after an item's doc comment or an attribute reads as written above the item:
 /// a pin keeps its slot, nothing crosses a hold, an off region starts with the item (bug
 /// hunt, 2026-11-04).
@@ -360,6 +380,23 @@ fn test_directives_after_a_doc_comment_or_attribute_count() {
     "{}",
     laid
   );
+}
+
+#[test]
+fn test_entry_puts_main_at_the_top_of_the_functions() {
+  let config = with_keys(vec![
+    OrderKey::Kind,
+    OrderKey::Entry,
+    OrderKey::Visibility,
+    OrderKey::Name,
+  ]);
+  let source = "pub fn api() {}\n\nfn helper() {}\n\nfn main() {}\n\nstruct S;\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "struct S;\n\nfn main() {}\n\npub fn api() {}\n\nfn helper() {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
 }
 
 #[test]

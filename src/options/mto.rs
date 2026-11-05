@@ -383,12 +383,23 @@ pub(super) static SETTINGS: &[Setting] = &[
         "name",
         "Names, by `name_sort`, when `sort_alphabetically` is on.",
       ),
+      choice("entry", "`fn main` before the other items."),
+      choice(
+        "deprecated",
+        "`#[deprecated]` items after the others; an impl as its type, with `group_impls`.",
+      ),
+      choice(
+        "hidden",
+        "`#[doc(hidden)]` items after the others; an impl as its type, with `group_impls`.",
+      ),
     ]),
     default: "[\"kind\", \"visibility\", \"name\"]",
     default_2024: None,
     summary: "What items are ordered by, in turn; none keeps the written order",
     doc: "What items are ordered by, the first deciding and the next breaking its ties. \
-              `[\"visibility\", \"kind\", \"name\"]` puts the public items first. Unless \
+              `[\"visibility\", \"kind\", \"name\"]` puts the public items first; \
+              `[\"kind\", \"deprecated\", \"visibility\", \"name\"]` sinks deprecated \
+              items to the bottom of their kind. Unless \
               `kind` comes first, imports, `mod` declarations and macros still come \
               first, each kind with its own rules, and an impl goes with its type. `[]` keeps the written \
               order: only runs of imports and of `mod` declarations are sorted where \

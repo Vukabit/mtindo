@@ -106,9 +106,9 @@
       "default": "version"
     },
     "order_keys": {
-      "description": "What items are ordered by, the first deciding and the next breaking its ties. `[\"visibility\", \"kind\", \"name\"]` puts the public items first. Unless `kind` comes first, imports, `mod` declarations and macros still come first, each kind with its own rules, and an impl goes with its type. `[]` keeps the written order: only runs of imports and of `mod` declarations are sorted where they stand, `#[cfg(test)]` modules go last, and the settings that keep structure (`sections`, `keep_paragraphs`, `keep_helpers_near`) still apply.\n\nIn mto: supported.",
+      "description": "What items are ordered by, the first deciding and the next breaking its ties. `[\"visibility\", \"kind\", \"name\"]` puts the public items first; `[\"kind\", \"deprecated\", \"visibility\", \"name\"]` sinks deprecated items to the bottom of their kind. Unless `kind` comes first, imports, `mod` declarations and macros still come first, each kind with its own rules, and an impl goes with its type. `[]` keeps the written order: only runs of imports and of `mod` declarations are sorted where they stand, `#[cfg(test)]` modules go last, and the settings that keep structure (`sections`, `keep_paragraphs`, `keep_helpers_near`) still apply.\n\nIn mto: supported.",
       "type": "array",
-      "items": {"type": "string", "enum": ["kind", "visibility", "name"]},
+      "items": {"type": "string", "enum": ["kind", "visibility", "name", "entry", "deprecated", "hidden"]},
       "uniqueItems": true,
       "default": ["kind", "visibility", "name"]
     },

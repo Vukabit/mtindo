@@ -133,6 +133,10 @@ pub struct Unit {
   pub macro_call: bool,
   /// Has a `#[cfg]` attribute.
   pub cfg: bool,
+  /// Has a `#[deprecated]` attribute.
+  pub deprecated: bool,
+  /// Has a `#[doc(hidden)]` attribute.
+  pub hidden: bool,
   /// Position among the units of the input.
   pub index: usize,
   /// `#[cfg(test)] mod`.

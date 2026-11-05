@@ -2759,6 +2759,52 @@ fn test_cli_verify_proves_a_layout_commit_and_refuses_an_edit() {
   );
 }
 
+/// `mto verify` reads a commit from its objects, so a bare repository verifies too; a
+/// version pin the commit holds and this build does not meet is an error, not a verdict.
+#[test]
+fn test_cli_verify_works_in_a_bare_repository_and_honors_pins() {
+  let env = TestEnvironment::new();
+  env.git_init("w");
+  env.write_file("w/mto.toml", "layout = true\n");
+  env.write_file("w/src/lib.rs", "fn z() {}\n\nfn a() {}\n");
+  env.git("w", &["add", "."]);
+  env.git("w", &["commit", "-qm", "start"]);
+  env.write_file("w/src/lib.rs", "fn a() {}\n\nfn z() {}\n");
+  env.git("w", &["commit", "-qam", "lay out"]);
+  env.git(".", &["clone", "-q", "--bare", "w", "bare.git"]);
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("bare.git"))
+    .args(["verify", "HEAD"])
+    .output()
+    .unwrap();
+  let out = printed(&output.stdout);
+  assert_eq!(
+    output.status.code(),
+    Some(0),
+    "{}{}",
+    out,
+    printed(&output.stderr)
+  );
+  assert!(out.contains("src/lib.rs  reproduced"), "{}", out);
+  env.write_file("w/mto.toml", "layout = true\nmto_version = \"99\"\n");
+  env.write_file("w/src/lib.rs", "fn z() {}\n\nfn a() {}\n");
+  env.git("w", &["commit", "-qam", "pinned"]);
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("w"))
+    .args(["verify", "HEAD"])
+    .output()
+    .unwrap();
+  let said = printed(&output.stderr);
+  assert_eq!(output.status.code(), Some(2), "{}", said);
+  assert!(
+    said.contains("so this build cannot judge the commit"),
+    "{}",
+    said
+  );
+}
+
 #[test]
 fn test_cli_version() {
   let env = TestEnvironment::new();

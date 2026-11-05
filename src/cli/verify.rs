@@ -128,11 +128,7 @@ pub fn ignored_revs(here: &Path) -> Result<(String, Vec<String>), String> {
 
 /// The commit `rev` names, checked file by file; an error saying why it cannot be.
 pub fn verify(rev: &str, resolver: &mut Resolver, here: &Path) -> Result<Verified, String> {
-  let root = PathBuf::from(
-    git(here, &["rev-parse", "--show-toplevel"])
-      .map_err(|_| "not in a git work tree: verifying a commit needs one".to_string())?
-      .trim(),
-  );
+  let root = repository(here)?;
   let commit = commit_named(&root, rev)?;
   let short = commit[..10.min(commit.len())].to_string();
   let listed = git(&root, &["rev-list", "--parents", "-n", "1", &commit])?;
@@ -500,6 +496,21 @@ fn linked(path: &str, target: &str) -> Option<String> {
     }
   }
   Some(parts.join("/"))
+}
+
+/// Where the repository `here` is in keeps its files: its work tree's top, or a bare
+/// repository's own folder, as everything is read from its objects. The settings found
+/// there are keyed by it, and nothing on disk under it is read.
+fn repository(here: &Path) -> Result<PathBuf, String> {
+  if let Ok(top) = git(here, &["rev-parse", "--show-toplevel"]) {
+    return Ok(PathBuf::from(top.trim()));
+  }
+  let bare =
+    git(here, &["rev-parse", "--is-bare-repository"]).is_ok_and(|said| said.trim() == "true");
+  if bare && let Ok(folder) = git(here, &["rev-parse", "--absolute-git-dir"]) {
+    return Ok(PathBuf::from(folder.trim()));
+  }
+  Err("not in a git repository: verifying a commit needs one".to_string())
 }
 
 /// `git ARGS` run in `dir`.

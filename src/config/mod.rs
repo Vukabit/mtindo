@@ -966,9 +966,16 @@ impl Resolver {
         match requirement::meets(wanted, version) {
           Ok(true) => {}
           Ok(false) => {
+            // A commit's pin names the build that formatted it; another build's verdict
+            // on it would not be that build's.
+            let outcome = if self.committed.is_some() {
+              "so this build cannot judge the commit"
+            } else {
+              "so nothing was done"
+            };
             return Err(Error::new(format!(
-              "{}: `{} = \"{}\"` is not met: {} is {}, so nothing was done",
-              source, name, wanted, what, version
+              "{}: `{} = \"{}\"` is not met: {} is {}, {}",
+              source, name, wanted, what, version, outcome
             )));
           }
           Err(why) => return Err(Error::new(format!("{}: `{}`: {}", source, name, why))),

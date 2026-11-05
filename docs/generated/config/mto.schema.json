@@ -146,6 +146,12 @@
       "enum": ["last", "in_place"],
       "default": "last"
     },
+    "test_helpers": {
+      "description": "Items under `#[cfg(test)]` that are not a test module, such as test-only helpers and impls, go with the tests at the end of their section with `last`. Imports, `mod` declarations and macro definitions stay where their kind puts them.\n\nIn mto: supported.",
+      "type": "string",
+      "enum": ["in_place", "last"],
+      "default": "in_place"
+    },
     "trait_impl_order": {
       "description": "Trait impls for these traits come right after the type's own impls, in this order, for example `[\"Default\", \"Clone\", \"Debug\", \"Display\"]`. A trait is matched by its name without its path, so `fmt::Display` matches `Display`. Other trait impls follow, as `trait_impl_sort` says.\n\nIn mto: supported.",
       "type": "array",

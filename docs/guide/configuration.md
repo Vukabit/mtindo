@@ -82,6 +82,7 @@ sections = "off"
 sort_alphabetically = true
 sort_imports = true
 test_module = "last"
+test_helpers = "in_place"
 trait_impl_order = []
 trait_impl_sort = "name"
 type_order = ["ModDecl", "UseDecl", "MacroDecl", "MacroDef", "ConstDecl",

@@ -543,6 +543,27 @@ pub(super) static SETTINGS: &[Setting] = &[
     replaced_by: None,
   },
   Setting {
+    name: "test_helpers",
+    file: File::Mto,
+    kind: Kind::Choice(&[
+      choice("in_place", "Sorted with the other items, as any item is."),
+      choice(
+        "last",
+        "At the end of their section, just before the `#[cfg(test)]` modules.",
+      ),
+    ]),
+    default: "\"in_place\"",
+    default_2024: None,
+    summary: "Where #[cfg(test)] items outside a test module go",
+    doc: "Items under `#[cfg(test)]` that are not a test module, such as test-only \
+              helpers and impls, go with the tests at the end of their section with \
+              `last`. Imports, `mod` declarations and macro definitions stay where \
+              their kind puts them.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
     name: "trait_impl_order",
     file: File::Mto,
     kind: Kind::List,

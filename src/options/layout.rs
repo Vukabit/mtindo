@@ -242,6 +242,9 @@ pub struct LayoutConfig {
   /// `test_module = "in_place"`: `#[cfg(test)]` modules keep their place instead of going
   /// last.
   pub test_module_in_place: bool,
+  /// `test_helpers = "last"`: `#[cfg(test)]` items outside a test module go to the end,
+  /// before the `#[cfg(test)]` modules.
+  pub test_helpers_last: bool,
   /// The standard formatter's `reorder_impl_items`.
   pub reorder_impl_items: bool,
   /// `impl_method_order = "trait"`: a trait impl's functions follow the trait's order.
@@ -314,6 +317,7 @@ impl Default for LayoutConfig {
       name_sort: NameSort::Version,
       trait_impl_sort: TraitImplSort::Name,
       test_module_in_place: false,
+      test_helpers_last: false,
       reorder_impl_items: false,
       impl_method_order_trait: false,
       trait_impl_order: Vec::new(),

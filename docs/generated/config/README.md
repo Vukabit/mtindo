@@ -9,12 +9,12 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 130
-  mto: 28
+  total: 131
+  mto: 29
   formatting: 90
   user: 12
 in_mto:
-  supported: 73
+  supported: 74
   partial: 29
   missing: 11
   not_planned: 5
@@ -932,6 +932,13 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Number of spaces per tab.</td>
 <td>partial</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#test_helpers">
+<code>test_helpers</code></a></td>
+<td>mto.toml</td>
+<td>Where #[cfg(test)] items outside a test module go</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="mto.toml.md#test_module">

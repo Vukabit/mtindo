@@ -35,7 +35,7 @@ _mto_settings() {
     import_grouping import_sort inherent_method_order keep_helpers_near
     keep_paragraphs layout format layout_generated_files mto_version name_sort
     order_keys sections sort_alphabetically sort_imports test_module
-    trait_impl_order trait_impl_sort type_order visibility_order
+    test_helpers trait_impl_order trait_impl_sort type_order visibility_order
   )
   compset -P '*,'
   if compset -P '*='; then
@@ -81,6 +81,7 @@ _mto_setting_values() {
     (name_sort) compadd -- version bytes case_insensitive ;;
     (sections) compadd -- off comments headings markers ;;
     (test_module) compadd -- last in_place ;;
+    (test_helpers) compadd -- in_place last ;;
     (trait_impl_sort) compadd -- name original ;;
   esac
 }

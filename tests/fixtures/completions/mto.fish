@@ -105,8 +105,8 @@ function __mto_settings
             import_grouping import_sort inherent_method_order \
             keep_helpers_near keep_paragraphs layout format \
             layout_generated_files mto_version name_sort order_keys sections \
-            sort_alphabetically sort_imports test_module trait_impl_order \
-            trait_impl_sort type_order visibility_order
+            sort_alphabetically sort_imports test_module test_helpers \
+            trait_impl_order trait_impl_sort type_order visibility_order
             printf '%s%s=\n' "$head" $key
         end
     end
@@ -179,6 +179,8 @@ function __mto_setting_values
             printf '%s\n' off comments headings markers
         case test_module
             printf '%s\n' last in_place
+        case test_helpers
+            printf '%s\n' in_place last
         case trait_impl_sort
             printf '%s\n' name original
     end

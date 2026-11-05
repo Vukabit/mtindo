@@ -153,6 +153,14 @@ pub const ENTRIES: &[Entry] = &[
     shown_in: "—",
   },
   Entry {
+    path: "records/results/toggles/test-helpers.txt",
+    kind: Kind::Result,
+    holds: "test_helpers = \"last\" tried on the whole corpus",
+    written_by: "`cargo xtask corpus try --each ... --record test-helpers`",
+    read_by: "people",
+    shown_in: "—",
+  },
+  Entry {
     path: "records/archive/2026-10-optimization.txt",
     kind: Kind::Archive,
     holds: "every figure before the October optimization rounds",

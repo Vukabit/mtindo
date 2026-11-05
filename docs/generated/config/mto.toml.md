@@ -9,9 +9,9 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 28
+  total: 29
 in_mto:
-  supported: 27
+  supported: 28
   partial: 1
   missing: 0
   not_planned: 0
@@ -376,6 +376,20 @@ Where `#[cfg(test)]` modules go: last in the file, or kept where they are.
     *   `last`: At the end of the file.
     *   `in_place`: Where it was written: it keeps its place, like a pinned
         item.
+
+### `test_helpers`
+
+Items under `#[cfg(test)]` that are not a test module, such as test-only helpers
+and impls, go with the tests at the end of their section with `last`. Imports,
+`mod` declarations and macro definitions stay where their kind puts them.
+
+*   Type: one of the values below, as a string.
+*   Default: `"in_place"`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `in_place`: Sorted with the other items, as any item is.
+    *   `last`: At the end of their section, just before the `#[cfg(test)]`
+        modules.
 
 ### `trait_impl_order`
 

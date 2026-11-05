@@ -114,6 +114,8 @@ fn test_mto_defaults_match_the_layout_config() {
   assert_eq!(config.cfg_groups, CfgGroups::Off);
   assert_eq!(default("reexports"), "\"with_imports\"");
   assert_eq!(config.reexports, Reexports::WithImports);
+  assert_eq!(default("test_helpers"), "\"in_place\"");
+  assert!(!config.test_helpers_last);
   assert_eq!(default("inherent_method_order"), "\"written\"");
   assert_eq!(config.inherent_method_order, MethodOrder::Written);
   assert_eq!(strings(default("ignore_dirs")), config.ignore_dirs);

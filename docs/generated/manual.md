@@ -701,6 +701,18 @@ Where `#[cfg(test)]` modules go: last in the file, or kept where they are.
     *   `in_place`: Where it was written: it keeps its place, like a pinned
         item.
 
+#### `test_helpers`
+Items under `#[cfg(test)]` that are not a test module, such as test-only helpers
+and impls, go with the tests at the end of their section with `last`. Imports,
+`mod` declarations and macro definitions stay where their kind puts them.
+
+*   Type: one of the values below, as a string.
+*   Default: `"in_place"`.
+*   Values:
+    *   `in_place`: Sorted with the other items, as any item is.
+    *   `last`: At the end of their section, just before the `#[cfg(test)]`
+        modules.
+
 #### `trait_impl_order`
 Trait impls for these traits come right after the type's own impls, in this
 order, for example `["Default", "Clone", "Debug", "Display"]`. A trait is

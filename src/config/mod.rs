@@ -298,6 +298,7 @@ impl Config {
       self.get("impl_method_order").and_then(Value::as_text) == Some("trait");
     config.test_module_in_place =
       self.get("test_module").and_then(Value::as_text) == Some("in_place");
+    config.test_helpers_last = self.get("test_helpers").and_then(Value::as_text) == Some("last");
     if self.get("trait_impl_sort").and_then(Value::as_text) == Some("original") {
       config.trait_impl_sort = TraitImplSort::Original;
     }

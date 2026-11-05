@@ -56,6 +56,7 @@ const RENAMED: &[(&str, &str, Option<&str>)] = &[
   ("leading_pipes", "match_arm_leading_pipes", None),
   ("small_heuristics", "use_small_heuristics", None),
   ("tab_width", "tab_spaces", None),
+  ("test_helpers_last", "test_helpers", Some("last")),
   ("test_module_in_place", "test_module", Some("in_place")),
   ("trailing_comma_never", "trailing_comma", Some("Never")),
   ("try_shorthand", "use_try_shorthand", None),

@@ -80,6 +80,9 @@ sources, cached answers) live in `.dev/cache/`, outside the tracked tree.
 - **[results/toggles/reexports.txt](results/toggles/reexports.txt)** (result):
   reexports, apart and last, tried on the whole corpus. Written by `cargo xtask
   corpus try --each ... --record reexports`; read by people.
+- **[results/toggles/test-helpers.txt](results/toggles/test-helpers.txt)**
+  (result): test_helpers = "last" tried on the whole corpus. Written by `cargo
+  xtask corpus try --each ... --record test-helpers`; read by people.
 - **[archive/2026-10-optimization.txt](archive/2026-10-optimization.txt)**
   (archive): every figure before the October optimization rounds. Read by `cargo
   xtask metrics compare`.

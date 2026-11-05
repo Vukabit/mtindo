@@ -230,6 +230,7 @@ mto     config:reexports                                 supported    # src/layo
 mto     config:sections                                  supported    # src/layout/tests.rs
 mto     config:sort_alphabetically                       supported    # tests/domain_11_matrix.rs
 mto     config:sort_imports                              supported    # tests/domain_2_golden.rs
+mto     config:test_helpers                              supported    # src/layout/tests.rs
 mto     config:test_module                               supported    # src/layout/tests.rs
 mto     config:trait_impl_order                          supported    # src/layout/tests.rs
 mto     config:trait_impl_sort                           supported    # src/layout/tests.rs

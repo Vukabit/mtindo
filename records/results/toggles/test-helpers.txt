@@ -1,0 +1,5 @@
+# `cargo xtask corpus try` on the pinned corpus (2 runs a file), for `test-helpers`.
+# Columns: files, changed, moves, left alone, check failed, panicked, unsettled.
+try  test_helpers=last
+settings  layout=true,test_helpers=last
+total  10842     8357 102693        204            0         0         0

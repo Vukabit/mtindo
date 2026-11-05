@@ -297,6 +297,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
         'sort_alphabetically' = @('true', 'false')
         'sort_imports' = @('true', 'false')
         'test_module' = @('last', 'in_place')
+        'test_helpers' = @('in_place', 'last')
         'trait_impl_order' = @()
         'trait_impl_sort' = @('name', 'original')
         'type_order' = @()

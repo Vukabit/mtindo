@@ -1316,6 +1316,36 @@ fn test_spacing_zero_keeps_loose_comments_loose() {
   }
 }
 
+/// `test_helpers = "last"`: `#[cfg(test)]` items outside a test module go to the end,
+/// before the test modules; imports stay with the imports.
+#[test]
+fn test_test_helpers_go_with_the_tests() {
+  let config = LayoutConfig {
+    test_helpers_last: true,
+    ..LayoutConfig::default()
+  };
+  let source = "use std::fmt;\n#[cfg(test)]\nuse std::io;\n\n#[cfg(test)]\nfn fixture() {}\n\n#[cfg(test)]\nmod tests {}\n\nfn z() {}\n\n#[cfg(test)]\nimpl S {}\n\nstruct S;\n\nfn a() {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "use std::fmt;\n#[cfg(test)]\nuse std::io;\n\nstruct S;\n\nfn a() {}\n\nfn z() {}\n\n#[cfg(test)]\nimpl S {}\n\n#[cfg(test)]\nfn fixture() {}\n\n#[cfg(test)]\nmod tests {}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+  assert!(crate::verify::verify_layout(source, &once, crate::syntax::Edition::E2021).is_empty());
+  // With the written order kept, the helpers still join the tests.
+  let written = LayoutConfig {
+    order_keys: Vec::new(),
+    ..config
+  };
+  let laid = arranged_with(source, &written);
+  assert!(
+    laid.ends_with("fn a() {}\n\n#[cfg(test)]\nfn fixture() {}\n\n#[cfg(test)]\nimpl S {}\n\n#[cfg(test)]\nmod tests {}\n"),
+    "{}",
+    laid
+  );
+  assert_eq!(arranged_with(&laid, &written), laid);
+}
+
 #[test]
 fn test_test_module_last_or_in_place() {
   let source = "fn b() {}\n#[cfg(test)]\nmod tests {}\nfn a() {}\n";

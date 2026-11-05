@@ -89,6 +89,8 @@ pub enum Rule {
   CfgGroup,
   /// Re-exports apart from the other imports, or last (`reexports`).
   Reexports,
+  /// `#[cfg(test)]` items go last, before the test modules (`test_helpers`).
+  TestHelpersLast,
 }
 
 impl Rule {
@@ -119,6 +121,7 @@ impl Rule {
       Rule::End => "end",
       Rule::CfgGroup => "cfg_group",
       Rule::Reexports => "reexports",
+      Rule::TestHelpersLast => "test_helpers_last",
     }
   }
 
@@ -151,6 +154,7 @@ impl Rule {
       Rule::End => "at an end of its section (// mto: first, // mto: last)",
       Rule::CfgGroup => "with the items under the same #[cfg(...)] (cfg_groups)",
       Rule::Reexports => "pub use apart from the other imports, or last (reexports)",
+      Rule::TestHelpersLast => "a #[cfg(test)] item goes with the tests (test_helpers)",
     }
   }
 }
@@ -217,6 +221,9 @@ pub(super) fn compare_by(
   }
   if a.test_module != b.test_module {
     return (a.test_module.cmp(&b.test_module), Rule::TestModuleLast);
+  }
+  if config.test_helpers_last && test_helper(a) != test_helper(b) {
+    return (test_helper(a).cmp(&test_helper(b)), Rule::TestHelpersLast);
   }
   if config.reexports == Reexports::Last && reexport(a) != reexport(b) {
     return (reexport(a).cmp(&reexport(b)), Rule::Reexports);
@@ -453,6 +460,18 @@ pub(super) fn reexport(unit: &Unit) -> bool {
   unit.kind == ItemKind::UseDecl && unit.visibility != Visibility::Private
 }
 
+/// Whether `unit` is a `#[cfg(test)]` item outside a test module that `test_helpers`
+/// moves: not an import, a `mod` declaration or a macro definition.
+pub(super) fn test_helper(unit: &Unit) -> bool {
+  unit.cfg_predicate.as_deref() == Some("cfg(test)")
+    && !unit.test_module
+    && !unit.defines_macros
+    && !matches!(
+      unit.kind,
+      ItemKind::UseDecl | ItemKind::ModDecl | ItemKind::MacroDecl | ItemKind::MacroDef
+    )
+}
+
 /// The strongly connected components of the graph `after` (Tarjan's, without recursion):
 /// each node's component number.
 fn components(after: &[Vec<usize>]) -> Vec<usize> {
@@ -685,7 +704,8 @@ fn flowed(free: Vec<Unit>, config: &LayoutConfig, families: &[Family]) -> Vec<Un
       ItemKind::ModDecl | ItemKind::UseDecl | ItemKind::MacroDecl | ItemKind::MacroDef
     ) || unit.test_module
       || unit.defines_macros
-      || unit.comments_only;
+      || unit.comments_only
+      || (config.test_helpers_last && test_helper(unit));
     if fixed {
       None
     } else if config.order_keys.contains(&OrderKey::Kind) {
@@ -1013,9 +1033,14 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
   let mut free: Vec<Unit> = units.iter().filter(|u| !u.pinned).cloned().collect();
   let written = config.order_keys.is_empty();
   if written {
-    // Test modules last, all else as written.
+    // Test modules last, all else as written; `#[cfg(test)]` items just before them with
+    // `test_helpers = "last"`.
     let (rest, tests): (Vec<Unit>, Vec<Unit>) = free.into_iter().partition(|u| !u.test_module);
+    let (rest, helpers): (Vec<Unit>, Vec<Unit>) = rest
+      .into_iter()
+      .partition(|u| !(config.test_helpers_last && test_helper(u)));
     free = rest;
+    free.extend(helpers);
     free.extend(tests);
   } else {
     free.sort_by(|a, b| compare(a, b, config, &families, macros_first));

@@ -232,7 +232,9 @@ Some items depend on their position in the file. `mto` keeps them in place:
 * **`#[cfg]` variants** of one item (`#[cfg(unix)] fn f` and
   `#[cfg(windows)] fn f`, written next to each other) move as one.
 * **A `#[cfg(test)]` module** goes last (or stays where it is, with
-  `test_module = "in_place"`).
+  `test_module = "in_place"`). With `test_helpers = "last"`, the other
+  `#[cfg(test)]` items (test-only helpers and impls, not imports) go with it,
+  just before the test modules.
 * **Anything between `// mto: off` and `// mto: on`** is left exactly as
   written, in its original position; see
   [Leaving code as written](formatting.md#leaving-code-as-written) for the

@@ -162,6 +162,7 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "sort_imports = false",
     "reorder_imports = false",
   ),
+  ("layout + test_helpers=last", "test_helpers = \"last\"", ""),
   (
     "layout + test_module=in_place",
     "test_module = \"in_place\"",

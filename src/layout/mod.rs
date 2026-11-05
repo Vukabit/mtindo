@@ -50,6 +50,13 @@ use crate::text::source::normalize;
 /// Why a file with syntax errors is left alone.
 pub const SYNTAX_ERRORS: &str = "the file has syntax errors";
 
+/// The end of its section a unit is put at (`// mto: first`, `// mto: last`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum End {
+  First,
+  Last,
+}
+
 /// What laying out one file needs beyond its text: the traits declared in it, the units to
 /// keep where they are (by where they start), and the moves made so far.
 pub(super) struct Cx<'a> {
@@ -165,6 +172,8 @@ pub struct Unit {
   pub below: bool,
   /// Under `// mto: hold`: it keeps its neighbours, and nothing moves across it.
   pub held: bool,
+  /// Under `// mto: first` or `// mto: last`: where in its section it goes.
+  pub end: Option<End>,
 }
 
 /// The edition `config` names, read first by [`parse_any_edition`].
@@ -311,6 +320,25 @@ pub(super) fn first_variant(units: &[Unit], at: usize) -> usize {
     .unwrap_or(unit.index)
 }
 
+/// `free`, in its order, with the units marked first ahead of the rest and those marked
+/// last behind them.
+pub(super) fn to_ends(free: Vec<Unit>) -> Vec<Unit> {
+  if free.iter().all(|u| u.end.is_none()) {
+    return free;
+  }
+  let (mut first, mut rest, mut last) = (Vec::new(), Vec::new(), Vec::new());
+  for unit in free {
+    match unit.end {
+      Some(End::First) => first.push(unit),
+      Some(End::Last) => last.push(unit),
+      None => rest.push(unit),
+    }
+  }
+  first.extend(rest);
+  first.extend(last);
+  first
+}
+
 /// Whether `gap` holds a blank line: a line with nothing but whitespace between two line
 /// breaks.
 fn blank_line_in(gap: &str) -> bool {
@@ -367,15 +395,16 @@ fn cut_sections(
     let after = runs.get(at + 1).map_or(next, |r| r[0].0);
     let loose_after = blank_line_in(&text[run.last().unwrap().1..after]);
     let section = says(run, Marker::Section);
-    let boundary = !says(run, Marker::Pin)
-      && !says(run, Marker::Hold)
+    let directs = [Marker::Pin, Marker::Hold, Marker::First, Marker::Last]
+      .into_iter()
+      .any(|m| says(run, m));
+    let boundary = !directs
       && match config.sections {
         Sections::Off => false,
         Sections::Markers => section,
         Sections::Comments => section || loose_after,
         Sections::Headings => section || (loose_after && heading(text, run)),
       };
-    let directs = says(run, Marker::Pin) || says(run, Marker::Hold);
     let kept = boundary || (config.sections == Sections::Headings && loose_after && !directs);
     if !kept {
       heading_element.extend(run);
@@ -1020,10 +1049,20 @@ fn split_container(
       || pending
         .iter()
         .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Pin));
-    let held_by_comment = says_inside(Marker::Hold)
-      || pending
-        .iter()
-        .any(|&(s, e)| marker::at(text, s, e) == Some(Marker::Hold));
+    let says_above = |want: Marker| {
+      says_inside(want)
+        || pending
+          .iter()
+          .any(|&(s, e)| marker::at(text, s, e) == Some(want))
+    };
+    let held_by_comment = says_above(Marker::Hold);
+    let placed = if says_above(Marker::First) {
+      Some(End::First)
+    } else if says_above(Marker::Last) {
+      Some(End::Last)
+    } else {
+      None
+    };
     let loose_comments = !pending.is_empty();
     let mut pieces = std::mem::take(&mut pending);
     pieces.push((start, end));
@@ -1036,6 +1075,7 @@ fn split_container(
     );
     unit.pinned |= pinned_by_comment || (unit.test_module && config.test_module_in_place);
     unit.held = held_by_comment;
+    unit.end = placed;
     // An inline module's body is laid out by the same rules; its new text replaces the
     // item's at the end of the unit.
     let item_text = if unit.pinned {

@@ -197,6 +197,10 @@ Some items depend on their position in the file. `mto` keeps them in place:
   `// mto: pin` line (a comment may stand between them), keep their position.
   The item under a `// mto: hold` line keeps its neighbours too: nothing moves
   across it.
+* **Items marked to an end:** the item under a `// mto: first` line goes to
+  the top of its section, and the one under `// mto: last` to the bottom; the
+  rest are sorted between them. Each still keeps clear of the macros it uses,
+  as any item does, and in an impl it goes among the impl's items.
   A file whose header has `#![rustfmt::skip]` is left alone.
 * **Generated files:** a file with a comment near its top holding one of
   `generated_markers` (`@generated` by default) keeps its items where they

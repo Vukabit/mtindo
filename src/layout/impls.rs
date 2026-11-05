@@ -78,7 +78,10 @@ pub(super) fn impl_with_items_ordered(
     None => config.inherent_method_order,
     Some(_) => MethodOrder::Written,
   };
-  if !config.reorder_impl_items && trait_order.is_none() && method_order == MethodOrder::Written {
+  let ordered =
+    config.reorder_impl_items || trait_order.is_some() || method_order != MethodOrder::Written;
+  // Only `// mto: first` and `// mto: last` can move an item of an impl not otherwise ordered.
+  if !ordered && !crate::syntax::marker::mentions(node.text()) {
     return None;
   }
   let body = assoc_list(node)?;
@@ -135,7 +138,7 @@ pub(super) fn impl_with_items_ordered(
       .then(a.index.cmp(&b.index))
   };
   let arrange = |units: &[Unit]| -> Result<Vec<Unit>, String> {
-    Ok(if config.reorder_impl_items {
+    let ordered = if config.reorder_impl_items {
       let key = |u: &Unit| impl_item_rank(u, &body);
       place(units, |a, b| {
         let (ka, kb) = (key(a), key(b));
@@ -163,7 +166,22 @@ pub(super) fn impl_with_items_ordered(
           }
         })
         .collect()
-    })
+    };
+    // Then the items marked to an end of the body go there, the pinned ones in their slots.
+    let free: Vec<Unit> = ordered.iter().filter(|u| !u.pinned).cloned().collect();
+    let mut free = super::to_ends(free).into_iter();
+    Ok(
+      ordered
+        .iter()
+        .map(|u| {
+          if u.pinned {
+            u.clone()
+          } else {
+            free.next().unwrap_or_else(|| u.clone())
+          }
+        })
+        .collect(),
+    )
   };
   // A body closed on its last item's line is left as written: a comment ending the item
   // moved there would no longer end its line, and so no longer be the item's.
@@ -185,7 +203,9 @@ pub(super) fn impl_with_items_ordered(
   {
     return None;
   }
-  let rule = if config.reorder_impl_items {
+  let rule = if !ordered {
+    Rule::End
+  } else if config.reorder_impl_items {
     Rule::ImplItems
   } else if trait_order.is_some() {
     Rule::TraitOrder

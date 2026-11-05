@@ -63,6 +63,7 @@ pub(super) fn pinned_region(text: &str, start: usize, end: usize, index: usize) 
     caller: None,
     below: false,
     held: false,
+    end: None,
   }
 }
 
@@ -154,6 +155,7 @@ pub(super) fn unit(item: &Item, text: String, index: usize, config: &LayoutConfi
     caller: None,
     below: false,
     held: false,
+    end: None,
   }
 }
 

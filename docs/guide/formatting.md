@@ -70,6 +70,9 @@ Between them nothing is moved or changed, the markers included.
 the [layout](layout.md); other items may pass it. `// mto: hold` keeps it
 between the same neighbours, and nothing moves across it: the strength of a
 [build guard](build-guard.md) hold, for an order the build depends on.
+`// mto: first` and `// mto: last` put the item below them at the top or the
+bottom of its section (or of its file, module or impl), the others sorted
+between them.
 
 `mto pins` lists every directive and `#[rustfmt::skip]` in a project, with
 its file, line and reason, so none is forgotten. With

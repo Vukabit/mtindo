@@ -447,6 +447,37 @@ fn test_files_that_cannot_be_laid_out_say_why() {
   );
 }
 
+/// `// mto: first` and `// mto: last` put the item under them at the top or the bottom of
+/// its section, the others sorted between; in an impl, among its items.
+#[test]
+fn test_first_and_last_put_an_item_at_an_end_of_its_section() {
+  let source =
+    "// mto: last -- the shims\nfn a() {}\n\nstruct S;\n\nfn b() {}\n\n// mto: first\nfn z() {}\n";
+  let once = arranged(source);
+  assert_eq!(
+    once,
+    "// mto: first\nfn z() {}\n\nstruct S;\n\nfn b() {}\n\n// mto: last -- the shims\nfn a() {}\n"
+  );
+  assert_eq!(arranged(&once), once);
+  assert!(crate::verify::verify_layout(source, &once, crate::syntax::Edition::E2021).is_empty());
+  // A section's top, not the file's: the marker under `// mto: section` stays below it.
+  let config = with_sections(Sections::Markers);
+  let sectioned = "fn b() {}\n\n// mto: section\n\nfn y() {}\n\n// mto: first\nfn z() {}\n";
+  assert_eq!(
+    arranged_with(sectioned, &config),
+    "fn b() {}\n\n// mto: section\n\n// mto: first\nfn z() {}\n\nfn y() {}\n"
+  );
+  // Imports are an item too: one marked last goes below them all.
+  let first_use = "use b::B;\n\n// mto: first\nfn z() {}\n";
+  assert_eq!(
+    arranged(first_use),
+    "// mto: first\nfn z() {}\n\nuse b::B;\n"
+  );
+  let in_impl = "impl S {\n    // mto: last\n    fn new() -> Self {\n        S\n    }\n\n    const A: u8 = 1;\n\n    type T = u8;\n}\n";
+  let laid = arranged(in_impl);
+  assert!(laid.trim_end().ends_with("S\n    }\n}"), "{}", laid);
+}
+
 /// A type moves with its impls under `flow`, and items of other kinds stay in their rank.
 #[test]
 fn test_flow_moves_a_type_with_its_impls() {

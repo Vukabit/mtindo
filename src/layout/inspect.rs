@@ -282,6 +282,15 @@ fn notes(units: &[Unit], names: &[HashSet<&str>], at: usize, config: &LayoutConf
   } else if unit.pinned {
     notes.push(format!("pinned, keeps its slot: {}", pin_reason(unit)));
   }
+  match unit.end {
+    Some(super::End::First) => {
+      notes.push("`// mto: first`: goes to the top of its section".to_string())
+    }
+    Some(super::End::Last) => {
+      notes.push("`// mto: last`: goes to the bottom of its section".to_string())
+    }
+    None => {}
+  }
   if unit.held {
     notes.push("held by `// mto: hold`: keeps its neighbours, nothing moves across it".to_string());
   }

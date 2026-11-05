@@ -22,6 +22,11 @@ fn test_a_directive_is_the_whole_comment_or_a_reason_after_dashes() {
   assert_eq!(parse("// mto: on  "), Some(Marker::On));
   assert_eq!(parse("// mto: pin -- keeps main first"), Some(Marker::Pin));
   assert_eq!(parse("// mto: off -- aligned by hand"), Some(Marker::Off));
+  assert_eq!(parse("// mto: first"), Some(Marker::First));
+  assert_eq!(
+    parse("// mto: last -- the deprecated shims"),
+    Some(Marker::Last)
+  );
   for not in [
     "//mto: off",
     "// mto:off",

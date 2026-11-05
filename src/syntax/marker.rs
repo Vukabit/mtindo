@@ -1,7 +1,9 @@
 //! mto's directives, written as line comments: `// mto: off` and `// mto: on` around
 //! code mto leaves exactly as written, `// mto: pin` above an item layout keeps in its
 //! place, `// mto: section`, where a section starts when `sections = "markers"`, and
-//! `// mto: hold` above an item that keeps its neighbours, as a build guard's hold keeps it.
+//! `// mto: hold` above an item that keeps its neighbours, as a build guard's hold keeps it,
+//! and `// mto: first` or `// mto: last` above an item layout puts at the top or the bottom
+//! of its section.
 //!
 //! A directive is a line comment alone on its line whose whole text is the directive, with
 //! nothing after it but whitespace, or ` -- ` and a reason (`// mto: off -- aligned by
@@ -25,6 +27,10 @@ pub enum Marker {
   Section,
   /// `// mto: hold`: the item below keeps its neighbours; nothing moves across it.
   Hold,
+  /// `// mto: first`: the item below goes to the top of its section.
+  First,
+  /// `// mto: last`: the item below goes to the bottom of its section.
+  Last,
 }
 
 /// What a file's directives say: the regions left as written (byte ranges of the source),
@@ -148,6 +154,8 @@ pub fn parse(comment: &str) -> Option<Marker> {
     "pin" => Some(Marker::Pin),
     "section" => Some(Marker::Section),
     "hold" => Some(Marker::Hold),
+    "first" => Some(Marker::First),
+    "last" => Some(Marker::Last),
     _ => None,
   }
 }
@@ -205,7 +213,7 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
     match (marker, here) {
       (Marker::Pin, _) => found.pins.push(start),
       (Marker::Hold, _) => found.holds.push(start),
-      (Marker::Section, _) => {}
+      (Marker::Section | Marker::First | Marker::Last, _) => {}
       (Marker::Off, None) => {
         found.offs.push(start);
         open.push((block, start));
@@ -242,8 +250,8 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
 }
 
 /// The directive a comment's text seems meant as, written loosely: `mto` in any case, an
-/// optional colon, then `off` (or `of`), `on`, `pin`, `section` or `hold`, as a word of its
-/// own.
+/// optional colon, then `off` (or `of`), `on`, `pin`, `section`, `hold`, `first` or `last`,
+/// as a word of its own.
 fn directive_word(body: &str) -> Option<&'static str> {
   // Asked of every comment, so nothing is copied: the words are ASCII.
   let rest = body
@@ -255,7 +263,7 @@ fn directive_word(body: &str) -> Option<&'static str> {
     .find(|c: char| !c.is_ascii_alphanumeric())
     .unwrap_or(rest.len());
   let word = &rest[..end];
-  ["off", "of", "on", "pin", "section", "hold"]
+  ["off", "of", "on", "pin", "section", "hold", "first", "last"]
     .into_iter()
     .find(|w| word.eq_ignore_ascii_case(w))
     .map(|w| if w == "of" { "off" } else { w })

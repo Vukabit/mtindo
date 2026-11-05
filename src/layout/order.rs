@@ -83,6 +83,8 @@ pub enum Rule {
   Deprecated,
   /// `#[doc(hidden)]` items last (`order_keys`).
   Hidden,
+  /// At the top or the bottom of its section (`// mto: first`, `// mto: last`).
+  End,
 }
 
 impl Rule {
@@ -110,6 +112,7 @@ impl Rule {
       Rule::Entry => "entry",
       Rule::Deprecated => "deprecated",
       Rule::Hidden => "hidden",
+      Rule::End => "end",
     }
   }
 
@@ -139,6 +142,7 @@ impl Rule {
       Rule::Entry => "fn main first (order_keys)",
       Rule::Deprecated => "#[deprecated] items last (order_keys)",
       Rule::Hidden => "#[doc(hidden)] items last (order_keys)",
+      Rule::End => "at an end of its section (// mto: first, // mto: last)",
     }
   }
 }
@@ -375,6 +379,9 @@ pub(super) fn reason(arranged: &[Unit], at: usize, config: &LayoutConfig) -> Rul
   let unit = &arranged[at];
   if unit.pinned {
     return Rule::Slot;
+  }
+  if unit.end.is_some() {
+    return Rule::End;
   }
   // Next to its user: the first unit after it (before it, for one kept below) that is
   // not another helper of that user.
@@ -964,6 +971,7 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
   if config.flow != Flow::Off {
     free = flowed(free, config, &families);
   }
+  free = super::to_ends(free);
   if free.iter().any(|u| u.caller.is_some()) {
     free = near_callers(free);
   }

@@ -1880,6 +1880,18 @@ fn test_struct_lit_single_line_off() {
 }
 
 #[test]
+fn test_struct_literals_with_block_comments_on_one_line() {
+  // A struct literal or pattern whose comments are block comments on its fields' lines
+  // stays on one line where it fits; a line comment, or a `..base`, puts a field per line.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    let s = S { /*a*/ x: 1 };\n    let S { x /*a*/ } = s;\n    let S { /*a*/ x, y } = s;\n    let s = S { x: 1 /*a*/, ..d };\n    g(S { /*a*/ x: 1, y /*b*/ });\n    let s = S { x: 1, // a\n y: 2 };\n}\n"
+    ),
+    "fn f() {\n    let s = S { /*a*/ x: 1 };\n    let S { x /*a*/ } = s;\n    let S { /*a*/ x, y } = s;\n    let s = S {\n        x: 1, /*a*/\n        ..d\n    };\n    g(S {\n        /*a*/ x: 1,\n        y, /*b*/\n    });\n    let s = S {\n        x: 1, // a\n        y: 2,\n    };\n}\n"
+  );
+}
+
+#[test]
 fn test_super_let() {
   // A `super let` is laid out as a `let`.
   assert_eq!(

@@ -5181,6 +5181,42 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
       {
         return None;
       }
+      // Only block comments on one line, each on its field's line, and no `..base`: on one
+      // line with them where that fits, as any literal (`definitive_tactic` goes a field per
+      // line for a line comment).
+      let inline = |c: &Option<String>| {
+        c.as_deref()
+          .is_none_or(|c| c.trim_start().starts_with("/*") && !c.contains('\n'))
+      };
+      let beside: Option<Vec<String>> = all
+        .iter()
+        .zip(&comments)
+        .map(|(text, c)| {
+          if !inline(&c.pre)
+            || !inline(&c.post)
+            || c.pre.is_some() && !c.pre_same_line
+            || c.new_lines
+            || text.contains('\n')
+          {
+            return None;
+          }
+          let pre = c.pre.as_deref().map(|p| format!("{} ", p.trim()));
+          let post = c.post.as_deref().map(|p| format!(" {}", p.trim()));
+          Some(format!(
+            "{}{}{}",
+            pre.unwrap_or_default(),
+            text,
+            post.unwrap_or_default()
+          ))
+        })
+        .collect();
+      if let Some(beside) = beside
+        && single_line
+        && spread.is_none()
+        && h_width.is_some_and(|w| definitive(&beside, w) == Tactic::Horizontal)
+      {
+        return Some(format!("{} {{ {} }}", path, beside.join(", ")));
+      }
       // In a macro's arguments a trailing comma stays as written.
       let written_comma = list
         .children_with_tokens()

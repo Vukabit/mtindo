@@ -242,7 +242,7 @@ pub fn variant_fields_on_lines(node: &SyntaxNode) -> bool {
       .children_iter()
       .find(|c| c.kind() == K::RecordFieldList)
       .is_some_and(|fields| {
-        !fields.children().is_empty()
+        !fields.children_iter().next().is_none()
           && fields.subtree_has(|kind| {
             (kind.is_trivia() && kind != K::Whitespace) || is_doc(kind) || kind == K::Attr
           })
@@ -1251,7 +1251,7 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
     && let Some(fields) = node
       .children_iter()
       .find(|c| c.kind() == K::RecordFieldList)
-    && !fields.children().is_empty()
+    && !fields.children_iter().next().is_none()
     && fields
       .children_with_tokens_iter()
       .any(|e| e.kind() == K::BlockComment)
@@ -1340,7 +1340,7 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
       .filter(|e| e.text_range() != fields.text_range())
       .any(unwanted)
     && comma_follows(node)
-    && !fields.children().is_empty()
+    && !fields.children_iter().next().is_none()
   {
     let head: Vec<SyntaxElement> = elements
       .iter()
@@ -1534,7 +1534,7 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
   let past =
     || indent + str_width(&flat_tokens(&code_tokens(&elements), spacing)) + 1 > config.max_width;
   if let Some(fields) = &fields
-    && !fields.children().is_empty()
+    && !fields.children_iter().next().is_none()
     && (wide(fields)
       || past()
       || node

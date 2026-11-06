@@ -181,15 +181,13 @@ fn cfg_attr_paths(item: &Item) -> Vec<String> {
 /// The text inside each `{ ... }` branch of a `cfg_if!` or `cfg_select!` call.
 fn cfg_if_blocks(call: &SyntaxNode) -> Vec<String> {
   let Some(tree) = call
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::TokenTree)
   else {
     return Vec::new();
   };
   tree
-    .children()
-    .into_iter()
+    .children_iter()
     .filter(|c| c.kind() == SyntaxKind::TokenTree)
     .filter_map(|block| {
       let text = block.to_string();
@@ -208,7 +206,7 @@ fn declared(
   here: &Path,
   found: &mut Vec<(String, Vec<PathBuf>, Option<PathBuf>)>,
 ) {
-  for node in container.children() {
+  for node in container.children_iter() {
     let Some(item) = Item::cast(node.clone()) else {
       continue;
     };
@@ -232,8 +230,7 @@ fn declared(
     let path = path_attr(&item);
     let alternatives = cfg_attr_paths(&item);
     let body = node
-      .children()
-      .into_iter()
+      .children_iter()
       .find(|c| c.kind() == SyntaxKind::ItemList);
     match body {
       Some(body) => {
@@ -283,8 +280,7 @@ fn declared(
 /// branches hold items.
 fn is_cfg_if(call: &SyntaxNode) -> bool {
   call
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::Path)
     .is_some_and(|path| {
       let text = path.to_string();

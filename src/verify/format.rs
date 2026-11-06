@@ -1329,7 +1329,7 @@ fn single_tuple(node: &SyntaxNode) -> bool {
   matches!(
     node.kind(),
     SyntaxKind::TupleExpr | SyntaxKind::TupleType | SyntaxKind::TuplePat
-  ) && node.children().len() == 1
+  ) && node.children_iter().count() == 1
 }
 
 /// The only expression in a block that has nothing else: no statements, label, attributes

@@ -1061,7 +1061,7 @@ pub fn shorthand_field(field: &SyntaxNode) -> bool {
 /// A closure's `|parameters|` (with `move`, `async` and a return type): flat, when the
 /// standard formatter keeps its parameters on one line.
 pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let body = &node.children().into_iter().last()?;
+  let body = &node.children_iter().next_back()?;
   // A struct pattern among its parameters past `struct_lit_width`, which the standard
   // formatter breaks a field per line, its fields one level in from the column after the
   // `|`.
@@ -1078,8 +1078,7 @@ pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> 
   // A parameter whose type breaks over lines: the parameters one per line, lined up after
   // the `|` (each laid out in the standard formatter's visually indented `param_shape`).
   let params: Vec<SyntaxNode> = node
-    .children()
-    .into_iter()
+    .children_iter()
     .filter(|c| c.kind() == SyntaxKind::ParamList)
     .flat_map(|list| list.children())
     .collect();
@@ -1090,8 +1089,7 @@ pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> 
   let nested = shape.offset_left(prefix[..opening].width())?.sub_width(4)?;
   let after_bar = nested.offset_left(1)?;
   let returned = node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::RetType)
     .map_or(0, |r| flat(&r, shape.limits.spacing).width());
   let texts: Vec<String> = params
@@ -1168,8 +1166,7 @@ pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> 
   // Its parameters one per line, each after the first lined up after its `|` (the
   // standard formatter's vertical tactic, visually indented); not with a return type.
   let params: Vec<SyntaxNode> = node
-    .children()
-    .into_iter()
+    .children_iter()
     .filter(|c| c.kind() == SyntaxKind::ParamList)
     .flat_map(|list| list.children())
     .collect();
@@ -1177,8 +1174,7 @@ pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> 
     return None;
   }
   let ret = node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::RetType);
   let opening = prefix.find('|')?;
   let column = shape.indent + shape.offset + prefix[..opening].width() + 1;
@@ -1837,8 +1833,7 @@ fn binary_one_line(
 /// width of its flat text before the body ([`closure_head`]).
 fn block_fits(closure: &SyntaxNode, prefix: usize, shape: Shape) -> bool {
   let params: Vec<SyntaxNode> = closure
-    .children()
-    .into_iter()
+    .children_iter()
     .filter(|c| c.kind() == SyntaxKind::ParamList)
     .flat_map(|list| list.children())
     .collect();
@@ -1891,15 +1886,13 @@ fn block_forced(body: &SyntaxNode, style_2024: bool) -> bool {
 fn braced_macro(node: &SyntaxNode, name: &str, shape: Shape) -> Option<String> {
   let call = if node.kind() == SyntaxKind::MacroExpr {
     node
-      .children()
-      .into_iter()
+      .children_iter()
       .find(|c| c.kind() == SyntaxKind::MacroCall)?
   } else {
     node.clone()
   };
   let tree = call
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::TokenTree)?;
   // A comment outside its braces (after them, in the statement it ends) would be lost.
   let (from, to) = (tree.text_range().start, tree.text_range().end);
@@ -1984,7 +1977,7 @@ fn closure_head(closure: &SyntaxNode, body: &SyntaxNode, spacing: Spacing) -> St
 /// operation, cast, field, index, range or `?` starting with a block-like expression.
 fn closure_with_block(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<String> {
   let mut left = body.clone();
-  while let Some(first) = left.children().into_iter().next()
+  while let Some(first) = left.children_iter().next()
     && matches!(
       left.kind(),
       SyntaxKind::CallExpr
@@ -2021,7 +2014,7 @@ fn closure_with_block(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
   // no block either (found by measuring it).
   let mut inner = body.clone();
   while matches!(inner.kind(), SyntaxKind::RefExpr | SyntaxKind::PrefixExpr)
-    && let Some(operand) = inner.children().into_iter().next()
+    && let Some(operand) = inner.children_iter().next()
   {
     inner = operand;
   }
@@ -2349,9 +2342,8 @@ fn is_block_expr(node: &SyntaxNode, text: &str) -> bool {
     | SyntaxKind::PrefixExpr
     | SyntaxKind::ClosureExpr
     | SyntaxKind::TryExpr => node
-      .children()
-      .into_iter()
-      .last()
+      .children_iter()
+      .next_back()
       .is_some_and(|inner| is_block_expr(&inner, text)),
     SyntaxKind::Literal => {
       text.contains('\n')
@@ -2739,15 +2731,13 @@ fn macro_mixed_arguments_once(
 fn macro_type_arguments(node: &SyntaxNode, spacing: Spacing) -> Option<MacroArguments> {
   let call = if node.kind() == SyntaxKind::MacroExpr {
     node
-      .children()
-      .into_iter()
+      .children_iter()
       .find(|c| c.kind() == SyntaxKind::MacroCall)?
   } else {
     node.clone()
   };
   let tree = call
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::TokenTree)?;
   let tokens: Vec<SyntaxKind> = tree.token_texts().map(|(kind, _, _)| kind).collect();
   if tokens.first() != Some(&SyntaxKind::LParen)
@@ -2758,8 +2748,7 @@ fn macro_type_arguments(node: &SyntaxNode, spacing: Spacing) -> Option<MacroArgu
     return None;
   }
   let path = call
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::Path)?;
   let name = format!("{}!", flat(&path, spacing));
   let text = tree.text();
@@ -3420,7 +3409,7 @@ fn one_element_tuple(comma: &SyntaxToken) -> bool {
       | SyntaxKind::TupleType
       | SyntaxKind::TuplePat
       | SyntaxKind::TupleStructPat
-  ) && parent.children().len() == 1
+  ) && parent.children_iter().count() == 1
 }
 
 /// The fewest columns `node` takes on one line, however it is laid out: its code tokens'
@@ -3501,21 +3490,18 @@ fn read_macro_arguments_once(
   use Unread::{AsWritten, Declined};
   let call = if node.kind() == SyntaxKind::MacroExpr {
     node
-      .children()
-      .into_iter()
+      .children_iter()
       .find(|c| c.kind() == SyntaxKind::MacroCall)
       .ok_or(Declined)?
   } else {
     node.clone()
   };
   let tree = call
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::TokenTree)
     .ok_or(Declined)?;
   let path = call
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::Path)
     .ok_or(Declined)?;
   let name = format!("{}!", flat(&path, spacing));
@@ -3591,15 +3577,14 @@ fn read_macro_arguments_once(
     .descendant_nodes_where(|kind| kind == SyntaxKind::ExprStmt)
     .next()
     .ok_or(AsWritten)?;
-  let expression = statement.children().into_iter().next().ok_or(AsWritten)?;
+  let expression = statement.children_iter().next().ok_or(AsWritten)?;
   let list = match list_kind {
     SyntaxKind::ArgList => {
       if expression.kind() != SyntaxKind::CallExpr {
         return Err(AsWritten);
       }
       expression
-        .children()
-        .into_iter()
+        .children_iter()
         .find(|c| c.kind() == SyntaxKind::ArgList)
         .ok_or(AsWritten)?
     }
@@ -4022,7 +4007,7 @@ fn rewrite_closure(node: &SyntaxNode, shape: Shape) -> Option<String> {
 
 /// [`rewrite_closure`], laid out afresh.
 fn rewrite_closure_once(node: &SyntaxNode, shape: Shape) -> Option<String> {
-  let body = node.children().into_iter().last()?;
+  let body = node.children_iter().next_back()?;
   let prefix = closure_prefix(node, shape)?;
   let body_shape = after_prefix(&prefix, shape)?;
   // Inside a macro's arguments the body keeps or lacks its block as written.
@@ -4143,7 +4128,7 @@ fn rewrite_last_closure(node: &SyntaxNode, shape: Shape) -> Option<String> {
   if shape.limits.inside_macro {
     return rewrite_closure(node, shape);
   }
-  let mut body = node.children().into_iter().last()?;
+  let mut body = node.children_iter().next_back()?;
   if plain_block(&body)
     && let Some(expression) = lone_expression(&body).filter(|e| !is_macro(e))
   {
@@ -4498,9 +4483,9 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
       // Parentheses directly around parentheses dropped.
       let mut outer = node.clone();
       while shape.limits.spacing.remove_nested_parens && nested_paren(&outer) {
-        outer = outer.children().into_iter().next()?;
+        outer = outer.children_iter().next()?;
       }
-      let inner = outer.children().into_iter().next()?;
+      let inner = outer.children_iter().next()?;
       // Its block comments after `(` and before `)`, as written there but for the space
       // around them.
       let (from, to) = (inner.text_range().start, inner.text_range().end);
@@ -4545,7 +4530,7 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
     | SyntaxKind::RefPat
     | SyntaxKind::BoxPat => {
       // `return` or `break` alone.
-      let Some(inner_node) = node.children().into_iter().last() else {
+      let Some(inner_node) = node.children_iter().next_back() else {
         let text = flat(node, shape.limits.spacing);
         return (text.width() <= shape.width).then_some(text);
       };
@@ -4618,8 +4603,8 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
     }
     SyntaxKind::OrPat => rewrite_or_pattern(node, shape),
     // `(pattern)`, the pattern laid out after the `(`.
-    SyntaxKind::ParenPat if node.children().len() == 1 => {
-      let inner = node.children().into_iter().next()?;
+    SyntaxKind::ParenPat if node.children_iter().count() == 1 => {
+      let inner = node.children_iter().next()?;
       let text = rewrite(&inner, shape.offset_left(1)?.sub_width(1)?)?;
       Some(format!("({})", text))
     }
@@ -4665,7 +4650,7 @@ fn rewrite_node(node: &SyntaxNode, shape: Shape) -> Option<String> {
         .last()
         .is_some_and(|c| c.kind().name().ends_with("_PAT")) =>
     {
-      let inner = node.children().into_iter().last()?;
+      let inner = node.children_iter().next_back()?;
       let prefix = flat(node, shape.limits.spacing)
         .strip_suffix(&flat(&inner, shape.limits.spacing))?
         .to_string();
@@ -4864,8 +4849,7 @@ fn rewrite_pair(
 /// kept on the line may run past the shape, for what holds the path to weigh.
 fn rewrite_path(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let path = node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::Path)?;
   super::types::rewrite_path(&path, shape, true)
 }
@@ -4909,12 +4893,11 @@ fn rewrite_range(node: &SyntaxNode, shape: Shape) -> Option<String> {
 /// line.
 fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
   let path = node
-    .children()
-    .into_iter()
+    .children_iter()
     .find(|c| c.kind() == SyntaxKind::Path)
     .map(|p| flat(&p, shape.limits.spacing))
     .unwrap_or_default();
-  let list = node.children().into_iter().find(|c| {
+  let list = node.children_iter().find(|c| {
     matches!(
       c.kind(),
       SyntaxKind::RecordExprFieldList | SyntaxKind::RecordPatFieldList
@@ -5257,8 +5240,7 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
     let mut body = String::new();
     // Inside a macro the last field keeps a comma only where written.
     let last_written = list
-      .children()
-      .into_iter()
+      .children_iter()
       .rev()
       .find(|c| c.kind() == SyntaxKind::RecordExprField)
       .is_some_and(|last| comma_after(&last));
@@ -5447,7 +5429,7 @@ fn short_pattern(node: &SyntaxNode) -> bool {
       .any(|c| c.kind().name().ends_with("_PAT")),
     // A bare name is a binding to the standard formatter.
     SyntaxKind::PathPat => !flat(node, Spacing::default()).contains("::"),
-    SyntaxKind::TuplePat => node.children().len() <= 1,
+    SyntaxKind::TuplePat => node.children_iter().count() <= 1,
     SyntaxKind::TupleStructPat => {
       let children = node.children();
       children
@@ -5566,9 +5548,8 @@ mod tests {
       .descendants()
       .into_iter()
       .find(|n| n.kind() == SyntaxKind::LetStmt)?
-      .children()
-      .into_iter()
-      .last()?;
+      .children_iter()
+      .next_back()?;
     let column = "    let x = ".len();
     rewrite(
       &node,

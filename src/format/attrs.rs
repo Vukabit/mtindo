@@ -33,7 +33,7 @@ fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Strin
   if has_comment(node) {
     return commented_derive(node, indent, config);
   }
-  let meta = node.children().into_iter().find(|c| c.kind() == K::Meta)?;
+  let meta = node.children_iter().find(|c| c.kind() == K::Meta)?;
   let marks = node.children_with_tokens();
   // `#[unsafe(name ...)]`: the name and its arguments laid out inside `unsafe(` and `)`.
   let safe = !marks.iter().any(|e| e.kind() == K::UnsafeKw);
@@ -45,16 +45,13 @@ fn attr(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option<Strin
   };
   let close = if safe { "]" } else { ")]" };
   let spacing = Spacing::of(config);
-  let tree = meta
-    .children()
-    .into_iter()
-    .find(|c| c.kind() == K::TokenTree);
+  let tree = meta.children_iter().find(|c| c.kind() == K::TokenTree);
   let text = match tree {
     // `#[name]` and `#[name = value]`: one line.
     None => format!("{}{}{}", open, flat(&meta, spacing), close),
     Some(tree) => {
       let path = flat(
-        &meta.children().into_iter().find(|c| c.kind() == K::Path)?,
+        &meta.children_iter().find(|c| c.kind() == K::Path)?,
         spacing,
       );
       if path == "derive" {
@@ -125,8 +122,7 @@ fn call(
   let call = root
     .descendant_nodes_where(|kind| kind == K::ExprStmt)
     .next()?
-    .children()
-    .into_iter()
+    .children_iter()
     .next()
     .filter(|n| n.kind() == K::CallExpr)?;
   // The lines inside a broken attribute end a column short of the line width; on one line

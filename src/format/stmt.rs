@@ -2241,7 +2241,7 @@ fn takes(node: &SyntaxNode) -> bool {
         || matches!(expression.kind(), K::WhileExpr | K::ForExpr)
         // `return` or `break` with a value.
         || matches!(expression.kind(), K::ReturnExpr | K::BreakExpr)
-          && !expression.children().is_empty()
+          && !expression.children_iter().next().is_none()
     })
 }
 

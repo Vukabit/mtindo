@@ -533,7 +533,12 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
   // ends inside one.
   let mut lines: Vec<(&str, bool, bool)> = Vec::new();
   let mut offset = snippet.find('\n').map_or(snippet.len(), |n| n + 1);
-  let first = snippet[..offset].trim_end();
+  // Its end kept where it is inside a string, which it is part of.
+  let first = if offset > 0 && in_string.contains(&(offset - 1)) {
+    &snippet[..offset - 1]
+  } else {
+    snippet[..offset].trim_end()
+  };
   while offset <= snippet.len()
     && offset > 0
     && offset - 1 < snippet.len()
@@ -596,10 +601,21 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
     return snippet.to_string();
   };
   let mut out = first.to_string();
-  for (&(line, _, ends_in), keep) in lines.iter().zip(kept) {
+  for (&(line, starts_in, ends_in), keep) in lines.iter().zip(kept) {
     out.push('\n');
     if keep {
       out.push_str(line);
+    } else if starts_in {
+      // A string continued with `\`: Rust skips only spaces, tabs and line breaks after it,
+      // so any other whitespace (a vertical tab) is the string's and stays.
+      let rest = line.trim_start_matches([' ', '\t', '\r']);
+      if !rest.is_empty() {
+        out.push_str(&indentation(
+          indent + leading(line).saturating_sub(least),
+          config,
+        ));
+        out.push_str(if ends_in { rest } else { rest.trim_end() });
+      }
     } else if !line.trim().is_empty() {
       // In tabs with `hard_tabs`, as the standard formatter's `Indent::to_string` writes.
       out.push_str(&indentation(
@@ -741,15 +757,53 @@ pub(super) fn tabbed<'a>(text: &'a str, config: &FormatConfig) -> std::borrow::C
   }
   let mut out = String::with_capacity(text.len());
   let mut start = 0;
-  for line in text.split_inclusive('\n') {
+  // The line before: its indentation, and the column of a line comment ending it.
+  let mut before: Option<(usize, Option<usize>)> = None;
+  let lines: Vec<&str> = text.split_inclusive('\n').collect();
+  // Whether the lines from `n` on are line comments up to one starting with a closing
+  // delimiter.
+  let last_comments = |n: usize| {
+    lines[n..]
+      .iter()
+      .map(|l| l.trim_start())
+      .find(|l| !l.starts_with("//") && !l.is_empty())
+      .is_some_and(|l| l.starts_with(['}', ')', ']']))
+  };
+  for (n, line) in lines.iter().copied().enumerate() {
     let in_string = strings.iter().any(|&(s, e)| s < start && start < e);
+    let spaces = line.len() - line.trim_start_matches(' ').len();
     if start > 0 && !in_string {
-      let spaces = line.len() - line.trim_start_matches(' ').len();
-      out.push_str(&indentation(spaces, config));
+      match before {
+        // A line comment lined up under one ending the line before: that line's
+        // indentation in tabs, the rest in spaces, as the standard formatter writes a
+        // shape's block indentation and alignment.
+        Some((indent, Some(column)))
+          if line[spaces..].starts_with("//")
+            && spaces == column
+            && indent < column
+            && last_comments(n) =>
+        {
+          out.push_str(&indentation(indent, config));
+          out.push_str(&" ".repeat(column - indent));
+        }
+        _ => out.push_str(&indentation(spaces, config)),
+      }
       out.push_str(&line[spaces..]);
     } else {
       out.push_str(line);
     }
+    let comment = (line.contains("//"))
+      .then(|| crate::syntax::parse_tokens(line, Edition::E2021))
+      .into_iter()
+      .flatten()
+      .scan(0, |at, (kind, text)| {
+        let here = *at;
+        *at += text.len();
+        Some((kind, here))
+      })
+      .find(|&(kind, _)| kind == SyntaxKind::LineComment)
+      .map(|(_, at)| width_of(&line[..at], config.tab_spaces));
+    before = (!in_string).then_some((spaces, comment));
     start += line.len();
   }
   std::borrow::Cow::Owned(out)
@@ -1675,6 +1729,14 @@ fn format_text_with(source: &str, edition: Edition, config: &FormatConfig, strip
       let root = parse(&stripped, edition).syntax_node();
       nodes = PassNodes::default();
       (Cow::Owned(stripped), root)
+    }
+    None => (text, root),
+  };
+  let (text, root) = match crate::format::reorder::touching_comments(&root, &text) {
+    Some(spaced) => {
+      let root = parse(&spaced, edition).syntax_node();
+      nodes = PassNodes::default();
+      (Cow::Owned(spaced), root)
     }
     None => (text, root),
   };
@@ -2775,6 +2837,8 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
   // A trailing comment's column, as written and as output; whether it ends a statement;
   // the indentation of the statement's line; whether it is a list's last item's.
   let mut comment_column: Option<(usize, usize, bool, usize, bool)> = None;
+  // The indentation of the line `comment_column`'s comment ends.
+  let mut comment_line_indent = 0;
   // The line comment just written ends a line of code: no line break since.
   let mut trailing_fresh = false;
   let mut out_line_start = 0usize;
@@ -3062,8 +3126,26 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         out.push('\n');
       }
       out_line_start = out.len();
+      // With `hard_tabs`, comments lined up under one ending a container's last line of
+      // code take its indentation in tabs and the rest in spaces, as the standard
+      // formatter writes a shape's block indentation and alignment; others take tabs for
+      // as many columns as they fill.
+      let last_comments = || {
+        tokens[i + 1..]
+          .iter()
+          .find(|t| !t.kind.is_trivia())
+          .is_some_and(|t| roles.closers.contains_key(&t.start))
+      };
       if roles.kept_indent.contains(&next_start) {
         out.push_str(written_text);
+      } else if let Some((_, column, _, _, _)) = aligned
+        && config.hard_tabs
+        && shown == column
+        && comment_line_indent < column
+        && last_comments()
+      {
+        out.push_str(&indentation(comment_line_indent, config));
+        out.push_str(&" ".repeat(column - comment_line_indent));
       } else {
         out.push_str(&indentation(shown, config));
       }
@@ -3632,8 +3714,16 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
       let line_start = text[..tok.start].rfind('\n').map_or(0, |i| i + 1);
       let written = width_of(&text[line_start.max(text_line_start)..tok.start], tab);
       // From the output's last line start: a statement laid out whole is pushed with its
-      // lines.
-      let output = line_width_of(&out[out.rfind('\n').map_or(0, |i| i + 1)..]);
+      // lines. With `hard_tabs` its indentation's tabs are a block's, each `tab_spaces`
+      // columns, under which the standard formatter lines the comments up; a tab past it,
+      // or one written in what is kept of the input, one column.
+      let line = &out[out.rfind('\n').map_or(0, |i| i + 1)..];
+      let output = if config.hard_tabs {
+        let code = line.trim_start_matches([' ', '\t']);
+        width_of(&line[..line.len() - code.len()], tab) + line_width_of(code)
+      } else {
+        line_width_of(line)
+      };
       // After a statement's end, the comments below it are the standard formatter's
       // `missed_spans` comment: before the 2024 style, aligned under this one.
       // So after an inner doc comment across lines ending on this line (`*/ // c`), an
@@ -3783,6 +3873,11 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
           next.is_some_and(|e| e.kind() == SyntaxKind::RBrace)
         });
       comment_column = Some((written, output, after_statement, block, last_item));
+      // Its line's indentation, which comments lined up under it may keep in tabs.
+      comment_line_indent = {
+        let line = &out[out.rfind('\n').map_or(0, |i| i + 1)..];
+        width_of(&line[..line.len() - line.trim_start().len()], tab)
+      };
       trailing_fresh = true;
     }
     // An empty body's `}` kept apart from its `{`, written touching.

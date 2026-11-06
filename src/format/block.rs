@@ -244,15 +244,17 @@ pub fn wrapped(expression: &SyntaxNode, shape: Shape) -> Option<String> {
     // ([`given_up`]); on one line only, so a second run weighs the same text. Not one
     // holding a block, or a closure inside a closure, whose own blocks decide for them:
     // weighed here too, each level of closures nested in closures would weigh all those
-    // inside it again.
+    // inside it again. But one written on one line holding no closure (a `match` whose
+    // arm is a block), which weighs no level twice.
     _ => rewrite(expression, inner).or_else(|| {
-      let nested = expression
-        .descendant_nodes_where(|kind| matches!(kind, K::ClosureExpr | K::BlockExpr))
-        .any(|n| n.kind() == K::BlockExpr || &n != expression);
-      (!nested)
-        .then(|| given_up(expression, inner))
-        .flatten()
-        .filter(|t| !t.contains('\n'))
+      (!holds_nested(expression)
+        || !expression.text().contains('\n')
+          && !expression
+            .descendant_nodes_where(|kind| kind == K::ClosureExpr)
+            .any(|n| &n != expression))
+      .then(|| given_up(expression, inner))
+      .flatten()
+      .filter(|t| !t.contains('\n'))
     })?,
   };
   Some(format!(
@@ -447,7 +449,10 @@ fn block_body_once(block: &SyntaxNode, shape: Shape) -> Option<String> {
     _ if is_tail(node) => statement(node, inner, &config)
       .or_else(|| macro_as_written(node))
       // Not a block or control expression, whose head and blocks the standard formatter
-      // lays out apart.
+      // lays out apart. Nor, in a closure's block, one across lines holding a block or a
+      // closure, which [`wrapped`] keeps in none: the closure written without its block
+      // would not keep it, and a second run would weigh the layouts around it by how the
+      // first wrote it.
       .or_else(|| {
         (!matches!(
           node.kind(),
@@ -455,6 +460,11 @@ fn block_body_once(block: &SyntaxNode, shape: Shape) -> Option<String> {
         ))
         .then(|| given_up(node, inner))
         .flatten()
+        .filter(|t| {
+          !t.contains('\n')
+            || !block.parent().is_some_and(|p| p.kind() == K::ClosureExpr)
+            || !holds_nested(node)
+        })
       }),
     K::MacroCall => braced_macro(node, inner).or_else(|| item(node, inner, &config)),
     K::Use | K::Const | K::Static | K::TypeAlias | K::ExternCrate => item(node, inner, &config),
@@ -637,6 +647,14 @@ fn gives_up_whole(node: &SyntaxNode, inner: Shape, any_string: bool, string_line
   // A line past the width with no width to keep to, unless the layout within the width
   // fits (what breaks only for want of room: parameters, generic arguments).
   past_width(&laid) && lay(inner, &inner.limits.config()).is_none_or(|text| past_width(&text))
+}
+
+/// Whether an expression holds a block, or a closure inside it: one whose own blocks decide
+/// for it, which [`wrapped`] keeps as written in none.
+fn holds_nested(expression: &SyntaxNode) -> bool {
+  expression
+    .descendant_nodes_where(|kind| matches!(kind, K::ClosureExpr | K::BlockExpr))
+    .any(|n| n.kind() == K::BlockExpr || &n != expression)
 }
 
 /// The statement again with the insides of each outermost block in it taken out (`{}`),

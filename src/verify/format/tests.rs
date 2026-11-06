@@ -433,7 +433,21 @@ fn test_each_allowed_rewrite() {
     "/// ```\n/// f(a, b)\n/// let Some(x) = y else { return };\n/// ```\nfn f() {}\n",
     "/// ```\n/// f(a, b,)\n/// let Some(x) = y else {\n///     return;\n/// };\n/// ```\nfn f() {}\n",
   );
-  assert_eq!(REWRITES.len(), 30);
+  // lazy-static-generics: in `lazy_static!` a type's `>>` written apart, a comma before each;
+  // in another macro's arguments they stay one token.
+  same(
+    "lazy_static! {\n    static ref M: Mutex<HashMap<u32, u8>> = m();\n}\n",
+    "lazy_static! {\n    static ref M: Mutex<\n        HashMap<u32, u8>,\n    > = m();\n}\n",
+  );
+  assert!(
+    !verify_format(
+      "fn f() { m!(Vec<Vec<u8>>); }\n",
+      "fn f() { m!(Vec<Vec<u8> >); }\n",
+      Edition::E2021
+    )
+    .is_empty()
+  );
+  assert_eq!(REWRITES.len(), 31);
 }
 
 /// Punctuation rustc does not glue may touch or not in a macro's arguments.

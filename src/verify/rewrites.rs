@@ -12,6 +12,12 @@ pub const REWRITES: &[Rewrite] = &[
                  clauses, macro arguments) is optional. A one-element tuple keeps its comma: `(a,)` is a tuple, `(a)` is not.",
   },
   Rewrite {
+    name: "lazy-static-generics",
+    reason: "In `lazy_static!`, whose entries are `static ref NAME: TYPE = VALUE;`, a `>>` \
+                 closes two generic lists of a type, as `> >` does: the standard formatter \
+                 writes them apart, a trailing comma before each, when it breaks the type.",
+  },
+  Rewrite {
     name: "closure-body-braces",
     reason: "A closure whose body is a block holding only an expression means the same with \
                  the braces removed, however deep: `|x| { x }` and `|x| { { x } }` are `|x| x`.",

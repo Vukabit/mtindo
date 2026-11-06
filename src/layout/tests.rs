@@ -24,6 +24,29 @@ fn test_a_comment_between_items_on_one_line_stays_loose() {
   assert_eq!(arranged(&laid.text), laid.text);
 }
 
+/// In a paragraph, a comment between two items on one line stays between them on that line:
+/// the paragraph joins them as written. Laid out apart, the comment would end the line of
+/// the item before and attach to it. Found by the comment-insertion fuzz target.
+#[test]
+fn test_a_comment_between_items_on_one_line_stays_there_in_a_paragraph() {
+  use crate::options::layout::OrderKey;
+  let config = LayoutConfig {
+    order_keys: vec![OrderKey::Visibility, OrderKey::Name],
+    reorder_impl_items: true,
+    keep_paragraphs: true,
+    ..LayoutConfig::default()
+  };
+  let source = "impl T {\n    fn i() {}\n\n    pub const B: u8 = 1; /* c */ const Q: u8 = 2;\n}\n";
+  let laid = layout(source, &config).unwrap();
+  assert_eq!(
+    laid.text,
+    "impl T {\n    pub const B: u8 = 1; /* c */ const Q: u8 = 2;\n\n    fn i() {}\n}\n"
+  );
+  let violations = crate::verify::verify_layout(source, &laid.text, laid.edition);
+  assert!(violations.is_empty(), "{:?}", violations);
+  assert_eq!(arranged_with(&laid.text, &config), laid.text);
+}
+
 #[test]
 fn test_a_comment_touching_its_item_still_heads_it_with_sections() {
   let config = with_sections(Sections::Comments);

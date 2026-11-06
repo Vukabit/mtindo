@@ -1330,10 +1330,6 @@ pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
   })
 }
 
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
-}
-
 /// Whether `node` is a struct literal with a comment between a field's attribute and the
 /// field, which the standard formatter's layout loses and so keeps the literal as written
 /// (`recover_comment_removed`).
@@ -1354,6 +1350,10 @@ pub(super) fn lost_field_comment(node: &SyntaxNode) -> bool {
         }
         false
       })
+}
+
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
 }
 
 /// Whether a control expression's head spans lines laid out in `shape`, its `{` included.
@@ -1753,11 +1753,22 @@ fn binary_lines(
     .sub_width(shape.rhs_overhead())?;
   let used = shape.indent + shape.offset;
   let mut result = rewrites[0].clone()?;
+  // An operand kept as written may hold tabs, from a run with `hard_tabs`: each counts as
+  // the columns it stands for there, as a second run would read them.
+  let tab = shape.limits.tab;
+  let last_columns = |text: &str| columns(text.rsplit('\n').next().unwrap_or(""), tab);
+  let leading_columns = |text: &str| {
+    let last = text.rsplit('\n').next().unwrap_or("");
+    columns(
+      &last[..last.len() - last.trim_start_matches([' ', '\t']).len()],
+      tab,
+    )
+  };
   for (operand, text) in operands[1..].iter().zip(&rewrites[1..]) {
     let offset = if result.contains('\n') { 0 } else { used };
-    if last_line_width(&result) + offset <= nested.indent + nested.offset
+    if last_columns(&result) + offset <= nested.indent + nested.offset
       && let Some(line) = shape.offset_left(
-        operator.width() + 2 + last_line_width(&result).saturating_sub(leading_width(&result)),
+        operator.width() + 2 + last_columns(&result).saturating_sub(leading_columns(&result)),
       )
       && let Some(snug) = rewrite(operand, line)
     {
@@ -2032,6 +2043,20 @@ fn closure_with_block(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
   Some(format!("{} {}", prefix, block))
 }
 
+/// The display width of `text`, a tab counting `tab` columns.
+fn columns(text: &str, tab: usize) -> usize {
+  text
+    .chars()
+    .map(|c| {
+      if c == '\t' {
+        tab
+      } else {
+        crate::text::unicode::char_width(c)
+      }
+    })
+    .sum()
+}
+
 /// Whether a comma is written after `node`, comments and whitespace aside.
 fn comma_after(node: &SyntaxNode) -> bool {
   let mut next = node.next_sibling_or_token();
@@ -2292,6 +2317,60 @@ fn if_on_one_line(node: &SyntaxNode, limits: Limits) -> bool {
   }
 }
 
+/// For each line of a list laid out as `text` (its opening delimiter at `open`), whether it
+/// is inside the braces of an item's block: an item that is a block, or a closure whose body
+/// is one. Its `{` and `}` lines are the item's own.
+fn in_item_blocks(text: &str, open: usize, items: &[SyntaxNode]) -> Vec<bool> {
+  let block = |item: &SyntaxNode| match item.kind() {
+    SyntaxKind::BlockExpr => true,
+    SyntaxKind::ClosureExpr => item
+      .children_iter()
+      .next_back()
+      .is_some_and(|body| body.kind() == SyntaxKind::BlockExpr),
+    _ => false,
+  };
+  let mut inside = vec![false; text.matches('\n').count() + 1];
+  if !items.iter().any(block) {
+    return inside;
+  }
+  let (mut at, mut line, mut depth, mut item) = (0, 0, 0usize, 0);
+  // Each item's last `{` directly inside the list, and the line it closes on.
+  let mut opened: Option<usize> = None;
+  for (kind, piece) in crate::syntax::parse_tokens(text, Edition::E2021) {
+    if at >= open {
+      match kind {
+        SyntaxKind::LParen | SyntaxKind::LBrack => depth += 1,
+        SyntaxKind::LBrace => {
+          if depth == 1 {
+            opened = Some(line);
+          }
+          depth += 1;
+        }
+        SyntaxKind::RParen | SyntaxKind::RBrack => depth = depth.saturating_sub(1),
+        SyntaxKind::RBrace => {
+          depth = depth.saturating_sub(1);
+          if depth == 1
+            && let Some(from) = opened.take()
+            && items.get(item).is_some_and(block)
+          {
+            for slot in inside.iter_mut().take(line).skip(from + 1) {
+              *slot = true;
+            }
+          }
+        }
+        SyntaxKind::Comma if depth == 1 => {
+          item += 1;
+          opened = None;
+        }
+        _ => {}
+      }
+    }
+    at += piece.len();
+    line += piece.matches('\n').count();
+  }
+  inside
+}
+
 /// For each line of `text`, whether it starts inside a raw string (or, from style edition
 /// 2024, a string continued with `\`).
 fn in_raw_string(text: &str, style_2024: bool) -> Vec<bool> {
@@ -2430,12 +2509,6 @@ fn last_item_shape(
     ..shape
   }
   .offset_left(offset)
-}
-
-/// The width of the indentation `text`'s last line starts with.
-fn leading_width(text: &str) -> usize {
-  let last = text.rsplit('\n').next().unwrap_or("");
-  last.width() - last.trim_start().width()
 }
 
 /// For each line of `text`, whether it is a block comment's own: it starts inside one, and
@@ -3334,11 +3407,18 @@ fn measured_list(
       })
     };
     // A line inside a raw string spanning lines is not measured: kept as written
-    // (`format_expr`), where a plain string's lines are (`rewrite_string_lit`).
-    (!later_line_past(&text, shape.limits.max_width)
-      || fits(&[])
-      || fits(&in_raw_string(&text, shape.limits.style_2024)))
-    .then_some(text)
+    // (`format_expr`), where a plain string's lines are (`rewrite_string_lit`). Nor is one
+    // inside an item's block, whose statements the standard formatter lays out one by one,
+    // keeping one it gives up on as written there whatever its width.
+    if !later_line_past(&text, shape.limits.max_width) || fits(&[]) {
+      return Some(text);
+    }
+    let raw = in_raw_string(&text, shape.limits.style_2024);
+    let blocks = in_item_blocks(&text, ident.len(), items);
+    let either: Vec<bool> = (0..raw.len().max(blocks.len()))
+      .map(|i| raw.get(i) == Some(&true) || blocks.get(i) == Some(&true))
+      .collect();
+    fits(&either).then_some(text)
   }
 }
 

@@ -18,7 +18,7 @@ use crate::options::format::{FormatConfig, GroupImports};
 use crate::order::{UseTree, version_sort};
 use crate::syntax::ast::Attr;
 use crate::syntax::marker;
-use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode};
+use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 
 /// The nodes the passes here look at, found in one walk of the tree when a pass first asks
 /// for them: most files no pass changes, and a walk of its own per pass was most of what
@@ -903,21 +903,30 @@ pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -
       }
     }
     // Whitespace, then comments each ending its line, then the `}` on a line of its own.
+    // The first comment may touch the arm (`,//`), as though after no whitespace at all:
+    // the pass puts a space there, so a second run reads it so.
+    let touching = after.first().is_some_and(|t| t.kind() != K::Whitespace);
+    let after: Vec<Option<SyntaxToken>> = touching
+      .then_some(None)
+      .into_iter()
+      .chain(after.into_iter().map(Some))
+      .collect();
     let starts_line = |i: usize| {
       after
         .get(i)
+        .and_then(Option::as_ref)
         .is_some_and(|t| t.kind() == K::Whitespace && t.text().contains('\n'))
     };
-    let comments: Vec<usize> = (0..after.len())
-      .filter(|&i| after[i].kind() != K::Whitespace)
-      .collect();
+    let comment_at = |i: usize| after[i].as_ref().is_some_and(|t| t.kind() != K::Whitespace);
+    let comments: Vec<usize> = (0..after.len()).filter(|&i| comment_at(i)).collect();
     // The first comment may end the arm's own line instead; the rest go under it.
     let on_arm_line = !after.is_empty() && !starts_line(0);
     if comments.is_empty()
       || after.len() != comments.len() * 2 + 1
-      || !(0..after.len()).all(|i| (i % 2 == 1) == (after[i].kind() != K::Whitespace))
+      || !(0..after.len()).all(|i| (i % 2 == 1) == comment_at(i))
       || !(0..=comments.len()).all(|n| starts_line(n * 2) || n == 0 && on_arm_line)
-      || on_arm_line && (comments.len() < 2 || after[1].kind() != K::LineComment)
+      || on_arm_line
+        && (comments.len() < 2 || after[1].as_ref().is_none_or(|t| t.kind() != K::LineComment))
       || !on_arm_line
         && arm.last_token().is_some_and(|t| t.kind() == K::Comma)
         && !plain_block_body(&arm)
@@ -925,10 +934,11 @@ pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -
     {
       continue;
     }
-    let end = if on_arm_line {
-      after[1].text_range().start as usize - 1
-    } else {
-      arm.text_range().end as usize
+    let end = match &after[1] {
+      // Up to the space before it, which `under` counts again.
+      Some(first) if on_arm_line && !touching => first.text_range().start as usize - 1,
+      Some(first) if on_arm_line => first.text_range().start as usize,
+      _ => arm.text_range().end as usize,
     };
     let line_start = text[..end].rfind('\n').map_or(0, |i| i + 1);
     // Under the first comment: the arm's line, each of its characters a space but tabs.
@@ -939,9 +949,15 @@ pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -
         c => " ".repeat(crate::text::unicode::char_width(c)),
       })
       .collect();
-    under.push(' ');
+    // In the first comment's column as written, which the pass lines them up under.
+    if !(on_arm_line && touching) {
+      under.push(' ');
+    }
     for (n, &i) in comments.iter().enumerate() {
-      let space = &after[i - 1];
+      // The first comment's has none to replace when it touches the arm; it stays.
+      let Some(space) = &after[i - 1] else {
+        continue;
+      };
       let range = space.text_range();
       let replacement = if n == 0 {
         if on_arm_line {
@@ -1648,6 +1664,83 @@ pub fn strip_semicolons(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) ->
     at = end;
   }
   out.push_str(&text[at..]);
+  Some(out)
+}
+
+/// `text` with a space before each comment written touching the end of a statement or item
+/// (`x;// c`, `S {}/* c */`, `#[a]// c`), or a line comment touching a block's last
+/// expression (`x// c`), as the standard formatter writes one there: the rest of the
+/// pass then reads it as a second run will. `None` when there is none. Not in a
+/// `// mto: off` region, a skipped item or a macro's arguments.
+pub fn touching_comments(root: &SyntaxNode, text: &str) -> Option<String> {
+  // Most files have no comment written touching code: only those are walked.
+  if !text.match_indices(['/']).any(|(at, _)| {
+    at > 0
+      && matches!(text.as_bytes().get(at + 1), Some(b'/' | b'*'))
+      && !text.as_bytes()[at - 1].is_ascii_whitespace()
+  }) {
+    return None;
+  }
+  let mut spaced: Vec<usize> = Vec::new();
+  let mut before: Option<SyntaxToken> = None;
+  for element in root.descendants_with_tokens_iter() {
+    let SyntaxElement::Token(token) = element else {
+      continue;
+    };
+    if let Some(code) = before.as_ref().filter(|_| {
+      matches!(token.kind(), K::LineComment | K::BlockComment)
+        && !token.text().starts_with("///")
+        && !token.text().starts_with("//!")
+        && !token.text().starts_with("/**")
+        && !token.text().starts_with("/*!")
+    }) && code.text_range().end == token.text_range().start
+      && !token
+        .parent()
+        .ancestors_iter()
+        .any(|a| a.kind() == K::TokenTree)
+      && match code.kind() {
+        K::Semi => true,
+        K::RBrace => code
+          .parent()
+          .parent()
+          .is_none_or(|owner| owner.kind() != K::MatchArm),
+        K::RBrack => code.parent().kind() == K::Attr,
+        _ => {
+          token.kind() == K::LineComment
+            && code.parent().ancestors_iter().any(|a| {
+              crate::format::stmt::is_tail(&a)
+                && a
+                  .last_token()
+                  .is_some_and(|t| t.text_range() == code.text_range())
+            })
+        }
+      }
+      && !skipped_within(&token.parent())
+    {
+      spaced.push(token.text_range().start as usize);
+    }
+    if !token.kind().is_trivia() {
+      before = Some(token);
+    } else {
+      before = None;
+    }
+  }
+  if spaced.is_empty() {
+    return None;
+  }
+  let off = off_regions(root);
+  spaced.retain(|&at| !off.iter().any(|&(s, e)| s <= at && at < e));
+  if spaced.is_empty() {
+    return None;
+  }
+  let mut out = String::with_capacity(text.len() + spaced.len());
+  let mut from = 0;
+  for at in spaced {
+    out.push_str(&text[from..at]);
+    out.push(' ');
+    from = at;
+  }
+  out.push_str(&text[from..]);
   Some(out)
 }
 

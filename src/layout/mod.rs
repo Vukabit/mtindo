@@ -1111,6 +1111,10 @@ fn split_container(
     };
     unit.text = with_item(std::mem::take(&mut unit.text));
     unit.span = (unit_start, end);
+    // Joined to the unit before, from where that one ends: as written, the comments between
+    // them too, which belong to neither when they share the line with both
+    // (`a; /* c */ b`) and so stay between them, on that line.
+    let as_joined = |from: usize| with_item(text[from..end].to_string());
     if let (Some(previous), Some(previous_end)) = (units.last_mut(), last_item_end)
       && cfg_variants(previous, &unit)
       && !loose_comments
@@ -1140,8 +1144,7 @@ fn split_container(
       && previous.cfg_predicate == unit.cfg_predicate
       && !blank_line_in(&text[previous.span.1..start])
     {
-      previous.text.push_str(&text[previous.span.1..unit_start]);
-      previous.text.push_str(&unit.text);
+      previous.text.push_str(&as_joined(previous.span.1));
       previous.span.1 = end;
       previous.cfg_group = true;
       last_item_end = Some(end);
@@ -1156,8 +1159,7 @@ fn split_container(
       && in_paragraph(&unit)
       && !blank_line_in(&text[previous.span.1..start])
     {
-      previous.text.push_str(&text[previous.span.1..unit_start]);
-      previous.text.push_str(&unit.text);
+      previous.text.push_str(&as_joined(previous.span.1));
       previous.span.1 = end;
       previous.paragraph = true;
       last_item_end = Some(end);

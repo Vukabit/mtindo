@@ -513,7 +513,12 @@ fn emit_element<'a>(
         && last.start as usize + last.text.len() == range.start as usize
         && glues(&last.text, text)
       {
-        if parent.kind() == SyntaxKind::TokenTree {
+        // lazy-static-generics: but `>>` in `lazy_static!`, whose entries are `static ref
+        // NAME: TYPE = VALUE;`: it closes two generic lists there, as `> >` does, which the
+        // standard formatter writes apart when it breaks the type.
+        if parent.kind() == SyntaxKind::TokenTree
+          && !(text == ">" && last.text.ends_with('>') && in_lazy_static(parent))
+        {
           last.text.to_mut().push_str(text);
           return;
         }
@@ -1150,6 +1155,17 @@ fn glues(last: &str, next: &str) -> bool {
       | ("..", "." | "=")
       | (":", ":")
   )
+}
+
+/// Whether `node` is inside a `lazy_static!` call's arguments.
+fn in_lazy_static(node: &SyntaxNode) -> bool {
+  node.ancestors_iter().any(|a| {
+    a.kind() == SyntaxKind::MacroCall
+      && a
+        .children_iter()
+        .find(|c| c.kind() == SyntaxKind::Path)
+        .is_some_and(|p| p.text() == "lazy_static")
+  })
 }
 
 fn is_closer(kind: SyntaxKind) -> bool {

@@ -727,6 +727,39 @@ fn comments_before_semi(
   Some((text, elements[semi].text_range().end as usize))
 }
 
+/// The text between a list's delimiters when it holds only block comments, each on one line
+/// and apart from the next on that line (`/* a */ /* b */`), trimmed; `None` otherwise. Line
+/// breaks before the first and after the last do not count.
+fn comments_between_delimiters(list: &SyntaxNode) -> Option<String> {
+  let inside: Vec<SyntaxElement> = list
+    .children_with_tokens_iter()
+    .filter(|e| !matches!(e.kind(), K::LBrace | K::RBrace | K::LParen | K::RParen))
+    .collect();
+  let mut text = String::new();
+  let mut comments = 0;
+  // Whether a space has come since the last comment, and a line break.
+  let (mut apart, mut broken) = (true, false);
+  for element in &inside {
+    let SyntaxElement::Token(token) = element else {
+      return None;
+    };
+    match token.kind() {
+      K::BlockComment if apart && !(broken && comments > 0) && !token.text().contains('\n') => {
+        comments += 1;
+        apart = false;
+        broken = false;
+      }
+      K::Whitespace => {
+        apart = true;
+        broken |= token.text().contains('\n');
+      }
+      _ => return None,
+    }
+    text.push_str(token.text());
+  }
+  (comments > 0).then(|| text.trim().to_string())
+}
+
 /// A struct or enum variant whose fields' braces or parentheses hold only comments, as the
 /// standard formatter's `format_empty_struct_or_tuple` writes it: one block comment on one
 /// line between them, touching (`{/* c */}`); else the comments on lines one level in,
@@ -802,7 +835,8 @@ fn comments_only_struct(
       }
     })
     .collect();
-  let joined = texts.join(&pad);
+  // Block comments on one line, apart from each other, as written on it; else a line each.
+  let joined = comments_between_delimiters(&list).unwrap_or_else(|| texts.join(&pad));
   let tuple = list.kind() == K::TupleFieldList;
   let separator = if tuple { "" } else { " " };
   // A tuple struct ends with `;`, a variant with the list's comma.
@@ -1165,26 +1199,15 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
     }
   };
   let spacing = Spacing::of(config);
-  // A variant whose fields are only a block comment on one line: the comment between the
-  // delimiters, touching them (`V {/* c */}`, `V(/* c */) = 1`).
+  // A variant whose fields are only block comments on one line, apart from each other: they
+  // between the delimiters as written, touching them (`V {/* c */}`, `V(/* a */ /* b */) =
+  // 1`). Comments touching each other go a line each, as the standard formatter writes them.
   if node.kind() == K::Variant
     && let Some(fields) = node
       .children_iter()
       .find(|c| matches!(c.kind(), K::RecordFieldList | K::TupleFieldList))
     && fields.children_iter().next().is_none()
-    && let [comment] = fields
-      .children_with_tokens_iter()
-      .filter(|e| {
-        !matches!(
-          e.kind(),
-          K::Whitespace | K::LBrace | K::RBrace | K::LParen | K::RParen
-        )
-      })
-      .collect::<Vec<_>>()
-      .as_slice()
-    && comment.kind() == K::BlockComment
-    && let SyntaxElement::Token(comment) = comment
-    && !comment.text().contains('\n')
+    && let Some(comments) = comments_between_delimiters(&fields)
     && !elements
       .iter()
       .filter(|e| e.text_range() != fields.text_range())
@@ -1192,6 +1215,10 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
         (e.kind().is_trivia() && e.kind() != K::Whitespace)
           || matches!(e.kind(), K::Attr)
           || is_doc(e.kind())
+          // A comment inside the discriminant, which the line laid out here leaves out.
+          || matches!(e, SyntaxElement::Node(n) if n.subtree_has(|kind| {
+            matches!(kind, K::LineComment | K::BlockComment) || is_doc(kind)
+          }))
       })
   {
     let (from, to) = (fields.text_range().start, fields.text_range().end);
@@ -1233,7 +1260,7 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
       "{}{}{}{}{}{}",
       flat_tokens(&code_tokens(&head), spacing),
       open,
-      comment.text(),
+      comments,
       close,
       tail,
       comma
@@ -1357,9 +1384,11 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
   // between them only, are laid out as a list (below), which places the comments.
   let listed_fields = |e: &SyntaxElement| {
     match e {
-    SyntaxElement::Node(n) => {
-      node.kind() == K::Variant
+      SyntaxElement::Node(n) => {
+        node.kind() == K::Variant
         && n.kind() == K::TupleFieldList
+        // With a field at least, which the comments are placed around.
+        && n.children_of_kind(K::TupleField).next().is_some()
         && n.subtree_has(|kind| matches!(kind, K::Attr | K::BlockComment))
         && n.children_iter().all(|f| {
           !f.subtree_has(|kind| (kind.is_trivia() && kind != K::Whitespace) || is_doc(kind))
@@ -1367,9 +1396,9 @@ fn field_laid(node: &SyntaxNode, indent: usize, config: &FormatConfig) -> Option
         && n.children_with_tokens_iter().all(|t| {
           !matches!(t, SyntaxElement::Token(ref t) if t.kind() == K::BlockComment && t.text().contains('\n'))
         })
+      }
+      SyntaxElement::Token(_) => false,
     }
-    SyntaxElement::Token(_) => false,
-  }
   };
   if elements.iter().filter(|e| !listed_fields(e)).any(unwanted) {
     return None;

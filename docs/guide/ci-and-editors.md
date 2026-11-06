@@ -100,7 +100,7 @@ commit and at push), each built from source; `mto-system` and
 `mto-check-system` use the `mto` already installed. `mto-verify` runs
 `mto verify --ignored-revs` at push, so a commit `git blame` looks past is
 proved to be mto's work alone (see
-[Adopting layout](layout.md#adopting-layout-in-an-existing-project)). In
+[Verifying a layout commit](layout.md#verifying-a-layout-commit)). In
 `.pre-commit-config.yaml`:
 
 ```yaml

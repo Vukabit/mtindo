@@ -129,8 +129,13 @@ pub const COMMANDS: &[CommandSpec] = &[
   CommandSpec {
     name: "verify",
     args: "<REV>|--ignored-revs",
-    summary: "Prove a commit is mto's work: only moves and formatting, as mto writes them",
-    about: "Checks the commit REV names against its parent, Rust file by Rust file, with \
+    summary: "Prove a formatting commit hides nothing: only mto's own moves and formatting",
+    about: "For a commit meant to hold nothing but mto's work, such as one listed in \
+                `.git-blame-ignore-revs`, which `git blame` looks past: proves no other \
+                change is hidden in it. It is not a check of the working tree (that is \
+                `mto --check`), and not for a commit that changes what code does: such a \
+                commit does not verify, by design. Checks the commit REV names against its \
+                parent, Rust file by Rust file, with \
                 the settings the commit holds (its mto.toml, rustfmt.toml and Cargo.toml \
                 files; not the working tree's, and none from outside the repository): \
                 `reproduced` when mto, run on the \
@@ -142,8 +147,7 @@ pub const COMMANDS: &[CommandSpec] = &[
                 `NOT SAFE` when the checks find a change mto never makes, or a Rust file is \
                 added, deleted, renamed, or changes mode or link. Exits 0 when every file \
                 is reproduced or settings, 1 otherwise, 2 when it cannot check (with \
-                --json, the error as JSON). Made for the commits a project lists in \
-                `.git-blame-ignore-revs`: --ignored-revs verifies each commit the file \
+                --json, the error as JSON). --ignored-revs verifies each commit the file \
                 `blame.ignoreRevsFile` names lists (else `.git-blame-ignore-revs`), and \
                 exits 0 only when every one verifies; one that cannot be checked counts as \
                 not verified. Needs git.",
@@ -152,7 +156,7 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto verify --ignored-revs [--json]",
     ],
     options: &[("options", "mto verify", &[Flag::IgnoredRevs, Flag::Json])],
-    operand: Complete::Nothing,
+    operand: Complete::Live(Live::Revs),
     subcommands: &[],
     examples: &[
       "mto verify HEAD",
@@ -296,7 +300,7 @@ pub const COMMANDS: &[CommandSpec] = &[
       Subcommand {
         word: "show",
         summary: "List one run's files and where each stands now",
-        operand: Complete::Nothing,
+        operand: Complete::Live(Live::Runs),
       },
       Subcommand {
         word: "prune",
@@ -322,7 +326,7 @@ pub const COMMANDS: &[CommandSpec] = &[
                 `mto history`, which names its run anywhere.",
     usage: &["mto restore <RUN> [FILE...] [--force]"],
     options: &[("options", "mto restore <RUN> [FILE...]", &[Flag::Force])],
-    operand: Complete::Files,
+    operand: Complete::LiveThenFiles(Live::Runs),
     subcommands: &[],
     examples: &["mto restore last", "mto restore 3f9a src/lib.rs"],
   },
@@ -361,7 +365,7 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto doctor <RUN> [-- <COMMAND>...]",
     ],
     options: &[("options", "mto doctor", &[Flag::Json])],
-    operand: Complete::Nothing,
+    operand: Complete::Live(Live::Runs),
     subcommands: &[
       Subcommand {
         word: "on",
@@ -446,27 +450,27 @@ pub const COMMANDS: &[CommandSpec] = &[
       Subcommand {
         word: "show",
         summary: "Print one report",
-        operand: Complete::Nothing,
+        operand: Complete::Live(Live::Reports),
       },
       Subcommand {
         word: "save",
         summary: "Write one report to a file",
-        operand: Complete::Files,
+        operand: Complete::LiveThenFiles(Live::Reports),
       },
       Subcommand {
         word: "send",
         summary: "Open a new issue filled in with one report",
-        operand: Complete::Nothing,
+        operand: Complete::Live(Live::Reports),
       },
       Subcommand {
         word: "recheck",
         summary: "Run each report's bug again; remove those it no longer shows",
-        operand: Complete::Nothing,
+        operand: Complete::Live(Live::Reports),
       },
       Subcommand {
         word: "remove",
         summary: "Remove the reports named",
-        operand: Complete::Nothing,
+        operand: Complete::Live(Live::Reports),
       },
       Subcommand {
         word: "prune",
@@ -563,7 +567,10 @@ pub const COMMANDS: &[CommandSpec] = &[
     summary: "Print or install the completions for a shell",
     about: "Prints the completion script for SHELL: bash, zsh, fish or powershell. With no \
                 SHELL, it is the shell mto runs in: the parent process when that is a shell, \
-                else $SHELL. `install` writes the script where the shell loads completions \
+                else $SHELL. Besides the commands, flags, settings and paths, the scripts \
+                complete what only this machine knows, asking mto as they do: the runs \
+                `restore`, `history show` and `doctor` take, the reports `report` takes, and \
+                the branches, tags and commits `verify` and `--since` take. `install` writes the script where the shell loads completions \
                 from (or into DIR), and names the line to add to the shell's startup file when \
                 one is needed; mto never edits that file. Installing again changes nothing \
                 while the script is current. `uninstall` removes a script mto wrote, and \
@@ -1112,7 +1119,7 @@ pub enum CargoFlag {
 /// What a shell completes an argument to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Complete {
-  /// Nothing it could know: a number, a run, an id.
+  /// Nothing it could know: a number, a path in a commit.
   Nothing,
   /// Paths, Rust files first.
   Files,
@@ -1124,6 +1131,10 @@ pub enum Complete {
   Setting(&'static str),
   /// `KEY=VALUE` pairs: the settings `--config` takes, then after `=` the setting's values.
   Settings,
+  /// What `mto __complete` lists, read when the shell completes.
+  Live(Live),
+  /// The first argument [`Complete::Live`], the rest paths: `mto restore <RUN> [FILE...]`.
+  LiveThenFiles(Live),
 }
 
 /// Every flag mto accepts. The parser and the help text both read this table, so a flag
@@ -1240,6 +1251,35 @@ impl Group {
       Group::General => "general",
       Group::Command => "command options",
     }
+  }
+}
+
+/// What only the machine knows, asked of `mto __complete` as a shell completes: one
+/// `value<TAB>description` line each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Live {
+  /// `last`, then the newest runs' handles.
+  Runs,
+  /// The saved bug reports' ids.
+  Reports,
+  /// The repository's branches, tags and newest commits.
+  Revs,
+}
+
+impl Live {
+  pub const ALL: [Live; 3] = [Live::Runs, Live::Reports, Live::Revs];
+
+  /// The word `mto __complete` takes, and the shells' scripts pass.
+  pub fn name(self) -> &'static str {
+    match self {
+      Live::Runs => "runs",
+      Live::Reports => "reports",
+      Live::Revs => "revs",
+    }
+  }
+
+  pub fn named(name: &str) -> Option<Live> {
+    Live::ALL.into_iter().find(|live| live.name() == name)
   }
 }
 
@@ -1366,6 +1406,7 @@ impl FlagSpec {
       Flag::ConfigPath | Flag::StdinFilepath => Complete::Files,
       Flag::Dir => Complete::Dirs,
       Flag::Edition => Complete::Setting("edition"),
+      Flag::Since => Complete::Live(Live::Revs),
       Flag::StyleEdition => Complete::Setting("style_edition"),
       _ => Complete::Nothing,
     }

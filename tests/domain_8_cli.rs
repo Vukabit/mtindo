@@ -2832,6 +2832,61 @@ fn test_cli_version() {
   }
 }
 
+/// `mto __complete` lists what the scripts complete from: the runs, newest first after
+/// `last`; the repository's branches and commits; nothing for a word it does not know or
+/// a store that is empty. It writes nothing, not even a user config.
+#[test]
+fn test_complete_lists_runs_and_revisions_and_writes_nothing() {
+  let env = TestEnvironment::new();
+  let complete = |what: &str| {
+    let output = env.mto_cmd().args(["__complete", what]).output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", printed(&output.stderr));
+    assert!(output.stderr.is_empty(), "{}", printed(&output.stderr));
+    printed(&output.stdout)
+  };
+  for what in ["runs", "reports", "revs", "settings", ""] {
+    assert_eq!(complete(what), "", "{}", what);
+  }
+  assert!(!env.dir.path().join(".home").exists());
+  env.git_init("w");
+  env.write_file("w/src/lib.rs", "fn  a() {}\n");
+  env.git("w", &["add", "."]);
+  env.git("w", &["commit", "-qm", "the first commit"]);
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("w"))
+    .arg("src/lib.rs")
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(0), "{}", printed(&output.stderr));
+  let runs = complete("runs");
+  let lines: Vec<&str> = runs.lines().collect();
+  assert_eq!(lines.len(), 2, "{}", runs);
+  assert_eq!(lines[0], "last\tthis project's newest run");
+  let (handle, about) = lines[1].split_once('\t').unwrap();
+  assert!(handle.chars().all(|c| c.is_ascii_hexdigit()), "{}", runs);
+  assert!(about.contains("  1 file  mto src/lib.rs"), "{}", runs);
+  let output = env
+    .mto_cmd()
+    .current_dir(env.dir.path().join("w"))
+    .args(["__complete", "revs"])
+    .output()
+    .unwrap();
+  let revs = printed(&output.stdout);
+  assert!(
+    revs.starts_with("HEAD\tthe commit checked out\n"),
+    "{}",
+    revs
+  );
+  assert!(revs.lines().any(|l| l.ends_with("\tbranch")), "{}", revs);
+  assert!(
+    revs.lines().any(|l| l.ends_with("\tthe first commit")),
+    "{}",
+    revs
+  );
+  assert_eq!(complete("reports"), "");
+}
+
 /// The bash scripts complete what the tables hold, on every bash there is: macOS's 3.2 as
 /// well as a current one.
 #[test]
@@ -3022,6 +3077,111 @@ fn test_completions_bash_completes_from_the_tables() {
   }
 }
 
+/// The bash script completes runs and revisions from `mto __complete`, then paths after a
+/// run for `mto restore`.
+#[test]
+fn test_completions_bash_completes_runs_and_revisions() {
+  let env = TestEnvironment::new();
+  let script = env.write_file("mto.bash", &completion_script(&env, "bash"));
+  env.git_init("w");
+  env.write_file("w/src/lib.rs", "fn  a() {}\n");
+  env.git("w", &["add", "."]);
+  env.git("w", &["commit", "-qm", "start"]);
+  env.git("w", &["branch", "topic"]);
+  let w = env.dir.path().join("w");
+  let output = env
+    .mto_cmd()
+    .current_dir(&w)
+    .arg("src/lib.rs")
+    .output()
+    .unwrap();
+  assert_eq!(output.status.code(), Some(0), "{}", printed(&output.stderr));
+  let runs = printed(
+    &env
+      .mto_cmd()
+      .args(["__complete", "runs"])
+      .output()
+      .unwrap()
+      .stdout,
+  );
+  let handle = runs
+    .lines()
+    .nth(1)
+    .unwrap()
+    .split('\t')
+    .next()
+    .unwrap()
+    .to_string();
+  let bin = assert_cmd::cargo::cargo_bin("mto");
+  let path = format!(
+    "{}:{}",
+    bin.parent().unwrap().display(),
+    std::env::var("PATH").unwrap_or_default()
+  );
+  let home = env.dir.path().join(".home");
+  let mut ran = 0;
+  for bash in ["bash", "/bin/bash"] {
+    let offers = |words: &[&str]| -> Vec<String> {
+      let program = "source \"$1\"; shift; COMP_WORDS=(\"$@\"); \
+         COMP_CWORD=$((${#COMP_WORDS[@]} - 1)); _mto; \
+         for c in \"${COMPREPLY[@]}\"; do printf '[%s]\\n' \"$c\"; done";
+      let script = script.display().to_string();
+      let mut args = vec!["--norc", "--noprofile", "-c", program, "bash", &script];
+      args.extend(words);
+      let output = std::process::Command::new(bash)
+        .args(&args)
+        .current_dir(&w)
+        .env("PATH", &path)
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("XDG_STATE_HOME", home.join(".local/state"))
+        .output()
+        .unwrap();
+      assert!(output.status.success(), "{}", printed(&output.stderr));
+      printed(&output.stdout)
+        .lines()
+        .map(|l| l.trim_start_matches('[').trim_end_matches(']').to_string())
+        .collect()
+    };
+    if run_shell(bash, &["--version"], env.dir.path()).is_none() {
+      continue;
+    }
+    let mut restore = offers(&["mto", "restore", ""]);
+    restore.sort();
+    assert_eq!(
+      restore,
+      [format!("{} ", handle), "last ".to_string()],
+      "{}",
+      bash
+    );
+    assert_eq!(offers(&["mto", "restore", "la"]), ["last "], "{}", bash);
+    assert_eq!(
+      offers(&["mto", "restore", "last", "src/l"]),
+      ["src/lib.rs "],
+      "{}",
+      bash
+    );
+    assert_eq!(
+      offers(&["mto", "history", "show", "l"]),
+      ["last "],
+      "{}",
+      bash
+    );
+    assert_eq!(offers(&["mto", "verify", "to"]), ["topic "], "{}", bash);
+    assert_eq!(offers(&["mto", "--since", "to"]), ["topic "], "{}", bash);
+    assert_eq!(
+      offers(&["mto", "report", "show", ""]),
+      Vec::<String>::new(),
+      "{}",
+      bash
+    );
+    ran += 1;
+  }
+  if ran == 0 {
+    eprintln!("note: no bash here; the bash completions are not tried");
+  }
+}
+
 /// Every flag, value, command, subcommand and shell of the spec is in every script.
 #[test]
 fn test_completions_cover_the_spec() {
@@ -3112,6 +3272,102 @@ fn test_completions_find_the_shell_or_say_so() {
     &["zsh", "bash"],
   ] {
     assert_eq!(completions_cmd(&env, args, None).0, 2, "{:?}", args);
+  }
+}
+
+/// fish and PowerShell complete runs from `mto __complete`, newest first after `last`, then
+/// paths after a run for `mto restore`, where each shell is installed.
+#[test]
+fn test_completions_fish_and_powershell_complete_runs() {
+  let env = TestEnvironment::new();
+  let fish = env.write_file("mto.fish", &completion_script(&env, "fish"));
+  let pwsh = env.write_file("mto.ps1", &completion_script(&env, "powershell"));
+  env.write_file("src/lib.rs", "fn  a() {}\n");
+  for _ in 0..2 {
+    env.write_file("src/lib.rs", "fn  a() {}\n");
+    let output = env.mto_cmd().arg("src/lib.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", printed(&output.stderr));
+  }
+  let runs = printed(
+    &env
+      .mto_cmd()
+      .args(["__complete", "runs"])
+      .output()
+      .unwrap()
+      .stdout,
+  );
+  let handles: Vec<String> = runs
+    .lines()
+    .map(|l| l.split('\t').next().unwrap().to_string())
+    .collect();
+  assert_eq!(handles.len(), 3, "{}", runs);
+  let bin = assert_cmd::cargo::cargo_bin("mto");
+  let home = env.dir.path().join(".home");
+  let run = |program: &str, args: &[&str]| -> Option<String> {
+    run_shell(program, &["--version"], env.dir.path())?;
+    let output = std::process::Command::new(program)
+      .args(args)
+      .current_dir(env.dir.path())
+      .env(
+        "PATH",
+        format!(
+          "{}:{}",
+          bin.parent().unwrap().display(),
+          std::env::var("PATH").unwrap_or_default()
+        ),
+      )
+      .env("HOME", &home)
+      .env("XDG_CONFIG_HOME", home.join(".config"))
+      .env("XDG_STATE_HOME", home.join(".local/state"))
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{}", printed(&output.stderr));
+    Some(printed(&output.stdout))
+  };
+  let fish_offers = |line: &str| {
+    let program = format!("source {}; complete -C '{}'", fish.display(), line);
+    run("fish", &["--no-config", "-c", &program])
+  };
+  match fish_offers("mto restore ") {
+    None => eprintln!("note: no fish here; its live completions are not tried"),
+    Some(out) => {
+      let values: Vec<&str> = out.lines().map(|l| l.split('\t').next().unwrap()).collect();
+      assert_eq!(values, handles, "{}", out);
+      assert!(out.contains("\t20"), "described: {}", out);
+      let out = fish_offers("mto restore last src/l").unwrap();
+      assert_eq!(out.trim(), "src/lib.rs", "{}", out);
+      let out = fish_offers("mto history show la").unwrap();
+      assert_eq!(out.lines().next().unwrap().split('\t').next(), Some("last"));
+    }
+  }
+  let pwsh_offers = |line: &str| {
+    let program = format!(
+      ". '{}'; (TabExpansion2 -inputScript '{}' -cursorColumn {}).CompletionMatches | \
+       ForEach-Object {{ $_.CompletionText + \"`t\" + $_.ToolTip }}",
+      pwsh.display(),
+      line,
+      line.len()
+    );
+    run(
+      "pwsh",
+      &["-NoProfile", "-NonInteractive", "-Command", &program],
+    )
+  };
+  match pwsh_offers("mto restore ") {
+    None => eprintln!("note: no pwsh here; its live completions are not tried"),
+    Some(out) => {
+      let values: Vec<&str> = out.lines().map(|l| l.split('\t').next().unwrap()).collect();
+      assert_eq!(values, handles, "{}", out);
+      assert!(out.contains("\t20"), "described: {}", out);
+      let out = pwsh_offers("mto restore last src/l").unwrap();
+      assert!(
+        out.starts_with("src/lib.rs\t") || out.starts_with("src\\lib.rs\t"),
+        "{}",
+        out
+      );
+      let out = pwsh_offers("mto history show la").unwrap();
+      assert_eq!(out.lines().next().unwrap().split('\t').next(), Some("last"));
+    }
   }
 }
 
@@ -3377,6 +3633,73 @@ fn test_completions_the_same_script_from_another_build_is_current() {
   assert_eq!(code, 0, "{}", said);
   assert!(out.contains("already current:"), "{}", out);
   assert_eq!(env.read_file("comp/_mto"), older);
+}
+
+/// zsh's `_mto_live` adds what `mto __complete` lists, called as `_arguments` calls it (its
+/// own options first, the slot last): in mto's order, newest run first after `last`, each
+/// on a line of its own beside what it is, cut to the terminal's width.
+#[test]
+fn test_completions_zsh_lists_runs_in_order_called_as_arguments_calls_it() {
+  let env = TestEnvironment::new();
+  let script = env.write_file("_mto", &completion_script(&env, "zsh"));
+  for _ in 0..2 {
+    env.write_file("src/lib.rs", "fn  a() {}\n");
+    let output = env.mto_cmd().arg("src/lib.rs").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", printed(&output.stderr));
+  }
+  if run_shell("zsh", &["--version"], env.dir.path()).is_none() {
+    eprintln!("note: no zsh here; its completions are not tried");
+    return;
+  }
+  let runs = printed(
+    &env
+      .mto_cmd()
+      .args(["__complete", "runs"])
+      .output()
+      .unwrap()
+      .stdout,
+  );
+  let handles: Vec<&str> = runs
+    .lines()
+    .map(|l| l.split('\t').next().unwrap())
+    .collect();
+  assert_eq!(handles.len(), 3, "{}", runs);
+  let bin = assert_cmd::cargo::cargo_bin("mto");
+  let home = env.dir.path().join(".home");
+  // `compadd` stands in for zsh's: it prints the values it was given, then how each is
+  // shown.
+  let program = format!(
+    "compdef() {{ }}; source {}; _description() {{ }}; \
+     compadd() {{ print -rl -- \"${{(@P)${{@[-1]}}}}\" \"${{shown[@]}}\" }}; \
+     COLUMNS=30; _mto_live -J -default- runs",
+    script.display()
+  );
+  let output = std::process::Command::new("zsh")
+    .args(["-f", "-c", &program])
+    .current_dir(env.dir.path())
+    .env(
+      "PATH",
+      format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+      ),
+    )
+    .env("HOME", &home)
+    .env("XDG_CONFIG_HOME", home.join(".config"))
+    .env("XDG_STATE_HOME", home.join(".local/state"))
+    .output()
+    .unwrap();
+  assert!(output.status.success(), "{}", printed(&output.stderr));
+  let out = printed(&output.stdout);
+  let lines: Vec<&str> = out.lines().collect();
+  assert_eq!(lines.len(), 6, "{}", out);
+  assert_eq!(lines[..3], handles[..], "{}", out);
+  assert_eq!(lines[3], "last  -- this project's newes");
+  for (line, handle) in lines[4..].iter().zip(&handles[1..]) {
+    assert!(line.starts_with(&format!("{}  -- 20", handle)), "{}", out);
+    assert_eq!(line.chars().count(), 29, "{}", out);
+  }
 }
 
 /// `mto config mirror`: mto.toml's formatting settings the standard formatter's stable

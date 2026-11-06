@@ -6,6 +6,7 @@ pub mod derive;
 pub mod doctor;
 pub mod git_files;
 pub mod history;
+pub mod live;
 pub mod manual;
 pub mod mirror;
 pub mod modules;

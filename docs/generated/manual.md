@@ -149,23 +149,26 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `mto init [DIR]`: Writes an mto.toml with layout turned on and every mto
     setting at its default, each with its summary, into DIR (default: the
     current directory). An existing file is never overwritten.
-*   `mto verify <REV>|--ignored-revs`: Checks the commit REV names against its
-    parent, Rust file by Rust file, with the settings the commit holds (its
-    mto.toml, rustfmt.toml and Cargo.toml files; not the working tree's, and
-    none from outside the repository): `reproduced` when mto, run on the file
-    before, gives the commit's text, its checks passing on the way; `settings`
-    for an mto.toml or rustfmt.toml, which a layout commit may change; `safe`
-    when mto gives other bytes but the change only moves whole items, or only
-    changes what formatting may; `could not verify` for a file nothing can be
-    proved about (not Rust, not UTF-8, a submodule, or one mto leaves alone);
-    `NOT SAFE` when the checks find a change mto never makes, or a Rust file is
-    added, deleted, renamed, or changes mode or link. Exits 0 when every file is
-    reproduced or settings, 1 otherwise, 2 when it cannot check (with --json,
-    the error as JSON). Made for the commits a project lists in
-    `.git-blame-ignore-revs`: --ignored-revs verifies each commit the file
-    `blame.ignoreRevsFile` names lists (else `.git-blame-ignore-revs`), and
-    exits 0 only when every one verifies; one that cannot be checked counts as
-    not verified. Needs git.
+*   `mto verify <REV>|--ignored-revs`: For a commit meant to hold nothing but
+    mto's work, such as one listed in `.git-blame-ignore-revs`, which
+    `git blame` looks past: proves no other change is hidden in it. It is not a
+    check of the working tree (that is `mto --check`), and not for a commit that
+    changes what code does: such a commit does not verify, by design. Checks the
+    commit REV names against its parent, Rust file by Rust file, with the
+    settings the commit holds (its mto.toml, rustfmt.toml and Cargo.toml files;
+    not the working tree's, and none from outside the repository): `reproduced`
+    when mto, run on the file before, gives the commit's text, its checks
+    passing on the way; `settings` for an mto.toml or rustfmt.toml, which a
+    layout commit may change; `safe` when mto gives other bytes but the change
+    only moves whole items, or only changes what formatting may;
+    `could not verify` for a file nothing can be proved about (not Rust, not
+    UTF-8, a submodule, or one mto leaves alone); `NOT SAFE` when the checks
+    find a change mto never makes, or a Rust file is added, deleted, renamed, or
+    changes mode or link. Exits 0 when every file is reproduced or settings, 1
+    otherwise, 2 when it cannot check (with --json, the error as JSON).
+    --ignored-revs verifies each commit the file `blame.ignoreRevsFile` names
+    lists (else `.git-blame-ignore-revs`), and exits 0 only when every one
+    verifies; one that cannot be checked counts as not verified. Needs git.
     *   `--ignored-revs` (after `mto verify`): Every commit `git blame` is told
         to look past (blame.ignoreRevsFile).
     *   `--json` (after `mto verify`): As JSON, whose shape keeps its version.
@@ -319,12 +322,15 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `mto completions [install|uninstall|status] [SHELL]`: Prints the completion
     script for SHELL: bash, zsh, fish or powershell. With no SHELL, it is the
     shell mto runs in: the parent process when that is a shell, else $SHELL.
-    `install` writes the script where the shell loads completions from (or into
-    DIR), and names the line to add to the shell's startup file when one is
-    needed; mto never edits that file. Installing again changes nothing while
-    the script is current. `uninstall` removes a script mto wrote, and nothing
-    else. `status` says, for each shell, where its script is and whether it is
-    this mto's.
+    Besides the commands, flags, settings and paths, the scripts complete what
+    only this machine knows, asking mto as they do: the runs `restore`,
+    `history show` and `doctor` take, the reports `report` takes, and the
+    branches, tags and commits `verify` and `--since` take. `install` writes the
+    script where the shell loads completions from (or into DIR), and names the
+    line to add to the shell's startup file when one is needed; mto never edits
+    that file. Installing again changes nothing while the script is current.
+    `uninstall` removes a script mto wrote, and nothing else. `status` says, for
+    each shell, where its script is and whether it is this mto's.
     *   `--dir <DIR>` (after `mto completions install|uninstall`): Use this
         folder instead of the shell's own.
     *   `-d, --dry-run` (after `mto completions install|uninstall`): List the

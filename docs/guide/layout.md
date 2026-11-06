@@ -280,21 +280,48 @@ git commit -m "Ignore the layout commit in git blame"
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
-A commit `git blame` looks past is a good place to hide a change, so a
-reviewer, or CI, can check one: `mto verify REV` runs `mto` on each Rust file
-the commit changed, from its parent, and passes only when every one comes out
-byte for byte as committed, its checks passing on the way. Beside them the
-commit may change only `mto.toml` and `rustfmt.toml`: any other file could not
-be verified (nothing proves what changed in it), and a change the checks find
-mto never makes is reported `NOT SAFE`, as is a Rust file added, deleted,
-renamed, or with its mode or link changed. It uses the settings the commit
-holds, not today's and none from outside the repository, so an old layout
-commit still verifies after `mto.toml` changes, and on every machine alike.
-`mto verify --ignored-revs` checks every commit `.git-blame-ignore-revs` lists
-(or the file `blame.ignoreRevsFile` names), for CI or a pre-push hook; a
-listed commit that cannot be checked, a typo or one a rebase left behind,
-counts as not verified.
+`mto verify HEAD` proves the commit holds only mto's work before it is listed;
+see [Verifying a layout commit](#verifying-a-layout-commit).
 
 `mto restore last` undoes the run if the result is not what you want; see
 [Safety and history](safety.md). How layout works inside is described in the
 [layout design](../design/layout.md).
+
+## Verifying a layout commit
+
+`mto verify` exists for one job: proving that a commit meant to hold only
+mto's formatting and layout holds nothing else. Such a commit is usually listed
+in `.git-blame-ignore-revs`, so `git blame` looks past it, which makes it a good
+place to hide a change: a reviewer skims thousands of moved lines, and blame
+never shows them again. `mto verify` lets a reviewer, or CI, check that
+nothing is hidden there.
+
+Use it for:
+
+- a layout or formatting commit, before it is listed in
+  `.git-blame-ignore-revs`: `mto verify HEAD`;
+- every commit already listed, in CI or a pre-push hook:
+  `mto verify --ignored-revs`.
+
+It is not for:
+
+- checking that the working tree is formatted: that is `mto --check`;
+- reviewing a commit that changes what code does: such a commit does not
+  verify, by design, since proving it is formatting is the whole point;
+- proving code correct or safe in general: it proves only that a commit's
+  changes are what mto itself writes.
+
+`mto verify REV` runs `mto` on each Rust file the commit changed, from its
+parent, and a file passes as `reproduced` only when it comes out byte for byte
+as committed, its checks passing on the way. Beside them the commit may change
+only `mto.toml` and `rustfmt.toml`: any other file could not be verified
+(nothing proves what changed in it), and a change the checks find mto never
+makes is reported `NOT SAFE`, as is a Rust file added, deleted, renamed, or
+with its mode or link changed. It uses the settings the commit holds, not
+today's and none from outside the repository, so an old layout commit still
+verifies after `mto.toml` changes, and on every machine alike. It exits 0 only
+when every file is reproduced or a settings file.
+
+`mto verify --ignored-revs` checks every commit `.git-blame-ignore-revs` lists
+(or the file `blame.ignoreRevsFile` names); a listed commit that cannot be
+checked, a typo or one a rebase left behind, counts as not verified.

@@ -693,6 +693,15 @@ pub fn utc(millis: u64) -> String {
   )
 }
 
+/// `text` cut to `width` characters, with `...` when cut.
+pub(super) fn shorten(text: &str, width: usize) -> String {
+  if text.chars().count() <= width {
+    return text.to_string();
+  }
+  let cut: String = text.chars().take(width.saturating_sub(3)).collect();
+  format!("{}...", cut)
+}
+
 /// The run's files that `only` names (all of them when it is empty).
 fn chosen(run: &Run, only: &[PathBuf], handle: &str) -> Result<HashSet<PathBuf>, String> {
   if only.is_empty() {
@@ -791,15 +800,6 @@ fn run_fields(json: Json, run: &Run, ids: &[String]) -> Json {
       run.restore_of.as_ref().map(|of| id::handle(of, ids)),
     )
     .with("files", files)
-}
-
-/// `text` cut to `width` characters, with `...` when cut.
-fn shorten(text: &str, width: usize) -> String {
-  if text.chars().count() <= width {
-    return text.to_string();
-  }
-  let cut: String = text.chars().take(width.saturating_sub(3)).collect();
-  format!("{}...", cut)
 }
 
 fn size(bytes: u64) -> String {

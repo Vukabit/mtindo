@@ -167,6 +167,23 @@ pub fn repository_folder(here: &Path) -> Option<PathBuf> {
   })
 }
 
+/// What `git ARGS` prints in `dir`, or why it failed.
+pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+  let output = Command::new("git")
+    .arg("-C")
+    .arg(dir)
+    .args(args)
+    .output()
+    .map_err(|e| match e.kind() {
+      std::io::ErrorKind::NotFound => "git is not installed".to_string(),
+      _ => format!("git cannot be run: {}", e),
+    })?;
+  if !output.status.success() {
+    return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+  }
+  Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 /// What the repository at `root` answers for `ask`.
 fn answer(ask: &Ask, root: &Path) -> Result<Answer, String> {
   // As git spells them; `named` resolves each as the file system names it.
@@ -239,21 +256,4 @@ fn answer(ask: &Ask, root: &Path) -> Result<Answer, String> {
     answer.tracked = listed(&["ls-files", "-z"])?;
   }
   Ok(answer)
-}
-
-/// What `git ARGS` prints in `dir`, or why it failed.
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-  let output = Command::new("git")
-    .arg("-C")
-    .arg(dir)
-    .args(args)
-    .output()
-    .map_err(|e| match e.kind() {
-      std::io::ErrorKind::NotFound => "git is not installed".to_string(),
-      _ => format!("git cannot be run: {}", e),
-    })?;
-  if !output.status.success() {
-    return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-  }
-  Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }

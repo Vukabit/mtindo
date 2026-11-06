@@ -72,6 +72,16 @@ const POWERSHELL_BODY: &str = r#"    }
             foreach ($key in $settings.Keys) { & $result ($before + $head + $key + '=') $key }
         }
     }
+    # The values `mto __complete $slot` lists, each with what it is: runs, reports,
+    # revisions.
+    $liveOf = {
+        param($before, $slot)
+        try { $lines = @(& mto __complete $slot 2>$null) } catch { return }
+        foreach ($line in $lines) {
+            $value, $tip = $line -split "`t", 2
+            if ($value) { & $result ($before + $value) $tip }
+        }
+    }
     $valueOf = {
         param($flag, $before, $typed)
         if ($values.Contains($flag)) {
@@ -80,6 +90,8 @@ const POWERSHELL_BODY: &str = r#"    }
             & $pathsOf $before $typed $paths[$flag]
         } elseif ($flag -eq '--config') {
             & $settingsOf $before $typed
+        } elseif ($live.Contains($flag)) {
+            & $liveOf $before $live[$flag]
         }
     }
 
@@ -134,7 +146,10 @@ const POWERSHELL_BODY: &str = r#"    }
     if ($operands -eq 0 -and $sub -eq '' -and $subcommands.Contains($command)) {
         foreach ($name in $subcommands[$command]) { & $result $name $help["$command $name"] }
     }
-    if ($operandWords.Contains($place)) {
+    if ($operandLive.Contains($place) -and
+        ($operands -eq 0 -or -not $operandPaths.Contains($place))) {
+        & $liveOf '' $operandLive[$place]
+    } elseif ($operandWords.Contains($place)) {
         foreach ($value in $operandWords[$place]) { & $result $value $value }
     } elseif ($operandPaths.Contains($place)) {
         & $pathsOf '' $wordToComplete $operandPaths[$place]
@@ -575,6 +590,17 @@ _mto_paths() {{
     done
   fi
 }}
+
+# Adds each value `mto __complete $2` lists that, after $1, starts the word being
+# completed: runs, reports, revisions.
+_mto_live() {{
+  local before=\"$1\" value rest
+  while IFS=$'\\t' read -r value rest; do
+    case \"$before$value\" in
+      \"$_mto_cur\"*) COMPREPLY+=(\"$before$value \") ;;
+    esac
+  done < <(command mto __complete \"$2\" 2>/dev/null)
+}}
 ",
     takes.join("|")
   );
@@ -625,6 +651,7 @@ _mto_setting_values() {{
       Complete::Files => "_mto_paths \"$2\" \"$3\"".to_string(),
       Complete::Dirs => "_mto_paths \"$2\" \"$3\" dirs".to_string(),
       Complete::Settings => "_mto_settings \"$2\" \"$3\"".to_string(),
+      Complete::Live(live) => format!("_mto_live \"$2\" {}", live.name()),
       complete => format!("_mto_words \"$2\" {}", words(complete).join(" ")),
     };
     let _ = writeln!(out, "    {}) {} ;;", names(spec).join("|"), action);
@@ -660,7 +687,8 @@ _mto_setting_values() {{
   out.push_str("  esac\n}\n");
   // Operands.
   out.push_str(
-    "\n# Completes an argument of command $1 and subcommand $2; $3 is the argument so far.\n\
+    "\n# Completes an argument of command $1 and subcommand $2; $3 is the argument so far,\n\
+     # after $4 others.\n\
      _mto_operand() {\n  case \"$1 $2\" in\n",
   );
   let mut operands: Vec<(Complete, Vec<String>)> = Vec::new();
@@ -677,6 +705,11 @@ _mto_setting_values() {{
       Complete::Files => "_mto_paths \"\" \"$3\"".to_string(),
       Complete::Dirs => "_mto_paths \"\" \"$3\" dirs".to_string(),
       Complete::Settings => "_mto_settings \"\" \"$3\"".to_string(),
+      Complete::Live(live) => format!("_mto_live \"\" {}", live.name()),
+      Complete::LiveThenFiles(live) => format!(
+        "if [ \"$4\" -eq 0 ]; then _mto_live \"\" {}; else _mto_paths \"\" \"$3\"; fi",
+        live.name()
+      ),
       complete => format!("_mto_words \"\" {}", words(complete).join(" ")),
     };
     let _ = writeln!(out, "    {}) {} ;;", keys.join("|"), action);
@@ -741,7 +774,7 @@ _mto() {{
           if [ $operands -eq 0 ] && [ -z \"$sub\" ]; then
             _mto_subcommands \"$command\"
           fi
-          _mto_operand \"$command\" \"$sub\" \"$_mto_cur\"
+          _mto_operand \"$command\" \"$sub\" \"$_mto_cur\" $operands
         fi
         ;;
     esac
@@ -862,6 +895,22 @@ function __mto_at
     end
 end
 
+# The values `mto __complete $argv[1]` lists, each with what it is: runs, reports,
+# revisions.
+function __mto_live
+    command mto __complete $argv[1] 2>/dev/null
+end
+
+# Before any argument, __mto_live's values; after one, paths.
+function __mto_live_then_files
+    set -l state (__mto_state)
+    if test $state[3] = 0
+        __mto_live $argv[1]
+    else
+        __fish_complete_suffix .rs
+    end
+end
+
 # --config's pairs: the settings, then after `=` the setting's values.
 function __mto_settings
     set -l typed (string replace -r -- '^--config=' '' (commandline -ct))
@@ -920,6 +969,7 @@ function __mto_setting_values
           Complete::Dirs => " -x -a '(__fish_complete_directories (commandline -ct))'".to_string(),
           Complete::Settings => " -x -a '(__mto_settings)'".to_string(),
           Complete::Nothing => " -x".to_string(),
+          Complete::Live(live) => format!(" -x -k -a '(__mto_live {})'", live.name()),
           complete => format!(" -x -a {}", fish_quoted(&words(complete).join(" "))),
         });
       }
@@ -973,9 +1023,16 @@ function __mto_setting_values
           Complete::Files => "(__fish_complete_suffix .rs)".to_string(),
           Complete::Dirs => "(__fish_complete_directories (commandline -ct))".to_string(),
           Complete::Settings => "(__mto_settings)".to_string(),
+          Complete::Live(live) => format!("(__mto_live {})", live.name()),
+          Complete::LiveThenFiles(live) => format!("(__mto_live_then_files {})", live.name()),
           complete => words(complete).join(" "),
         };
-        let _ = writeln!(out, "complete -c mto -n '{}' -a '{}'", at, action);
+        // mto lists runs and revisions the likeliest first: fish keeps that order (-k).
+        let keep = match operand {
+          Complete::Live(_) | Complete::LiveThenFiles(_) => " -k",
+          _ => "",
+        };
+        let _ = writeln!(out, "complete -c mto -n '{}'{} -a '{}'", at, keep, action);
       }
     }
   }
@@ -1142,6 +1199,7 @@ fn powershell() -> String {
   );
   let mut values = Vec::new();
   let mut paths = Vec::new();
+  let mut live = Vec::new();
   for spec in value_flags() {
     for name in names(spec) {
       match spec.completes() {
@@ -1151,6 +1209,7 @@ fn powershell() -> String {
         }
         Complete::Files => paths.push((name.to_string(), quoted("files"))),
         Complete::Dirs => paths.push((name.to_string(), quoted("dirs"))),
+        Complete::Live(of) => live.push((name.to_string(), quoted(of.name()))),
         _ => {}
       }
     }
@@ -1162,6 +1221,12 @@ fn powershell() -> String {
     values,
   );
   table(&mut out, "The flags that take a path.", "paths", paths);
+  table(
+    &mut out,
+    "The flags whose values `mto __complete` lists.",
+    "live",
+    live,
+  );
   let commands = COMMANDS.iter().map(|c| quoted(c.name)).collect();
   let _ = writeln!(out, "    $commands = {}", list(commands));
   let subcommands = COMMANDS
@@ -1180,11 +1245,17 @@ fn powershell() -> String {
   );
   let mut operand_paths = Vec::new();
   let mut operand_words = Vec::new();
+  let mut operand_live = Vec::new();
   for (command, sub, complete) in operands_of() {
     let key = format!("{} {}", command.name, sub).trim().to_string();
     match complete {
       Complete::Files => operand_paths.push((key, quoted("files"))),
       Complete::Dirs => operand_paths.push((key, quoted("dirs"))),
+      Complete::Live(of) => operand_live.push((key, quoted(of.name()))),
+      Complete::LiveThenFiles(of) => {
+        operand_live.push((key.clone(), quoted(of.name())));
+        operand_paths.push((key, quoted("files")));
+      }
       Complete::Words(_) | Complete::Setting(_) => {
         let words = words(complete).into_iter().map(quoted).collect();
         operand_words.push((key, list(words)));
@@ -1199,6 +1270,12 @@ fn powershell() -> String {
     operand_paths,
   );
   table(&mut out, "", "operandWords", operand_words);
+  table(
+    &mut out,
+    "Listed by `mto __complete`; with a path too, only the first argument.",
+    "operandLive",
+    operand_live,
+  );
   out.push_str(
     "    # The settings --config takes, and their values when they are a fixed set.\n    \
      $settings = [ordered]@{\n",
@@ -1306,6 +1383,31 @@ _mto_settings() {{
   fi
 }}
 
+# The values `mto __complete` lists for the last argument, each with what it is:
+# runs, reports, revisions. `_arguments` puts its own options (`-J -default-`) first.
+# Each on a line of its own, in mto's order, cut to the terminal's width: `_describe`
+# would sort them, and join those that share a description.
+_mto_live() {{
+  local slot=${{@[-1]}} line value width=0 expl
+  local -a values lines shown
+  lines=(${{(f)\"$(command mto __complete $slot 2>/dev/null)\"}})
+  for line in $lines; do
+    value=${{line%%$'\\t'*}}
+    [[ -n $value ]] || continue
+    values+=($value)
+    (( $#value > width )) && width=$#value
+  done
+  (( $#values )) || return 1
+  for line in $lines; do
+    value=${{line%%$'\\t'*}}
+    [[ -n $value ]] || continue
+    line=\"${{(r:width:)value}}  -- ${{line#*$'\\t'}}\"
+    shown+=(\"${{line[1,COLUMNS-1]}}\")
+  done
+  _description -V $slot expl $slot
+  compadd \"$expl[@]\" -l -d shown -a values
+}}
+
 # The values setting $1 takes, when they are a fixed set.
 _mto_setting_values() {{
   case $1 in
@@ -1336,7 +1438,20 @@ _mto_setting_values() {{
     Complete::Files => rust_files.to_string(),
     Complete::Dirs => "_files -/".to_string(),
     Complete::Settings => "_mto_settings".to_string(),
+    Complete::Live(live) | Complete::LiveThenFiles(live) => format!("_mto_live {}", live.name()),
     complete => format!("({})", words(complete).join(" ")),
+  };
+  // The `_arguments` specs of a command's arguments, the last ended by `end`.
+  let arguments = |complete: Complete, indent: &str, end: &str| match complete {
+    Complete::LiveThenFiles(_) => format!(
+      "{}'1: :{}' \\\n{}'*: :{}'{}",
+      indent,
+      action(complete),
+      indent,
+      rust_files,
+      end
+    ),
+    complete => format!("{}'*: :{}'{}", indent, action(complete), end),
   };
   for command in COMMANDS {
     let place_flags = |sub: Option<&str>| -> Vec<&'static FlagSpec> {
@@ -1348,10 +1463,10 @@ _mto_setting_values() {{
     if command.subcommands.is_empty() {
       let _ = write!(
         out,
-        "\n_mto_{}() {{\n  _arguments -s : \\\n{}    '*: :{}'\n}}\n",
+        "\n_mto_{}() {{\n  _arguments -s : \\\n{}{}\n}}\n",
         name,
         zsh_flags(&place_flags(None), "    "),
-        action(command.operand)
+        arguments(command.operand, "    ", "")
       );
       continue;
     }
@@ -1399,10 +1514,10 @@ _mto_{}() {{
     for sub in command.subcommands {
       let _ = write!(
         out,
-        "        ({})\n          _arguments -s : \\\n{}            '*: :{}' && ret=0\n          ;;\n",
+        "        ({})\n          _arguments -s : \\\n{}{}\n          ;;\n",
         sub.word,
         zsh_flags(&place_flags(Some(sub.word)), "            "),
-        action(sub.operand)
+        arguments(sub.operand, "            ", " && ret=0")
       );
     }
     out.push_str("      esac\n      ;;\n  esac\n  return ret\n}\n");
@@ -1478,6 +1593,7 @@ fn zsh_flags(flags: &[&FlagSpec], indent: &str) -> String {
         Complete::Files => "_files".to_string(),
         Complete::Dirs => "_files -/".to_string(),
         Complete::Settings => "_mto_settings".to_string(),
+        Complete::Live(live) => format!("_mto_live {}", live.name()),
         complete => format!("({})", words(complete).join(" ")),
       };
       let message = spec.value.trim_matches(['<', '>', '[', ']']).to_lowercase();

@@ -105,7 +105,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--under'] = 'Only the reports seen in files under PATH'
     $help['--older-than'] = 'Remove runs this old: 30 (days), 2w, 12h'
     $help['init'] = 'Write a default mto.toml'
-    $help['verify'] = 'Prove a commit is mto''s work: only moves and formatting, as mto writes them'
+    $help['verify'] = 'Prove a formatting commit hides nothing: only mto''s own moves and formatting'
     $help['pins'] = 'List every place a project keeps code from mto, and why'
     $help['config'] = 'Show the configuration that applies in a folder, or every setting'
     $help['config path'] = 'List the configuration files that apply, and the history folder'
@@ -158,6 +158,9 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $paths['--stdin-filepath'] = 'files'
     $paths['--config-path'] = 'files'
     $paths['--dir'] = 'dirs'
+    # The flags whose values `mto __complete` lists.
+    $live = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+    $live['--since'] = 'revs'
     $commands = @('init', 'verify', 'pins', 'config', 'history', 'restore', 'doctor', 'report', 'debug', 'completions')
     # Each command's subcommands.
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
@@ -188,6 +191,17 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $operandWords['completions install'] = @('bash', 'zsh', 'fish', 'powershell')
     $operandWords['completions uninstall'] = @('bash', 'zsh', 'fish', 'powershell')
     $operandWords['completions status'] = @('bash', 'zsh', 'fish', 'powershell')
+    # Listed by `mto __complete`; with a path too, only the first argument.
+    $operandLive = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+    $operandLive['verify'] = 'revs'
+    $operandLive['history show'] = 'runs'
+    $operandLive['restore'] = 'runs'
+    $operandLive['doctor'] = 'runs'
+    $operandLive['report show'] = 'reports'
+    $operandLive['report save'] = 'reports'
+    $operandLive['report send'] = 'reports'
+    $operandLive['report recheck'] = 'reports'
+    $operandLive['report remove'] = 'reports'
     # The settings --config takes, and their values when they are a fixed set.
     $settings = [ordered]@{
         'array_width' = @()
@@ -356,6 +370,16 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
             foreach ($key in $settings.Keys) { & $result ($before + $head + $key + '=') $key }
         }
     }
+    # The values `mto __complete $slot` lists, each with what it is: runs, reports,
+    # revisions.
+    $liveOf = {
+        param($before, $slot)
+        try { $lines = @(& mto __complete $slot 2>$null) } catch { return }
+        foreach ($line in $lines) {
+            $value, $tip = $line -split "`t", 2
+            if ($value) { & $result ($before + $value) $tip }
+        }
+    }
     $valueOf = {
         param($flag, $before, $typed)
         if ($values.Contains($flag)) {
@@ -364,6 +388,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
             & $pathsOf $before $typed $paths[$flag]
         } elseif ($flag -eq '--config') {
             & $settingsOf $before $typed
+        } elseif ($live.Contains($flag)) {
+            & $liveOf $before $live[$flag]
         }
     }
 
@@ -418,7 +444,10 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     if ($operands -eq 0 -and $sub -eq '' -and $subcommands.Contains($command)) {
         foreach ($name in $subcommands[$command]) { & $result $name $help["$command $name"] }
     }
-    if ($operandWords.Contains($place)) {
+    if ($operandLive.Contains($place) -and
+        ($operands -eq 0 -or -not $operandPaths.Contains($place))) {
+        & $liveOf '' $operandLive[$place]
+    } elseif ($operandWords.Contains($place)) {
         foreach ($value in $operandWords[$place]) { & $result $value $value }
     } elseif ($operandPaths.Contains($place)) {
         & $pathsOf '' $wordToComplete $operandPaths[$place]

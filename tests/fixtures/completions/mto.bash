@@ -45,6 +45,17 @@ _mto_paths() {
   fi
 }
 
+# Adds each value `mto __complete $2` lists that, after $1, starts the word being
+# completed: runs, reports, revisions.
+_mto_live() {
+  local before="$1" value rest
+  while IFS=$'\t' read -r value rest; do
+    case "$before$value" in
+      "$_mto_cur"*) COMPREPLY+=("$before$value ") ;;
+    esac
+  done < <(command mto __complete "$2" 2>/dev/null)
+}
+
 # --config's pairs, after $1: the settings, then after `=` the setting's values.
 _mto_settings() {
   local head="" last="$2" key
@@ -142,6 +153,7 @@ _mto_setting_values() {
 _mto_value() {
   case "$1" in
     --emit) _mto_words "$2" files stdout json ;;
+    --since) _mto_live "$2" revs ;;
     --stdin-filepath) _mto_paths "$2" "$3" ;;
     --config) _mto_settings "$2" "$3" ;;
     --config-path) _mto_paths "$2" "$3" ;;
@@ -212,11 +224,17 @@ _mto_subcommands() {
   esac
 }
 
-# Completes an argument of command $1 and subcommand $2; $3 is the argument so far.
+# Completes an argument of command $1 and subcommand $2; $3 is the argument so far,
+# after $4 others.
 _mto_operand() {
   case "$1 $2" in
     "init "|"config path"|"config print"|"config mirror"|"config derive") _mto_paths "" "$3" dirs ;;
-    "pins "|"restore "|"report save"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle") _mto_paths "" "$3" ;;
+    "verify ") _mto_live "" revs ;;
+    "pins "|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle") _mto_paths "" "$3" ;;
+    "history show"|"doctor ") _mto_live "" runs ;;
+    "restore ") if [ "$4" -eq 0 ]; then _mto_live "" runs; else _mto_paths "" "$3"; fi ;;
+    "report show"|"report send"|"report recheck"|"report remove") _mto_live "" reports ;;
+    "report save") if [ "$4" -eq 0 ]; then _mto_live "" reports; else _mto_paths "" "$3"; fi ;;
     "completions "|"completions install"|"completions uninstall"|"completions status") _mto_words "" bash zsh fish powershell ;;
   esac
 }
@@ -276,7 +294,7 @@ _mto() {
           if [ $operands -eq 0 ] && [ -z "$sub" ]; then
             _mto_subcommands "$command"
           fi
-          _mto_operand "$command" "$sub" "$_mto_cur"
+          _mto_operand "$command" "$sub" "$_mto_cur" $operands
         fi
         ;;
     esac

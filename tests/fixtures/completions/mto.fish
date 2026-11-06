@@ -60,6 +60,22 @@ function __mto_at
     end
 end
 
+# The values `mto __complete $argv[1]` lists, each with what it is: runs, reports,
+# revisions.
+function __mto_live
+    command mto __complete $argv[1] 2>/dev/null
+end
+
+# Before any argument, __mto_live's values; after one, paths.
+function __mto_live_then_files
+    set -l state (__mto_state)
+    if test $state[3] = 0
+        __mto_live $argv[1]
+    else
+        __fish_complete_suffix .rs
+    end
+end
+
 # --config's pairs: the settings, then after `=` the setting's values.
 function __mto_settings
     set -l typed (string replace -r -- '^--config=' '' (commandline -ct))
@@ -198,7 +214,7 @@ complete -c mto -n '__mto_at - -' -s R -l recursive -d 'The same as `mto .`: eve
 complete -c mto -n '__mto_at - -' -l skip-children -d 'A file argument is that file alone, not the modules it declares'
 complete -c mto -n '__mto_at - -' -l changed -d 'Only the files git sees changed: modified, staged or untracked'
 complete -c mto -n '__mto_at - -' -l staged -d 'Only the files staged for the next commit; one with unstaged changes is left alone'
-complete -c mto -n '__mto_at - -' -l since -x -d 'Only the files changed since REV (its merge base with HEAD), committed or not'
+complete -c mto -n '__mto_at - -' -l since -x -k -a '(__mto_live revs)' -d 'Only the files changed since REV (its merge base with HEAD), committed or not'
 complete -c mto -n '__mto_at - -' -l tracked -d 'A folder walk takes only the files git tracks, so .gitignore is respected'
 complete -c mto -n '__mto_at - -' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at - -' -l config -x -a '(__mto_settings)' -d 'Set settings for this run, over every file'
@@ -220,7 +236,7 @@ complete -c mto -n '__mto_at - -' -l man -d 'Print the full manual'
 complete -c mto -n '__mto_at - -' -s V -l version -d 'Print the version and exit'
 complete -c mto -n '__mto_at - -' -l message-format -x -a 'human json' -d 'How the run reports: human (default), or json, one versioned JSON object per line for each file, message and the summary'
 complete -c mto -n '__mto_at - - 0' -a init -d 'Write a default mto.toml'
-complete -c mto -n '__mto_at - - 0' -a verify -d 'Prove a commit is mto\'s work: only moves and formatting, as mto writes them'
+complete -c mto -n '__mto_at - - 0' -a verify -d 'Prove a formatting commit hides nothing: only mto\'s own moves and formatting'
 complete -c mto -n '__mto_at - - 0' -a pins -d 'List every place a project keeps code from mto, and why'
 complete -c mto -n '__mto_at - - 0' -a config -d 'Show the configuration that applies in a folder, or every setting'
 complete -c mto -n '__mto_at - - 0' -a history -d 'List, show or prune the runs that wrote files'
@@ -239,6 +255,7 @@ complete -c mto -n '__mto_at init -' -a '(__fish_complete_directories (commandli
 complete -c mto -n '__mto_at verify -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at verify -' -l ignored-revs -d 'Every commit `git blame` is told to look past (blame.ignoreRevsFile)'
 complete -c mto -n '__mto_at verify -' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at verify -' -k -a '(__mto_live revs)'
 
 # mto pins
 complete -c mto -n '__mto_at pins -' -s h -l help -d 'Show this help and exit'
@@ -303,6 +320,7 @@ complete -c mto -n '__mto_at history - 0' -a prune -d 'Remove old runs'
 
 # mto history show
 complete -c mto -n '__mto_at history show' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at history show' -k -a '(__mto_live runs)'
 
 # mto history prune
 complete -c mto -n '__mto_at history prune' -s h -l help -d 'Show this help and exit'
@@ -313,7 +331,7 @@ complete -c mto -n '__mto_at history prune' -l all -d 'List every project\'s run
 # mto restore
 complete -c mto -n '__mto_at restore -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at restore -' -l force -d 'Also restore files changed since the run, and missing ones'
-complete -c mto -n '__mto_at restore -' -a '(__fish_complete_suffix .rs)'
+complete -c mto -n '__mto_at restore -' -k -a '(__mto_live_then_files runs)'
 
 # mto doctor
 complete -c mto -n '__mto_at doctor -' -s h -l help -d 'Show this help and exit'
@@ -325,6 +343,7 @@ complete -c mto -n '__mto_at doctor - 0' -a keep -d 'Confirm held moves and writ
 complete -c mto -n '__mto_at doctor - 0' -a recheck -d 'Try each `// mto: hold` without it, and say which are still needed'
 complete -c mto -n '__mto_at doctor - 0' -a trust -d 'Let the guard run the command this project\'s mto.toml declares'
 complete -c mto -n '__mto_at doctor - 0' -a release -d 'Drop one held edit, or all'
+complete -c mto -n '__mto_at doctor -' -k -a '(__mto_live runs)'
 
 # mto doctor on
 complete -c mto -n '__mto_at doctor on' -s h -l help -d 'Show this help and exit'
@@ -358,21 +377,25 @@ complete -c mto -n '__mto_at report - 0' -a prune -d 'Remove every report, or th
 
 # mto report show
 complete -c mto -n '__mto_at report show' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at report show' -k -a '(__mto_live reports)'
 
 # mto report save
 complete -c mto -n '__mto_at report save' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at report save' -l with-file -d 'Add the whole file the bug was found in'
-complete -c mto -n '__mto_at report save' -a '(__fish_complete_suffix .rs)'
+complete -c mto -n '__mto_at report save' -k -a '(__mto_live_then_files reports)'
 
 # mto report send
 complete -c mto -n '__mto_at report send' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at report send' -k -a '(__mto_live reports)'
 
 # mto report recheck
 complete -c mto -n '__mto_at report recheck' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at report recheck' -s d -l dry-run -d 'List the files that would change, without writing'
+complete -c mto -n '__mto_at report recheck' -k -a '(__mto_live reports)'
 
 # mto report remove
 complete -c mto -n '__mto_at report remove' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at report remove' -k -a '(__mto_live reports)'
 
 # mto report prune
 complete -c mto -n '__mto_at report prune' -s h -l help -d 'Show this help and exit'

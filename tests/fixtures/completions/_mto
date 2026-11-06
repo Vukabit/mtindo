@@ -46,6 +46,31 @@ _mto_settings() {
   fi
 }
 
+# The values `mto __complete` lists for the last argument, each with what it is:
+# runs, reports, revisions. `_arguments` puts its own options (`-J -default-`) first.
+# Each on a line of its own, in mto's order, cut to the terminal's width: `_describe`
+# would sort them, and join those that share a description.
+_mto_live() {
+  local slot=${@[-1]} line value width=0 expl
+  local -a values lines shown
+  lines=(${(f)"$(command mto __complete $slot 2>/dev/null)"})
+  for line in $lines; do
+    value=${line%%$'\t'*}
+    [[ -n $value ]] || continue
+    values+=($value)
+    (( $#value > width )) && width=$#value
+  done
+  (( $#values )) || return 1
+  for line in $lines; do
+    value=${line%%$'\t'*}
+    [[ -n $value ]] || continue
+    line="${(r:width:)value}  -- ${line#*$'\t'}"
+    shown+=("${line[1,COLUMNS-1]}")
+  done
+  _description -V $slot expl $slot
+  compadd "$expl[@]" -l -d shown -a values
+}
+
 # The values setting $1 takes, when they are a fixed set.
 _mto_setting_values() {
   case $1 in
@@ -90,7 +115,7 @@ _mto_commands() {
   local -a commands
   commands=(
     'init:Write a default mto.toml'
-    'verify:Prove a commit is mto'\''s work: only moves and formatting, as mto writes them'
+    'verify:Prove a formatting commit hides nothing: only mto'\''s own moves and formatting'
     'pins:List every place a project keeps code from mto, and why'
     'config:Show the configuration that applies in a folder, or every setting'
     'history:List, show or prune the runs that wrote files'
@@ -114,7 +139,7 @@ _mto_verify() {
     '(- *)'{-h,--help}'[Show this help and exit]' \
     '--ignored-revs[Every commit `git blame` is told to look past (blame.ignoreRevsFile)]' \
     '--json[As JSON, whose shape keeps its version]' \
-    '*: : '
+    '*: :_mto_live revs'
 }
 
 _mto_pins() {
@@ -227,7 +252,7 @@ _mto_history() {
         (show)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
-            '*: : ' && ret=0
+            '*: :_mto_live runs' && ret=0
           ;;
         (prune)
           _arguments -s : \
@@ -247,6 +272,7 @@ _mto_restore() {
   _arguments -s : \
     '(- *)'{-h,--help}'[Show this help and exit]' \
     '--force[Also restore files changed since the run, and missing ones]' \
+    '1: :_mto_live runs' \
     '*: :_files -g "*.rs(-.)"'
 }
 
@@ -273,7 +299,9 @@ _mto_doctor() {
     '*:: :->rest' && ret=0
   case $state in
     (first)
-      _mto_doctor_subcommands && ret=0
+      _alternative \
+        'subcommands:subcommand:_mto_doctor_subcommands' \
+        'arguments:argument:_mto_live runs' && ret=0
       ;;
     (rest)
       case $words[1] in
@@ -346,29 +374,30 @@ _mto_report() {
         (show)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
-            '*: : ' && ret=0
+            '*: :_mto_live reports' && ret=0
           ;;
         (save)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
             '--with-file[Add the whole file the bug was found in]' \
+            '1: :_mto_live reports' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
         (send)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
-            '*: : ' && ret=0
+            '*: :_mto_live reports' && ret=0
           ;;
         (recheck)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
             '(-d --dry-run)'{-d,--dry-run}'[List the files that would change, without writing]' \
-            '*: : ' && ret=0
+            '*: :_mto_live reports' && ret=0
           ;;
         (remove)
           _arguments -s : \
             '(- *)'{-h,--help}'[Show this help and exit]' \
-            '*: : ' && ret=0
+            '*: :_mto_live reports' && ret=0
           ;;
         (prune)
           _arguments -s : \
@@ -553,7 +582,7 @@ _mto() {
     '--skip-children[A file argument is that file alone, not the modules it declares]'
     '--changed[Only the files git sees changed: modified, staged or untracked]'
     '--staged[Only the files staged for the next commit; one with unstaged changes is left alone]'
-    '--since=[Only the files changed since REV (its merge base with HEAD), committed or not]:rev: '
+    '--since=[Only the files changed since REV (its merge base with HEAD), committed or not]:rev:_mto_live revs'
     '--tracked[A folder walk takes only the files git tracks, so .gitignore is respected]'
     '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files'
     '--config=[Set settings for this run, over every file]:key=value,...:_mto_settings'

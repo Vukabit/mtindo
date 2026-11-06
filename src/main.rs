@@ -234,6 +234,26 @@ fn command_usage<T>(
   Err(())
 }
 
+/// `mto __complete SLOT`: what the shells' scripts complete from (see `mtindo::cli::live`).
+/// It writes nothing, not even a user config, and fails silently.
+fn complete_live(args: &[String]) {
+  let Some(live) = args.first().and_then(|a| mtindo::cli::spec::Live::named(a)) else {
+    return;
+  };
+  let env = Environment::from_process();
+  let history = config::user::history_dir(&env);
+  let reports = history
+    .as_ref()
+    .and_then(|h| h.parent())
+    .map(|state| mtindo::report::Store::new(state.join("reports")));
+  let history = history.map(mtindo::history::History::new);
+  let dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+  out!(
+    "{}",
+    mtindo::cli::live::lines(live, history.as_ref(), reports.as_ref(), &dir)
+  );
+}
+
 /// Reads the value of a configuration flag into `overrides`.
 fn config_flag(
   spec: &FlagSpec,
@@ -535,6 +555,12 @@ fn main() {
   #[cfg(windows)]
   if !mtindo::text::console::enable_colors() {
     mtindo::text::color::terminal_reads_no_escapes();
+  }
+  // The shells' scripts ask this as they complete: read-only, quiet, before anything else.
+  let args: Vec<String> = env::args().skip(1).collect();
+  if args.first().is_some_and(|a| a == "__complete") {
+    complete_live(&args[1..]);
+    return;
   }
   let action = match parse_args() {
     Ok(Some(a)) => a,

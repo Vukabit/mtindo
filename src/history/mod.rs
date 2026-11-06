@@ -305,34 +305,52 @@ impl History {
   /// [`crate::durable`]), and returns its SHA-256. Contents already stored
   /// are touched, so a concurrent prune leaves them be.
   pub fn store(&self, contents: &[u8]) -> io::Result<String> {
+    let stored = self.prepare_store(contents)?;
+    if let Some(parent) = stored.parent()
+      && let Err(e) = crate::durable::barrier_for([parent])
+    {
+      stored.abandon();
+      return Err(e);
+    }
+    stored.finish()
+  }
+
+  /// [`Self::store`]'s first half: contents not stored yet are written to a temp file and
+  /// handed to the drive; [`Stored::finish`] puts them in place after a
+  /// [`crate::durable::barrier_for`] their folder.
+  pub fn prepare_store(&self, contents: &[u8]) -> io::Result<Stored> {
     let hash = sha256::hex(contents);
     let path = self.object_path(&hash);
     if path.is_file() {
       if let Ok(file) = OpenOptions::new().write(true).open(&path) {
         let _ = file.set_modified(SystemTime::now());
       }
-      return Ok(hash);
+      return Ok(Stored { hash, temp: None });
     }
-    let parent = path.parent().expect("objects live in a shard");
-    fs::create_dir_all(parent)?;
+    let parent = path
+      .parent()
+      .expect("objects live in a shard")
+      .to_path_buf();
+    fs::create_dir_all(&parent)?;
     let temp = parent.join(format!(
       ".{}.{}.{}.tmp",
       &hash[2..],
       std::process::id(),
       TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
-    let result = (|| {
+    let written = (|| {
       let mut file = File::create(&temp)?;
       file.write_all(contents)?;
-      crate::durable::ordered(&file, parent)?;
-      fs::rename(&temp, &path)?;
-      let _ = crate::durable::renamed(parent);
-      Ok(())
+      crate::durable::handed(&file, &parent)
     })();
-    if result.is_err() {
+    if let Err(e) = written {
       let _ = fs::remove_file(&temp);
+      return Err(e);
     }
-    result.map(|_| hash)
+    Ok(Stored {
+      hash,
+      temp: Some((temp, path, parent)),
+    })
   }
 
   fn object_path(&self, hash: &str) -> PathBuf {
@@ -412,6 +430,16 @@ impl Recorder {
     match &self.file {
       Some(file) => crate::durable::ordered(file, &self.history.dir.join("runs")),
       None => Ok(()),
+    }
+  }
+
+  /// What [`Self::order`] makes reach the disk, to do it without holding the recorder (its
+  /// writers then share one barrier): a handle on the record and its folder; `None` before
+  /// anything is recorded.
+  pub fn order_later(&self) -> io::Result<Option<(File, PathBuf)>> {
+    match &self.file {
+      Some(file) => Ok(Some((file.try_clone()?, self.history.dir.join("runs")))),
+      None => Ok(None),
     }
   }
 
@@ -503,6 +531,42 @@ impl Run {
         }
       }
       Err(_) => State::Missing,
+    }
+  }
+}
+
+/// Contents [`History::prepare_store`] wrote and handed to the drive, by their hash; those
+/// already stored have no temp file.
+#[derive(Debug)]
+pub struct Stored {
+  pub hash: String,
+  /// The temp file, where it goes, and its folder.
+  temp: Option<(PathBuf, PathBuf, PathBuf)>,
+}
+
+impl Stored {
+  /// The folder a barrier must be issued for before [`Stored::finish`]; `None` when the
+  /// contents were stored already.
+  pub fn parent(&self) -> Option<&Path> {
+    self.temp.as_ref().map(|(_, _, parent)| parent.as_path())
+  }
+
+  /// Puts the contents in place, giving their hash.
+  pub fn finish(self) -> io::Result<String> {
+    if let Some((temp, path, parent)) = self.temp {
+      if let Err(e) = fs::rename(&temp, &path) {
+        let _ = fs::remove_file(&temp);
+        return Err(e);
+      }
+      let _ = crate::durable::renamed(&parent);
+    }
+    Ok(self.hash)
+  }
+
+  /// Removes the temp file: nothing is stored.
+  pub fn abandon(self) {
+    if let Some((temp, _, _)) = self.temp {
+      let _ = fs::remove_file(&temp);
     }
   }
 }

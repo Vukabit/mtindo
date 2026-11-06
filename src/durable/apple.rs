@@ -1,5 +1,6 @@
 //! The two `fcntl` commands macOS (and the other Apple systems) sync with, which the
-//! standard library does not offer: unsafe code, held to this file by `cargo xtask gates`.
+//! standard library does not offer, and plain `fsync`, which it does not either (its sync
+//! is a full one here): unsafe code, held to this file by `cargo xtask gates`.
 #![allow(unsafe_code)]
 
 use std::fs::File;
@@ -15,6 +16,7 @@ const F_FULLFSYNC: i32 = 51;
 
 unsafe extern "C" {
   fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+  fn fsync(fd: i32) -> i32;
 }
 
 /// `F_BARRIERFSYNC` on `file`; where a file system does not take it (a network share),
@@ -34,6 +36,17 @@ pub fn full(file: &File) -> io::Result<()> {
     Ok(())
   } else {
     file.sync_all()
+  }
+}
+
+/// `fsync`: what was written to `file` is handed to the drive, which may still keep it in
+/// its cache and reorder it; a [`barrier`] after it keeps the order.
+pub fn writeout(file: &File) -> io::Result<()> {
+  // SAFETY: `fsync` only acts on the descriptor, which `file` keeps open for the call.
+  if unsafe { fsync(file.as_raw_fd()) } == 0 {
+    Ok(())
+  } else {
+    Err(io::Error::last_os_error())
   }
 }
 

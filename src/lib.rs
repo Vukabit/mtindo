@@ -206,6 +206,8 @@ pub struct FileReport {
   pub planned: Option<(String, String)>,
   /// The remembered holds found in the file, when it had any.
   pub holds: Option<Vec<doctor::holds::Kind>>,
+  /// A write prepared for the run's committer, which makes it and then passes the report on.
+  pub pending: Option<PendingWrite>,
 }
 
 impl FileReport {
@@ -226,6 +228,14 @@ impl FileReport {
     if !self.stderr.is_empty() {
       err!("{}", self.stderr);
     }
+  }
+
+  /// The file's write failed: `stderr` says why and nothing else is printed for it.
+  fn failed(&mut self, stderr: String, error: &str) {
+    self.stdout.clear();
+    self.stderr = stderr;
+    self.say("error", "write", None, error);
+    self.outcome = Outcome::Failed;
   }
 
   /// Notes `text` as a message about the file.
@@ -267,6 +277,96 @@ struct Mismatch<'a> {
   line_number: u32,
   line_number_orig: u32,
   lines: Vec<MismatchLine<'a>>,
+}
+
+/// A write [`run_file`] prepared for the run's committer ([`commit`]): the copy of the file
+/// before for history and the line to record it with, and the new contents beside the file.
+#[derive(Debug)]
+pub struct PendingWrite {
+  shown: String,
+  stored: Option<history::Stored>,
+  entry: Option<history::Entry>,
+  prepared: Prepared,
+}
+
+/// [`write_atomic`]'s first half: the temp file written beside its target, its permissions
+/// given, and handed to the drive ([`durable::handed`]). After a [`durable::barrier_for`] its
+/// folder it may be [`Prepared::finish`]ed: many files then share one barrier.
+#[derive(Debug)]
+pub struct Prepared {
+  tmp: PathBuf,
+  target: PathBuf,
+  parent: PathBuf,
+}
+
+impl Prepared {
+  pub fn write(target: &Path, content: &str) -> Result<Prepared, std::io::Error> {
+    let real_target = match fs::symlink_metadata(target) {
+      Ok(meta) if meta.file_type().is_symlink() => real_path(target)?,
+      _ => target.to_path_buf(),
+    };
+    if fs::metadata(&real_target).is_ok_and(|meta| meta.permissions().readonly()) {
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "the file is read-only",
+      ));
+    }
+    let parent = match real_target.parent() {
+      Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+      _ => PathBuf::from("."),
+    };
+    let file_name = real_target
+      .file_name()
+      .map(|n| n.to_string_lossy().to_string())
+      .unwrap_or_default();
+    let unique = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(
+      ".{}.{}.{}.tmp_mtindo",
+      file_name,
+      std::process::id(),
+      unique
+    ));
+    let written = (|| -> Result<(), std::io::Error> {
+      let mut file = File::create(&tmp)?;
+      file.write_all(content.as_bytes())?;
+      if let Ok(meta) = fs::metadata(&real_target) {
+        fs::set_permissions(&tmp, meta.permissions())?;
+      }
+      durable::handed(&file, &parent)
+    })();
+    if let Err(e) = written {
+      let _ = fs::remove_file(&tmp);
+      return Err(e);
+    }
+    Ok(Prepared {
+      tmp,
+      target: real_target,
+      parent,
+    })
+  }
+
+  /// The folder the file is written in, which a barrier must be issued for before
+  /// [`Prepared::finish`].
+  pub fn parent(&self) -> &Path {
+    &self.parent
+  }
+
+  /// Renames the temp file over its target.
+  pub fn finish(self) -> Result<(), std::io::Error> {
+    if let Err(e) = rename(&self.tmp, &self.target) {
+      let _ = fs::remove_file(&self.tmp);
+      return Err(e);
+    }
+    // The file is replaced either way; a folder that cannot be synced is no reason to say
+    // it is not.
+    let _ = durable::renamed(&self.parent);
+    Ok(())
+  }
+
+  /// Removes the temp file: the target is left as it was.
+  pub fn abandon(self) {
+    let _ = fs::remove_file(&self.tmp);
+  }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -374,6 +474,9 @@ pub struct WriteContext<'a> {
   pub defer: bool,
   /// Where a bug found in mto is kept as a report; `None`: it is printed whole.
   pub reports: Option<&'a report::Store>,
+  /// The run's committer makes the writes: [`run_file`] prepares each and leaves it in the
+  /// report.
+  pub committed: bool,
 }
 
 /// What a run that writes files records and guards.
@@ -1136,6 +1239,9 @@ pub fn run_file(
     report.planned = Some((source, reorganized));
     return report.with(Outcome::Changed);
   }
+  if ctx.committed {
+    return prepare_write(report, file_path, &shown, &source, &reorganized, opts, ctx);
+  }
   // The contents are stored, and synced, before the file is replaced: what history
   // records, it can give back.
   let mut written = None;
@@ -1193,27 +1299,7 @@ pub fn run_file(
     report.say("error", "write", None, &e.to_string());
     return report.with(Outcome::Failed);
   }
-  if opts.files_with_diff {
-    report.stdout.push_str(&format!("{}\n", shown));
-    return report.with(Outcome::Changed);
-  }
-  if opts.quiet {
-    return report.with(Outcome::Changed);
-  }
-  report.stdout.push_str(&format!(
-    "{}Formatted:{} {}\n",
-    c_green(),
-    c_reset(false),
-    shown
-  ));
-  report.with(Outcome::Changed)
-}
-
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
+  written_report(report, &shown, opts)
 }
 
 /// Runs every job on a pool of threads, printing each report as soon as every report
@@ -1404,6 +1490,13 @@ pub fn walk_directory(
   )
 }
 
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
 /// Runs `work` on a thread of its own with the stack [`STACK`], and gives what it returns.
 /// A panic in `work` goes on in the caller.
 pub fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
@@ -1423,49 +1516,12 @@ pub fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 /// read-only target is left as it is, on every system (Windows would refuse to replace it,
 /// Unix would not).
 pub fn write_atomic(target: &Path, content: &str) -> Result<(), std::io::Error> {
-  let real_target = match fs::symlink_metadata(target) {
-    Ok(meta) if meta.file_type().is_symlink() => real_path(target)?,
-    _ => target.to_path_buf(),
-  };
-  if fs::metadata(&real_target).is_ok_and(|meta| meta.permissions().readonly()) {
-    return Err(std::io::Error::new(
-      std::io::ErrorKind::PermissionDenied,
-      "the file is read-only",
-    ));
+  let prepared = Prepared::write(target, content)?;
+  if let Err(e) = durable::barrier_for([prepared.parent.as_path()]) {
+    prepared.abandon();
+    return Err(e);
   }
-  let parent = match real_target.parent() {
-    Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-    _ => PathBuf::from("."),
-  };
-  let file_name = real_target
-    .file_name()
-    .map(|n| n.to_string_lossy().to_string())
-    .unwrap_or_default();
-  let unique = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
-  let tmp_path = parent.join(format!(
-    ".{}.{}.{}.tmp_mtindo",
-    file_name,
-    std::process::id(),
-    unique
-  ));
-  let result = (|| -> Result<(), std::io::Error> {
-    let mut file = File::create(&tmp_path)?;
-    file.write_all(content.as_bytes())?;
-    if let Ok(meta) = fs::metadata(&real_target) {
-      fs::set_permissions(&tmp_path, meta.permissions())?;
-    }
-    durable::ordered(&file, &parent)?;
-    drop(file);
-    rename(&tmp_path, &real_target)?;
-    // The file is replaced either way; a folder that cannot be synced is no reason to say
-    // it is not.
-    let _ = durable::renamed(&parent);
-    Ok(())
-  })();
-  if result.is_err() {
-    let _ = fs::remove_file(&tmp_path);
-  }
-  result
+  prepared.finish()
 }
 
 /// Runs `work`; a panic in it is caught and given as what it said and where (and, with
@@ -1576,6 +1632,14 @@ pub(crate) fn verified_all(
     minimal,
     None,
   )))
+}
+
+/// Removes what a write prepared: its target and history are left as they were.
+fn abandon(write: PendingWrite) {
+  if let Some(copy) = write.stored {
+    copy.abandon();
+  }
+  write.prepared.abandon();
 }
 
 /// The arranged text and the edition the file was parsed with.
@@ -1772,6 +1836,117 @@ fn code(text: &str, edition: syntax::Edition) -> std::borrow::Cow<'_, str> {
   }
 }
 
+/// The run's committer: the writes workers prepared, made in batches of all that are waiting,
+/// then their reports passed on. In each batch the copies for history, then the record's
+/// lines, then the files reach the disk in that order, as each file's do when written alone
+/// ([`run_file`]), with one barrier for the whole batch between the steps rather than one for
+/// each file.
+fn commit(
+  prepared: mpsc::Receiver<(usize, FileReport)>,
+  done: mpsc::Sender<(usize, FileReport)>,
+  history: Option<&history::History>,
+  recorder: Option<&Mutex<history::Recorder>>,
+) {
+  /// The most writes one batch takes, so their reports are not held back long.
+  const BATCH: usize = 4096;
+  while let Ok(first) = prepared.recv() {
+    let mut batch = vec![first];
+    while batch.len() < BATCH
+      && let Ok(next) = prepared.try_recv()
+    {
+      batch.push(next);
+    }
+    commit_batch(&mut batch, history, recorder);
+    for item in batch {
+      if done.send(item).is_err() {
+        return;
+      }
+    }
+  }
+}
+
+fn commit_batch(
+  batch: &mut [(usize, FileReport)],
+  history: Option<&history::History>,
+  recorder: Option<&Mutex<history::Recorder>>,
+) {
+  let pending: Vec<(&mut FileReport, PendingWrite)> = batch
+    .iter_mut()
+    .filter_map(|(_, report)| report.pending.take().map(|write| (report, write)))
+    .collect();
+  if pending.is_empty() {
+    return;
+  }
+  // What workers handed to the drive (copies and new contents) before what follows.
+  let folders: std::collections::BTreeSet<PathBuf> = pending
+    .iter()
+    .flat_map(|(_, write)| {
+      write
+        .stored
+        .as_ref()
+        .and_then(|copy| copy.parent())
+        .map(Path::to_path_buf)
+        .into_iter()
+        .chain([write.prepared.parent().to_path_buf()])
+    })
+    .collect();
+  if let Err(e) = durable::barrier_for(folders.iter().map(PathBuf::as_path)) {
+    for (report, write) in pending {
+      report.failed(write_failure(&write.shown, &e), &e.to_string());
+      abandon(write);
+    }
+    return;
+  }
+  // The copies in place, then the record's lines.
+  let mut kept = Vec::with_capacity(pending.len());
+  for (report, mut write) in pending {
+    if let (Some(history), Some(copy)) = (history, write.stored.take())
+      && let Err(e) = copy.finish()
+    {
+      report.failed(history_failure(&write.shown, history, &e), &e.to_string());
+      write.prepared.abandon();
+      continue;
+    }
+    kept.push((report, write));
+  }
+  if let Some(recorder) = recorder {
+    let mut recorder = recorder.lock().unwrap_or_else(|e| e.into_inner());
+    let mut recorded = Vec::with_capacity(kept.len());
+    for (report, write) in kept {
+      if let Some(entry) = &write.entry
+        && let Err(e) = recorder.record(entry)
+      {
+        report.failed(record_failure(&write.shown, &e), &e.to_string());
+        write.prepared.abandon();
+        continue;
+      }
+      recorded.push((report, write));
+    }
+    // The lines handed to the drive, and ordered before the files are replaced.
+    let ordered = recorder.order_later().and_then(|later| match later {
+      Some((file, folder)) => {
+        durable::handed(&file, &folder)?;
+        durable::barrier_for([folder.as_path()])
+      }
+      None => Ok(()),
+    });
+    drop(recorder);
+    if let Err(e) = ordered {
+      for (report, write) in recorded {
+        report.failed(record_failure(&write.shown, &e), &e.to_string());
+        write.prepared.abandon();
+      }
+      return;
+    }
+    kept = recorded;
+  }
+  for (report, write) in kept {
+    if let Err(e) = write.prepared.finish() {
+      report.failed(write_failure(&write.shown, &e), &e.to_string());
+    }
+  }
+}
+
 /// What the terminal shows for `bug`: one line naming the report it is kept as, or the
 /// whole report when reports are not kept (or keeping it failed); with `--no-report`
 /// (`name_only`), one line naming the bug, and nothing kept.
@@ -1948,6 +2123,18 @@ fn emit_stdout(
     report.stdout.push_str(&format!("{}:\n\n", shown));
   }
   report.stdout.push_str(&code(text, edition));
+}
+
+fn history_failure(shown: &str, history: &history::History, e: &io::Error) -> String {
+  format!(
+    "{}Left {} alone: cannot record it in history ({}): {}; --no-history writes without a \
+     record{}\n",
+    c_red(),
+    shown,
+    history.dir().display(),
+    e,
+    c_reset(true)
+  )
 }
 
 fn is_symlink(entry: &fs::DirEntry) -> bool {
@@ -2178,6 +2365,67 @@ fn plain_path(path: &Path) -> Option<PathBuf> {
   };
   (plain.len() < 260 && plain.split('\\').skip(1).all(|p| p.is_empty() || safe(p)))
     .then(|| PathBuf::from(plain))
+}
+
+/// [`run_file`]'s write when the run's committer makes it: the copy for history and the new
+/// contents written and handed to the drive, left in the report as a [`PendingWrite`], which
+/// says what a write says once the committer has made it.
+fn prepare_write(
+  mut report: FileReport,
+  file_path: &Path,
+  shown: &str,
+  source: &str,
+  reorganized: &str,
+  opts: &RunOptions,
+  ctx: WriteContext,
+) -> FileReport {
+  let mut stored = None;
+  let mut entry = None;
+  if let Some(history) = ctx.history {
+    // Only the contents before are kept: what the run wrote is known by its hash.
+    match history.prepare_store(source.as_bytes()) {
+      Ok(copy) => {
+        entry = Some(history::Entry {
+          path: std::path::absolute(file_path).unwrap_or_else(|_| file_path.into()),
+          before: copy.hash.clone(),
+          after: history::sha256::hex(reorganized.as_bytes()),
+        });
+        stored = Some(copy);
+      }
+      Err(e) => {
+        report.failed(history_failure(shown, history, &e), &e.to_string());
+        return report;
+      }
+    }
+  }
+  match Prepared::write(file_path, reorganized) {
+    Ok(prepared) => {
+      report.pending = Some(PendingWrite {
+        shown: shown.to_string(),
+        stored,
+        entry,
+        prepared,
+      });
+      written_report(report, shown, opts)
+    }
+    Err(e) => {
+      if let Some(copy) = stored {
+        copy.abandon();
+      }
+      report.failed(write_failure(shown, &e), &e.to_string());
+      report
+    }
+  }
+}
+
+fn record_failure(shown: &str, e: &io::Error) -> String {
+  format!(
+    "{}Left {} alone: cannot add it to the history record: {}{}\n",
+    c_red(),
+    shown,
+    e,
+    c_reset(true)
+  )
 }
 
 /// [`fs::rename`], tried again for a while on Windows when another program has the file
@@ -2439,10 +2687,21 @@ fn walking<T>(
     holds: writes.holds.as_ref(),
     defer: writes.defer,
     reports: writes.reports.as_ref(),
+    committed: true,
   };
+  // The writes workers prepare, made by the committer in batches ([`commit`]).
+  let (to_commit, prepared) = mpsc::channel::<(usize, FileReport)>();
   let (jobs, walked, outcomes) = thread::scope(|scope| {
+    {
+      let done = sender.clone();
+      let (history, recorder) = (history.as_ref(), recorder.as_ref());
+      thread::Builder::new()
+        .spawn_scoped(scope, move || commit(prepared, done, history, recorder))
+        .expect("a thread to write files on");
+    }
     for _ in 0..workers {
       let sender = sender.clone();
+      let to_commit = to_commit.clone();
       let (queue, found_one, next) = (&queue, &found_one, &next);
       let worker = move || {
         loop {
@@ -2468,7 +2727,12 @@ fn walking<T>(
             Some(settings) => run_file(&path, &settings, opts, ctx),
             None => FileReport::default().with(Outcome::LayoutOff),
           };
-          if sender.send((idx, report)).is_err() {
+          let sent = if report.pending.is_some() {
+            to_commit.send((idx, report)).is_ok()
+          } else {
+            sender.send((idx, report)).is_ok()
+          };
+          if !sent {
             break;
           }
         }
@@ -2479,6 +2743,7 @@ fn walking<T>(
         .expect("a thread to lay out files on");
     }
     drop(sender);
+    drop(to_commit);
     let over = Over(&queue, &found_one);
     let walked = walk(&mut |job| {
       lock(&queue).jobs.push(job);
@@ -2528,6 +2793,34 @@ fn walking<T>(
   });
   writes.recorder = recorder.map(|r| r.into_inner().unwrap_or_else(|e| e.into_inner()));
   (jobs, walked, outcomes)
+}
+
+fn write_failure(shown: &str, e: &io::Error) -> String {
+  format!(
+    "{}Cannot write {}: {}; it is unchanged{}\n",
+    c_red(),
+    shown,
+    e,
+    c_reset(true)
+  )
+}
+
+/// What a run says of a file it wrote.
+fn written_report(mut report: FileReport, shown: &str, opts: &RunOptions) -> FileReport {
+  if opts.files_with_diff {
+    report.stdout.push_str(&format!("{}\n", shown));
+    return report.with(Outcome::Changed);
+  }
+  if opts.quiet {
+    return report.with(Outcome::Changed);
+  }
+  report.stdout.push_str(&format!(
+    "{}Formatted:{} {}\n",
+    c_green(),
+    c_reset(false),
+    shown
+  ));
+  report.with(Outcome::Changed)
 }
 
 #[cfg(test)]

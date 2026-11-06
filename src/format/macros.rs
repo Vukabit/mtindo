@@ -53,7 +53,7 @@ pub fn rewrite_macro_rules(
       ..config.clone()
     };
     return rewrite_macro_rules(node, indent, edition, &spaces)
-      .map(|laid| super::file::tabbed(&laid, config));
+      .map(|laid| super::file::tabbed(&laid, config).into_owned());
   }
   let laid = rewrite_definition(node, indent, edition, config)?;
   // Code in a transcriber left as written keeps its indentation from the file, which the

@@ -372,25 +372,27 @@ pub(super) fn macro_moved_past_user(units: &[Unit]) -> bool {
 /// definition whose names cannot be read (a `#[macro_use] mod name;`, its file out of
 /// sight) may define any macro.
 pub(super) fn macro_shadows_user(units: &[Unit]) -> bool {
-  if !units.iter().any(defines_macros) {
-    return false;
-  }
-  let calls: Vec<HashSet<String>> = units.iter().map(macros_called).collect();
   units.iter().enumerate().any(|(at, definer)| {
     if !defines_macros(definer) {
       return false;
     }
-    let names = macros_defined(definer);
-    units[at + 1..]
+    // Only a unit written before the definition and now after it is read: most
+    // arrangements move none past one.
+    let mut moved = units[at + 1..]
       .iter()
-      .zip(&calls[at + 1..])
-      .any(|(unit, called)| {
-        unit.index < definer.index
-          && match &names {
-            Some(names) => called.iter().any(|name| names.contains(name)),
-            None => !called.is_empty(),
-          }
-      })
+      .filter(|unit| unit.index < definer.index)
+      .peekable();
+    if moved.peek().is_none() {
+      return false;
+    }
+    let names = macros_defined(definer);
+    moved.any(|unit| {
+      let called = macros_called(unit);
+      match &names {
+        Some(names) => called.iter().any(|name| names.contains(name)),
+        None => !called.is_empty(),
+      }
+    })
   })
 }
 
@@ -898,27 +900,27 @@ fn kind_step(
 }
 
 /// The macros `unit` calls: each name followed by `!`, but `macro_rules` itself.
-fn macros_called(unit: &Unit) -> HashSet<String> {
+fn macros_called(unit: &Unit) -> HashSet<&str> {
   let words = words(&unit.text);
   words
     .windows(2)
-    .filter(|pair| pair[1] == "!" && pair[0] != "macro_rules" && is_name(&pair[0]))
-    .map(|pair| pair[0].trim_start_matches("r#").to_string())
+    .filter(|pair| pair[1] == "!" && pair[0] != "macro_rules" && is_name(pair[0]))
+    .map(|pair| pair[0].trim_start_matches("r#"))
     .collect()
 }
 
 /// The macros `unit` defines (`macro_rules! name`, `macro name`), or `None` when they cannot
 /// be read: a module declared without a body, or a definer whose names are not in sight.
-fn macros_defined(unit: &Unit) -> Option<HashSet<String>> {
+fn macros_defined(unit: &Unit) -> Option<HashSet<&str>> {
   if unit.module_declaration {
     return None;
   }
   let words = words(&unit.text);
-  let names: HashSet<String> = words
+  let names: HashSet<&str> = words
     .windows(3)
-    .filter_map(|w| match (w[0].as_str(), w[1].as_str()) {
-      ("macro_rules", "!") if is_name(&w[2]) => Some(w[2].trim_start_matches("r#").to_string()),
-      ("macro", name) if is_name(name) => Some(name.trim_start_matches("r#").to_string()),
+    .filter_map(|w| match (w[0], w[1]) {
+      ("macro_rules", "!") if is_name(w[2]) => Some(w[2].trim_start_matches("r#")),
+      ("macro", name) if is_name(name) => Some(name.trim_start_matches("r#")),
       _ => None,
     })
     .collect();
@@ -1075,13 +1077,13 @@ fn sorted(units: &[Unit], config: &LayoutConfig, macros_first: bool) -> Vec<Unit
 }
 
 /// The tokens of `text` that are not whitespace or comments.
-fn words(text: &str) -> Vec<String> {
+fn words(text: &str) -> Vec<&str> {
   let mut at = 0;
   let mut out = Vec::new();
   for token in crate::syntax::lexer::tokenize(text, crate::syntax::Edition::E2021) {
     let end = at + token.len as usize;
     if !token.kind.is_trivia() {
-      out.push(text[at..end].to_string());
+      out.push(&text[at..end]);
     }
     at = end;
   }

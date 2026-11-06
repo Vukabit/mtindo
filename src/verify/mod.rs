@@ -614,46 +614,46 @@ fn moved_below_definitions(
   if !old.iter().any(|(_, _, defines)| *defines) {
     return Vec::new();
   }
-  let numbered = |sequence: &[(String, String, bool)]| -> Vec<(String, String, usize, bool)> {
-    let mut seen: HashMap<(String, String), usize> = HashMap::new();
+  fn numbered(sequence: &[(String, String, bool)]) -> Vec<(&str, &str, usize, bool)> {
+    let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
     sequence
       .iter()
       .map(|(scope, text, definer)| {
-        let n = seen.entry((scope.clone(), text.clone())).or_default();
+        let n = seen.entry((scope.as_str(), text.as_str())).or_default();
         *n += 1;
-        (scope.clone(), text.clone(), *n, *definer)
+        (scope.as_str(), text.as_str(), *n, *definer)
       })
       .collect()
-  };
+  }
   let (old, new) = (numbered(old), numbered(new));
   let position: HashMap<(&str, &str, usize), usize> = new
     .iter()
     .enumerate()
-    .map(|(i, (scope, text, n, _))| ((scope.as_str(), text.as_str(), *n), i))
+    .map(|(i, &(scope, text, n, _))| ((scope, text, n), i))
     .collect();
-  let at = |item: &(String, String, usize, bool)| {
-    position
-      .get(&(item.0.as_str(), item.1.as_str(), item.2))
-      .copied()
-  };
-  let mut moved = Vec::new();
+  let at = |item: &(&str, &str, usize, bool)| position.get(&(item.0, item.1, item.2)).copied();
+  let mut moved: Vec<String> = Vec::new();
   for (i, definer) in old.iter().enumerate() {
     let Some(definer_at) = at(definer).filter(|_| definer.3) else {
       continue;
     };
-    let names = macros_defined(&definer.1);
+    let mut names = None;
     for earlier in &old[..i] {
-      let calls = macros_called(&earlier.1);
-      let reaches = match &names {
+      // What it calls is read only for one in the definition's scope moved past it.
+      if earlier.0 != definer.0
+        || !at(earlier).is_some_and(|p| p > definer_at)
+        || moved.iter().any(|m| m == earlier.1)
+      {
+        continue;
+      }
+      let names = names.get_or_insert_with(|| macros_defined(definer.1));
+      let calls = macros_called(earlier.1);
+      let reaches = match names {
         Some(names) => calls.iter().any(|c| names.contains(c)),
         None => !calls.is_empty(),
       };
-      if earlier.0 == definer.0
-        && reaches
-        && at(earlier).is_some_and(|p| p > definer_at)
-        && !moved.contains(&earlier.1)
-      {
-        moved.push(earlier.1.clone());
+      if reaches {
+        moved.push(earlier.1.to_string());
       }
     }
   }

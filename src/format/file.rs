@@ -725,9 +725,9 @@ pub(super) fn style_2024() -> bool {
 /// tab for each `tab_spaces` columns, the rest spaces, as the standard formatter writes an
 /// indent. A tab counts `tab_spaces` columns wherever widths are measured, so the layout is
 /// the one spaces give. Lines inside a string literal keep their bytes, which are its value.
-pub(super) fn tabbed(text: &str, config: &FormatConfig) -> String {
+pub(super) fn tabbed<'a>(text: &'a str, config: &FormatConfig) -> std::borrow::Cow<'a, str> {
   if !config.hard_tabs || config.tab_spaces == 0 || !text.contains('\n') {
-    return text.to_string();
+    return std::borrow::Cow::Borrowed(text);
   }
   // Where each string literal spanning lines starts and ends.
   let mut strings = Vec::new();
@@ -752,7 +752,7 @@ pub(super) fn tabbed(text: &str, config: &FormatConfig) -> String {
     }
     start += line.len();
   }
-  out
+  std::borrow::Cow::Owned(out)
 }
 
 /// The list and the index of the item a token ends (a field's or variant's comma, an arm's

@@ -1,10 +1,14 @@
 //! Navigable handles over the green tree. A [`SyntaxNode`] is a node of its parse's arena,
 //! which records where each node starts and its parent: making one allocates nothing.
 
+use std::cell::RefCell;
 use std::fmt;
 
 use crate::syntax::SyntaxKind;
 use crate::syntax::tree::green::{GreenElement, GreenNode};
+
+/// How many stacks [`STACKS`] keeps: as many as walks run inside one another.
+const KEPT_STACKS: usize = 16;
 
 /// A node or a token in the tree.
 #[derive(Clone, PartialEq, Eq)]
@@ -189,6 +193,13 @@ struct Frame {
   offset: u32,
 }
 
+thread_local! {
+  /// The stacks of finished [`Preorder`] walks, cleared, for the next walks to take: the
+  /// formatter walks small subtrees tens of thousands of times a file, and a stack taken
+  /// from here costs no allocation.
+  static STACKS: RefCell<Vec<Vec<Frame>>> = const { RefCell::new(Vec::new()) };
+}
+
 impl Frame {
   fn new(tree: &GreenNode, green: GreenElement, offset: u32) -> Self {
     let (first, count) = tree.child_range(green);
@@ -219,10 +230,15 @@ pub struct Preorder<F = fn(SyntaxKind) -> bool> {
 
 impl<F: FnMut(SyntaxKind) -> bool> Preorder<F> {
   fn new(root: SyntaxNode, tokens: bool, wanted: F) -> Self {
+    let stack = STACKS
+      .try_with(|stacks| stacks.borrow_mut().pop())
+      .ok()
+      .flatten()
+      .unwrap_or_default();
     Preorder {
       tree: root.0.clone(),
       root: Some(root),
-      stack: Vec::new(),
+      stack,
       tokens,
       wanted,
     }
@@ -231,6 +247,23 @@ impl<F: FnMut(SyntaxKind) -> bool> Preorder<F> {
   /// The handle of the open node at `depth`.
   fn handle(&self, depth: usize) -> SyntaxNode {
     SyntaxNode(self.tree.child_node(self.stack[depth].green))
+  }
+}
+
+impl<F> Drop for Preorder<F> {
+  fn drop(&mut self) {
+    let mut stack = std::mem::take(&mut self.stack);
+    if stack.capacity() == 0 {
+      return;
+    }
+    stack.clear();
+    // At a thread's end the pool may be gone already: the stack is then freed.
+    let _ = STACKS.try_with(|stacks| {
+      let mut stacks = stacks.borrow_mut();
+      if stacks.len() < KEPT_STACKS {
+        stacks.push(stack);
+      }
+    });
   }
 }
 

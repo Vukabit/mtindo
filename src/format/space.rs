@@ -222,6 +222,10 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &Spacing) -> Option<bool> {
   if ka == K::Semi {
     return Some(!matches!(kb, K::RParen | K::RBrack));
   }
+  // Closure parameters: `|a, b| body`, `|(a, b)| body`.
+  if pa == K::ParamList && ka == K::Pipe && is_opening_pipe(a) {
+    return Some(false);
+  }
   // Delimiters: nothing inside parentheses and brackets.
   if matches!(ka, K::LParen | K::LBrack) || matches!(kb, K::RParen | K::RBrack) {
     return Some(false);
@@ -254,7 +258,9 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &Spacing) -> Option<bool> {
     return Some(false);
   }
   if kb == K::Colon2 {
-    if ka == K::Gt && pa != K::GenericArgList {
+    // But a qualified path's `>`, `<T as A>::B` (a generic parameter list's stays as
+    // written: `impl<T> ::a::B for C`).
+    if ka == K::Gt && !matches!(pa, K::GenericArgList | K::PathSegment) {
       return None;
     }
     return path_start(ka).then_some(false);
@@ -369,10 +375,6 @@ fn rule(a: &SyntaxToken, b: &SyntaxToken, config: &Spacing) -> Option<bool> {
   // Type ascriptions, fields and bounds: `a: T`.
   if kb == K::Colon {
     return Some(config.space_before_colon);
-  }
-  // Closure parameters: `|a, b| body`.
-  if pa == K::ParamList && ka == K::Pipe && is_opening_pipe(a) {
-    return Some(false);
   }
   if pb == K::ParamList && kb == K::Pipe && !is_opening_pipe(b) {
     return Some(false);

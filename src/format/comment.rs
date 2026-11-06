@@ -207,6 +207,8 @@ struct Found {
   start: usize,
   end: usize,
   place: Place,
+  /// In a list beside one of its items ([`beside_list_item`]).
+  beside_item: bool,
 }
 
 /// A list item or block quote in a comment, wrapped as a whole (`ItemizedBlock`): it starts
@@ -707,6 +709,7 @@ pub fn rewrite_comments(root: &SyntaxNode, text: &str, config: &FormatConfig) ->
         start: t.text_range().start as usize,
         end: t.text_range().end as usize,
         place: Place::of(&t),
+        beside_item: beside_list_item(&t),
       }),
       _ => None,
     })
@@ -719,11 +722,39 @@ pub fn rewrite_comments(root: &SyntaxNode, text: &str, config: &FormatConfig) ->
       start,
       end,
       place,
+      beside_item,
     } = comments[i];
     i += 1;
     let line_start = text[..start].rfind('\n').map_or(0, |n| n + 1);
     let line_end = text[end..].find('\n').map_or(text.len(), |n| end + n);
-    if !text[end..line_end].trim().is_empty() || off.iter().any(|&(s, e)| s < end && start < e) {
+    if off.iter().any(|&(s, e)| s < end && start < e) {
+      continue;
+    }
+    // Code after it on its line: only a block comment on one line beside a list's item is
+    // rewritten, a block comment still (`/* a */`), as the standard formatter writes a
+    // list's pre- and post-comments.
+    if !text[end..line_end].trim().is_empty() {
+      let block = kind == K::LineComment && text[start..end].starts_with("/*");
+      if rules.normalize && beside_item && block && !text[start..end].contains('\n') {
+        // With those after it with only spaces between, read as one (`/*a*/ /*b*/` is
+        // `/* a*/ /*b */`).
+        let mut last = end;
+        while let Some(next) = comments.get(i)
+          && next.kind == K::LineComment
+          && text[next.start..next.end].starts_with("/*")
+          && !text[next.start..next.end].contains('\n')
+          && text[last..next.start]
+            .chars()
+            .all(|c| c == ' ' || c == '\t')
+        {
+          last = next.end;
+          i += 1;
+        }
+        let new = normalized(&text[start..last], true, "");
+        if new != text[start..last] {
+          edits.push((start, last, new));
+        }
+      }
       continue;
     }
     let before = &text[line_start..start];
@@ -901,6 +932,43 @@ pub fn rewritten(
     indent,
     rewritten(rest.trim_start(), block, indent, width, is_doc, rules)
   )
+}
+
+/// Whether a comment stands in a list (arguments, parameters, elements, fields, a pattern's
+/// or a `use`'s list) beside one of its items, before or after it, which the standard
+/// formatter writes as the item's pre- or post-comment; not alone in it (`f(/* c */)`).
+fn beside_list_item(token: &crate::syntax::SyntaxToken) -> bool {
+  let list = matches!(
+    token.parent().kind(),
+    K::ParamList
+      | K::ArgList
+      | K::RecordExprFieldList
+      | K::ArrayExpr
+      | K::TupleExpr
+      | K::GenericParamList
+      | K::GenericArgList
+      | K::RecordPatFieldList
+      | K::TuplePat
+      | K::TupleStructPat
+      | K::SlicePat
+      | K::UseTreeList
+  );
+  let skipped =
+    |e: &SyntaxElement| matches!(e.kind(), K::Whitespace | K::LineComment | K::BlockComment);
+  let step = |e: &SyntaxElement, back: bool| match (e, back) {
+    (SyntaxElement::Token(t), true) => t.prev_sibling_or_token(),
+    (SyntaxElement::Token(t), false) => t.next_sibling_or_token(),
+    (SyntaxElement::Node(n), true) => n.prev_sibling_or_token(),
+    (SyntaxElement::Node(n), false) => n.next_sibling_or_token(),
+  };
+  let item = |back: bool| {
+    let mut e = step(&SyntaxElement::Token(token.clone()), back);
+    while let Some(skip) = e.as_ref().filter(|e| skipped(e)) {
+      e = step(skip, back);
+    }
+    matches!(e, Some(SyntaxElement::Node(n)) if n.kind() != K::Attr)
+  };
+  list && (item(true) || item(false))
 }
 
 /// The kind a comment groups by: plain, outer doc or inner doc.

@@ -33,7 +33,7 @@ on the machine it names).
 | measure | now |
 |---|---|
 | test pairs, default settings | 455 of 460 files (98.9%) |
-| test pairs with settings | 444 of 559 files (79.4%) |
+| test pairs with settings | 446 of 559 files (79.8%) |
 | corpus as fetched, lines | 100.00% |
 | corpus scrambled, lines | 99.94% |
 | options honored | 47 of 90; 27 in part, 11 missing, 5 not planned |

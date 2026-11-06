@@ -411,10 +411,6 @@ fn test_blank_lines_between_variant_fields() {
   );
 }
 
-/// Comments after a field's or a variant's comma, as the standard formatter writes them:
-/// a line comment one space after it, a block comment before the next one going to its
-/// line with it, and a tuple variant holding a line comment one field per line. Found by
-/// the bug hunt of 2026-11-04.
 #[test]
 fn test_block_comments_before_sorted_declarations() {
   // A block comment before a `use`, `extern crate` or `mod name;` on its line, after
@@ -432,6 +428,28 @@ fn test_block_comments_before_sorted_declarations() {
   assert_eq!(
     formatted_with(source, &unsorted),
     "use a::x;\n/* lead */\nuse b::v;\nextern crate a;\n/* lead */\nextern crate b;\n\nuse c::x;\n\n/* apart */\nuse d::v;\nfn f() {}\n/* first */\nuse e::x;\nmod m {\n    use b::x;\n    /* lead */\n    use std::v;\n}\n"
+  );
+}
+
+/// Comments after a field's or a variant's comma, as the standard formatter writes them:
+/// a line comment one space after it, a block comment before the next one going to its
+/// line with it, and a tuple variant holding a line comment one field per line. Found by
+/// the bug hunt of 2026-11-04.
+#[test]
+fn test_block_comments_beside_list_items_normalized() {
+  // With `normalize_comments`, a block comment on one line before or after a list's item,
+  // code after it on its line, is written `/* a */`; those side by side read as one, as the
+  // standard formatter reads them; one alone in a list, or outside one, is left as written.
+  let config = FormatConfig {
+    normalize_comments: true,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "use path::{self /* self */, /*A*/ A, B /* B */, C};\nfn f(/*a*/ x: u8, y: u8 /*  b  */) {\n    let x = /*a*/ 1;\n    g(/*a*/);\n    g(x /*a*/ /*b*/, /**/ y);\n    let Some(ref xyz /*   comment!   */) = opt;\n    let v = [1 /*a*/, 2];\n}\n",
+      &config
+    ),
+    "use path::{self /* self */, /* A */ A, B /* B */, C};\nfn f(/* a */ x: u8, y: u8 /* b */) {\n    let x = /*a*/ 1;\n    g(/*a*/);\n    g(x /* a*/ /*b */, /*  */ y);\n    let Some(ref xyz /* comment! */) = opt;\n    let v = [1 /* a */, 2];\n}\n"
   );
 }
 
@@ -1793,6 +1811,19 @@ fn test_skipped_macro_invocations() {
   assert_eq!(
     formatted_with("fn f() {\n    foo!(a,   b);\n}\n", &all),
     "fn f() {\n    foo!(a,   b);\n}\n"
+  );
+}
+
+#[test]
+fn test_spaces_after_a_closure_pipe_and_a_qualified_path() {
+  // Tight after a closure's opening `|` whatever its first pattern starts with, and after
+  // a qualified path's `>` in a pattern too; one space before a block comment ending a tuple
+  // pattern (a slice pattern's left as written), none after it.
+  assert_eq!(
+    formatted(
+      "fn f() {\n    if let <T as Trait>   ::CONST = ident {}\n    let foo = |   (c,)| c;\n    let foo = |  [a, b]| c;\n    let Some(ref xyz  /*c*/) = opt;\n    let (a, b   /*c*/) = t;\n    let [a  /*c*/] = t;\n}\nimpl<T> ::a::B for C {}\n"
+    ),
+    "fn f() {\n    if let <T as Trait>::CONST = ident {}\n    let foo = |(c,)| c;\n    let foo = |[a, b]| c;\n    let Some(ref xyz /*c*/) = opt;\n    let (a, b /*c*/) = t;\n    let [a  /*c*/] = t;\n}\nimpl<T> ::a::B for C {}\n"
   );
 }
 

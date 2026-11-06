@@ -4067,8 +4067,9 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           }
         }
         // A block comment on a line in a binding pattern (`ref /* c */ x`, `a @ /* c */ b`),
-        // after a pattern list's opening delimiter (`Some(/* c */ x)`) or after a `let`'s
-        // `=`, one space from what follows it, and from what is before it but the delimiter,
+        // after a pattern list's opening delimiter (`Some(/* c */ x)`) or before its closing
+        // one (`Some(x /* c */)`, none after it), or after a `let`'s `=`, one space from what
+        // follows it, and from what is before it but the delimiter,
         // as the standard formatter joins them (`combine_strs_with_missing_comments`).
         let patterned = matches!(
           node.kind(),
@@ -4124,9 +4125,16 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
             continue;
           }
           let opener = matches!(before.kind(), SyntaxKind::LParen | SyntaxKind::LBrack);
+          // After a tuple pattern's last element, before its `)`: `Some(x /* c */)` (a slice
+          // pattern's is left as written).
+          let closer = after.kind() == SyntaxKind::RParen
+            && node.kind() != SyntaxKind::SlicePat
+            && matches!(before, SyntaxElement::Node(_));
           let placed = match node.kind() {
             SyntaxKind::IdentPat => true,
-            SyntaxKind::TupleStructPat | SyntaxKind::TuplePat | SyntaxKind::SlicePat => opener,
+            SyntaxKind::TupleStructPat | SyntaxKind::TuplePat | SyntaxKind::SlicePat => {
+              opener || closer
+            }
             _ => before.kind() == SyntaxKind::Eq,
           };
           if !placed {
@@ -4138,7 +4146,11 @@ fn roles(root: &SyntaxNode, text: &str, config: &FormatConfig) -> Roles {
           } else {
             roles.spaced.insert(at);
           }
-          roles.spaced.insert(after.text_range().start as usize);
+          if closer {
+            roles.tight.insert(after.text_range().start as usize);
+          } else {
+            roles.spaced.insert(after.text_range().start as usize);
+          }
         }
         // Comments between a struct's, enum's or union's visibility and its keyword, one
         // space from each, as the standard formatter's `format_header` combines them; code

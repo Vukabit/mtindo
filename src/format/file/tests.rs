@@ -125,6 +125,31 @@ fn test_a_comment_after_an_attribute_across_lines_moves_to_its_indentation() {
   );
 }
 
+/// A `let` with a comment among its own tokens up to its value's end, and a `static` or
+/// `const` with one before its `=`, are left as written, as the standard formatter's rewrite
+/// of them fails; one in a pattern's parentheses, in the value, after the `=` of an item, or
+/// by a let-else's `else`, is placed.
+#[test]
+fn test_a_comment_in_a_let_or_an_items_head_leaves_it_as_written() {
+  for kept in [
+    "fn f() {\n    let//c\nx=1;\n}\n",
+    "fn f() {\n    let x//c\n=1;\n}\n",
+    "fn f() {\n    let x/*c*/=1;\n}\n",
+    "fn f() {\n    let x=/*c*/1;\n}\n",
+    "fn f() {\n    let x:/*c*/u8=1;\n}\n",
+    "static/*c*/X:u8=1;\n",
+    "pub/*c*/static X:u8=1;\n",
+    "static X:u8/*c*/=1;\n",
+    "const//c\nX:u8=1;\n",
+  ] {
+    assert_eq!(formatted(kept), kept);
+  }
+  assert_eq!(
+    formatted("fn f(){let Some(x/*c*/)=1;let y=f(a,/*c*/b);}\nstatic X:u8=/*c*/1;\n"),
+    "fn f() {\n    let Some(x /*c*/) = 1;\n    let y = f(a, /*c*/ b);\n}\nstatic X: u8 = /*c*/ 1;\n"
+  );
+}
+
 /// A comment written touching the end of a statement or item, or a block's last
 /// expression, gets one space before it, as one written after a space does; after an
 /// operator it stays touching (and after `{` it goes to the next line).
@@ -146,6 +171,16 @@ fn test_a_comment_touching_a_statement_s_end_is_spaced() {
 fn test_a_condition_closing_a_closure_keeps_its_brace_in_a_let() {
   let source = "fn f() {\n    let x = if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n        && bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n        && c.is_some_and(|d| {\n            dddddddddddddddddddddddddddddddddddddddddddddddddddddddd(d)\n                && eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee(d)\n        }) {\n        1\n    } else {\n        2\n    };\n}\n";
   assert_eq!(formatted(source), source);
+}
+
+/// A float's own `.` is no tuple field: `1.0.5` keeps no space before its field, where a
+/// tuple field of a tuple field does before style edition 2024.
+#[test]
+fn test_a_field_of_a_float_is_written_touching_it() {
+  assert_eq!(
+    formatted("fn f(){let z=(1.0.5);let t=x.0.5;let u=1.0.5.f();}\n"),
+    "fn f() {\n    let z = (1.0.5);\n    let t = x.0 .5;\n    let u = 1.0.5.f();\n}\n"
+  );
 }
 
 /// A generic parameter whose bounds, broken over lines, leave its default no room (counted
@@ -334,6 +369,18 @@ fn test_an_async_block_almost_fitting_goes_on_a_line_of_its_own() {
   );
   let out = formatted(&call(51));
   assert!(out.contains("spawn_local(async move {\n"), "{}", out);
+}
+
+/// An empty turbofish says nothing, as an empty `<>` does: it goes in calls, method calls,
+/// paths, types, item headers and loop heads, but not with a comment in it.
+#[test]
+fn test_an_empty_turbofish_is_dropped_but_with_a_comment() {
+  assert_eq!(
+    formatted(
+      "fn f(){a.p::<>();f::<>();Vec::<>::new();let x:Vec::<>=y;for _ in a.r::<>(){}j::</*c*/>();}\nimpl Tr::<> for X{}\ntype A=B::<>;\n"
+    ),
+    "fn f() {\n    a.p();\n    f();\n    Vec::new();\n    let x: Vec = y;\n    for _ in a.r() {}\n    j::</*c*/>();\n}\nimpl Tr for X {}\ntype A = B;\n"
+  );
 }
 
 #[test]
@@ -1717,6 +1764,15 @@ fn test_repeat_arrays_and_vec() {
 fn test_settles_in_one_run() {
   // Each settles where a second run leaves it (`formatted_with` checks that).
   let cases: &[(&str, usize, usize, &str)] = &[
+    // An impl in a block, laid out by the whole-file pass from where it was written: the
+    // lines it keeps as written (a block in a generic argument) move with its first line,
+    // not by the block's indentation again on every run (zerocopy-derive's output tests).
+    (
+      "const _: () = {\n    impl X for Foo\n    where\n        (): P<{\n            struct T;\n            g!((o<>))\n        }>,\n    {\n    }\n};\n",
+      100,
+      4,
+      "const _: () = {\n    impl X for Foo\n    where\n        (): P<{\n            struct T;\n            g!((o<>))\n        }>,\n    {\n    }\n};\n",
+    ),
     // An enum with a variant on lines and one on a line has its struct variants on lines, a
     // tuple variant measured with the column its fields leave and without the commas
     // written in it.

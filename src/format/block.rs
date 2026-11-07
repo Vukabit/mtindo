@@ -1055,7 +1055,28 @@ fn nested_item(
   };
   let opening = "fn __mto() {\n".repeat(depth);
   let closing = "}\n".repeat(depth);
-  let source = format!("{}{}\n{}", opening, node.text().to_string().trim(), closing);
+  // Starting its line, it keeps the indentation it was written with, so that lines the pass
+  // keeps as written move with its first one rather than by its indentation again.
+  let written = node
+    .prev_sibling_or_token()
+    .and_then(|e| match e {
+      crate::syntax::SyntaxElement::Token(t) => Some(t),
+      _ => None,
+    })
+    .filter(|t| t.kind() == K::Whitespace)
+    .and_then(|t| {
+      t.text()
+        .rsplit_once('\n')
+        .map(|(_, indent)| indent.to_string())
+    })
+    .unwrap_or_default();
+  let source = format!(
+    "{}{}{}\n{}",
+    opening,
+    written,
+    node.text().to_string().trim(),
+    closing
+  );
   let out = super::macros::format_snippet(&source, super::file::edition(), &config)?;
   let lines: Vec<&str> = out.trim_end().split('\n').collect();
   let item = lines.get(depth..lines.len().checked_sub(depth)?)?;

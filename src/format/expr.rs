@@ -1212,6 +1212,32 @@ pub(super) fn closure_prefix(node: &SyntaxNode, shape: Shape) -> Option<String> 
   Some(text)
 }
 
+/// A `<` or `>` of an empty generic list (`impl<> Foo<> for Bar<>`), or the `::` of an
+/// empty turbofish (`f::<>()`, `x.f::<>()`, `Vec::<>::new()`), which say nothing: an item's
+/// parameters or a path segment's or method call's arguments, not a binder's (`for<>` needs
+/// them).
+pub(super) fn empty_generics(token: &SyntaxToken) -> bool {
+  let list = token.parent();
+  matches!(
+    token.kind(),
+    SyntaxKind::Lt | SyntaxKind::Gt | SyntaxKind::Colon2
+  ) && match list.kind() {
+    SyntaxKind::GenericParamList => list
+      .parent()
+      .is_some_and(|owner| super::items::is_item(owner.kind())),
+    SyntaxKind::GenericArgList => list.parent().is_some_and(|owner| {
+      matches!(
+        owner.kind(),
+        SyntaxKind::PathSegment | SyntaxKind::MethodCallExpr
+      )
+    }),
+    _ => false,
+  } && list.children_iter().next().is_none()
+    && !list
+      .children_with_tokens_iter()
+      .any(|e| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment))
+}
+
 /// Whether a block's last expression gains a `;` on a line of its own: a `return`, `break`
 /// or `continue`, with `trailing_semicolon`.
 pub(super) fn ends_with_semi(node: &SyntaxNode, limits: Limits) -> bool {
@@ -1330,6 +1356,10 @@ pub(super) fn later_lines(text: &str) -> impl Iterator<Item = (&str, usize)> {
   })
 }
 
+thread_local! {
+  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
+}
+
 /// Whether `node` is a struct literal with a comment between a field's attribute and the
 /// field, which the standard formatter's layout loses and so keeps the literal as written
 /// (`recover_comment_removed`).
@@ -1350,10 +1380,6 @@ pub(super) fn lost_field_comment(node: &SyntaxNode) -> bool {
         }
         false
       })
-}
-
-thread_local! {
-  static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
 }
 
 /// Whether a control expression's head spans lines laid out in `shape`, its `{` included.
@@ -2169,29 +2195,6 @@ fn element_attributes(node: &SyntaxNode) -> Option<Vec<SyntaxNode>> {
   Some(attributes)
 }
 
-/// A `<` or `>` of an empty generic list (`impl<> Foo<> for Bar<>`), which says nothing: an
-/// item's parameters or a path segment's arguments, not a binder's (`for<>` needs them).
-fn empty_generics(token: &SyntaxToken) -> bool {
-  let list = token.parent();
-  matches!(token.kind(), SyntaxKind::Lt | SyntaxKind::Gt)
-    && match list.kind() {
-      SyntaxKind::GenericParamList => list
-        .parent()
-        .is_some_and(|owner| super::items::is_item(owner.kind())),
-      SyntaxKind::GenericArgList => list
-        .parent()
-        .is_some_and(|owner| owner.kind() == SyntaxKind::PathSegment),
-      _ => false,
-    }
-    && token.parent().children_iter().next().is_none()
-    && !token.parent().children_with_tokens_iter().any(|e| {
-      matches!(
-        e.kind(),
-        SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::Colon2
-      )
-    })
-}
-
 /// Whether `node` is a macro called with nothing (`vec![]`, `f!()`), seen through `&`, `?`,
 /// a unary operator and a cast.
 fn empty_macro(node: &SyntaxNode) -> bool {
@@ -2934,9 +2937,10 @@ fn measured_list(
   // closing delimiter on the next line, as the standard formatter's `wrap_items` leaves it
   // for the list holding the call to lay out again.
   if items.is_empty() {
-    // An empty generic list says nothing (`impl<> Foo<>`).
-    if open == "<" && !ident.ends_with("::") {
-      return wrap_str(ident.to_string(), shape);
+    // An empty generic list says nothing (`impl<> Foo<>`), nor its turbofish's `::`
+    // (`f::<>()`).
+    if open == "<" {
+      return wrap_str(ident.strip_suffix("::").unwrap_or(ident).to_string(), shape);
     }
     let text = format!("{}{}{}", ident, open, close);
     if wrap_str(text.clone(), shape).is_some() || open != "(" {
@@ -3926,9 +3930,11 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
           t.strip_prefix('.')
             .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
         };
-        let previous_field = root_text
-          .rfind('.')
-          .is_some_and(|at| tuple_field(&root_text[at..]));
+        // A float's own `.` is no field (`1.0.5`).
+        let previous_field = (joined || root.kind() != SyntaxKind::Literal)
+          && root_text
+            .rfind('.')
+            .is_some_and(|at| tuple_field(&root_text[at..]));
         if space::glues(&root_text, &text)
           || !shape.limits.style_2024 && previous_field && tuple_field(&text)
         {
@@ -4056,9 +4062,10 @@ fn rewrite_chain(node: &SyntaxNode, shape: Shape) -> Option<String> {
     // What the line or link before ends with, from its last `.`, the line break and
     // indentation after it aside.
     let before = result.trim_end();
-    let previous_field = before
-      .rfind('.')
-      .is_some_and(|at| tuple_field(&before[at..]));
+    // A float root's own `.` is no field (`1.0.5`).
+    let previous_field = before.rfind('.').is_some_and(|at| {
+      (at >= rewrites[0].len() || root.kind() != SyntaxKind::Literal) && tuple_field(&before[at..])
+    });
     // The tuple field's space stays on a line of its own too, one column further in (as
     // the standard formatter writes it, though likely by mistake).
     if connector.is_empty() && result.ends_with('.') && r.starts_with('.')
@@ -4274,7 +4281,16 @@ fn rewrite_link(link: &Link, shape: Shape) -> Option<String> {
         .iter()
         .map(|arg| rewrite(arg, shape))
         .collect::<Option<_>>()?;
-      format!("{}::<{}>", name, texts.join(", "))
+      // An empty one says nothing (`x.f::<>()`), but with a comment.
+      if texts.is_empty()
+        && !list
+          .children_with_tokens_iter()
+          .any(|e| matches!(e.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment))
+      {
+        name.clone()
+      } else {
+        format!("{}::<{}>", name, texts.join(", "))
+      }
     }
     _ => link.head.clone(),
   };

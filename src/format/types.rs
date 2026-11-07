@@ -1310,12 +1310,11 @@ fn rewrite_segment(segment: &SyntaxNode, shape: Shape, expression: bool) -> Opti
   };
   let _ = expression;
   let items: Vec<SyntaxNode> = list.children_iter().collect();
-  // An empty list says nothing (`Foo<>` is `Foo`), but after `::` or with a comment.
+  // An empty list says nothing (`Foo<>` is `Foo`, `Foo::<>` too), but with a comment.
   if items.is_empty() {
-    if separator.is_empty()
-      && !list
-        .children_with_tokens_iter()
-        .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
+    if !list
+      .children_with_tokens_iter()
+      .any(|e| matches!(e.kind(), K::LineComment | K::BlockComment))
     {
       return (str_width(&name) <= shape.width).then_some(name);
     }

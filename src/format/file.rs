@@ -980,6 +980,31 @@ fn chain_value(node: &SyntaxNode) -> bool {
   value.is_some_and(|v| v.kind() == SyntaxKind::MethodCallExpr)
 }
 
+/// Whether an attribute's arguments are what the standard formatter can format: names and
+/// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
+/// else (a closure, a path as a value) is left as written.
+/// Whether a literal's suffix is one it can take: none on a string or character, a
+/// number's type (`1u8`, `2.0f32`) on a number.
+/// Whether a `let` has a comment among its own tokens up to its value's end (one by a
+/// let-else's `else` the standard formatter places), or a `static` or `const` one before
+/// its `=`, after the keyword or visibility starting it (not one in its attributes).
+fn comment_in_head(node: &SyntaxNode) -> bool {
+  let mut started = false;
+  let mut after_eq = false;
+  for element in node.children_with_tokens_iter() {
+    match element.kind() {
+      SyntaxKind::Attr => continue,
+      SyntaxKind::Eq if node.kind() != SyntaxKind::LetStmt => return false,
+      SyntaxKind::Eq => after_eq = true,
+      SyntaxKind::LineComment | SyntaxKind::BlockComment if started => return true,
+      _ if after_eq && matches!(element, SyntaxElement::Node(_)) => return false,
+      kind if !kind.is_trivia() => started = true,
+      _ => {}
+    }
+  }
+  false
+}
+
 /// A block comment on one line followed on its line by more: the standard formatter puts
 /// what follows on the next line (`missed_spans`). After a block comment starting its line,
 /// a comment goes to the next line, and so does each comment line after it up to a blank
@@ -2855,6 +2880,14 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
     let next = tokens.get(i + 1);
     if tok.start < laid_out_to
       || dropped.borrow().contains(&tok.start)
+      // An empty turbofish says nothing (`for x in a.f::<>() {}`).
+      || crate::format::expr::empty_generics(&tok.token)
+        && tok
+          .token
+          .parent()
+          .children_with_tokens_iter()
+          .any(|e| e.kind() == SyntaxKind::Colon2)
+        && !in_verbatim(tok.start)
       || tok.kind == SyntaxKind::Whitespace
         && next.is_some_and(|n| glued.borrow().contains(&n.start))
     {
@@ -3621,6 +3654,29 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
         note_kept();
         gave_up.borrow_mut().push((tok.start, end));
       }
+    }
+    // A `let`, `static` or `const` with a comment among its own tokens (a `let`'s anywhere,
+    // an item's before its `=`): left as written, as the standard formatter's rewrite of it
+    // fails and it keeps the snippet.
+    if let Some(node) = roles.layable.get(&tok.start)
+      && matches!(
+        node.kind(),
+        SyntaxKind::LetStmt | SyntaxKind::Static | SyntaxKind::Const
+      )
+      && !in_verbatim(tok.start)
+      && !covered(node)
+      && comment_in_head(node)
+    {
+      let end = roles
+        .statements
+        .get(&tok.start)
+        .copied()
+        .unwrap_or(node.text_range().end as usize);
+      explain(root, tok.start, &text[tok.start..end], || {
+        "a comment the standard formatter cannot place: left as written".to_string()
+      });
+      note_kept();
+      gave_up.borrow_mut().push((tok.start, end));
     }
     // One the layout above could not lay out: its written lines kept, re-indented.
     if crate::format::explain::active()
@@ -5087,11 +5143,6 @@ fn standing_block(node: &SyntaxNode) -> bool {
     })
 }
 
-/// Whether an attribute's arguments are what the standard formatter can format: names and
-/// paths, `name = literal`, and `name(...)` lists of the same, separated by commas. Anything
-/// else (a closure, a path as a value) is left as written.
-/// Whether a literal's suffix is one it can take: none on a string or character, a
-/// number's type (`1u8`, `2.0f32`) on a number.
 fn valid_suffix(kind: SyntaxKind, text: &str) -> bool {
   match kind {
     SyntaxKind::IntNumber | SyntaxKind::FloatNumber => {

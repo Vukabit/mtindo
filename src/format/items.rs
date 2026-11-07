@@ -3760,12 +3760,21 @@ fn same_header_tokens(written: &str, laid: &str) -> bool {
       .collect()
   }
   // Less the `::` (two `:` here) a visibility's path from the root drops (`pub(in ::a)`),
-  // and the `in` of `pub(in crate)`, an empty `where`, an empty `<>`.
+  // and the `in` of `pub(in crate)`, an empty `where`, an empty `<>` with its turbofish's
+  // `::` (`Tr::<>`).
   fn rooted(mut tokens: Vec<Cow<'_, str>>) -> Vec<Cow<'_, str>> {
     let mut i = 0;
     while i + 1 < tokens.len() {
       if tokens[i] == "<" && tokens[i + 1] == ">" {
-        tokens.drain(i..i + 2);
+        let from = if i >= 2 && tokens[i - 1] == ":" && tokens[i - 2] == ":" {
+          i - 2
+        } else if i >= 1 && tokens[i - 1] == "::" {
+          i - 1
+        } else {
+          i
+        };
+        tokens.drain(from..i + 2);
+        i = from;
       } else {
         i += 1;
       }

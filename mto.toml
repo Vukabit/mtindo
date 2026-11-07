@@ -9,6 +9,18 @@ format = true
 # Blank lines between items
 blank_lines_between_blocks = 1
 
+# Items under the same #[cfg(...)] moving as one
+cfg_groups = "off"
+
+# Whether a directive must say why
+directive_reasons = "optional"
+
+# Items above or below the items they use
+flow = "off"
+
+# Texts that mark a file as generated
+generated_markers = ["@generated"]
+
 # Place each impl block right after the type it is for
 group_impls = true
 
@@ -24,14 +36,41 @@ import_grouping = true
 # The style edition imports are sorted by
 import_sort = "style_edition"
 
+# The order of functions in impls with no trait
+inherent_method_order = "written"
+
+# Keep a private item used by one sibling directly next to it
+keep_helpers_near = false
+
+# Keep items written with no blank line between them together
+keep_paragraphs = false
+
+# Lay out generated files too
+layout_generated_files = false
+
+# The mto versions this project's files are laid out and formatted with
+mto_version = "*"
+
 # How items of one kind are sorted by name
 name_sort = "version"
+
+# What items are ordered by, in turn; none keeps the written order
+order_keys = ["kind", "visibility", "name"]
+
+# Where pub use re-exports go
+reexports = "with_imports"
+
+# Comments that start a section items never leave
+sections = "off"
 
 # Sort items of the same kind by name
 sort_alphabetically = true
 
 # Sort imports by path
 sort_imports = true
+
+# Where #[cfg(test)] items outside a test module go
+test_helpers = "in_place"
 
 # Where `#[cfg(test)]` modules go
 test_module = "last"

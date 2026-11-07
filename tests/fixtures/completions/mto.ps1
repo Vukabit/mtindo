@@ -7,10 +7,12 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # The flags that may come before any command (''), after a command, and after a
     # subcommand.
     $flags = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--follow-links', '-R', '--recursive', '--skip-children', '--changed', '--staged', '--since', '--tracked', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--strict', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
+    $flags[''] = @('--check', '-d', '--dry-run', '--emit', '-l', '--files-with-diff', '--diff', '--follow-links', '-R', '--recursive', '--skip-children', '--changed', '--staged', '--since', '--tracked', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--strict', '--style-edition', '--unstable-features', '--allow-dirty', '--unguarded', '--no-history', '--no-stats', '--no-report', '--color', '-q', '--quiet', '-v', '--verbose', '-h', '--help', '--man', '-V', '--version', '--message-format')
     $flags['init'] = @('-h', '--help')
     $flags['verify'] = @('-h', '--help', '--ignored-revs', '--json')
     $flags['pins'] = @('-h', '--help', '--json')
+    $flags['stats'] = @('-h', '--help', '--from', '--by', '--json')
+    $flags['stats forget'] = @('-h', '--help')
     $flags['config'] = @('-h', '--help')
     $flags['config path'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
     $flags['config print'] = @('-h', '--help', '--current', '--default', '--minimal', '--user', '--json', '--config', '--config-path', '--edition', '--style-edition')
@@ -55,6 +57,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--emit'] = 'Write the files (default), print them, or report changes as JSON'
     $help['-l'] = 'Name the files that change (or would, with --check) instead of showing how'
     $help['--files-with-diff'] = 'Name the files that change (or would, with --check) instead of showing how'
+    $help['--diff'] = 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
     $help['--follow-links'] = 'Also follow symlinked files and directories'
     $help['-R'] = 'The same as `mto .`: every .rs file under the current directory'
     $help['--recursive'] = 'The same as `mto .`: every .rs file under the current directory'
@@ -74,6 +77,9 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--allow-dirty'] = 'With history off, rewrite files that have uncommitted changes'
     $help['--unguarded'] = 'Do not check this run with the build guard, nor hold back the edits it holds'
     $help['--no-history'] = 'Do not record this run in history (it cannot be restored)'
+    $help['--from'] = 'Only what was counted from then on: `7d`, `4w`, `12h`, or a day `2026-10-01`'
+    $help['--by'] = 'A line for each day, month, year, version or mode, in place of the totals'
+    $help['--no-stats'] = 'Leave this run out of the counts `mto stats` keeps'
     $help['--no-report'] = 'Keep no bug report: name each bug mto finds in itself in one line'
     $help['--color'] = 'Color the output (default: auto, only on a terminal)'
     $help['-q'] = 'Print only errors and what was asked for'
@@ -98,7 +104,6 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['--message-format'] = 'How the run reports: human (default), or json, one versioned JSON object per line for each file, message and the summary'
     $help['--json'] = 'As JSON, whose shape keeps its version'
     $help['--runs'] = 'How many runs a file goes through (default 2)'
-    $help['--diff'] = 'Show what a run changed again, for a file that does not settle'
     $help['--layout-only'] = 'Lay out without formatting'
     $help['--write'] = 'Write DIR/mto.toml, rather than print it (never over one there)'
     $help['--ignored-revs'] = 'Every commit `git blame` is told to look past (blame.ignoreRevsFile)'
@@ -107,6 +112,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['init'] = 'Write a default mto.toml'
     $help['verify'] = 'Prove a formatting commit hides nothing: only mto''s own moves and formatting'
     $help['pins'] = 'List every place a project keeps code from mto, and why'
+    $help['stats'] = 'Show what mto has done to date, as counts'
+    $help['stats forget'] = 'Remove every count kept, and the salt projects are hashed with'
     $help['config'] = 'Show the configuration that applies in a folder, or every setting'
     $help['config path'] = 'List the configuration files that apply, and the history folder'
     $help['config print'] = 'Show every setting in effect, with where it came from'
@@ -144,7 +151,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['completions uninstall'] = 'Remove the script mto wrote'
     $help['completions status'] = 'Say where each shell''s script is, and whether it is current'
     # The flags followed by a value, and what the value completes to.
-    $takesValue = @('--emit', '--since', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--color', '--keep', '--dir', '--message-format', '--runs', '--under', '--older-than')
+    $takesValue = @('--emit', '--since', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--from', '--by', '--color', '--keep', '--dir', '--message-format', '--runs', '--under', '--older-than')
     # A flag's values, when they are a fixed set.
     $values = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $values['--emit'] = @('files', 'stdout', 'json')
@@ -161,9 +168,10 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # The flags whose values `mto __complete` lists.
     $live = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $live['--since'] = 'revs'
-    $commands = @('init', 'verify', 'pins', 'config', 'history', 'restore', 'doctor', 'report', 'debug', 'completions')
+    $commands = @('init', 'verify', 'pins', 'stats', 'config', 'history', 'restore', 'doctor', 'report', 'debug', 'completions')
     # Each command's subcommands.
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+    $subcommands['stats'] = @('forget')
     $subcommands['config'] = @('path', 'print', 'options', 'mirror', 'derive')
     $subcommands['history'] = @('show', 'prune')
     $subcommands['doctor'] = @('on', 'off', 'holds', 'keep', 'recheck', 'trust', 'release')

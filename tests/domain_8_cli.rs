@@ -1267,6 +1267,47 @@ fn test_cli_debug_units_moves_and_settle() {
   assert_eq!(code, 2, "{}", said);
 }
 
+#[test]
+fn test_cli_diff_shows_what_a_run_changes_whole_or_as_a_summary() {
+  let env = TestEnvironment::new();
+  let messy = "fn main(){let x=1;\nlet y=2;}\n";
+  env.write_file("main.rs", messy);
+  env.write_file("ok.rs", "fn ok() {}\n");
+  let (code, stat, err) = mto(&env, &["--check", "--diff=stat", "main.rs", "ok.rs"]);
+  assert_eq!(code, 1, "{}", err);
+  assert_eq!(
+    stat,
+    "main.rs | 6 ++++--\n1 file would change, 4 insertions(+), 2 deletions(-); 1 unchanged\n"
+  );
+  // The summary takes the place of the count said on stderr.
+  assert!(!err.contains("would be reformatted"), "{}", err);
+  let (code, full, _) = mto(&env, &["--check", "--diff", "main.rs"]);
+  assert_eq!(code, 1);
+  assert!(
+    full.starts_with("Diff in main.rs:1:\n-fn main(){let x=1;\n")
+      && full.ends_with("1 file would change, 4 insertions(+), 2 deletions(-); 0 unchanged\n"),
+    "{}",
+    full
+  );
+  // A run that writes says the same of what it wrote, then how to undo it.
+  let (code, wrote, err) = mto(&env, &["--diff=stat", "main.rs"]);
+  assert_eq!(code, 0, "{}", err);
+  assert_eq!(
+    wrote,
+    "main.rs | 6 ++++--\n1 file formatted, 4 insertions(+), 2 deletions(-); 0 unchanged\n"
+  );
+  assert!(env.read_file("main.rs") != messy);
+  // `-l` already names the files; a view of another name is refused.
+  for args in [
+    &["--diff=names", "main.rs"][..],
+    &["-l", "--diff", "main.rs"],
+    &["--emit", "stdout", "--diff", "main.rs"],
+  ] {
+    let (code, _, _) = mto(&env, args);
+    assert_eq!(code, 2, "{:?}", args);
+  }
+}
+
 /// The guard builds the project the run writes in, with that project's command, wherever
 /// the run starts; paths in two projects are not guarded by one build (bug hunt,
 /// 2026-11-04).
@@ -2211,6 +2252,21 @@ fn test_cli_man_prints_the_manual() {
   assert!(out.starts_with("# mtindo (mto)\n"), "{}", out);
 }
 
+#[test]
+fn test_cli_message_format_json_counts_the_lines_each_file_changes() {
+  let env = TestEnvironment::new();
+  env.write_file("main.rs", "fn main(){let x=1;\nlet y=2;}\n");
+  let (code, out, _) = mto(&env, &["--check", "--message-format", "json", "main.rs"]);
+  assert_eq!(code, 1);
+  assert!(
+    out.contains(
+      "\"file\":\"main.rs\",\"outcome\":\"changed\",\"lines\":2,\"inserted\":4,\"removed\":2,\"moved\":0"
+    ) && out.contains("\"kind\":\"summary\",\"files\":1,\"check\":true,\"inserted\":4,\"removed\":2"),
+    "{}",
+    out
+  );
+}
+
 /// `--message-format json`: one versioned JSON object per line, for each file, each message
 /// (with its line and column when known) and the run's summary, with the usual exit code.
 #[test]
@@ -2531,6 +2587,78 @@ fn test_cli_skip_children_setting_leaves_modules_out() {
     .output()
     .unwrap();
   assert_eq!(printed(&output.stdout), "src/lib.rs\n");
+}
+
+#[test]
+fn test_cli_stats_count_each_run_without_a_name_and_forget_them() {
+  let env = TestEnvironment::new();
+  // The tests run as CI, where counting is off unless the user config turns it on.
+  env.write_file(
+    ".home/.config/mtindo/config.toml",
+    "[stats]\nenabled = \"on\"\n",
+  );
+  env.write_file("main.rs", "fn main(){let x=1;\nlet y=2;}\n");
+  assert_eq!(mto(&env, &["--check", "main.rs"]).0, 1);
+  assert_eq!(mto(&env, &["main.rs"]).0, 0);
+  assert_eq!(mto(&env, &["--no-stats", "--check", "main.rs"]).0, 0);
+  let (code, stats, err) = mto(&env, &["stats"]);
+  assert_eq!(code, 0, "{}", err);
+  assert!(
+    stats.contains(" · 2 runs · ")
+      && stats.contains("2 files · 4 lines · 2 files changed")
+      && stats.contains("by mode     check 50% · write 50%"),
+    "{}",
+    stats
+  );
+  let (_, json, _) = mto(&env, &["stats", "--json"]);
+  assert!(
+    json.starts_with("{\"version\":1,\"kind\":\"stats\",\"counting\":true,")
+      && json.contains("\"lines\":{\"read\":4,\"inserted\":8,\"removed\":4}"),
+    "{}",
+    json
+  );
+  // The ledger holds counts and a salted hash, never the file's name or the folder.
+  let ledger = env.dir.path().join(".home/.local/state/mtindo/stats");
+  let mut kept = String::new();
+  for entry in std::fs::read_dir(ledger.join("runs")).unwrap() {
+    kept.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
+  }
+  let folder = env.dir.path().file_name().unwrap().to_string_lossy();
+  assert!(
+    !kept.contains("main.rs") && !kept.contains(folder.as_ref()),
+    "{}",
+    kept
+  );
+  let (_, by_mode, _) = mto(&env, &["stats", "--by", "mode"]);
+  assert!(
+    by_mode.starts_with("mode ") && by_mode.contains("\ncheck "),
+    "{}",
+    by_mode
+  );
+  assert_eq!(mto(&env, &["stats", "--by", "week"]).0, 2);
+  assert_eq!(mto(&env, &["stats", "forget"]).0, 0);
+  assert!(!ledger.exists());
+  let (_, empty, _) = mto(&env, &["stats"]);
+  assert!(empty.starts_with("No runs counted."), "{}", empty);
+}
+
+#[test]
+fn test_cli_stats_follow_history_and_stay_off_on_ci_by_default() {
+  let env = TestEnvironment::new();
+  env.write_file("main.rs", "fn main() {}\n");
+  assert_eq!(mto(&env, &["--check", "main.rs"]).0, 0);
+  let (_, stats, _) = mto(&env, &["stats"]);
+  assert!(
+    stats.contains("Runs are not counted: this is a CI job"),
+    "{}",
+    stats
+  );
+  env.write_file(
+    ".home/.config/mtindo/config.toml",
+    "[history]\nenabled = false\n",
+  );
+  let (_, stats, _) = mto(&env, &["stats"]);
+  assert!(stats.contains("history is off"), "{}", stats);
 }
 
 #[test]
@@ -3082,7 +3210,7 @@ fn test_completions_bash_completes_from_the_tables() {
       context
     );
     // Paths: folders go on, Rust files first, any file when no Rust file matches.
-    assert_eq!(offers(&["mto", "s"]), ["src/"], "{}", context);
+    assert_eq!(offers(&["mto", "sr"]), ["src/"], "{}", context);
     assert_eq!(offers(&["mto", "src/m"]), ["src/main.rs "], "{}", context);
     assert_eq!(
       offers(&["mto", "src/main.rs", "src/"]),

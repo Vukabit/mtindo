@@ -4,7 +4,7 @@
 # Whether flag $1 is followed by its value.
 _mto_takes_value() {
   case "$1" in
-    --emit|--since|--stdin-filepath|--config|--config-path|--edition|--print-config|--style-edition|--color|--keep|--dir|--message-format|--runs|--under|--older-than) return 0 ;;
+    --emit|--since|--stdin-filepath|--config|--config-path|--edition|--print-config|--style-edition|--from|--by|--color|--keep|--dir|--message-format|--runs|--under|--older-than) return 0 ;;
   esac
   return 1
 }
@@ -169,10 +169,12 @@ _mto_value() {
 # The flags that may follow command $1 and subcommand $2 (either may be empty).
 _mto_flags() {
   case "$1 $2" in
-    " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --follow-links -R --recursive --skip-children --changed --staged --since --tracked --stdin-filepath --config --config-path --edition --print-config --strict --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-report --color -q --quiet -v --verbose -h --help --man -V --version --message-format ;;
+    " ") _mto_words "" --check -d --dry-run --emit -l --files-with-diff --diff --follow-links -R --recursive --skip-children --changed --staged --since --tracked --stdin-filepath --config --config-path --edition --print-config --strict --style-edition --unstable-features --allow-dirty --unguarded --no-history --no-stats --no-report --color -q --quiet -v --verbose -h --help --man -V --version --message-format ;;
     "init ") _mto_words "" -h --help ;;
     "verify ") _mto_words "" -h --help --ignored-revs --json ;;
     "pins ") _mto_words "" -h --help --json ;;
+    "stats ") _mto_words "" -h --help --from --by --json ;;
+    "stats forget") _mto_words "" -h --help ;;
     "config ") _mto_words "" -h --help ;;
     "config path") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
     "config print") _mto_words "" -h --help --current --default --minimal --user --json --config --config-path --edition --style-edition ;;
@@ -215,6 +217,7 @@ _mto_flags() {
 # The subcommands of command $1.
 _mto_subcommands() {
   case "$1" in
+    stats) _mto_words "" forget ;;
     config) _mto_words "" path print options mirror derive ;;
     history) _mto_words "" show prune ;;
     doctor) _mto_words "" on off holds keep recheck trust release ;;
@@ -288,7 +291,7 @@ _mto() {
       -*) _mto_flags "$command" "$sub" ;;
       *)
         if [ -z "$command" ]; then
-          [ $operands -eq 0 ] && _mto_words "" init verify pins config history restore doctor report debug completions
+          [ $operands -eq 0 ] && _mto_words "" init verify pins stats config history restore doctor report debug completions
           _mto_paths "" "$_mto_cur"
         else
           if [ $operands -eq 0 ] && [ -z "$sub" ]; then
@@ -310,7 +313,7 @@ _mto() {
 # Whether $1 is one of mto's commands.
 _mto_is_command() {
   case "$1" in
-    init|verify|pins|config|history|restore|doctor|report|debug|completions) return 0 ;;
+    init|verify|pins|stats|config|history|restore|doctor|report|debug|completions) return 0 ;;
   esac
   return 1
 }
@@ -318,7 +321,7 @@ _mto_is_command() {
 # Whether $2 is a subcommand of command $1.
 _mto_is_subcommand() {
   case "$1 $2" in
-    "config path"|"config print"|"config options"|"config mirror"|"config derive"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor keep"|"doctor recheck"|"doctor trust"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
+    "stats forget"|"config path"|"config print"|"config options"|"config mirror"|"config derive"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor keep"|"doctor recheck"|"doctor trust"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
   esac
   return 1
 }

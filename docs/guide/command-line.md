@@ -45,6 +45,10 @@ directory is walked.
   print the JSON report of what would change.
 * `-l, --files-with-diff`: Name the files that change, or would with
   `--check`, instead of showing how.
+* `--diff`: Show what changed, line by line, then the totals, on any run:
+  with `--check` and `--dry-run` what would change, on a run that writes
+  what was written. `--diff=stat` gives a line per file with its lines added
+  and removed (`main.rs | 6 ++++--`), then the totals.
 * `--skip-children`: A file argument is that file alone.
 * `--changed`, `--staged`, `--since <REV>`, `--tracked`: Take only the files
   git names: changed, staged, changed since `REV`, or tracked. With no path,
@@ -77,6 +81,8 @@ directory is walked.
   directory. With paths given it adds nothing, and warns.
 * `--follow-links`: Also follow symlinked files and directories.
 * `--no-history`: Do not record this run, so it cannot be restored.
+* `--no-stats`: Leave this run out of the counts
+  [`mto stats`](stats.md) keeps.
 * `--no-report`: Keep no [bug report](safety.md#bug-reports); name each bug
   `mto` finds in itself in one line.
 * `--allow-dirty`: With history off, rewrite files that have uncommitted
@@ -137,6 +143,7 @@ other `mto` option goes after `--`, as `cargo mto -- --unguarded`.
 | `mto config ...` | Settings in effect ([Configuration](configuration.md)) |
 | `mto config derive` | The mto.toml that moves the fewest items as written |
 | `mto history`, `restore` | Past runs, undoing them ([Safety](safety.md)) |
+| `mto stats` | What mto has done to date ([Run statistics](stats.md)) |
 | `mto report ...` | Bug reports mto kept ([Safety](safety.md#bug-reports)) |
 | `mto doctor ...` | The build guard ([The build guard](build-guard.md)) |
 | `mto debug ...` | What mto sees in a file and why ([mto debug](#mto-debug)) |

@@ -9,7 +9,7 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 12
+  total: 13
 ---
 
 # `config.toml` settings
@@ -153,3 +153,20 @@ either mode: those files come back as they were.
     *   `batch`: Each file reaches the disk in order, and everything a run wrote
         lasts once it ends.
     *   `full`: Each file lasts as soon as it is written.
+
+### `stats.enabled`
+
+Each run that formats adds a line to a ledger beside history: how many files,
+lines and items it read and changed, how long it took, how it was run, and the
+mto version. Never a path, a file's name or contents, the command's arguments, a
+user, host, remote or commit; a project is a hash of its folder salted per
+machine. Old lines are folded into totals per day, month and year, so the ledger
+stays small. `--no-stats` or `MTO_NO_STATS=1` leaves a run out;
+`mto stats forget` removes it all.
+
+*   Type: one of the values below, as a string.
+*   Default: `"auto"`.
+*   Values:
+    *   `auto`: On while history is on (`history.enabled`), and never on CI.
+    *   `on`: Always, CI too.
+    *   `off`: Never.

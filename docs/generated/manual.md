@@ -82,6 +82,9 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 
 ### Changes (`mto <PATH>...`)
 *   `--check`: Print a diff for every file that would change; exit 1 if any.
+*   `--diff`: Show what changed, line by line; `--diff=stat` gives a line per
+    file with its lines added and removed, then the totals (with
+    `mto debug settle`: what each run changed).
 *   `-d, --dry-run`: List the files that would change, without writing.
 *   `--emit <files|stdout|json>`: Write the files (default), print them, or
     report changes as JSON.
@@ -123,6 +126,7 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 *   `--no-history`: Do not record this run in history (it cannot be restored).
 *   `--no-report`: Keep no bug report: name each bug mto finds in itself in one
     line.
+*   `--no-stats`: Leave this run out of the counts `mto stats` keeps.
 *   `--unguarded`: Do not check this run with the build guard, nor hold back the
     edits it holds.
 
@@ -179,6 +183,22 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     `directive_reasons = "required"` in mto.toml asks every directive for its
     reason.
     *   `--json` (after `mto pins`): As JSON, whose shape keeps its version.
+*   `mto stats [forget]`: Shows the counts each run that formats adds to a
+    ledger beside history: runs, files and lines read and changed, items moved,
+    how long runs took and how they were run, the mto versions, how many
+    projects. Only counts are kept: never a path, a file's name or contents, the
+    command's arguments, a user, host, remote or commit; a project is a hash of
+    its folder salted per machine. A run's own line is kept a week, then folded
+    into a day's totals (kept 90 days), a month's (kept two years) and a year's
+    (kept for good), so the ledger stays a few hundred KB. `stats.enabled` in
+    the user config turns counting on or off; by default it follows
+    `history.enabled` and is off on CI. `--no-stats` or `MTINDO_NO_STATS=1`
+    leaves a run out. `forget` removes the ledger, and the salt with it.
+    *   `--from WHEN` (after `mto stats`): Only what was counted from then on:
+        `7d`, `4w`, `12h`, or a day `2026-10-01`.
+    *   `--by day|month|year|version|mode` (after `mto stats`): A line for each
+        day, month, year, version or mode, in place of the totals.
+    *   `--json` (after `mto stats`): As JSON, whose shape keeps its version.
 *   `mto config path|print|options|mirror|derive [DIR]`: `path` lists the
     configuration files that apply in DIR (default: the current directory), and
     the history folder. `print` shows every setting in effect with where it came
@@ -316,7 +336,9 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     *   `--runs <N>` (after `mto debug tokens|tree|kept|units|moves|settle`):
         How many runs a file goes through (default 2).
     *   `--diff` (after `mto debug tokens|tree|kept|units|moves|settle`): Show
-        what a run changed again, for a file that does not settle.
+        what changed, line by line; `--diff=stat` gives a line per file with its
+        lines added and removed, then the totals (with `mto debug settle`: what
+        each run changed).
     *   `--layout-only` (after `mto debug tokens|tree|kept|units|moves|settle`):
         Lay out without formatting.
 *   `mto completions [install|uninstall|status] [SHELL]`: Prints the completion
@@ -1771,6 +1793,22 @@ either mode: those files come back as they were.
     *   `batch`: Each file reaches the disk in order, and everything a run wrote
         lasts once it ends.
     *   `full`: Each file lasts as soon as it is written.
+
+#### `stats.enabled`
+Each run that formats adds a line to a ledger beside history: how many files,
+lines and items it read and changed, how long it took, how it was run, and the
+mto version. Never a path, a file's name or contents, the command's arguments, a
+user, host, remote or commit; a project is a hash of its folder salted per
+machine. Old lines are folded into totals per day, month and year, so the ledger
+stays small. `--no-stats` or `MTO_NO_STATS=1` leaves a run out;
+`mto stats forget` removes it all.
+
+*   Type: one of the values below, as a string.
+*   Default: `"auto"`.
+*   Values:
+    *   `auto`: On while history is on (`history.enabled`), and never on CI.
+    *   `on`: Always, CI too.
+    *   `off`: Never.
 
 ## Safety and history
 

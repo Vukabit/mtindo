@@ -9,10 +9,10 @@ standard_formatter:
     version: "1.11.0-nightly"
     released: "2026-10-31"
 keys:
-  total: 131
+  total: 132
   mto: 29
   formatting: 90
-  user: 12
+  user: 13
 in_mto:
   supported: 75
   partial: 28
@@ -888,6 +888,13 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Put spaces around the .. and ..= range operators.</td>
 <td>supported</td>
+</tr>
+<tr>
+<td><a href="config.toml.md#statsenabled">
+<code>stats.enabled</code></a></td>
+<td>config.toml</td>
+<td>Keep counts of what each run did, for <code>mto stats</code></td>
+<td>n/a</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#struct_field_align_threshold">

@@ -14,6 +14,7 @@ pub mod options;
 pub mod order;
 pub mod report;
 pub mod settle;
+pub mod stats;
 pub mod syntax;
 pub mod text;
 pub mod verify;
@@ -61,6 +62,15 @@ enum DiffOp {
   Equal,
   Delete(usize),
   Insert(usize),
+}
+
+/// How `--diff` shows what a run changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiffView {
+  /// Every changed line, as `--check` prints them.
+  Full,
+  /// A line per file with its lines put in and taken out, then the totals.
+  Stat,
 }
 
 /// What a run produces, as the standard formatter's `--emit` says.
@@ -178,10 +188,59 @@ pub struct Collected {
   pub stale: Vec<PathBuf>,
 }
 
+/// How much a file is, and what a run changed in it: for `--diff=stat` and run statistics.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+  /// The file as read: its bytes and lines.
+  pub bytes: usize,
+  pub lines: usize,
+  /// The lines the run put in and took out, as the diff `--check` shows them.
+  pub inserted: usize,
+  pub removed: usize,
+  /// The items layout moved.
+  pub moved: usize,
+}
+
+impl Counts {
+  /// `source`'s size, nothing changed yet.
+  fn of(source: &str) -> Counts {
+    Counts {
+      bytes: source.len(),
+      lines: source.lines().count(),
+      ..Counts::default()
+    }
+  }
+
+  /// With the lines that turn `old` into `new`.
+  fn changed(self, old: &str, new: &str) -> Counts {
+    let a: Vec<&str> = old.split('\n').collect();
+    let b: Vec<&str> = new.split('\n').collect();
+    let (mut inserted, mut removed) = (0, 0);
+    for op in diff_ops(&a, &b) {
+      match op {
+        DiffOp::Equal => {}
+        DiffOp::Delete(_) => removed += 1,
+        DiffOp::Insert(_) => inserted += 1,
+      }
+    }
+    Counts {
+      inserted,
+      removed,
+      ..self
+    }
+  }
+}
+
 /// How one job ended: its outcome, and its `--emit json` entry.
 #[derive(Debug, Default)]
 pub struct Done {
+  /// The file as the run names it.
+  pub file: String,
   pub outcome: Outcome,
+  pub counts: Counts,
+  /// Whether layout was on for it, and the edition it was read in.
+  pub layout: bool,
+  pub edition: Option<syntax::Edition>,
   pub json: Option<String>,
   /// With the build guard checking the run: the file as read and as it is to be written.
   pub planned: Option<(String, String)>,
@@ -195,6 +254,13 @@ pub struct Done {
 pub struct FileReport {
   /// The file as the run names it.
   pub file: String,
+  /// Its size, and what the run changed in it.
+  pub counts: Counts,
+  /// Whether layout was on for it, and the edition it was read in.
+  pub layout: bool,
+  pub edition: Option<syntax::Edition>,
+  /// With `--diff`, what a run that writes changes in it: printed once it is written.
+  pub diff: Option<String>,
   /// What it says about the file, for `--message-format json`.
   pub messages: Vec<Message>,
   pub outcome: Outcome,
@@ -215,7 +281,7 @@ impl FileReport {
     if json_messages() {
       // A file the build guard has yet to check gets its line once it has (`file_event`).
       if self.planned.is_none() {
-        outln!("{}", file_event(&self.file, self.outcome));
+        outln!("{}", file_event(&self.file, self.outcome, self.counts));
       }
       for message in &self.messages {
         outln!("{}", json_message(Some(&self.file), message));
@@ -378,6 +444,8 @@ pub struct RunOptions {
   pub emit: Emit,
   /// `-l`: name the files that change (or would) instead of showing how.
   pub files_with_diff: bool,
+  /// `--diff`: show what changed, every line or a summary per file.
+  pub diff: Option<DiffView>,
   /// `-q`: only errors and what was asked for.
   pub quiet: bool,
   /// `-v`: name each file as it is formatted.
@@ -386,6 +454,8 @@ pub struct RunOptions {
   pub skip_children: bool,
   /// `--no-history`: do not record this run.
   pub no_history: bool,
+  /// `--no-stats`: leave this run out of `mto stats`.
+  pub no_stats: bool,
   /// `--no-report`: keep no bug report; name each bug in one line.
   pub no_report: bool,
   /// `--allow-dirty`: with history off, rewrite files with uncommitted changes.
@@ -640,6 +710,108 @@ pub fn collect_jobs_into(
   })
 }
 
+/// What `--diff` prints at a run's end: with `--diff=stat` a line per file changed, its
+/// name, how many lines changed and a bar of them (`+` added, `-` removed), then the
+/// totals; with `--diff` the totals alone. Laid out as `git diff --stat` writes it.
+pub fn diff_summary(done: &[Done], opts: &RunOptions) -> String {
+  use std::fmt::Write as _;
+  let changed: Vec<&Done> = done
+    .iter()
+    .filter(|d| d.outcome == Outcome::Changed)
+    .collect();
+  let mut out = String::new();
+  if opts.diff == Some(DiffView::Stat) && !changed.is_empty() {
+    let name_width = changed
+      .iter()
+      .map(|d| d.file.chars().count())
+      .max()
+      .unwrap_or(0)
+      .min(60);
+    let most = changed
+      .iter()
+      .map(|d| d.counts.inserted + d.counts.removed)
+      .max()
+      .unwrap_or(0);
+    let count_width = most.to_string().len();
+    // The bars fit in 80 columns, each at least 10 wide, scaled down when needed.
+    let room = 80usize.saturating_sub(name_width + count_width + 4).max(10);
+    let red = if color_enabled(false) {
+      "\x1b[1;31m"
+    } else {
+      ""
+    };
+    for d in &changed {
+      let c = d.counts;
+      let total = c.inserted + c.removed;
+      let (plus, minus) = if most <= room {
+        (c.inserted, c.removed)
+      } else {
+        let plus = (c.inserted * room).div_ceil(most);
+        let minus = (c.removed * room).div_ceil(most);
+        (plus, minus.min(room.saturating_sub(plus)))
+      };
+      let name: String = if d.file.chars().count() > name_width {
+        let keep: String = d
+          .file
+          .chars()
+          .rev()
+          .take(name_width.saturating_sub(3))
+          .collect::<Vec<_>>()
+          .into_iter()
+          .rev()
+          .collect();
+        format!("...{}", keep)
+      } else {
+        d.file.clone()
+      };
+      let _ = write!(
+        out,
+        "{:<w$} | {:>cw$} {}{}{}{}{}{}",
+        name,
+        total,
+        c_green(),
+        "+".repeat(plus),
+        c_reset(false),
+        red,
+        "-".repeat(minus),
+        c_reset(false),
+        w = name_width,
+        cw = count_width
+      );
+      if c.moved > 0 {
+        let _ = write!(out, "  ({} moved)", items(c.moved));
+      }
+      out.push('\n');
+    }
+  }
+  let sum = |f: fn(&Counts) -> usize| changed.iter().map(|d| f(&d.counts)).sum::<usize>();
+  let (inserted, removed, moved) = (sum(|c| c.inserted), sum(|c| c.removed), sum(|c| c.moved));
+  let unchanged = done
+    .iter()
+    .filter(|d| d.outcome == Outcome::Unchanged)
+    .count();
+  let files = |n: usize| format!("{} file{}", n, if n == 1 { "" } else { "s" });
+  let lines = |n: usize, what: &str| format!("{} {}{}", n, what, if n == 1 { "" } else { "s" });
+  let verb = if opts.check || opts.dry_run {
+    "would change"
+  } else {
+    "formatted"
+  };
+  let _ = write!(
+    out,
+    "{} {}, {}(+), {}(-)",
+    files(changed.len()),
+    verb,
+    lines(inserted, "insertion"),
+    lines(removed, "deletion")
+  );
+  if moved > 0 {
+    let _ = write!(out, ", {} moved", items(moved));
+  }
+  let _ = writeln!(out, "; {} unchanged", unchanged);
+  out
+}
+
 /// `mto debug layout`: the file at `path` read and shaped with the settings that apply to
 /// it, as a run would, and the places it is left as written, with why
 /// ([`format::explain`]), and whether formatting is on there; nothing is written. `None`
@@ -670,10 +842,14 @@ pub fn explain_file(
 }
 
 /// A file's line under `--message-format json`: what the run did to it.
-pub fn file_event(file: &str, outcome: Outcome) -> String {
+pub fn file_event(file: &str, outcome: Outcome, counts: Counts) -> String {
   text::json::Json::output("file")
     .with("file", file)
     .with("outcome", outcome.id())
+    .with("lines", counts.lines)
+    .with("inserted", counts.inserted)
+    .with("removed", counts.removed)
+    .with("moved", counts.moved)
     .text()
 }
 
@@ -847,6 +1023,7 @@ pub fn process_stdin(
     .map_err(|e| MtoError::Io(format!("cannot read stdin: {}", e)))?;
   let mut report = FileReport {
     file: shown.clone(),
+    counts: Counts::of(&source),
     ..FileReport::default()
   };
   let colored_as = settings
@@ -861,6 +1038,8 @@ pub fn process_stdin(
   let Some(mut settings) = settings else {
     return Ok(unchanged(report, Outcome::LayoutOff));
   };
+  report.layout = settings.layout.is_some();
+  report.edition = Some(settings.edition);
   if let Some(name) = name {
     note_macro_use_modules(&mut settings, name, &source);
   }
@@ -889,6 +1068,7 @@ pub fn process_stdin(
         report.stderr.push_str(&unlaid_note(&shown, reason));
         report.say("note", "not_laid_out", None, reason);
       }
+      report.counts.moved = s.moves.len();
       (s.laid_out, s.text, s.edition, s.relaid)
     }),
     Err(bug) => {
@@ -941,12 +1121,13 @@ pub fn process_stdin(
     report.say("error", "bug", None, &bug.title());
     return Ok(unchanged(report, Outcome::VerifierFailed));
   }
+  report.counts = report.counts.changed(&source, &reorganized);
   if opts.emit == Emit::Json {
     report.json = Some(json_report(&shown, &source, &reorganized));
   } else if opts.check {
     if opts.files_with_diff {
       report.stdout.push_str(&format!("{}\n", shown));
-    } else {
+    } else if opts.diff != Some(DiffView::Stat) {
       report
         .stdout
         .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose));
@@ -1043,6 +1224,9 @@ pub fn run_file(
       return report.with(Outcome::Failed);
     }
   };
+  report.counts = Counts::of(&source);
+  report.layout = settings.layout.is_some();
+  report.edition = Some(settings.edition);
   let held = ctx
     .holds
     .map(|holds| holds.held_for(&std::path::absolute(file_path).unwrap_or_default()))
@@ -1093,6 +1277,7 @@ pub fn run_file(
       text,
       edition,
       skipped,
+      moves,
       found,
       relaid,
       unlaid,
@@ -1100,6 +1285,7 @@ pub fn run_file(
       ..
     }) => {
       report.holds = (!held.is_empty()).then_some(found);
+      report.counts.moved = moves.len();
       // Under --strict, a directive that must say why and does not fails the file.
       if opts.strict
         && let Some((line, problem)) = directives.iter().find(|(_, p)| p.contains(NO_REASON))
@@ -1187,6 +1373,7 @@ pub fn run_file(
     report.say("error", "bug", None, &bug.title());
     return report.with(Outcome::VerifierFailed);
   }
+  report.counts = report.counts.changed(&source, &reorganized);
   match opts.emit {
     Emit::Stdout => {
       emit_stdout(&mut report, &shown, &reorganized, opts, edition);
@@ -1201,7 +1388,7 @@ pub fn run_file(
   if opts.check {
     if opts.files_with_diff {
       report.stdout.push_str(&format!("{}\n", shown));
-    } else {
+    } else if opts.diff != Some(DiffView::Stat) {
       report
         .stdout
         .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose));
@@ -1209,13 +1396,24 @@ pub fn run_file(
     return report.with(Outcome::Changed);
   }
   if opts.dry_run {
-    report.stdout.push_str(&format!(
-      "{}[DRY RUN]{} Would format: {}\n",
-      c_cyan(),
-      c_reset(false),
-      shown
-    ));
+    match opts.diff {
+      Some(DiffView::Full) => {
+        report
+          .stdout
+          .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose))
+      }
+      Some(DiffView::Stat) => {}
+      None => report.stdout.push_str(&format!(
+        "{}[DRY RUN]{} Would format: {}\n",
+        c_cyan(),
+        c_reset(false),
+        shown
+      )),
+    }
     return report.with(Outcome::Changed);
+  }
+  if opts.diff == Some(DiffView::Full) {
+    report.diff = Some(check_diff(&source, &reorganized, &shown, opts.verbose));
   }
   if let Some(dirty) = ctx.dirty {
     let real = real_path(file_path).unwrap_or_else(|_| file_path.to_path_buf());
@@ -1473,6 +1671,13 @@ pub fn try_reorganize(source: &str, config: &LayoutConfig) -> Result<String, Str
   arrange(source, config).map(|(text, _, _)| text)
 }
 
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
+}
+
 /// Lays out every `.rs` file under `dir`, each with the settings of its own folder. Files
 /// are processed in parallel and their output printed in walk order. Nothing is recorded
 /// in history.
@@ -1488,13 +1693,6 @@ pub fn walk_directory(
       .map(|d| d.outcome)
       .collect(),
   )
-}
-
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
 }
 
 /// Runs `work` on a thread of its own with the stack [`STACK`], and gives what it returns.
@@ -2141,6 +2339,11 @@ fn is_symlink(entry: &fs::DirEntry) -> bool {
   entry.file_type().is_ok_and(|t| t.is_symlink())
 }
 
+/// `n item(s)`.
+fn items(n: usize) -> String {
+  format!("{} item{}", n, if n == 1 { "" } else { "s" })
+}
+
 /// A file's entry in `--emit json`, as the standard formatter writes it: its name and each
 /// changed block, with line ranges in the original and the new text.
 fn json_report(name: &str, old: &str, new: &str) -> String {
@@ -2775,7 +2978,11 @@ fn walking<T>(
         }
         report.print();
         outcomes.push(Done {
+          file: report.file,
           outcome: report.outcome,
+          counts: report.counts,
+          layout: report.layout,
+          edition: report.edition,
           json: report.json,
           planned: report.planned,
           holds: report.holds,
@@ -2811,7 +3018,12 @@ fn written_report(mut report: FileReport, shown: &str, opts: &RunOptions) -> Fil
     report.stdout.push_str(&format!("{}\n", shown));
     return report.with(Outcome::Changed);
   }
-  if opts.quiet {
+  // `--diff`: what was written, or nothing here for the summary at the end.
+  if let Some(diff) = report.diff.take() {
+    report.stdout.push_str(&diff);
+    return report.with(Outcome::Changed);
+  }
+  if opts.quiet || opts.diff.is_some() {
     return report.with(Outcome::Changed);
   }
   report.stdout.push_str(&format!(

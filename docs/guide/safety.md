@@ -138,3 +138,7 @@ without it, the guard is skipped with a note.
 
 The verifier proves each file holds what it held, not that the project still
 builds; for that, see [The build guard](build-guard.md).
+
+Turning history off in the user config (`history.enabled = false`) also
+turns off the counts `mto stats` keeps, unless `stats.enabled` says
+otherwise ([Run statistics](stats.md)).

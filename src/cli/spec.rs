@@ -181,6 +181,42 @@ pub const COMMANDS: &[CommandSpec] = &[
     examples: &["mto pins", "mto pins src --json"],
   },
   CommandSpec {
+    name: "stats",
+    args: "[forget]",
+    summary: "Show what mto has done to date, as counts",
+    about: "Shows the counts each run that formats adds to a ledger beside history: runs, \
+                files and lines read and changed, items moved, how long runs took and how \
+                they were run, the mto versions, how many projects. Only counts are kept: \
+                never a path, a file's name or contents, the command's arguments, a user, \
+                host, remote or commit; a project is a hash of its folder salted per \
+                machine. A run's own line is kept a week, then folded into a day's totals \
+                (kept 90 days), a month's (kept two years) and a year's (kept for good), \
+                so the ledger stays a few hundred KB. `stats.enabled` in the user config \
+                turns counting on or off; by default it follows `history.enabled` and is off \
+                on CI. `--no-stats` or `MTINDO_NO_STATS=1` leaves a run out. `forget` \
+                removes the ledger, and the salt with it.",
+    usage: &[
+      "mto stats [--from WHEN] [--by day|month|year|version|mode] [--json]",
+      "mto stats forget",
+    ],
+    options: &[(
+      "options",
+      "mto stats",
+      &[Flag::StatsFrom, Flag::By, Flag::Json],
+    )],
+    operand: Complete::Nothing,
+    subcommands: &[Subcommand {
+      word: "forget",
+      summary: "Remove every count kept, and the salt projects are hashed with",
+      operand: Complete::Nothing,
+    }],
+    examples: &[
+      "mto stats",
+      "mto stats --from 7d --by day",
+      "mto stats --by version --json",
+    ],
+  },
+  CommandSpec {
     name: "config",
     args: "path|print|options|mirror|derive [DIR]",
     summary: "Show the configuration that applies in a folder, or every setting",
@@ -692,6 +728,17 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "Name the files that change (or would, with --check) instead of showing how",
   },
   FlagSpec {
+    flag: Flag::Diff,
+    group: Group::Changes,
+    short: None,
+    long: "--diff",
+    value: "",
+    values: &[],
+    help: "Show what changed, line by line; `--diff=stat` gives a line per file with its \
+           lines added and removed, then the totals (with `mto debug settle`: what each run \
+           changed)",
+  },
+  FlagSpec {
     flag: Flag::FollowLinks,
     group: Group::Files,
     short: None,
@@ -852,6 +899,33 @@ pub const FLAGS: &[FlagSpec] = &[
     value: "",
     values: &[],
     help: "Do not record this run in history (it cannot be restored)",
+  },
+  FlagSpec {
+    flag: Flag::StatsFrom,
+    group: Group::Command,
+    short: None,
+    long: "--from",
+    value: "WHEN",
+    values: &[],
+    help: "Only what was counted from then on: `7d`, `4w`, `12h`, or a day `2026-10-01`",
+  },
+  FlagSpec {
+    flag: Flag::By,
+    group: Group::Command,
+    short: None,
+    long: "--by",
+    value: "day|month|year|version|mode",
+    values: &[],
+    help: "A line for each day, month, year, version or mode, in place of the totals",
+  },
+  FlagSpec {
+    flag: Flag::NoStats,
+    group: Group::History,
+    short: None,
+    long: "--no-stats",
+    value: "",
+    values: &[],
+    help: "Leave this run out of the counts `mto stats` keeps",
   },
   FlagSpec {
     flag: Flag::NoReport,
@@ -1035,15 +1109,6 @@ pub const FLAGS: &[FlagSpec] = &[
     help: "How many runs a file goes through (default 2)",
   },
   FlagSpec {
-    flag: Flag::Diff,
-    group: Group::Command,
-    short: None,
-    long: "--diff",
-    value: "",
-    values: &[],
-    help: "Show what a run changed again, for a file that does not settle",
-  },
-  FlagSpec {
     flag: Flag::LayoutOnly,
     group: Group::Command,
     short: None,
@@ -1174,7 +1239,10 @@ pub enum Flag {
   Minimal,
   Recursive,
   Runs,
+  StatsFrom,
+  By,
   NoHistory,
+  NoStats,
   NoReport,
   AllowDirty,
   Unguarded,

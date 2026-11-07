@@ -5,13 +5,13 @@
 # arguments followed them (-1 after `--`).
 function __mto_state
     set -l takes_value --emit --since --stdin-filepath --config --config-path --edition \
-        --print-config --style-edition --color --keep --dir --message-format \
-        --runs --under --older-than
-    set -l commands init verify pins config history restore doctor report debug \
+        --print-config --style-edition --from --by --color --keep --dir \
+        --message-format --runs --under --older-than
+    set -l commands init verify pins stats config history restore doctor report debug \
         completions
-    set -l subcommands 'config path' 'config print' 'config options' 'config mirror' \
-        'config derive' 'history show' 'history prune' 'doctor on' \
-        'doctor off' 'doctor holds' 'doctor keep' 'doctor recheck' \
+    set -l subcommands 'stats forget' 'config path' 'config print' 'config options' \
+        'config mirror' 'config derive' 'history show' 'history prune' \
+        'doctor on' 'doctor off' 'doctor holds' 'doctor keep' 'doctor recheck' \
         'doctor trust' 'doctor release' 'report show' 'report save' \
         'report send' 'report recheck' 'report remove' 'report prune' \
         'debug tokens' 'debug tree' 'debug kept' 'debug units' 'debug moves' \
@@ -209,6 +209,7 @@ complete -c mto -n '__mto_at - -' -l check -d 'Print a diff for every file that 
 complete -c mto -n '__mto_at - -' -s d -l dry-run -d 'List the files that would change, without writing'
 complete -c mto -n '__mto_at - -' -l emit -x -a 'files stdout json' -d 'Write the files (default), print them, or report changes as JSON'
 complete -c mto -n '__mto_at - -' -s l -l files-with-diff -d 'Name the files that change (or would, with --check) instead of showing how'
+complete -c mto -n '__mto_at - -' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at - -' -l follow-links -d 'Also follow symlinked files and directories'
 complete -c mto -n '__mto_at - -' -s R -l recursive -d 'The same as `mto .`: every .rs file under the current directory'
 complete -c mto -n '__mto_at - -' -l skip-children -d 'A file argument is that file alone, not the modules it declares'
@@ -227,6 +228,7 @@ complete -c mto -n '__mto_at - -' -l unstable-features -d 'Accepted for compatib
 complete -c mto -n '__mto_at - -' -l allow-dirty -d 'With history off, rewrite files that have uncommitted changes'
 complete -c mto -n '__mto_at - -' -l unguarded -d 'Do not check this run with the build guard, nor hold back the edits it holds'
 complete -c mto -n '__mto_at - -' -l no-history -d 'Do not record this run in history (it cannot be restored)'
+complete -c mto -n '__mto_at - -' -l no-stats -d 'Leave this run out of the counts `mto stats` keeps'
 complete -c mto -n '__mto_at - -' -l no-report -d 'Keep no bug report: name each bug mto finds in itself in one line'
 complete -c mto -n '__mto_at - -' -l color -x -a 'always never auto' -d 'Color the output (default: auto, only on a terminal)'
 complete -c mto -n '__mto_at - -' -s q -l quiet -d 'Print only errors and what was asked for'
@@ -238,6 +240,7 @@ complete -c mto -n '__mto_at - -' -l message-format -x -a 'human json' -d 'How t
 complete -c mto -n '__mto_at - - 0' -a init -d 'Write a default mto.toml'
 complete -c mto -n '__mto_at - - 0' -a verify -d 'Prove a formatting commit hides nothing: only mto\'s own moves and formatting'
 complete -c mto -n '__mto_at - - 0' -a pins -d 'List every place a project keeps code from mto, and why'
+complete -c mto -n '__mto_at - - 0' -a stats -d 'Show what mto has done to date, as counts'
 complete -c mto -n '__mto_at - - 0' -a config -d 'Show the configuration that applies in a folder, or every setting'
 complete -c mto -n '__mto_at - - 0' -a history -d 'List, show or prune the runs that wrote files'
 complete -c mto -n '__mto_at - - 0' -a restore -d 'Undo a run'
@@ -261,6 +264,16 @@ complete -c mto -n '__mto_at verify -' -k -a '(__mto_live revs)'
 complete -c mto -n '__mto_at pins -' -s h -l help -d 'Show this help and exit'
 complete -c mto -n '__mto_at pins -' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at pins -' -a '(__fish_complete_suffix .rs)'
+
+# mto stats
+complete -c mto -n '__mto_at stats -' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at stats -' -l from -x -d 'Only what was counted from then on: `7d`, `4w`, `12h`, or a day `2026-10-01`'
+complete -c mto -n '__mto_at stats -' -l by -x -d 'A line for each day, month, year, version or mode, in place of the totals'
+complete -c mto -n '__mto_at stats -' -l json -d 'As JSON, whose shape keeps its version'
+complete -c mto -n '__mto_at stats - 0' -a forget -d 'Remove every count kept, and the salt projects are hashed with'
+
+# mto stats forget
+complete -c mto -n '__mto_at stats forget' -s h -l help -d 'Show this help and exit'
 
 # mto config
 complete -c mto -n '__mto_at config -' -s h -l help -d 'Show this help and exit'
@@ -418,7 +431,7 @@ complete -c mto -n '__mto_at debug tokens' -l edition -x -a '2015 2018 2021 2024
 complete -c mto -n '__mto_at debug tokens' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at debug tokens' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at debug tokens' -l runs -x -d 'How many runs a file goes through (default 2)'
-complete -c mto -n '__mto_at debug tokens' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug tokens' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at debug tokens' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug tokens' -a '(__fish_complete_suffix .rs)'
 
@@ -430,7 +443,7 @@ complete -c mto -n '__mto_at debug tree' -l edition -x -a '2015 2018 2021 2024' 
 complete -c mto -n '__mto_at debug tree' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at debug tree' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at debug tree' -l runs -x -d 'How many runs a file goes through (default 2)'
-complete -c mto -n '__mto_at debug tree' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug tree' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at debug tree' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug tree' -a '(__fish_complete_suffix .rs)'
 
@@ -442,7 +455,7 @@ complete -c mto -n '__mto_at debug kept' -l edition -x -a '2015 2018 2021 2024' 
 complete -c mto -n '__mto_at debug kept' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at debug kept' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at debug kept' -l runs -x -d 'How many runs a file goes through (default 2)'
-complete -c mto -n '__mto_at debug kept' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug kept' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at debug kept' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug kept' -a '(__fish_complete_suffix .rs)'
 
@@ -454,7 +467,7 @@ complete -c mto -n '__mto_at debug units' -l edition -x -a '2015 2018 2021 2024'
 complete -c mto -n '__mto_at debug units' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at debug units' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at debug units' -l runs -x -d 'How many runs a file goes through (default 2)'
-complete -c mto -n '__mto_at debug units' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug units' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at debug units' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug units' -a '(__fish_complete_suffix .rs)'
 
@@ -466,7 +479,7 @@ complete -c mto -n '__mto_at debug moves' -l edition -x -a '2015 2018 2021 2024'
 complete -c mto -n '__mto_at debug moves' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at debug moves' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at debug moves' -l runs -x -d 'How many runs a file goes through (default 2)'
-complete -c mto -n '__mto_at debug moves' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug moves' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at debug moves' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug moves' -a '(__fish_complete_suffix .rs)'
 
@@ -478,7 +491,7 @@ complete -c mto -n '__mto_at debug settle' -l edition -x -a '2015 2018 2021 2024
 complete -c mto -n '__mto_at debug settle' -l stdin-filepath -r -F -d 'With -: where the source belongs, for its settings and in messages'
 complete -c mto -n '__mto_at debug settle' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at debug settle' -l runs -x -d 'How many runs a file goes through (default 2)'
-complete -c mto -n '__mto_at debug settle' -l diff -d 'Show what a run changed again, for a file that does not settle'
+complete -c mto -n '__mto_at debug settle' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at debug settle' -l layout-only -d 'Lay out without formatting'
 complete -c mto -n '__mto_at debug settle' -a '(__fish_complete_suffix .rs)'
 

@@ -1,7 +1,7 @@
 //! The environment variables mto and cargo-mto pass or read, by name.
 
 /// Every variable here: what a hermetic run of mto clears.
-pub const ALL: &[&str] = &[CONFIG, COMMAND, PATHS_FILE];
+pub const ALL: &[&str] = &[CONFIG, COMMAND, PATHS_FILE, NO_STATS];
 
 /// The command as it was typed, which `cargo mto` gives mto for its history.
 pub const COMMAND: &str = "MTINDO_COMMAND";
@@ -11,6 +11,9 @@ pub const CONFIG: &str = "MTINDO_CONFIG";
 
 /// What `cargo mto` sets for the mto it runs: not for any command mto runs in turn.
 pub const FROM_CARGO_MTO: &[&str] = &[COMMAND, PATHS_FILE];
+
+/// Set and not empty: no run is counted in `mto stats`.
+pub const NO_STATS: &str = "MTINDO_NO_STATS";
 
 /// The file holding a list of targets too long for the command line, one path a line,
 /// which `cargo mto` gives mto in place of arguments.

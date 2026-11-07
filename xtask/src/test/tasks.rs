@@ -253,7 +253,17 @@ pub fn build(root: &Path, bless: bool, fuzz_time: u32) -> (Vec<Task>, Vec<String
     "gates",
     command(
       "cargo",
-      &["run", "--quiet", "--bin", "mto", "--", "--check", "."],
+      // Not counted in the developer's own `mto stats`.
+      &[
+        "run",
+        "--quiet",
+        "--bin",
+        "mto",
+        "--",
+        "--check",
+        "--no-stats",
+        ".",
+      ],
     ),
   ));
   if root.join("fuzz").exists() {

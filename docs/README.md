@@ -19,6 +19,8 @@ How to use `mto`.
   history, restore.
 * [The build guard](guide/build-guard.md): holding back edits that break the
   build.
+* [Run statistics](guide/stats.md): `mto stats`, what it keeps and never
+  keeps, turning it off.
 * [CI and editors](guide/ci-and-editors.md): `--check`, JSON output, hooks,
   rust-analyzer.
 

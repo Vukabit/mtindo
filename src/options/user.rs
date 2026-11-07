@@ -188,6 +188,31 @@ pub(super) static SETTINGS: &[Setting] = &[
     hidden: false,
     replaced_by: None,
   },
+  Setting {
+    name: "stats.enabled",
+    file: File::User,
+    kind: Kind::Choice(&[
+      choice(
+        "auto",
+        "On while history is on (`history.enabled`), and never on CI.",
+      ),
+      choice("on", "Always, CI too."),
+      choice("off", "Never."),
+    ]),
+    default: "\"auto\"",
+    default_2024: None,
+    summary: "Keep counts of what each run did, for `mto stats`",
+    doc: "Each run that formats adds a line to a ledger beside history: how many files, \
+              lines and items it read and changed, how long it took, how it was run, and \
+              the mto version. Never a path, a file's name or contents, the command's \
+              arguments, a user, host, remote or commit; a project is a hash of its folder \
+              salted per machine. Old lines are folded into totals per day, month and year, \
+              so the ledger stays small. `--no-stats` or `MTO_NO_STATS=1` leaves a run out; \
+              `mto stats forget` removes it all.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
 ];
 
 /// Bytes in a size such as `256MB`; `None` when it is not one.

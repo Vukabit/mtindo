@@ -196,7 +196,8 @@ itself. `report.save = false` prints the report instead of keeping it.
   `%APPDATA%\mtindo\config.toml` on Windows.
 - History: `~/.local/state/mtindo/history` on macOS and Linux,
   `%LOCALAPPDATA%\mtindo\history` on Windows. Bug reports (`reports`) and
-  the build guard's folder (`doctor`) sit beside it.
+  the build guard's folder (`doctor`) sit beside it, and so does the run
+  statistics ledger (`stats`, [Run statistics](stats.md)).
 
 `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` take the place of `~/.config` and
 `~/.local/state` when set, on every system, and `$MTINDO_CONFIG` names the

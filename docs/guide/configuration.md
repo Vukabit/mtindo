@@ -142,6 +142,10 @@ save = true         # keep bug reports for `mto report`; false: print them
 allow_dirty = false # with history off, overwrite uncommitted changes
 sync = "batch"      # or "full": flush each file to disk as it is written
 
+[stats]
+enabled = "auto"    # or "on", "off": counts for `mto stats`; auto follows
+                    # history.enabled and is off on CI
+
 [doctor]
 enabled = false     # mto doctor on/off; the build guard
 command = ["cargo", "check", "--workspace", "--all-targets", "--keep-going"]
@@ -151,4 +155,5 @@ max_checks = 64     # checks one narrowing may run
 
 `mto config print --user` shows each value and where it came from. History
 and bug reports are described in [Safety and history](safety.md), the
-`[doctor]` section in [The build guard](build-guard.md).
+`[doctor]` section in [The build guard](build-guard.md), the `[stats]`
+section in [Run statistics](stats.md).

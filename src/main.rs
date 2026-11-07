@@ -19,9 +19,9 @@ use mtindo::syntax::lexer::tokenize;
 use mtindo::syntax::tree::debug_dump;
 use mtindo::syntax::{Edition, parse};
 use mtindo::{
-  Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, Writes, c_green, c_red, c_reset,
-  c_yellow, collect_jobs, collect_jobs_into, print_warnings, process_init, process_stdin, run_jobs,
-  run_jobs_walking,
+  DiffView, Done, Emit, HelpPalette, MtoError, Outcome, RunOptions, Writes, c_green, c_red,
+  c_reset, c_yellow, collect_jobs, collect_jobs_into, print_warnings, process_init, process_stdin,
+  run_jobs, run_jobs_walking,
 };
 use mtindo::{errln, out, outln};
 
@@ -87,6 +87,13 @@ enum CliAction {
   },
   Pins {
     paths: Vec<PathBuf>,
+    json: bool,
+  },
+  Stats {
+    forget: bool,
+    /// The first day to show, as days since 1970-01-01.
+    since: Option<i64>,
+    by: mtindo::cli::stats::By,
     json: bool,
   },
   Verify {
@@ -366,10 +373,14 @@ fn finish(done: &[Done], opts: &RunOptions) -> i32 {
 /// [`finish`] for a run whose other steps (the build guard) gave exit code `after`: the code
 /// returned, and the one the JSON summary states, is the higher.
 fn finish_after(done: &[Done], opts: &RunOptions, after: i32) -> i32 {
-  if mtindo::json_messages() {
-    return finish_json(done, opts, after);
-  }
-  finish_text(done, opts).max(after)
+  let code = if mtindo::json_messages() {
+    finish_json(done, opts, after)
+  } else {
+    finish_text(done, opts).max(after)
+  };
+  // Counted once what it printed is out, so counting never delays it.
+  mtindo::cli::stats::finish(done, opts, code);
+  code
 }
 
 /// [`finish`] under `--message-format json`: the closing summary line, and the same exit
@@ -388,9 +399,13 @@ fn finish_json(done: &[Done], opts: &RunOptions, after: i32) -> i32 {
     0
   }
   .max(after);
+  let total = |f: fn(&mtindo::Counts) -> usize| done.iter().map(|d| f(&d.counts)).sum::<usize>();
   let mut summary = Json::output("summary")
     .with("files", done.len())
-    .with("check", opts.check);
+    .with("check", opts.check)
+    .with("inserted", total(|c| c.inserted))
+    .with("removed", total(|c| c.removed))
+    .with("moved", total(|c| c.moved));
   for outcome in [
     Outcome::Changed,
     Outcome::Unchanged,
@@ -465,8 +480,12 @@ fn finish_text(done: &[Done], opts: &RunOptions) -> i32 {
       c_reset(true)
     );
   }
+  // `--diff`: the summary of what changed, on stdout with what it sums up.
+  if opts.diff.is_some() && !done.is_empty() {
+    out!("{}", mtindo::diff_summary(done, opts));
+  }
   // Said whatever the exit code, so a file with syntax errors does not hide the others.
-  if opts.check && changed > 0 && !opts.quiet {
+  if opts.check && changed > 0 && !opts.quiet && opts.diff.is_none() {
     errln!(
       "{}{} file(s) would be reformatted.{}",
       c_red(),
@@ -495,7 +514,7 @@ fn finish_text(done: &[Done], opts: &RunOptions) -> i32 {
     if changed > 0 {
       return 1;
     }
-    if !opts.quiet && !opts.files_with_diff && opts.emit == Emit::Files {
+    if !opts.quiet && !opts.files_with_diff && opts.diff.is_none() && opts.emit == Emit::Files {
       outln!(
         "{}Check passed successfully: no formatting drift detected.{}",
         c_green(),
@@ -635,6 +654,12 @@ fn main() {
     },
     CliAction::History { view, json } => run_history(view, json),
     CliAction::Pins { paths, json } => run_pins(&paths, json),
+    CliAction::Stats {
+      forget,
+      since,
+      by,
+      json,
+    } => run_stats(forget, since, by, json),
     CliAction::Verify { rev, json } => match rev {
       Some(rev) => run_verify(&rev, json),
       None => run_verify_ignored(json),
@@ -817,6 +842,7 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
           return usage_error(&format!("{} only goes with `mto config print`", spec.long));
         }
         Flag::NoHistory => opts.no_history = true,
+        Flag::NoStats => opts.no_stats = true,
         Flag::Strict => {
           overrides.strict = true;
           opts.strict = true;
@@ -857,8 +883,21 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
              a run's changes as JSON are `--emit json`",
           );
         }
-        Flag::Runs | Flag::Diff | Flag::LayoutOnly => {
+        Flag::Diff => {
+          // Its view only after `=`: `--diff stat` would take a file named `stat`.
+          opts.diff = Some(match inline.as_deref() {
+            None | Some("full") => DiffView::Full,
+            Some("stat") => DiffView::Stat,
+            Some(other) => {
+              return usage_error(&format!("--diff takes `full` or `stat`, not `{}`", other));
+            }
+          });
+        }
+        Flag::Runs | Flag::LayoutOnly => {
           return usage_error(&format!("{} only goes with `mto debug settle`", spec.long));
+        }
+        Flag::StatsFrom | Flag::By => {
+          return usage_error(&format!("{} only goes with `mto stats`", spec.long));
         }
         Flag::MessageFormat => {
           let json = match choice(spec, value(&mut i))? {
@@ -881,6 +920,17 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   if mtindo::json_messages() && opts.emit != Emit::Files {
     return usage_error(
       "--message-format json reports on each file; it does not go with --emit stdout or json",
+    );
+  }
+  if opts.diff.is_some() && opts.files_with_diff {
+    return usage_error("-l names the files that change and --diff shows how; give one");
+  }
+  if opts.diff.is_some() && mtindo::json_messages() {
+    return usage_error("--diff shows changes for people; --message-format json reports each file");
+  }
+  if opts.diff.is_some() && opts.emit != Emit::Files {
+    return usage_error(
+      "--diff shows what a run changes; it does not go with --emit stdout or json",
     );
   }
   // `cargo mto` gives a list of targets too long for a command line in a file.
@@ -915,6 +965,9 @@ fn parse_args() -> Result<Option<CliAction>, ()> {
   if read_stdin {
     if !paths.is_empty() {
       return usage_error("- reads stdin; it cannot be combined with paths");
+    }
+    if opts.diff.is_some() && !opts.check {
+      return usage_error("- prints the formatted code; --diff goes with --check there");
     }
     return Ok(Some(CliAction::Stdin {
       overrides,
@@ -981,6 +1034,7 @@ fn parse_command(command: &'static CommandSpec, args: &[String]) -> Result<CliAc
         json,
       })
     }
+    "stats" => parse_stats_args(command, args),
     "config" => parse_config_args(command, args),
     "debug" => parse_debug_args(command, args),
     "doctor" => parse_doctor_args(command, args),
@@ -1365,6 +1419,78 @@ fn parse_restore_args(args: &[String]) -> Result<CliAction, ()> {
       Some("RUN is last, last~N, or a handle from `mto history`"),
     ),
   }
+}
+
+fn parse_stats_args(command: &CommandSpec, args: &[String]) -> Result<CliAction, ()> {
+  use mtindo::cli::stats::By;
+  let (json, args) = without_json(args);
+  let mut forget = false;
+  let mut since = None;
+  let mut by = By::Summary;
+  let mut i = 0;
+  while i < args.len() {
+    let (arg, inline) = match args[i].split_once('=') {
+      Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
+      _ => (args[i].as_str(), None),
+    };
+    let value = |i: &mut usize| {
+      inline.clone().or_else(|| {
+        *i += 1;
+        args.get(*i).cloned()
+      })
+    };
+    match arg {
+      "forget" if i == 0 => forget = true,
+      "--from" => {
+        let Some(when) = value(&mut i) else {
+          return usage_error("--from needs WHEN: `7d`, `4w`, `12h` or a day `2026-10-01`");
+        };
+        since = Some(match mtindo::stats::parse_date(&when) {
+          Some(day) => day,
+          None => match mtindo::cli::history::days(&when) {
+            Some(days) => {
+              mtindo::stats::day_number(mtindo::stats::now_millis()) - days.max(1) as i64 + 1
+            }
+            None => {
+              return usage_error(&format!(
+                "--from takes `7d`, `4w`, `12h` or a day `2026-10-01`, not `{}`",
+                when
+              ));
+            }
+          },
+        });
+      }
+      "--by" => {
+        let given = value(&mut i);
+        by = match given.as_deref().and_then(By::parse) {
+          Some(by) => by,
+          None => {
+            return usage_error(&format!(
+              "--by takes day, month, year, version or mode{}",
+              given.map_or(String::new(), |g| format!(", not `{}`", g))
+            ));
+          }
+        };
+      }
+      _ => {
+        return command_usage(
+          command,
+          None,
+          Some(&format!("unexpected argument '{}'", arg)),
+        );
+      }
+    }
+    i += 1;
+  }
+  if forget && (since.is_some() || by != By::Summary || json) {
+    return usage_error("mto stats forget takes no options");
+  }
+  Ok(CliAction::Stats {
+    forget,
+    since,
+    by,
+    json,
+  })
 }
 
 fn print_help() {
@@ -2630,6 +2756,7 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
     Ok(resolver) => resolver,
     Err(e) => return report_error(&e),
   };
+  mtindo::cli::stats::start(&resolver, opts, false, false);
   if let Some(missing) = paths.iter().find(|p| !p.exists()) {
     return report_error(&MtoError::Usage(format!(
       "target path '{}' does not exist",
@@ -2942,15 +3069,21 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
       if mtindo::json_messages() {
         outln!(
           "{}",
-          mtindo::file_event(&path.display().to_string(), done[at].outcome)
+          mtindo::file_event(
+            &path.display().to_string(),
+            done[at].outcome,
+            done[at].counts
+          )
         );
       }
     }
   }
+  // What the run did first, then how to undo it.
+  let code = finish_after(&done, opts, code_after.max(unstaged_after));
   if let Some(recorder) = writes.recorder.as_mut() {
     history::finish_record(recorder, settings.limits, opts.quiet);
   }
-  finish_after(&done, opts, code_after.max(unstaged_after))
+  code
 }
 
 fn run_history(view: HistoryView, json: bool) -> i32 {
@@ -3184,18 +3317,55 @@ fn run_restore(run: &str, files: &[PathBuf], force: bool) -> i32 {
   }
 }
 
+/// `mto stats`: the counts kept, or with `forget`, none any more.
+fn run_stats(forget: bool, since: Option<i64>, by: mtindo::cli::stats::By, json: bool) -> i32 {
+  let resolver = match resolver(&Overrides::default()) {
+    Ok(resolver) => resolver,
+    Err(e) => return report_error(&e),
+  };
+  let Some(dir) = mtindo::cli::stats::dir(resolver.env()) else {
+    return report_error(&MtoError::Usage(
+      "there is no home folder, so no counts are kept".to_string(),
+    ));
+  };
+  if forget {
+    return match mtindo::stats::Ledger::new(dir.clone()).forget() {
+      Ok(()) => {
+        outln!("Removed every count kept in {}.", dir.display());
+        0
+      }
+      Err(e) => report_error(&MtoError::Io(format!(
+        "cannot remove {}: {}",
+        dir.display(),
+        e
+      ))),
+    };
+  }
+  let off = mtindo::cli::stats::enabled(&resolver).err();
+  out!(
+    "{}",
+    mtindo::cli::stats::show(&dir, by, since, json, off.as_deref())
+  );
+  0
+}
+
 fn run_stdin(overrides: &Overrides, opts: &RunOptions, filepath: Option<&Path>) -> i32 {
   let mut resolver = match resolver(overrides) {
     Ok(resolver) => resolver,
     Err(e) => return report_error(&e),
   };
+  mtindo::cli::stats::start(&resolver, opts, true, filepath.is_some());
   let report = match process_stdin(&mut resolver, opts, filepath) {
     Ok(report) => report,
     Err(e) => return report_error(&e),
   };
   report.print();
   let done = [Done {
+    file: report.file,
     outcome: report.outcome,
+    counts: report.counts,
+    layout: report.layout,
+    edition: report.edition,
     json: report.json,
     ..Done::default()
   }];
@@ -3682,6 +3852,8 @@ mod tests {
       &["completions", "install", "fish", "--dir", "x", "--dry-run"],
       &["completions", "uninstall", "--dir=x"],
       &["completions", "status", "bash"],
+      &["stats", "--from", "7d", "--by", "day"],
+      &["stats", "forget"],
     ];
     for command in COMMANDS {
       let words = std::iter::once(None).chain(command.subcommands.iter().map(|s| Some(s.word)));

@@ -14,5 +14,7 @@ with the overview, which follows one run from start to finish.
   restore.
 * [The build guard](build-guard.md): checking the build and narrowing edits
   down.
+* [Run statistics](stats.md): the ledger `mto stats` reads, its tiers and
+  folding.
 
 For using `mto`, see the [guide](../README.md#guide).

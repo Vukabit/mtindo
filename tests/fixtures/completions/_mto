@@ -117,6 +117,7 @@ _mto_commands() {
     'init:Write a default mto.toml'
     'verify:Prove a formatting commit hides nothing: only mto'\''s own moves and formatting'
     'pins:List every place a project keeps code from mto, and why'
+    'stats:Show what mto has done to date, as counts'
     'config:Show the configuration that applies in a folder, or every setting'
     'history:List, show or prune the runs that wrote files'
     'restore:Undo a run'
@@ -147,6 +148,40 @@ _mto_pins() {
     '(- *)'{-h,--help}'[Show this help and exit]' \
     '--json[As JSON, whose shape keeps its version]' \
     '*: :_files -g "*.rs(-.)"'
+}
+
+_mto_stats_subcommands() {
+  local -a subcommands
+  subcommands=(
+    'forget:Remove every count kept, and the salt projects are hashed with'
+  )
+  _describe -t subcommands subcommand subcommands
+}
+
+_mto_stats() {
+  local curcontext=$curcontext state state_descr line ret=1
+  _arguments -C -s : \
+    '(- *)'{-h,--help}'[Show this help and exit]' \
+    '--from=[Only what was counted from then on: `7d`, `4w`, `12h`, or a day `2026-10-01`]:when: ' \
+    '--by=[A line for each day, month, year, version or mode, in place of the totals]:day|month|year|version|mode: ' \
+    '--json[As JSON, whose shape keeps its version]' \
+    '1: :->first' \
+    '*:: :->rest' && ret=0
+  case $state in
+    (first)
+      _mto_stats_subcommands && ret=0
+      ;;
+    (rest)
+      case $words[1] in
+        (forget)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '*: : ' && ret=0
+          ;;
+      esac
+      ;;
+  esac
+  return ret
 }
 
 _mto_config_subcommands() {
@@ -445,7 +480,7 @@ _mto_debug() {
             '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
             '--json[As JSON, whose shape keeps its version]' \
             '--runs=[How many runs a file goes through (default 2)]:n: ' \
-            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]' \
             '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
@@ -458,7 +493,7 @@ _mto_debug() {
             '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
             '--json[As JSON, whose shape keeps its version]' \
             '--runs=[How many runs a file goes through (default 2)]:n: ' \
-            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]' \
             '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
@@ -471,7 +506,7 @@ _mto_debug() {
             '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
             '--json[As JSON, whose shape keeps its version]' \
             '--runs=[How many runs a file goes through (default 2)]:n: ' \
-            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]' \
             '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
@@ -484,7 +519,7 @@ _mto_debug() {
             '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
             '--json[As JSON, whose shape keeps its version]' \
             '--runs=[How many runs a file goes through (default 2)]:n: ' \
-            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]' \
             '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
@@ -497,7 +532,7 @@ _mto_debug() {
             '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
             '--json[As JSON, whose shape keeps its version]' \
             '--runs=[How many runs a file goes through (default 2)]:n: ' \
-            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]' \
             '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
@@ -510,7 +545,7 @@ _mto_debug() {
             '--stdin-filepath=[With -: where the source belongs, for its settings and in messages]:path:_files' \
             '--json[As JSON, whose shape keeps its version]' \
             '--runs=[How many runs a file goes through (default 2)]:n: ' \
-            '--diff[Show what a run changed again, for a file that does not settle]' \
+            '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]' \
             '--layout-only[Lay out without formatting]' \
             '*: :_files -g "*.rs(-.)"' && ret=0
           ;;
@@ -577,6 +612,7 @@ _mto() {
     '(-d --dry-run)'{-d,--dry-run}'[List the files that would change, without writing]'
     '--emit=[Write the files (default), print them, or report changes as JSON]:value:(files stdout json)'
     '(-l --files-with-diff)'{-l,--files-with-diff}'[Name the files that change (or would, with --check) instead of showing how]'
+    '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]'
     '--follow-links[Also follow symlinked files and directories]'
     '(-R --recursive)'{-R,--recursive}'[The same as `mto .`: every .rs file under the current directory]'
     '--skip-children[A file argument is that file alone, not the modules it declares]'
@@ -595,6 +631,7 @@ _mto() {
     '--allow-dirty[With history off, rewrite files that have uncommitted changes]'
     '--unguarded[Do not check this run with the build guard, nor hold back the edits it holds]'
     '--no-history[Do not record this run in history (it cannot be restored)]'
+    '--no-stats[Leave this run out of the counts `mto stats` keeps]'
     '--no-report[Keep no bug report: name each bug mto finds in itself in one line]'
     '--color=[Color the output (default: auto, only on a terminal)]:value:(always never auto)'
     '(-q --quiet)'{-q,--quiet}'[Print only errors and what was asked for]'
@@ -618,6 +655,7 @@ _mto() {
         (init) _mto_init && ret=0 ;;
         (verify) _mto_verify && ret=0 ;;
         (pins) _mto_pins && ret=0 ;;
+        (stats) _mto_stats && ret=0 ;;
         (config) _mto_config && ret=0 ;;
         (history) _mto_history && ret=0 ;;
         (restore) _mto_restore && ret=0 ;;

@@ -14,4 +14,5 @@ pub mod options;
 pub mod replay;
 pub mod report;
 pub mod spec;
+pub mod stats;
 pub mod verify;

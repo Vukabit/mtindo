@@ -298,7 +298,7 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     as written, settled, left alone, the check failing, a panic, or a run
     changing the output again; it exits 4 when a check fails or a panic, 1 when
     one does not settle. The views are for people and are not stable; `--json`
-    gives `units`, `moves` and `settle` as JSON whose shape keeps its `version`.
+    gives each as JSON whose shape keeps its `version`.
     *   `--config <KEY=VALUE,...>` (after `mto debug
         tokens|tree|kept|units|moves|settle`): Set settings for this run, over
         every file.

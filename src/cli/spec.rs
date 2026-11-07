@@ -502,8 +502,8 @@ pub const COMMANDS: &[CommandSpec] = &[
                 would, runs again over its own output, and counts every outcome apart: as \
                 written, settled, left alone, the check failing, a panic, or a run changing the \
                 output again; it exits 4 when a check fails or a panic, 1 when one does not \
-                settle. The views are for people and are not stable; `--json` gives \
-                `units`, `moves` and `settle` as JSON whose shape keeps its `version`.",
+                settle. The views are for people and are not stable; `--json` gives each \
+                as JSON whose shape keeps its `version`.",
     usage: &[
       "mto debug tokens|tree|kept|units|moves <FILE|-> [--json] [--config KEY=VALUE,...]",
       "mto debug settle <PATH|->... [--runs N] [--diff] [--layout-only] [--json]",

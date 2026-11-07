@@ -1153,7 +1153,7 @@ fn parse_debug_args(command: &CommandSpec, args: &[String]) -> Result<CliAction,
             None => return usage_error("--stdin-filepath needs a <PATH>"),
           }
         }
-        Flag::Json if view != DebugView::Kept => json = true,
+        Flag::Json => json = true,
         Flag::Runs | Flag::Diff | Flag::LayoutOnly if view != DebugView::Settle => {
           return usage_error(&format!("{} only goes with `mto debug settle`", spec.long));
         }
@@ -1974,8 +1974,9 @@ fn run_debug(
   filepath: Option<&std::path::Path>,
   json: bool,
 ) -> i32 {
+  use mtindo::text::json::Json;
   if view == DebugView::Kept {
-    return run_debug_kept(path, overrides);
+    return run_debug_kept(path, overrides, json);
   }
   let (text, shown, folder) = match debug_input(path, filepath) {
     Ok(input) => input,
@@ -1994,6 +1995,53 @@ fn run_debug(
   let edition = mtindo::layout::configured_edition(&layout);
   let on = mtindo::text::terminal::code_in_color();
   match view {
+    DebugView::Tokens if json => {
+      let mut offset = 0;
+      let tokens: Vec<Json> = tokenize(&text, edition)
+        .into_iter()
+        .map(|token| {
+          let end = offset + token.len as usize;
+          let entry = Json::object()
+            .with("kind", token.kind.name())
+            .with("start", offset)
+            .with("end", end)
+            .with("text", &text[offset..end])
+            .with("error", token.error.map(|e| e.message().to_string()));
+          offset = end;
+          entry
+        })
+        .collect();
+      outln!(
+        "{}",
+        Json::output("tokens")
+          .with("file", shown.as_str())
+          .with("edition", edition.year())
+          .with("tokens", tokens)
+          .text()
+      );
+    }
+    DebugView::Tree if json => {
+      let parse = parse(&text, edition);
+      let errors: Vec<Json> = parse
+        .errors()
+        .iter()
+        .map(|e| {
+          Json::object()
+            .with("start", e.range.start as usize)
+            .with("end", e.range.end as usize)
+            .with("message", e.message.as_str())
+        })
+        .collect();
+      outln!(
+        "{}",
+        Json::output("tree")
+          .with("file", shown.as_str())
+          .with("edition", edition.year())
+          .with("tree", tree_json(&parse.syntax_node()))
+          .with("errors", errors)
+          .text()
+      );
+    }
     DebugView::Tokens => {
       let mut offset = 0;
       for token in tokenize(&text, edition) {
@@ -2040,7 +2088,8 @@ fn run_debug(
 
 /// `mto debug kept FILE`: each place the formatter leaves code as written in FILE, and
 /// why, with the settings that apply to it and formatting on.
-fn run_debug_kept(path: &std::path::Path, given: &Overrides) -> i32 {
+fn run_debug_kept(path: &std::path::Path, given: &Overrides, json: bool) -> i32 {
+  use mtindo::text::json::Json;
   // Formatting on, wherever it is off: it is what leaves code as written.
   let mut overrides = given.clone();
   overrides
@@ -2050,15 +2099,31 @@ fn run_debug_kept(path: &std::path::Path, given: &Overrides) -> i32 {
     Ok(resolver) => resolver,
     Err(e) => return report_error(&e),
   };
+  let shown = path.display().to_string();
+  // As JSON: whether formatting is on, and each place kept, in the file's order.
+  let kept_json = |formatting: bool, places: Vec<Json>| {
+    outln!(
+      "{}",
+      Json::output("kept")
+        .with("file", shown.as_str())
+        .with("formatting", formatting)
+        .with("kept", places)
+        .text()
+    );
+  };
   let (source, notes) = match mtindo::explain_file(&mut resolver, path) {
     Ok(Some((source, notes, _))) => (source, notes),
+    Ok(None) if json => {
+      kept_json(false, Vec::new());
+      return 0;
+    }
     Ok(None) => {
       outln!("{}: formatting is not on here", path.display());
       return 0;
     }
     Err(e) => return report_error(&e),
   };
-  if notes.is_empty() {
+  if notes.is_empty() && !json {
     outln!("{}: nothing left as written", path.display());
     return 0;
   }
@@ -2070,11 +2135,26 @@ fn run_debug_kept(path: &std::path::Path, given: &Overrides) -> i32 {
     .zip(places)
     .filter_map(|(note, place)| place.map(|place| (note, place)))
     .collect();
+  found.sort_by_key(|(_, place)| *place);
+  if json {
+    let places: Vec<Json> = found
+      .iter()
+      .map(|(note, (line, column))| {
+        Json::object()
+          .with("line", *line)
+          .with("column", *column)
+          .with("kind", note.kind.as_str())
+          .with("reason", note.reason.as_str())
+          .with("text", note.text.as_str())
+      })
+      .collect();
+    kept_json(true, places);
+    return 0;
+  }
   if found.is_empty() {
     outln!("{}: nothing left as written", path.display());
     return 0;
   }
-  found.sort_by_key(|(_, place)| *place);
   for (note, (line, column)) in found {
     let at = format!("{}:{}", line, column);
     outln!(
@@ -3225,6 +3305,29 @@ fn split_pairs(text: &str) -> Vec<&str> {
   }
   pairs.push(&text[start..]);
   pairs.into_iter().filter(|p| !p.trim().is_empty()).collect()
+}
+
+/// A syntax tree as JSON for `mto debug tree --json`: each node its kind, range and
+/// children, each token its kind, range and text.
+fn tree_json(node: &mtindo::syntax::SyntaxNode) -> mtindo::text::json::Json {
+  use mtindo::syntax::SyntaxElement;
+  use mtindo::text::json::Json;
+  let children: Vec<Json> = node
+    .children_with_tokens_iter()
+    .map(|child| match child {
+      SyntaxElement::Node(child) => tree_json(&child),
+      SyntaxElement::Token(token) => Json::object()
+        .with("kind", token.kind().name())
+        .with("start", token.text_range().start as usize)
+        .with("end", token.text_range().end as usize)
+        .with("text", token.text()),
+    })
+    .collect();
+  Json::object()
+    .with("kind", node.kind().name())
+    .with("start", node.text_range().start as usize)
+    .with("end", node.text_range().end as usize)
+    .with("children", children)
 }
 
 /// The exit code for staged files left alone because they have changes not staged as well:

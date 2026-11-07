@@ -1121,6 +1121,47 @@ fn test_cli_debug_kept_says_why_code_is_left_as_written() {
   assert_eq!(printed(&out.stdout), "plain.rs: nothing left as written\n");
 }
 
+/// `mto debug tokens`, `tree` and `kept` with `--json`: each view as a versioned object,
+/// ranges in bytes, a syntax error listed in the tree's, a kept place with its line.
+#[test]
+fn test_cli_debug_tokens_tree_and_kept_as_json() {
+  let env = TestEnvironment::new();
+  env.write_file("main.rs", "fn f() {}\n");
+  let (code, tokens, _) = mto(&env, &["debug", "tokens", "main.rs", "--json"]);
+  assert_eq!(code, 0);
+  assert!(
+    tokens.starts_with("{\"version\":1,\"kind\":\"tokens\",\"file\":\"main.rs\"")
+      && tokens
+        .contains("{\"kind\":\"IDENT\",\"start\":0,\"end\":2,\"text\":\"fn\",\"error\":null}"),
+    "{}",
+    tokens
+  );
+  env.write_file("broken.rs", "fn g( {}\n");
+  let (code, tree, _) = mto(&env, &["debug", "tree", "broken.rs", "--json"]);
+  assert_eq!(code, 0);
+  assert!(
+    tree.starts_with("{\"version\":1,\"kind\":\"tree\",\"file\":\"broken.rs\"")
+      && tree.contains("\"tree\":{\"kind\":\"SOURCE_FILE\",\"start\":0,\"end\":9,")
+      && !tree.contains("\"errors\":[]"),
+    "{}",
+    tree
+  );
+  env.write_file(
+    "kept.rs",
+    "fn f() {\n    let s = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\".len() + bbbbbbbbbbbbbbbbbb;\n}\n",
+  );
+  let (code, kept, _) = mto(&env, &["debug", "kept", "kept.rs", "--json"]);
+  assert_eq!(code, 0);
+  assert!(
+    kept.starts_with("{\"version\":1,\"kind\":\"kept\",\"file\":\"kept.rs\",\"formatting\":true,\"kept\":[{\"line\":2,"),
+    "{}",
+    kept
+  );
+  let (code, none, _) = mto(&env, &["debug", "kept", "main.rs", "--json"]);
+  assert_eq!(code, 0);
+  assert!(none.contains("\"formatting\":true,\"kept\":[]"), "{}", none);
+}
+
 #[test]
 fn test_cli_debug_tree_and_tokens() {
   let env = TestEnvironment::new();

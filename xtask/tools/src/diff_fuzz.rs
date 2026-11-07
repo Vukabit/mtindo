@@ -36,7 +36,8 @@ use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::format::file::format_file;
 use mtindo::history::sha256;
 use mtindo::options::format::FormatConfig;
-use mtindo::syntax::{Edition, parse};
+use mtindo::syntax::lexer::tokenize;
+use mtindo::syntax::{Edition, SyntaxKind, parse};
 use mtindo::verify::format::verify_format;
 
 use crate::common::edition_for;
@@ -77,9 +78,15 @@ impl Both {
     if got == want {
       return None;
     }
+    // The meaning check compares comments by their words, so one with none (`//`, `/**/`)
+    // the standard formatter drops goes unseen there: counted here.
     let broken = verify_format(input, &want, edition)
       .first()
-      .map(|v| v.detail.clone());
+      .map(|v| v.detail.clone())
+      .or_else(|| {
+        let (written, kept) = (comments(input, edition), comments(&want, edition));
+        (kept < written).then(|| format!("{} comment(s) dropped", written - kept))
+      });
     Some(Disagreement {
       name: name(&got, &want, edition),
       got,
@@ -304,6 +311,14 @@ pub fn run(args: &[String]) -> ExitCode {
   );
   println!("metric fuzz.diff.ways {} ways", seen.len());
   ExitCode::SUCCESS
+}
+
+/// How many comments `text` holds.
+fn comments(text: &str, edition: Edition) -> usize {
+  tokenize(text, edition)
+    .iter()
+    .filter(|t| matches!(t.kind, SyntaxKind::LineComment | SyntaxKind::BlockComment))
+    .count()
 }
 
 /// The formatting settings for `edition`, as mto finds them in a folder with no

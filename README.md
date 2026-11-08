@@ -106,6 +106,8 @@ The [documentation index](docs/README.md) lists every page. The guide:
   break the build.
 * [CI and editors](docs/guide/ci-and-editors.md): `--check`, JSON output,
   hooks and rust-analyzer.
+* [Run statistics](docs/guide/stats.md): what `mto stats` counts, and what
+  it never keeps.
 
 The [manual](docs/generated/manual.md) (`mto --man`) documents every
 command, flag and setting, and the

@@ -2894,9 +2894,20 @@ fn run_format(paths: &[PathBuf], overrides: &Overrides, opts: &RunOptions, git: 
   };
   mtindo::cli::stats::start(&resolver, opts, false, false);
   if let Some(missing) = paths.iter().find(|p| !p.exists()) {
+    // `mto --no-stats config update`: a command read as a path, since only the first word
+    // names one.
+    let command = missing.to_str().and_then(command_named);
+    let hint = match command {
+      Some(command) => format!(
+        "; `{0}` is a command, and a command comes first: `mto {0} ...`",
+        command.name
+      ),
+      None => String::new(),
+    };
     return report_error(&MtoError::Usage(format!(
-      "target path '{}' does not exist",
-      missing.display()
+      "target path '{}' does not exist{}",
+      missing.display(),
+      hint
     )));
   }
   // The files git names, when asked: the run finds its files as always, and only those go

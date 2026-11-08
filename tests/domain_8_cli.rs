@@ -622,6 +622,20 @@ fn test_cli_a_closed_pipe_ends_quietly() {
 /// checking does not pass over it.
 #[cfg(unix)]
 #[test]
+fn test_cli_a_command_after_a_flag_is_named_in_the_error() {
+  let env = TestEnvironment::new();
+  let (code, _, stderr) = mto(&env, &["--no-stats", "config", "update"]);
+  assert_eq!(code, 2);
+  assert!(
+    stderr.contains("`config` is a command, and a command comes first: `mto config ...`"),
+    "{}",
+    stderr
+  );
+  let (_, _, stderr) = mto(&env, &["--check", "missing.rs"]);
+  assert!(!stderr.contains("is a command"), "{}", stderr);
+}
+
+#[test]
 fn test_cli_a_file_that_cannot_be_read_fails_the_run() {
   use std::os::unix::fs::PermissionsExt;
   let env = TestEnvironment::new();

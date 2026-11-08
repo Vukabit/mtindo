@@ -100,7 +100,8 @@ fn problems(manual: &str, help: &str, defaults: &str, surface: &str) -> Vec<Stri
       label.split("  ").next().unwrap_or(label)
     })
     .flat_map(|label| label.split_whitespace())
-    .map(|word| word.trim_end_matches(','))
+    // A value after `=` only touches its flag: `--diff[=full|stat]`.
+    .map(|word| word.trim_end_matches(',').split('[').next().unwrap_or(word))
     .filter(|word| word.starts_with('-') && word.len() > 1)
     .collect();
   for flag in &mto_flags {

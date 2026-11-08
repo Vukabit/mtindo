@@ -30,12 +30,11 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::common::color::color_enabled;
+use crate::common::log::Logger;
 use manifest::{Line, Manifest, Status};
 use report::Cases;
 use surface::{Kind, Reading, Surface};
-
-use crate::common::color::color_enabled;
-use crate::common::log::Logger;
 
 pub(crate) const MANIFEST_PATH: &str = "records/policy/capabilities.txt";
 

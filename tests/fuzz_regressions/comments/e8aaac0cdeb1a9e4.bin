@@ -1,0 +1,65 @@
+–B’// rustfmt-normalize_comments: true
+
+// Imports.
+
+mod Foo {
+    pub use rustc_ast::ast::{
+        ItemForeignMod,
+        ItemImpl,
+        ItemMac,
+        ItemMod,
+        ItemStatic,
+        ItemDefaultImpl
+    }
+ 
+;   mod Foo2 {
+        pub use rustc_ast::ast::{ItemForeignMod, ItemImpl, ItemMac, ItemMod, ItemStatic, self, ItemDefaultImpl};
+    }
+}
+
+// #2888
+use std::f64::consts::{SQRT_2, E, PI};
+// #3273
+#[rustfmt::skip]
+use std::fmt::{self, {Display, Formatter}};
+use std::io::self;
+use std::io::{self};
+
+// Root globs
+use *;
+use ::*;
+// With absolute paths
+use ::foo;
+use ::foo::{Bar, Baz};
+use ::foo::{Bar};
+use ::{Bar, Baz};
+use ::{Foo};
+use Foo::{Bar, Baz};
+// nested imports with a single / #2670
+#[macro_use]
+use imports_with_attr;
+use list::{
+    // Some item
+    SomeItem /* Comment */, /* Another item */ AnotherItem /* Another Comment */, // Last Item
+    LastItem
+};
+pub use rustc_ast::ast::{Expr_, Expr, ExprAssign, ExprCall, ExprMethodCall, ExprPath};
+// Long import.
+use rustc_ast::ast::{ItemForeignMod, ItemImpl, ItemMac, ItemMod, ItemStatic, ItemDefaultImpl};
+use rustc_ast::some::{};
+use rustc_ast::{self};
+use test::{  Other          /* C   */  , /*   A   */ self  /*    B     */    };
+use {/* Pre-comment! */
+     Foo, Bar /* comment */};
+
+use self;
+// We shouldn't remove imports which have attributes attached (#1858)
+#[cfg(unix)]
+use self::unix::{};
+// spaces used to cause glob imports to disappear (#1356)
+use super:: * ;
+
+fn test() {
+use Baz::*;
+        use Qux;
+}

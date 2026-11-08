@@ -27,7 +27,8 @@ Like the standard formatter, `mto` leaves as written what it would give up
 on:
 
 * `macro_rules!` definitions and macro calls whose contents are not code;
-* anything marked `#[rustfmt::skip]`, and `// mto: off` regions (below);
+* anything marked `#[rustfmt::skip]`, `// mto: off` regions, and a file
+  whose header says `// mto: ignore` (below);
 * a statement or item that cannot fit within `max_width`;
 * with `format_generated_files = false`, a generated file: one with a comment
   near its top holding one of `generated_markers` (`@generated` by default);
@@ -73,6 +74,23 @@ between the same neighbours, and nothing moves across it: the strength of a
 `// mto: first` and `// mto: last` put the item below them at the top or the
 bottom of its section (or of its file, module or impl), the others sorted
 between them.
+
+## Leaving a whole file as written
+
+`// mto: ignore` in a file's header leaves the whole file as written, like
+`#![rustfmt::skip]`. Two narrower forms leave half of it:
+
+* `// mto: ignore=layout` keeps the file's items where they are, and still
+  formats it: for a file whose order means something, such as a table of
+  handlers in the order they are tried.
+* `// mto: ignore=format` keeps every line as written, and still lays out
+  its items.
+
+The header is where `#![no_std]` may stand: the comments, inner doc comments
+(`//!`) and inner attributes a file opens with, before its first item or its
+first outer doc comment or attribute. A reason may follow after ` -- `:
+`// mto: ignore=layout -- tried in this order`. One anywhere else, a second
+one, or `ignore=` with another word gets a warning and is not followed.
 
 `mto pins` lists every directive and `#[rustfmt::skip]` in a project, with
 its file, line and reason, so none is forgotten. With

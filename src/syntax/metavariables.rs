@@ -21,6 +21,12 @@ pub fn replace_names(text: &str, edition: Edition) -> Option<(String, Vec<(Strin
   for (kind, piece) in parse_tokens(text, edition) {
     let quoted = kind.is_literal() && (piece.contains('"') || piece.contains('\''));
     let comment = kind.is_trivia() && kind != K::Whitespace;
+    // A comment between a `$` and its name (`$ // c` then `x`): the name would follow the
+    // comment, inside it if a line comment. Not renamed, the text is left as written, as the
+    // standard formatter leaves it.
+    if comment && dollars > 0 {
+      return None;
+    }
     if quoted || comment {
       out.push_str(piece);
       continue;

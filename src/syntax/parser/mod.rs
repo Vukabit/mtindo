@@ -8,10 +8,9 @@
 pub mod event;
 mod grammar;
 
-use event::Event;
-
 use crate::syntax::lexer::Token;
 use crate::syntax::{Edition, MAX_DEPTH, SyntaxKind, TOO_DEEP};
+use event::Event;
 
 /// How many lookahead calls without progress count as a parser bug.
 const STEP_LIMIT: u32 = 10_000_000;

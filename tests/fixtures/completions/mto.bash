@@ -97,9 +97,9 @@ _mto_settings() {
         version where_single_line wrap_comments blank_lines_between_blocks \
         directive_reasons reexports cfg_groups flow generated_markers \
         group_impls ignore_dirs impl_method_order import_grouping import_sort \
-        inherent_method_order keep_helpers_near keep_paragraphs layout format \
-        layout_generated_files mto_version name_sort order_keys sections \
-        sort_alphabetically sort_imports test_module test_helpers \
+        inherent_method_order keep_helpers_near helper_kinds keep_paragraphs \
+        layout format layout_generated_files mto_version name_sort order_keys \
+        sections sort_alphabetically sort_imports test_module test_helpers \
         trait_impl_order trait_impl_sort type_order visibility_order; do
         case "$1$head$key=" in
           "$_mto_cur"*) COMPREPLY+=("$1$head$key=") ;;
@@ -163,6 +163,7 @@ _mto_value() {
     --color) _mto_words "$2" always never auto ;;
     --dir) _mto_paths "$2" "$3" dirs ;;
     --message-format) _mto_words "$2" human json ;;
+    --diff) [ -z "$command" ] && _mto_words "$2" full stat ;;
   esac
 }
 
@@ -181,6 +182,8 @@ _mto_flags() {
     "config options") _mto_words "" -h --help --toml --json ;;
     "config mirror") _mto_words "" -h --help ;;
     "config derive") _mto_words "" -h --help --write --json ;;
+    "config update") _mto_words "" -h --help -d --dry-run ;;
+    "config reset") _mto_words "" -h --help -d --dry-run ;;
     "history ") _mto_words "" -h --help --all --json ;;
     "history show") _mto_words "" -h --help ;;
     "history prune") _mto_words "" -h --help --keep --older-than --all ;;
@@ -218,7 +221,7 @@ _mto_flags() {
 _mto_subcommands() {
   case "$1" in
     stats) _mto_words "" forget ;;
-    config) _mto_words "" path print options mirror derive ;;
+    config) _mto_words "" path print options mirror derive update reset ;;
     history) _mto_words "" show prune ;;
     doctor) _mto_words "" on off holds keep recheck trust release ;;
     report) _mto_words "" show save send recheck remove prune ;;
@@ -231,7 +234,7 @@ _mto_subcommands() {
 # after $4 others.
 _mto_operand() {
   case "$1 $2" in
-    "init "|"config path"|"config print"|"config mirror"|"config derive") _mto_paths "" "$3" dirs ;;
+    "init "|"config path"|"config print"|"config mirror"|"config derive"|"config update"|"config reset") _mto_paths "" "$3" dirs ;;
     "verify ") _mto_live "" revs ;;
     "pins "|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle") _mto_paths "" "$3" ;;
     "history show"|"doctor ") _mto_live "" runs ;;
@@ -321,7 +324,7 @@ _mto_is_command() {
 # Whether $2 is a subcommand of command $1.
 _mto_is_subcommand() {
   case "$1 $2" in
-    "stats forget"|"config path"|"config print"|"config options"|"config mirror"|"config derive"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor keep"|"doctor recheck"|"doctor trust"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
+    "stats forget"|"config path"|"config print"|"config options"|"config mirror"|"config derive"|"config update"|"config reset"|"history show"|"history prune"|"doctor on"|"doctor off"|"doctor holds"|"doctor keep"|"doctor recheck"|"doctor trust"|"doctor release"|"report show"|"report save"|"report send"|"report recheck"|"report remove"|"report prune"|"debug tokens"|"debug tree"|"debug kept"|"debug units"|"debug moves"|"debug settle"|"completions install"|"completions uninstall"|"completions status") return 0 ;;
   esac
   return 1
 }

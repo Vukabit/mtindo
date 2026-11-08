@@ -2,9 +2,10 @@ mod common;
 
 use std::fs;
 
-use common::TestEnvironment;
 use mtindo::config::{Environment, FileKind, Overrides, Resolver};
 use mtindo::{RunOptions, walk_directory};
+
+use common::TestEnvironment;
 
 fn resolver() -> Resolver {
   Resolver::new(&Overrides::default(), Environment::default()).unwrap()

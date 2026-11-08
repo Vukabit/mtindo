@@ -36,15 +36,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-pub(crate) use key::*;
-pub(crate) use measure::*;
 use mtindo::config::{Environment, Overrides, Resolver};
 use mtindo::syntax::{Edition, SyntaxKind};
-pub(crate) use record::*;
-pub(crate) use source::*;
 
 use crate::common::edition_for;
 use crate::unformat::unformat;
+pub(crate) use key::*;
+pub(crate) use measure::*;
+pub(crate) use record::*;
+pub(crate) use source::*;
 
 /// How many errors parsing shows, the commonest first.
 const SHOWN_MESSAGES: usize = 25;

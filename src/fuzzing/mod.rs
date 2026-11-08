@@ -13,18 +13,23 @@ pub mod parser;
 pub mod toml;
 pub mod verify;
 
+use std::panic;
 use std::sync::{Mutex, OnceLock, mpsc};
 
 /// The thread the checks run on, made once: with the stack mto's binaries give this work
 /// ([`crate::STACK`]), which a fuzzer's own thread may not have. One thread for every
 /// input, since a sanitizer keeps memory for each thread's stack long after it ends.
-static WORKER: OnceLock<Mutex<(mpsc::Sender<Job>, mpsc::Receiver<()>)>> = OnceLock::new();
+static WORKER: OnceLock<Mutex<(mpsc::Sender<Job>, mpsc::Receiver<Done>)>> = OnceLock::new();
+
+/// How a check on the worker ended: a panic's payload, to raise again.
+type Done = std::thread::Result<()>;
 
 /// A check with its input, for the worker.
 type Job = (Vec<u8>, fn(&[u8]));
 
-/// Runs `check` on `data` on the worker, and waits for it. A panic there ends the process,
-/// as the fuzzer's hook makes every panic do.
+/// Runs `check` on `data` on the worker, and waits for it. Under a fuzzer a panic there ends
+/// the process, as its hook makes every panic do; elsewhere the worker catches it and this
+/// raises it again on the caller's thread, so the worker lives on for the next input.
 fn on_stack(data: &[u8], check: fn(&[u8])) {
   let worker = WORKER.get_or_init(|| {
     let (jobs, inbox) = mpsc::channel::<Job>();
@@ -33,8 +38,7 @@ fn on_stack(data: &[u8], check: fn(&[u8])) {
       .stack_size(crate::STACK)
       .spawn(move || {
         for (data, check) in inbox {
-          check(&data);
-          let _ = done.send(());
+          let _ = done.send(panic::catch_unwind(|| check(&data)));
         }
       })
       .expect("a thread to run on");
@@ -44,5 +48,7 @@ fn on_stack(data: &[u8], check: fn(&[u8])) {
     .lock()
     .unwrap_or_else(|poisoned| poisoned.into_inner());
   worker.0.send((data.to_vec(), check)).expect("the worker");
-  worker.1.recv().expect("the worker");
+  if let Err(payload) = worker.1.recv().expect("the worker") {
+    panic::resume_unwind(payload);
+  }
 }

@@ -198,6 +198,8 @@ pub struct LayoutConfig {
   pub sections: Sections,
   /// `keep_helpers_near`: a private item used by one sibling stays above it.
   pub keep_helpers_near: bool,
+  /// `helper_kinds`: the kinds `keep_helpers_near` moves.
+  pub helper_kinds: Vec<ItemKind>,
   /// `flow`: within one rank, an item above (or below) the items it uses.
   pub flow: Flow,
   /// `cfg_groups`: items under the same `#[cfg(...)]` that move as one.
@@ -288,6 +290,15 @@ impl Default for LayoutConfig {
       keep_paragraphs: false,
       sections: Sections::Off,
       keep_helpers_near: false,
+      helper_kinds: vec![
+        ItemKind::FnDecl,
+        ItemKind::ConstDecl,
+        ItemKind::StaticDecl,
+        ItemKind::TypeAlias,
+        ItemKind::StructDecl,
+        ItemKind::EnumDecl,
+        ItemKind::Union,
+      ],
       flow: Flow::Off,
       cfg_groups: CfgGroups::Off,
       reexports: Reexports::WithImports,

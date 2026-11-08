@@ -35,9 +35,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-pub use files::{Environment, is_format_settings_file, is_settings_file};
-pub use value::Value;
-
 use crate::options::format::{FormatConfig, ImportsLayout, NewlineStyle, off_width};
 use crate::options::layout::{
   CfgGroups, Flow, ItemKind, LayoutConfig, MethodOrder, NameSort, OrderKey, Reexports, Sections,
@@ -45,6 +42,8 @@ use crate::options::layout::{
 };
 use crate::options::{self, Channels, File, Setting, Stability};
 use crate::syntax::Edition;
+pub use files::{Environment, is_format_settings_file, is_settings_file};
+pub use value::Value;
 
 /// The build guard's settings an mto.toml may hold too, for the project: its command
 /// (which runs only once the user trusts it) and its limits. Turning the guard on stays the
@@ -144,9 +143,16 @@ pub struct Config {
   values: BTreeMap<&'static str, (Value, Source)>,
   style_edition: u16,
   files: Vec<(FileKind, PathBuf)>,
+  /// Where `root = true` stopped the search for mto.toml files, when one did.
+  root: Option<Source>,
 }
 
 impl Config {
+  /// Where `root = true` stopped the search for mto.toml files upwards, when one did.
+  pub fn root(&self) -> Option<&Source> {
+    self.root.as_ref()
+  }
+
   /// The configuration files that apply, lowest precedence first.
   pub fn files(&self) -> &[(FileKind, PathBuf)] {
     &self.files
@@ -274,6 +280,9 @@ impl Config {
       .and_then(Value::as_integer)
     {
       config.generated_marker_line_search_limit = lines as usize;
+    }
+    if let Some(kinds) = self.get("helper_kinds").and_then(Value::as_list) {
+      config.helper_kinds = kinds.iter().map(|k| ItemKind::from_name(k)).collect();
     }
     if let Some(kinds) = self.get("type_order").and_then(Value::as_list) {
       config.type_order = kinds.iter().map(|k| ItemKind::from_name(k)).collect();
@@ -591,8 +600,8 @@ impl fmt::Display for Error {
 struct Loaded {
   path: PathBuf,
   values: Vec<(&'static Setting, Value, usize)>,
-  /// `root = true` in an `mto.toml`.
-  root: bool,
+  /// `root = true` in an `mto.toml`, and its line.
+  root: Option<usize>,
   warnings: Vec<String>,
 }
 
@@ -800,7 +809,7 @@ impl Resolver {
           ));
         }
         let loaded = self.load(&path, FileKind::Mto)?;
-        let root = loaded.root;
+        let root = loaded.root.is_some();
         mto_files.push(loaded);
         if root {
           root_folder = Some(folder.to_path_buf());
@@ -1082,10 +1091,17 @@ impl Resolver {
     if let Some(found) = cargo {
       files.push((FileKind::Cargo, found.path));
     }
+    let root = layers.iter().find_map(|(_, loaded)| {
+      loaded.root.map(|line| Source::File {
+        path: loaded.path.clone(),
+        line,
+      })
+    });
     Ok(Config {
       values,
       style_edition,
       files,
+      root,
     })
   }
 
@@ -1202,6 +1218,7 @@ pub fn layout_from_settings(pairs: &[(&str, &str)]) -> Result<LayoutConfig, Erro
     values,
     style_edition: 2015,
     files: Vec::new(),
+    root: None,
   };
   Ok(config.layout())
 }
@@ -1307,7 +1324,7 @@ fn read(path: &Path, text: &str, kind: FileKind) -> Result<Loaded, Error> {
   let mut loaded = Loaded {
     path: path.to_path_buf(),
     values: Vec::new(),
-    root: false,
+    root: None,
     warnings: Vec::new(),
   };
   let mut entries: Vec<(String, &toml::Entry)> = Vec::new();
@@ -1315,10 +1332,11 @@ fn read(path: &Path, text: &str, kind: FileKind) -> Result<Loaded, Error> {
   for (key, entry) in entries {
     let place = at(entry.line, entry.column);
     if key == ROOT_KEY && matches!(kind, FileKind::Mto | FileKind::Explicit) {
-      loaded.root = entry
+      let root = entry
         .value
         .as_bool()
         .ok_or_else(|| Error::new(format!("{}: `root` must be true or false", place)))?;
+      loaded.root = root.then_some(entry.line);
       continue;
     }
     let Some(setting) = options::find(&key) else {

@@ -511,13 +511,23 @@ pub(super) fn note_kept() {
 /// string goes on).
 pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfig) -> String {
   let tab = config.tab_spaces.max(1);
-  // Where each line break inside a string literal is.
+  // Where each line break inside a string literal is, and which of them a `\` continues:
+  // in no raw string, after an odd run of backslashes (`\\` is one backslash written).
   let mut in_string: HashSet<usize> = HashSet::new();
+  let mut continuations: HashSet<usize> = HashSet::new();
   let mut at = 0;
   for (kind, text) in crate::syntax::parse_tokens(snippet, Edition::E2021) {
     if kind.is_literal() {
+      let raw = text
+        .trim_start_matches(['b', 'c'])
+        .strip_prefix('r')
+        .is_some_and(|rest| rest.starts_with(['"', '#']));
       for (i, _) in text.match_indices('\n') {
         in_string.insert(at + i);
+        let backslashes = text[..i].bytes().rev().take_while(|&b| b == b'\\').count();
+        if !raw && backslashes % 2 == 1 {
+          continuations.insert(at + i);
+        }
       }
     }
     at += text.len();
@@ -530,8 +540,8 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
       .sum::<usize>()
   };
   // Each line after the first: its text, whether it starts inside a string, whether it
-  // ends inside one.
-  let mut lines: Vec<(&str, bool, bool)> = Vec::new();
+  // ends inside one, and whether a `\` continues the string past its end.
+  let mut lines: Vec<(&str, bool, bool, bool)> = Vec::new();
   let mut offset = snippet.find('\n').map_or(snippet.len(), |n| n + 1);
   // Its end kept where it is inside a string, which it is part of.
   let first = if offset > 0 && in_string.contains(&(offset - 1)) {
@@ -539,6 +549,7 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
   } else {
     snippet[..offset].trim_end()
   };
+  let first_continues = offset > 0 && continuations.contains(&(offset - 1));
   while offset <= snippet.len()
     && offset > 0
     && offset - 1 < snippet.len()
@@ -549,7 +560,8 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
       .find('\n')
       .map_or(snippet.len(), |n| offset + n);
     let ends_in = in_string.contains(&end);
-    lines.push((&snippet[offset..end], starts_in, ends_in));
+    let continues = continuations.contains(&end);
+    lines.push((&snippet[offset..end], starts_in, ends_in, continues));
     if end >= snippet.len() {
       break;
     }
@@ -563,20 +575,20 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
   let mut measured: Vec<usize> = Vec::new();
   // Whether the line before ends with `\` (a string continued past its line break, whose
   // leading whitespace is not the string's).
-  let mut continued = first.ends_with('\\');
-  for (i, &(line, starts_in, ends_in)) in lines.iter().enumerate() {
+  let mut continued = first_continues;
+  for (i, &(line, starts_in, ends_in, continues)) in lines.iter().enumerate() {
     // A line whose first character opens a string counts as one in a string
     // (`LineClasses` takes a line's kind from its first character).
     let opens = !starts_in && line.starts_with('"');
     // The last line, with no line break to take its kind from, has that of its last
     // character.
     let last = i + 1 == lines.len();
-    let new_veto = (starts_in || opens) && ends_in && !line.ends_with('\\');
+    let new_veto = (starts_in || opens) && ends_in && !continues;
     // A line starting inside a string not continued with `\` starts with the string's own
     // whitespace: kept, where the standard formatter would re-indent it.
     kept.push(veto || new_veto || starts_in && !continued);
     veto = new_veto;
-    continued = line.ends_with('\\');
+    continued = continues;
     // Not one starting inside a string, kept as written: measured, it would pull the others
     // in again on a second run.
     if !line.trim().is_empty() && !starts_in && (last || !opens) {
@@ -601,7 +613,7 @@ pub(super) fn preserve_layout(snippet: &str, indent: usize, config: &FormatConfi
     return snippet.to_string();
   };
   let mut out = first.to_string();
-  for (&(line, starts_in, ends_in), keep) in lines.iter().zip(kept) {
+  for (&(line, starts_in, ends_in, _), keep) in lines.iter().zip(kept) {
     out.push('\n');
     if keep {
       out.push_str(line);
@@ -2432,6 +2444,27 @@ fn line_starts(walked: &[SyntaxNode], roles: &mut Roles, config: &FormatConfig) 
           }
         }
       }
+      // A stray `;` after it on a line of its own, past comments, is indented as the item
+      // too: as a line continuing a comment above it, it would move by as much as that
+      // comment did, which a second run moves again.
+      let mut after = child.next_sibling_or_token();
+      let mut broke = false;
+      while let Some(SyntaxElement::Token(t)) = &after
+        && (t.kind().is_trivia())
+      {
+        broke = t.kind() == SyntaxKind::Whitespace && t.text().contains('\n');
+        after = t.next_sibling_or_token();
+      }
+      if broke
+        && let Some(SyntaxElement::Token(semi)) = after
+        && semi.kind() == SyntaxKind::Semi
+        && let Some(container) = container
+      {
+        roles
+          .starts
+          .entry(semi.text_range().start as usize)
+          .or_insert(container);
+      }
     }
     if any && node.kind() != SyntaxKind::SourceFile {
       for token in node.children_with_tokens_iter() {
@@ -3525,6 +3558,25 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                 // gives the header up on the next pass, which runs now so that this run
                 // settles.
                 note_kept();
+              } else if laid.as_ref().is_some_and(|(text, _)| text.contains('\n'))
+                && matches!(node.kind(), SyntaxKind::Static | SyntaxKind::Const)
+                && node.children_iter().next_back().is_some_and(|value| {
+                  matches!(
+                    value.kind(),
+                    SyntaxKind::IfExpr
+                      | SyntaxKind::MatchExpr
+                      | SyntaxKind::WhileExpr
+                      | SyntaxKind::ForExpr
+                      | SyntaxKind::LoopExpr
+                      | SyntaxKind::BlockExpr
+                  )
+                })
+              {
+                // A value's control expression whose head goes across lines has its `{` at
+                // the item's indentation; laid out again, the head takes another layout,
+                // as the standard formatter's second run gives it: that pass runs now, so
+                // this run settles.
+                note_kept();
               }
               // An empty body after a header on one line closes up (`{}`); after one across
               // lines its `}` goes on a line of its own.
@@ -3855,7 +3907,18 @@ fn reindent(root: &SyntaxNode, text: &str, edition: Edition, config: &FormatConf
                     )
                   })
               }),
-            _ => false,
+            // A block's last expression's last token (`a //`, `|| a //`): its end too.
+            _ => t
+              .token
+              .parent()
+              .ancestors_iter()
+              .find(crate::format::stmt::ends_block)
+              .is_some_and(|tail| {
+                crate::format::imports::code_end(&tail) == t.token.text_range().end as usize
+                  && tail
+                    .parent()
+                    .is_some_and(|p| p.kind() == SyntaxKind::BlockExpr)
+              }),
           });
       // The indentation of the line the statement before it starts on.
       let statement_start = tokens[..i]

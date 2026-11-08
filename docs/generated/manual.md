@@ -82,8 +82,8 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
 
 ### Changes (`mto <PATH>...`)
 *   `--check`: Print a diff for every file that would change; exit 1 if any.
-*   `--diff`: Show what changed, line by line; `--diff=stat` gives a line per
-    file with its lines added and removed, then the totals (with
+*   `--diff[=full|stat]`: Show what changed, line by line; `--diff=stat` gives a
+    line per file with its lines added and removed, then the totals (with
     `mto debug settle`: what each run changed).
 *   `-d, --dry-run`: List the files that would change, without writing.
 *   `--emit <files|stdout|json>`: Write the files (default), print them, or
@@ -176,12 +176,12 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     *   `--ignored-revs` (after `mto verify`): Every commit `git blame` is told
         to look past (blame.ignoreRevsFile).
     *   `--json` (after `mto verify`): As JSON, whose shape keeps its version.
-*   `mto pins [PATH]...`: Lists each `// mto: pin`, `// mto: hold` and
-    `// mto: off` and each `#[rustfmt::skip]` in the files under PATH (default:
-    the current directory), with its file, line and the reason given after
-    ` -- `, so a project's exceptions are seen and none is forgotten.
-    `directive_reasons = "required"` in mto.toml asks every directive for its
-    reason.
+*   `mto pins [PATH]...`: Lists each `// mto: pin`, `// mto: hold`,
+    `// mto: off` and `// mto: ignore` and each `#[rustfmt::skip]` in the files
+    under PATH (default: the current directory), with its file, line and the
+    reason given after ` -- `, so a project's exceptions are seen and none is
+    forgotten. `directive_reasons = "required"` in mto.toml asks every directive
+    for its reason.
     *   `--json` (after `mto pins`): As JSON, whose shape keeps its version.
 *   `mto stats [forget]`: Shows the counts each run that formats adds to a
     ledger beside history: runs, files and lines read and changed, items moved,
@@ -199,22 +199,27 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
     *   `--by day|month|year|version|mode` (after `mto stats`): A line for each
         day, month, year, version or mode, in place of the totals.
     *   `--json` (after `mto stats`): As JSON, whose shape keeps its version.
-*   `mto config path|print|options|mirror|derive [DIR]`: `path` lists the
-    configuration files that apply in DIR (default: the current directory), and
-    the history folder. `print` shows every setting in effect with where it came
-    from, in sections: layout, then formatting. `options` lists every setting a
-    configuration file may hold, by file, with its values and default, and for
-    the standard formatter's settings whether mto honors it yet. `mirror` writes
-    the formatting settings DIR's mto.toml holds into a rustfmt.toml beside it
-    (only those the standard formatter's stable release takes; the rest are
-    named), so tools that run the standard formatter agree with mto while a
-    project moves to it; it writes again only a rustfmt.toml it wrote. `derive`
-    finds the mto.toml that moves the fewest items in DIR's project as it is
-    written: from what `mto init` writes, each layout setting takes the value
-    that leaves the most where it is, the defaults winning ties, while the
-    settings the project's formatting decides (its rustfmt.toml) stay as it
-    asks; it prints that mto.toml, or writes it with --write (never over one
-    there), and says what each change saves.
+*   `mto config path|print|options|mirror|derive|update|reset [DIR]`: `path`
+    lists the configuration files that apply in DIR (default: the current
+    directory), and the history folder. `print` shows every setting in effect
+    with where it came from, in sections: layout, then formatting. `options`
+    lists every setting a configuration file may hold, by file, with its values
+    and default, and for the standard formatter's settings whether mto honors it
+    yet. `mirror` writes the formatting settings DIR's mto.toml holds into a
+    rustfmt.toml beside it (only those the standard formatter's stable release
+    takes; the rest are named), so tools that run the standard formatter agree
+    with mto while a project moves to it; it writes again only a rustfmt.toml it
+    wrote. `derive` finds the mto.toml that moves the fewest items in DIR's
+    project as it is written: from what `mto init` writes, each layout setting
+    takes the value that leaves the most where it is, the defaults winning ties,
+    while the settings the project's formatting decides (its rustfmt.toml) stay
+    as it asks; it prints that mto.toml, or writes it with --write (never over
+    one there), and says what each change saves. `update` adds to DIR's mto.toml
+    every mto setting it does not set, at its default, so nothing a run does
+    changes, each with its line from `mto init` and where `mto init` puts it;
+    what the file holds stays as it is. `reset` writes DIR's mto.toml as
+    `mto init` writes it. Both say what they change, `--dry-run` writes nothing,
+    and history records the file as it was, so `mto restore` undoes either.
     *   `--toml` (after `mto config options`): As a commented file, every
         setting at its default.
     *   `--json` (after `mto config options`): As JSON, whose shape keeps its
@@ -223,6 +228,8 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
         print it (never over one there).
     *   `--json` (after `mto config derive`): As JSON, whose shape keeps its
         version.
+    *   `-d, --dry-run` (after `mto config update|reset`): List the files that
+        would change, without writing.
     *   `--current` (after `mto config path|print`): Every setting in effect,
         with its source (the default).
     *   `--default` (after `mto config path|print`): Every setting at its
@@ -335,10 +342,10 @@ cargo mto [OPTIONS] [-- <MTO OPTIONS>...]
         JSON, whose shape keeps its version.
     *   `--runs <N>` (after `mto debug tokens|tree|kept|units|moves|settle`):
         How many runs a file goes through (default 2).
-    *   `--diff` (after `mto debug tokens|tree|kept|units|moves|settle`): Show
-        what changed, line by line; `--diff=stat` gives a line per file with its
-        lines added and removed, then the totals (with `mto debug settle`: what
-        each run changed).
+    *   `--diff[=full|stat]` (after `mto debug
+        tokens|tree|kept|units|moves|settle`): Show what changed, line by line;
+        `--diff=stat` gives a line per file with its lines added and removed,
+        then the totals (with `mto debug settle`: what each run changed).
     *   `--layout-only` (after `mto debug tokens|tree|kept|units|moves|settle`):
         Lay out without formatting.
 *   `mto completions [install|uninstall|status] [SHELL]`: Prints the completion
@@ -438,7 +445,9 @@ The number of blank lines placed between items. Imports of the same group and
 `mod name;` declarations stay on consecutive lines. It is kept within the
 standard formatter's `blank_lines_lower_bound` and `blank_lines_upper_bound` (0
 and 1 by default), with a warning, so that the standard formatter leaves the
-result alone; imports and declarations get the lower bound.
+result alone; imports and declarations get the lower bound. With
+`keep_paragraphs`, paragraphs are always parted by at least one blank line, at 0
+too: touching, they would read as one.
 
 *   Type: a whole number, zero or more.
 *   Default: `1`.
@@ -452,8 +461,9 @@ exceptions do not pile up unexplained; `mto pins` lists them all.
 *   Default: `"optional"`.
 *   Values:
     *   `optional`: A directive may give its reason after ` -- `, or not.
-    *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
-        ` -- why` gets a warning, and with --strict fails its file.
+    *   `required`: A `// mto: pin`, `// mto: hold`, `// mto: off` or
+        `// mto: ignore` without ` -- why` gets a warning, and with --strict
+        fails its file.
 
 #### `reexports`
 A re-export is a `use` with any visibility but private: the module's API, apart
@@ -593,10 +603,28 @@ item and moves with it: above it, or below it when written below it. A type
 takes its own impls along, and a helper of a helper stays next to the item it
 helps. Uses are found by name, without type checking, so an item whose name is
 ambiguous (defined twice) sorts as usual, as does one whose user is in another
-section or keeps its place.
+section or keeps its place. `helper_kinds` names the kinds it moves.
 
 *   Type: `true` or `false`.
 *   Default: `false`.
+
+#### `helper_kinds`
+With `keep_helpers_near`, only items of these kinds move to sit beside the one
+item that uses them; the others sort as usual. Leave out `ConstDecl` and
+`StaticDecl` to keep a file's block of constants together, in the order it is
+written, while its functions still go beside their callers.
+
+*   Type: an array of the values below, each at most once.
+*   Default: `["FnDecl", "ConstDecl", "StaticDecl", "TypeAlias", "StructDecl",
+    "EnumDecl", "Union"]`.
+*   Values:
+    *   `FnDecl`: Functions.
+    *   `ConstDecl`: Constants: `const`.
+    *   `StaticDecl`: Statics: `static`.
+    *   `TypeAlias`: Type aliases: `type Name = ...;`.
+    *   `StructDecl`: Structs, with their impls.
+    *   `EnumDecl`: Enums, with their impls.
+    *   `Union`: Unions, with their impls.
 
 #### `keep_paragraphs`
 Items written with no blank line between them form a paragraph that moves as

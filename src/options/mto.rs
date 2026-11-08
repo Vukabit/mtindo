@@ -3,6 +3,17 @@
 
 use super::{Choice, File, Kind, Setting};
 
+/// The kinds of item `keep_helpers_near` may keep beside their one user: `helper_kinds`.
+pub(super) static HELPER_KINDS: &[Choice] = &[
+  choice("FnDecl", "Functions."),
+  choice("ConstDecl", "Constants: `const`."),
+  choice("StaticDecl", "Statics: `static`."),
+  choice("TypeAlias", "Type aliases: `type Name = ...;`."),
+  choice("StructDecl", "Structs, with their impls."),
+  choice("EnumDecl", "Enums, with their impls."),
+  choice("Union", "Unions, with their impls."),
+];
+
 /// The item categories `type_order` arranges, in their default order.
 pub(super) static ITEM_KINDS: &[Choice] = &[
   choice(
@@ -40,7 +51,8 @@ pub(super) static SETTINGS: &[Setting] = &[
               `mod name;` declarations stay on consecutive lines. It is kept within the standard formatter's \
               `blank_lines_lower_bound` and `blank_lines_upper_bound` (0 and 1 by default), \
               with a warning, so that the standard formatter leaves the result alone; imports and \
-              declarations get the lower bound.",
+              declarations get the lower bound. With `keep_paragraphs`, paragraphs are always \
+              parted by at least one blank line, at 0 too: touching, they would read as one.",
     channels: None,
     hidden: false,
     replaced_by: None,
@@ -55,8 +67,8 @@ pub(super) static SETTINGS: &[Setting] = &[
       ),
       choice(
         "required",
-        "A `// mto: pin`, `// mto: hold` or `// mto: off` without ` -- why` gets a \
-         warning, and with --strict fails its file.",
+        "A `// mto: pin`, `// mto: hold`, `// mto: off` or `// mto: ignore` without \
+         ` -- why` gets a warning, and with --strict fails its file.",
       ),
     ]),
     default: "\"optional\"",
@@ -308,7 +320,22 @@ pub(super) static SETTINGS: &[Setting] = &[
               takes its own impls along, and a helper of a helper stays next to the item it \
               helps. Uses are found by name, without type checking, so an item whose name \
               is ambiguous (defined twice) sorts as usual, as does one whose user is in \
-              another section or keeps its place.",
+              another section or keeps its place. `helper_kinds` names the kinds it moves.",
+    channels: None,
+    hidden: false,
+    replaced_by: None,
+  },
+  Setting {
+    name: "helper_kinds",
+    file: File::Mto,
+    kind: Kind::Sequence(HELPER_KINDS),
+    default: "[\"FnDecl\", \"ConstDecl\", \"StaticDecl\", \"TypeAlias\", \"StructDecl\", \"EnumDecl\", \"Union\"]",
+    default_2024: None,
+    summary: "The kinds of item `keep_helpers_near` keeps beside their one user",
+    doc: "With `keep_helpers_near`, only items of these kinds move to sit beside the one \
+              item that uses them; the others sort as usual. Leave out `ConstDecl` and \
+              `StaticDecl` to keep a file's block of constants together, in the order it is \
+              written, while its functions still go beside their callers.",
     channels: None,
     hidden: false,
     replaced_by: None,

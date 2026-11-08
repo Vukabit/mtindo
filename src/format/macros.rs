@@ -604,6 +604,13 @@ fn rewrite_rule(
   // No `;` is added after a last `return`, `break` or `continue` in a macro definition:
   // used where an expression goes, it would not compile.
   inner.trailing_semicolon = false;
+  // A `;` standing alone in it is part of what it expands to, and the code around keeps its
+  // order: the check compares such a body as written.
+  if stray_semicolon(&body, edition) {
+    inner.reorder_imports = false;
+    inner.reorder_modules = false;
+    inner.group_imports = crate::options::format::GroupImports::Preserve;
+  }
   let formatted = match format_snippet(&body, edition, &inner) {
     Some(formatted) => formatted,
     None => {
@@ -783,6 +790,26 @@ fn rules(tree: &SyntaxNode) -> Option<Vec<Rule>> {
     _ => return None,
   }
   Some(rules)
+}
+
+/// Whether a transcriber's body, read as items or else as statements in a function, has a
+/// `;` standing alone at its top.
+fn stray_semicolon(body: &str, edition: Edition) -> bool {
+  let as_items = parse(body, edition);
+  let (parsed, wrapped) = if as_items.errors().is_empty() {
+    (as_items, false)
+  } else {
+    (parse(&format!("fn main() {{\n{}\n}}", body), edition), true)
+  };
+  let root = parsed.syntax_node();
+  let top = if wrapped {
+    root
+      .descendant_nodes_where(|kind| kind == K::BlockExpr)
+      .next()
+  } else {
+    Some(root)
+  };
+  top.is_some_and(|top| top.children_with_tokens_iter().any(|e| e.kind() == K::Semi))
 }
 
 /// A transcriber's text between its delimiters.

@@ -1,0 +1,57 @@
+{U›// rustfmt-imports_granularity: Crate
+
+#[doc(hidden)]
+use a::b;
+#[doc(hidden)]
+use a::b;
+use a::c;
+use a::d;
+use a::d;
+use a::{b::{c::*}};
+use a::{b::{c::d}};
+use a::{b::{c::{xxx, yyy, zzz}}};
+use a::{b::{c::{}}};
+use a::{c,d,b};use a::{c, d, e};
+use a::{d, e, b, a, f};
+use a::{f, g, c};
+use b::c;
+use b::d;
+use b::e;
+use b::q::{self /* After b::q::self */};
+use b::r; // After b::r
+use b::s::{
+    a,
+    b, // After b::s::b
+};
+use b::t::{
+    // Before b::t::a
+    a,
+    b,
+};
+use b::t::{/* Before b::t::self */ self};
+use b::u::{
+    a,
+    b,
+};
+use b::v::{
+    // Before b::v::a
+    a,
+    // Before b::v::b
+    b,
+};
+use b::{f::g, h::{i, j} /* After b::h group */};
+use b::{/* Before b::l group */ l::{self, m, n::o, p::*}, q};
+// https://github.com/rust-lang/rustfmt/issues/5333
+use d::{self};
+use e::{self as foo};
+use f::{self, b};
+pub use foo::bar;
+pub use foo::foobar;
+use foo::{a, b, c};
+use g::a;
+use g::{self, b};
+use h::{a};
+use i::a::{self};
+use j::{a::{self}};
+use {k::{a, b}, l::{a, b}};
+use {k::{c, d}, l::{c, d}};

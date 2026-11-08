@@ -32,15 +32,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
 
-use tasks::{
-  Action, DEFAULT_FUZZ_TIME, DEFAULT_GROUPS, ENV_VARS, GROUPS, State, TEST_REGISTRY, Task,
-};
-
 use crate::common::awake::{self, KeepAwake, Stamp};
 use crate::common::color::{HelpPalette, color_enabled};
 use crate::common::log::{Logger, timestamp};
 use crate::common::store;
 use crate::common::{process, tree};
+use tasks::{
+  Action, DEFAULT_FUZZ_TIME, DEFAULT_GROUPS, ENV_VARS, GROUPS, State, TEST_REGISTRY, Task,
+};
 
 /// Lines of a failed task's output shown in the terminal; the log has all of it.
 const FAILURE_TAIL_LINES: usize = 60;

@@ -36,10 +36,6 @@ mod order;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-pub use classify::import_group_of_text;
-pub use inspect::{Container, Inspection, MoveView, UnitView, inspect, line_of};
-pub use order::Rule;
-
 use crate::options::layout::{
   CfgGroups, ImportGroup, ItemKind, LayoutConfig, Reexports, Sections, Visibility,
 };
@@ -48,6 +44,9 @@ use crate::syntax::lexer::tokenize;
 use crate::syntax::marker::{self, Marker};
 use crate::syntax::{Edition, Parse, SyntaxElement, SyntaxKind, SyntaxNode, parse_cached};
 use crate::text::source::normalize;
+pub use classify::import_group_of_text;
+pub use inspect::{Container, Inspection, MoveView, UnitView, inspect, line_of};
+pub use order::Rule;
 
 /// Why a file with syntax errors is left alone.
 pub const SYNTAX_ERRORS: &str = "the file has syntax errors";
@@ -409,7 +408,10 @@ fn cut_sections(
   let mut heading_element: Vec<(usize, usize)> = Vec::new();
   for (at, run) in runs.iter().enumerate() {
     let after = runs.get(at + 1).map_or(next, |r| r[0].0);
-    let loose_after = blank_line_in(&text[run.last().unwrap().1..after]);
+    // A run ending in a comment that shared its line with the code before it is written
+    // with a blank line after it ([`joined`]): loose already, so a second pass agrees.
+    let loose_after =
+      blank_line_in(&text[run.last().unwrap().1..after]) || loose.contains(&run.last().unwrap().0);
     let section = says(run, Marker::Section);
     let directs = [Marker::Pin, Marker::Hold, Marker::First, Marker::Last]
       .into_iter()
@@ -444,16 +446,30 @@ fn cut_sections(
   *pending = heading_element;
 }
 
+/// Whether the declarations `mod a;` then `mod b;` are in the order the standard formatter
+/// sorts a run of them in: by bytes through style edition 2024, by version after it.
+fn declarations_in_order(a: &Unit, b: &Unit, config: &LayoutConfig) -> bool {
+  let (x, y) = (
+    a.identifier.trim_start_matches("r#"),
+    b.identifier.trim_start_matches("r#"),
+  );
+  if config.style_edition > 2024 {
+    crate::order::version_sort(x, y).is_le()
+  } else {
+    x <= y
+  }
+}
+
 /// Sets each helper's `caller` (`keep_helpers_near`): a private item of a kind used by
 /// name, used by exactly one other unit, which is free to move. Uses are identifier tokens
 /// naming it, anywhere in a unit's text (macro arguments included); `#[cfg]` variants of
 /// one item written apart are each a helper of the same user. Not a helper: a name defined
 /// by two units otherwise, a type with an impl of its own here (its impls go with it), a
 /// paragraph, or a unit whose helpers would lead back to itself.
-fn find_callers(units: &mut [Unit]) {
+fn find_callers(units: &mut [Unit], kinds: &[ItemKind]) {
   let names = names_used(units);
   let mut callers: Vec<Option<usize>> = (0..units.len())
-    .map(|at| helper_verdict(units, &names, at).ok())
+    .map(|at| helper_verdict(units, &names, at, kinds).ok())
     .collect();
   // A helper type's own impls go with it, to the same user.
   for at in 0..units.len() {
@@ -533,7 +549,12 @@ fn heading(text: &str, run: &[(usize, usize)]) -> bool {
 }
 
 /// The unit at `at` as a helper (`keep_helpers_near`): its one user, or why it is none.
-fn helper_verdict(units: &[Unit], names: &[HashSet<&str>], at: usize) -> Result<usize, String> {
+fn helper_verdict(
+  units: &[Unit],
+  names: &[HashSet<&str>],
+  at: usize,
+  kinds: &[ItemKind],
+) -> Result<usize, String> {
   let unit = &units[at];
   let name = unit.identifier.as_str();
   if !matches!(
@@ -548,6 +569,9 @@ fn helper_verdict(units: &[Unit], names: &[HashSet<&str>], at: usize) -> Result<
   ) || name.is_empty()
   {
     return Err("not a kind of item that helps".to_string());
+  }
+  if !kinds.contains(&unit.kind) {
+    return Err("a kind `helper_kinds` leaves out".to_string());
   }
   if unit.visibility != Visibility::Private {
     return Err("not private".to_string());
@@ -647,6 +671,27 @@ fn joined(text: &str, pieces: &[(usize, usize)], apart: &str, loose: &HashSet<us
     out.push_str(&text[*start..*end]);
   }
   out
+}
+
+/// An import from a module or enum declared beside it (`use arch::syscall;` under
+/// `mod arch;`) is of this crate, though its path does not say `crate::`.
+fn local_imports(units: &mut [Unit]) {
+  let declared: HashSet<String> = units
+    .iter()
+    .filter(|u| matches!(u.kind, ItemKind::ModDecl | ItemKind::EnumDecl))
+    .map(|u| u.identifier.clone())
+    .collect();
+  if declared.is_empty() {
+    return;
+  }
+  for unit in units.iter_mut() {
+    if unit.import_group == Some(ImportGroup::External)
+      && let Some(root) = unit.use_tree.as_ref().and_then(|t| t.root_name())
+      && declared.contains(root)
+    {
+      unit.import_group = Some(ImportGroup::Local);
+    }
+  }
 }
 
 /// The positions of a longest strictly increasing run of `values`, the first such run
@@ -834,9 +879,12 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
           || (config.reexports != Reexports::WithImports
             && order::reexport(prev) != order::reexport(unit)));
       // A `#[cfg(test)] mod tests;` sorted last stands apart, or the standard
-      // formatter would sort it back among the declarations above it.
+      // formatter would sort it back among the declarations above it. One kept in place
+      // among declarations it is in order with stays in their run: sorting moves none.
       let declarations = prev.module_declaration && unit.module_declaration;
-      let both_declarations = declarations && prev.test_module == unit.test_module;
+      let both_declarations = declarations
+        && (prev.test_module == unit.test_module
+          || (config.test_module_in_place && declarations_in_order(prev, unit, config)));
       if prev.comments_only || unit.comments_only {
         // A comment kept in place stays loose: touching an item, it would head it.
         output.push_str(&parted);
@@ -845,6 +893,10 @@ fn render(split: &Split, units: &[Unit], config: &LayoutConfig, indent: &str, to
       } else if both_imports || declarations {
         // The standard formatter sorts imports, and `mod` declarations, within runs
         // not broken by a blank line, so groups touching would be sorted into one.
+        output.push_str(&parted);
+      } else if config.keep_paragraphs {
+        // Units are paragraphs, which a blank line tells apart: touching, a second run
+        // would read them as one.
         output.push_str(&parted);
       } else {
         output.push_str(&apart);
@@ -981,7 +1033,9 @@ fn split_container(
           .checked_sub(2)
           .map_or(base, |i| header_elements[i].1);
         let own_line = before == base || text[before..s].contains('\n');
-        if text[e..next_start].matches('\n').count() >= 2 || !own_line {
+        // `// mto: ignore` stays in the header it is written in, and what is above it.
+        let ignore = matches!(marker::at(text, s, e), Some(Marker::Ignore(_)));
+        if text[e..next_start].matches('\n').count() >= 2 || !own_line || ignore {
           break;
         }
         pending.insert(0, (s, e));
@@ -1177,8 +1231,9 @@ fn split_container(
       units.len(),
     ));
   }
+  local_imports(&mut units);
   if config.keep_helpers_near {
-    find_callers(&mut units);
+    find_callers(&mut units, &config.helper_kinds);
   }
   let tail = joined(text, &pending, apart, &loose);
   Ok(Split {

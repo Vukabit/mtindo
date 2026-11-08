@@ -10,13 +10,13 @@ function __mto_state
     set -l commands init verify pins stats config history restore doctor report debug \
         completions
     set -l subcommands 'stats forget' 'config path' 'config print' 'config options' \
-        'config mirror' 'config derive' 'history show' 'history prune' \
-        'doctor on' 'doctor off' 'doctor holds' 'doctor keep' 'doctor recheck' \
-        'doctor trust' 'doctor release' 'report show' 'report save' \
-        'report send' 'report recheck' 'report remove' 'report prune' \
-        'debug tokens' 'debug tree' 'debug kept' 'debug units' 'debug moves' \
-        'debug settle' 'completions install' 'completions uninstall' \
-        'completions status'
+        'config mirror' 'config derive' 'config update' 'config reset' \
+        'history show' 'history prune' 'doctor on' 'doctor off' 'doctor holds' \
+        'doctor keep' 'doctor recheck' 'doctor trust' 'doctor release' \
+        'report show' 'report save' 'report send' 'report recheck' \
+        'report remove' 'report prune' 'debug tokens' 'debug tree' \
+        'debug kept' 'debug units' 'debug moves' 'debug settle' \
+        'completions install' 'completions uninstall' 'completions status'
     set -l words (commandline -opc)
     set -e words[1]
     set -l command -
@@ -119,7 +119,7 @@ function __mto_settings
             blank_lines_between_blocks directive_reasons reexports cfg_groups \
             flow generated_markers group_impls ignore_dirs impl_method_order \
             import_grouping import_sort inherent_method_order \
-            keep_helpers_near keep_paragraphs layout format \
+            keep_helpers_near helper_kinds keep_paragraphs layout format \
             layout_generated_files mto_version name_sort order_keys sections \
             sort_alphabetically sort_imports test_module test_helpers \
             trait_impl_order trait_impl_sort type_order visibility_order
@@ -210,6 +210,7 @@ complete -c mto -n '__mto_at - -' -s d -l dry-run -d 'List the files that would 
 complete -c mto -n '__mto_at - -' -l emit -x -a 'files stdout json' -d 'Write the files (default), print them, or report changes as JSON'
 complete -c mto -n '__mto_at - -' -s l -l files-with-diff -d 'Name the files that change (or would, with --check) instead of showing how'
 complete -c mto -n '__mto_at - -' -l diff -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
+complete -c mto -n '__mto_at - -; and string match -q -- "--diff=*" (commandline -ct)' -f -a '--diff=full --diff=stat' -d 'Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)'
 complete -c mto -n '__mto_at - -' -l follow-links -d 'Also follow symlinked files and directories'
 complete -c mto -n '__mto_at - -' -s R -l recursive -d 'The same as `mto .`: every .rs file under the current directory'
 complete -c mto -n '__mto_at - -' -l skip-children -d 'A file argument is that file alone, not the modules it declares'
@@ -282,6 +283,8 @@ complete -c mto -n '__mto_at config - 0' -a print -d 'Show every setting in effe
 complete -c mto -n '__mto_at config - 0' -a options -d 'List every setting a configuration file may hold'
 complete -c mto -n '__mto_at config - 0' -a mirror -d 'Write mto.toml\'s formatting settings into a rustfmt.toml beside it'
 complete -c mto -n '__mto_at config - 0' -a derive -d 'Find the mto.toml that moves the fewest items in the project as written'
+complete -c mto -n '__mto_at config - 0' -a update -d 'Add to mto.toml every setting it does not set, at its default'
+complete -c mto -n '__mto_at config - 0' -a reset -d 'Write mto.toml as `mto init` writes it'
 
 # mto config path
 complete -c mto -n '__mto_at config path' -s h -l help -d 'Show this help and exit'
@@ -323,6 +326,16 @@ complete -c mto -n '__mto_at config derive' -s h -l help -d 'Show this help and 
 complete -c mto -n '__mto_at config derive' -l write -d 'Write DIR/mto.toml, rather than print it (never over one there)'
 complete -c mto -n '__mto_at config derive' -l json -d 'As JSON, whose shape keeps its version'
 complete -c mto -n '__mto_at config derive' -a '(__fish_complete_directories (commandline -ct))'
+
+# mto config update
+complete -c mto -n '__mto_at config update' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at config update' -s d -l dry-run -d 'List the files that would change, without writing'
+complete -c mto -n '__mto_at config update' -a '(__fish_complete_directories (commandline -ct))'
+
+# mto config reset
+complete -c mto -n '__mto_at config reset' -s h -l help -d 'Show this help and exit'
+complete -c mto -n '__mto_at config reset' -s d -l dry-run -d 'List the files that would change, without writing'
+complete -c mto -n '__mto_at config reset' -a '(__fish_complete_directories (commandline -ct))'
 
 # mto history
 complete -c mto -n '__mto_at history -' -s h -l help -d 'Show this help and exit'

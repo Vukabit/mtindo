@@ -6,15 +6,15 @@ standard_formatter:
     version: "1.10.0"
     released: "2026-10-15"
   nightly:
-    version: "1.11.0-nightly"
-    released: "2026-10-31"
+    version: "1.12.0-nightly"
+    released: "2026-11-08"
 keys:
-  total: 132
-  mto: 29
+  total: 133
+  mto: 30
   formatting: 90
   user: 13
 in_mto:
-  supported: 75
+  supported: 76
   partial: 28
   missing: 11
   not_planned: 5
@@ -465,6 +465,14 @@ behavior, so the column does not apply to them.
 <td>rustfmt.toml</td>
 <td>Use tab characters for indentation, spaces for alignment.</td>
 <td>partial</td>
+</tr>
+<tr>
+<td><a href="mto.toml.md#helper_kinds">
+<code>helper_kinds</code></a></td>
+<td>mto.toml</td>
+<td>The kinds of item <code>keep_helpers_near</code> keeps beside their one
+    user</td>
+<td>supported</td>
 </tr>
 <tr>
 <td><a href="rustfmt.toml.md#hex_literal_case">

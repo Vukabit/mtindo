@@ -86,6 +86,60 @@ fn test_a_region_ends_with_its_block() {
   assert_eq!(found.warnings.len(), 2, "{:?}", found.warnings);
 }
 
+#[test]
+fn test_an_ignore_counts_only_in_the_header() {
+  assert_eq!(parse("// mto: ignore"), Some(Marker::Ignore(Ignore::All)));
+  assert_eq!(
+    parse("// mto: ignore=layout -- order kept by hand"),
+    Some(Marker::Ignore(Ignore::Layout))
+  );
+  assert_eq!(
+    parse("// mto: ignore=format"),
+    Some(Marker::Ignore(Ignore::Format))
+  );
+  assert_eq!(parse("// mto: ignore=both"), None);
+  // After comments, inner doc comments, a shebang and inner attributes, over their lines.
+  let text = "#!/usr/bin/env run\n\u{feff}//! Docs.\n/* a\n b */\n#![cfg_attr(\n  x,\n  no_std\n)]\n// mto: ignore\nfn a() {}\n";
+  let at = text.find("// mto: ignore").unwrap();
+  assert_eq!(ignored(text), Some((Ignore::All, at)));
+  assert!(
+    directives(text).warnings.is_empty(),
+    "{:?}",
+    directives(text).warnings
+  );
+  // Not after an outer doc comment, an attribute or an item: reported, not followed.
+  for text in [
+    "/// a\n// mto: ignore\nfn a() {}\n",
+    "#[cfg(x)]\n// mto: ignore\nfn a() {}\n",
+    "fn a() {}\n// mto: ignore\n",
+    "fn a() {\n  // mto: ignore\n}\n",
+  ] {
+    assert_eq!(ignored(text), None, "{}", text);
+    assert_eq!(directives(text).warnings.len(), 1, "{}", text);
+  }
+  // A second one, and a scope it does not know, are reported.
+  assert_eq!(
+    directives("// mto: ignore\n// mto: ignore\n")
+      .warnings
+      .len(),
+    1
+  );
+  let found = directives("// mto: ignore=both\nfn a() {}\n");
+  assert!(
+    found.warnings[0].1.contains("`layout` or `format`"),
+    "{:?}",
+    found.warnings
+  );
+  // `mto pins` lists it, with its reason.
+  let text = "// mto: ignore=format -- tables\nfn a() {}\n";
+  let listed = exceptions(&parse_source(text, Edition::E2021).syntax_node(), text);
+  assert_eq!(listed.len(), 1);
+  assert_eq!(
+    (listed[0].kind, listed[0].reason.as_deref()),
+    ("ignore=format", Some("tables"))
+  );
+}
+
 /// `// mto: off` after an item's doc comment or attribute opens a region of the item's
 /// container, from the item's start: an `// mto: on` after the item closes it, and neither
 /// is warned of (bug hunt, 2026-11-04).

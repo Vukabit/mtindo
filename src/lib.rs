@@ -49,6 +49,10 @@ const MAX_EDITS: isize = 1024;
 /// What a directive without its reason is told, which `--strict` makes an error.
 const NO_REASON: &str = "gives no reason after ` -- `";
 
+/// The widest line mto writes a setting on in a file it writes (`mto init`, `config update`,
+/// `config derive`): an array that would go past it takes a line per item.
+const SETTING_WIDTH: usize = 80;
+
 /// `--message-format json`: every report, warning and error printed as JSON Lines.
 static JSON_MESSAGES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -710,6 +714,15 @@ pub fn collect_jobs_into(
   })
 }
 
+/// A setting's value on one line, as [`setting_line`] writes a short one: an array across
+/// lines (`[\n    "a",\n]`) read back as `["a"]`; any other value as it is.
+pub fn compact_value(value: &str) -> String {
+  match array_items(value) {
+    Some(items) => format!("[{}]", items.join(", ")),
+    None => value.trim().to_string(),
+  }
+}
+
 /// What `--diff` prints at a run's end: with `--diff=stat` a line per file changed, its
 /// name, how many lines changed and a bar of them (`+` added, `-` removed), then the
 /// totals; with `--diff` the totals alone. Laid out as `git diff --stat` writes it.
@@ -860,33 +873,26 @@ pub fn init_template() -> String {
     "# mto configuration file; `mto --man` explains every setting.\n\n\
          # Rearrange the items of each file.\nlayout = true\n",
   );
-  // `format` beside `layout`, the other switch; then what mto leaves alone, where it is
-  // easy to find; then the rest in table order.
-  const FIRST: [&str; 4] = [
-    "format",
-    "ignore_dirs",
-    "generated_markers",
-    "layout_generated_files",
-  ];
-  let first = FIRST
-    .iter()
-    .filter_map(|name| options::all().find(|s| s.name == *name));
-  let others = options::all()
-    .filter(|s| s.file == options::File::Mto && s.name != "layout" && !FIRST.contains(&s.name));
-  for setting in first.chain(others) {
-    // On from the start, unlike its default: a run without it puts blank lines between
-    // items written together, and the paragraphs cannot be found again.
-    let value = if setting.name == "keep_paragraphs" {
-      "true"
-    } else {
-      setting.default
-    };
+  for setting in template_settings().into_iter().skip(1) {
     out.push_str(&format!(
-      "\n# {}\n{} = {}\n",
-      setting.summary, setting.name, value
+      "\n# {}\n{}\n",
+      setting.summary,
+      setting_line(setting.name, init_value(setting))
     ));
   }
   out
+}
+
+/// The value `mto init` writes for `setting`: its default, but `layout` and
+/// `keep_paragraphs` on.
+pub fn init_value(setting: &options::Setting) -> &'static str {
+  match setting.name {
+    "layout" => "true",
+    // On from the start, unlike its default: a run without it puts blank lines between
+    // items written together, and the paragraphs cannot be found again.
+    "keep_paragraphs" => "true",
+    _ => setting.default,
+  }
 }
 
 /// Whether `path` is a temporary file [`write_atomic`] made (`.NAME.PID.N.tmp_mtindo`) and a
@@ -1542,11 +1548,53 @@ pub fn set_json_messages(on: bool) {
   JSON_MESSAGES.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// `name = value` as mto writes a setting into a file: on one line, or an array that would
+/// pass [`SETTING_WIDTH`] columns with each item on a line of its own.
+pub fn setting_line(name: &str, value: &str) -> String {
+  let line = format!("{} = {}", name, value);
+  match array_items(value) {
+    Some(items) if line.chars().count() > SETTING_WIDTH && !items.is_empty() => {
+      let mut out = format!("{} = [\n", name);
+      for item in items {
+        out.push_str(&format!("    {},\n", item));
+      }
+      out.push(']');
+      out
+    }
+    _ => line,
+  }
+}
+
 /// Lays out and formats `source` as `settings` say, holding back the edits `held` names
 /// (none for an ordinary run). `Err` with the reason when the file is left alone.
 pub fn shape(source: &str, settings: &Settings, held: &doctor::Held) -> Result<Shaped, String> {
+  use syntax::marker::Ignore;
   let mut found = Vec::new();
-  if held.all {
+  let reasons_required = settings
+    .layout
+    .as_ref()
+    .is_some_and(|c| c.directive_reasons_required);
+  // `// mto: ignore` in the file's header: what it names is not done to the file.
+  let ignore = syntax::marker::ignored(source).map(|(ignore, _)| ignore);
+  let unignored;
+  let settings = match ignore {
+    Some(Ignore::Layout) => {
+      unignored = Settings {
+        layout: None,
+        ..settings.clone()
+      };
+      &unignored
+    }
+    Some(Ignore::Format) => {
+      unignored = Settings {
+        format: None,
+        ..settings.clone()
+      };
+      &unignored
+    }
+    _ => settings,
+  };
+  if held.all || ignore == Some(Ignore::All) {
     let (edition, parsed) = layout::parse_any_edition(source, settings.edition);
     if let Some(reason) = layout::refusal(&parsed) {
       return Err(reason);
@@ -1560,7 +1608,11 @@ pub fn shape(source: &str, settings: &Settings, held: &doctor::Held) -> Result<S
       found,
       relaid: None,
       unlaid: None,
-      directives: Vec::new(),
+      directives: if held.all {
+        Vec::new()
+      } else {
+        directive_problems(source, edition, reasons_required)
+      },
     });
   }
   let mut unlaid = None;
@@ -1655,27 +1707,31 @@ pub fn shape(source: &str, settings: &Settings, held: &doctor::Held) -> Result<S
     found,
     relaid,
     unlaid,
-    directives: directive_problems(
-      source,
-      edition,
-      settings
-        .layout
-        .as_ref()
-        .is_some_and(|c| c.directive_reasons_required),
-    ),
+    directives: directive_problems(source, edition, reasons_required),
   })
+}
+
+/// mto's own settings in the order `mto init` writes them: `layout`, then `format` beside
+/// it, the other switch; then what mto leaves alone, where it is easy to find; then the rest
+/// in table order.
+pub fn template_settings() -> Vec<&'static options::Setting> {
+  const FIRST: [&str; 5] = [
+    "layout",
+    "format",
+    "ignore_dirs",
+    "generated_markers",
+    "layout_generated_files",
+  ];
+  let first = FIRST
+    .iter()
+    .filter_map(|name| options::all().find(|s| s.name == *name));
+  let others = options::all().filter(|s| s.file == options::File::Mto && !FIRST.contains(&s.name));
+  first.chain(others).collect()
 }
 
 /// Reorders the items of one source file, or explains why the file was left alone.
 pub fn try_reorganize(source: &str, config: &LayoutConfig) -> Result<String, String> {
   arrange(source, config).map(|(text, _, _)| text)
-}
-
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
 }
 
 /// Lays out every `.rs` file under `dir`, each with the settings of its own folder. Files
@@ -1693,6 +1749,13 @@ pub fn walk_directory(
       .map(|d| d.outcome)
       .collect(),
   )
+}
+
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
 }
 
 /// Runs `work` on a thread of its own with the stack [`STACK`], and gives what it returns.
@@ -1877,6 +1940,51 @@ fn arrange_holding(
     }
   }
   Ok((text, arranged.edition, arranged.skipped, arranged.moves))
+}
+
+/// The items of a TOML array written `[a, b]` (across lines too), each as written; `None`
+/// for anything else. Commas inside quotes and inner brackets are an item's own.
+fn array_items(value: &str) -> Option<Vec<String>> {
+  let inner = value.trim().strip_prefix('[')?.strip_suffix(']')?;
+  let (mut items, mut item, mut depth, mut quote) = (Vec::new(), String::new(), 0i32, None);
+  let mut escaped = false;
+  for c in inner.chars() {
+    match quote {
+      Some(q) => {
+        item.push(c);
+        if escaped {
+          escaped = false;
+        } else if c == '\\' && q == '"' {
+          escaped = true;
+        } else if c == q {
+          quote = None;
+        }
+      }
+      None => match c {
+        '"' | '\'' => {
+          quote = Some(c);
+          item.push(c);
+        }
+        '[' | '{' => {
+          depth += 1;
+          item.push(c);
+        }
+        ']' | '}' => {
+          depth -= 1;
+          item.push(c);
+        }
+        ',' if depth == 0 => {
+          items.push(std::mem::take(&mut item).trim().to_string());
+        }
+        _ => item.push(c),
+      },
+    }
+  }
+  let last = item.trim();
+  if !last.is_empty() {
+    items.push(last.to_string());
+  }
+  Some(items.into_iter().filter(|i| !i.is_empty()).collect())
 }
 
 /// Where the forward and reverse searches of Myers' algorithm meet: a point on a shortest
@@ -3088,6 +3196,37 @@ mod tests {
     }
     assert_eq!(i, a.len());
     assert_eq!(rebuilt, b);
+  }
+
+  /// `// mto: ignore` in a file's header leaves it as written; `ignore=layout` keeps its
+  /// items where they are and formats it, `ignore=format` lays it out and keeps its lines.
+  #[test]
+  fn test_an_ignore_in_the_header_leaves_what_it_names_undone() {
+    let settings = Settings {
+      layout: Some(LayoutConfig::default()),
+      format: Some(options::format::FormatConfig::default()),
+      edition: syntax::Edition::E2021,
+    };
+    let text = |header: &str| {
+      let source = format!("{}fn b() {{  }}\nfn a() {{  }}\n", header);
+      let shaped = super::shape(&source, &settings, &doctor::Held::default()).unwrap();
+      (source, shaped.text, shaped.directives)
+    };
+    let (source, after, problems) = text("//! Kept.\n#![no_std]\n// mto: ignore -- by hand\n\n");
+    assert_eq!((after, problems), (source, Vec::new()));
+    let (_, after, _) = text("// mto: ignore=layout\n");
+    assert_eq!(after, "// mto: ignore=layout\nfn b() {}\nfn a() {}\n");
+    let (_, after, _) = text("// mto: ignore=format\n");
+    assert_eq!(
+      after,
+      "// mto: ignore=format\n\nfn a() {  }\n\nfn b() {  }\n"
+    );
+    // After the first item it is not followed, and says so.
+    let source = "fn b() {}\n// mto: ignore\nfn a() {}\n";
+    let shaped = super::shape(source, &settings, &doctor::Held::default()).unwrap();
+    assert_ne!(shaped.text, source);
+    assert_eq!(shaped.directives.len(), 1, "{:?}", shaped.directives);
+    assert!(shaped.directives[0].1.contains("header"));
   }
 
   /// A file is read in the configured edition where it parses: in 2015 a path starting

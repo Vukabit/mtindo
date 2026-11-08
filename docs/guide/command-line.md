@@ -142,6 +142,7 @@ other `mto` option goes after `--`, as `cargo mto -- --unguarded`.
 | `mto verify REV` | Prove a layout commit hides nothing ([Layout](layout.md)) |
 | `mto config ...` | Settings in effect ([Configuration](configuration.md)) |
 | `mto config derive` | The mto.toml that moves the fewest items as written |
+| `mto config update`, `reset` | Add what mto.toml lacks, or start it over |
 | `mto history`, `restore` | Past runs, undoing them ([Safety](safety.md)) |
 | `mto stats` | What mto has done to date ([Run statistics](stats.md)) |
 | `mto report ...` | Bug reports mto kept ([Safety](safety.md#bug-reports)) |

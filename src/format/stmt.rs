@@ -55,6 +55,19 @@ pub struct Head {
   pub comma_after: Option<usize>,
 }
 
+/// Whether `node` ends its block's code: its last expression ([`is_tail`]), or one with a
+/// doc comment or attribute before it, which stands as a statement without its `;`.
+pub fn ends_block(node: &SyntaxNode) -> bool {
+  is_tail(node)
+    || node.kind() == K::ExprStmt
+      && !node
+        .children_with_tokens_iter()
+        .any(|e| e.kind() == K::Semi)
+      && node.parent().is_some_and(|p| {
+        p.kind() == K::BlockExpr && p.children_iter().next_back().as_ref() == Some(node)
+      })
+}
+
 /// Whether `node` is a block's tail: the expression ending it, with no `;`, laid out as a
 /// statement is but for the `;`.
 pub fn is_tail(node: &SyntaxNode) -> bool {
@@ -703,6 +716,19 @@ pub fn rewrite_hole_head(node: &SyntaxNode, indent: usize, config: &FormatConfig
   if head.trim().is_empty() {
     return None;
   }
+  // The `{` on a line of the head further in than the statement (`    & || {`): the pass
+  // would indent the insides from the statement, not from that line.
+  if let Some((_, last)) = head.rsplit_once('\n') {
+    let tab = config.tab_spaces;
+    let column: usize = last
+      .chars()
+      .take_while(|c| *c == ' ' || *c == '\t')
+      .map(|c| if c == '\t' { tab } else { 1 })
+      .sum();
+    if column != indent {
+      return None;
+    }
+  }
   let after = lines[at + 1].trim_start().strip_prefix('}')?;
   let after = match body_range {
     Some(_) => after.strip_suffix("{}")?.to_string() + "{",
@@ -1165,8 +1191,12 @@ pub(super) fn statement_shape(indent: usize, config: &FormatConfig) -> Option<Sh
 
 /// A token's text with each `\\` ending a line of a string taken out with the line break
 /// and the whitespace after it: Rust skips them, so re-indenting the string's lines or
-/// breaking it anew (`format_strings`) leaves its value.
+/// breaking it anew (`format_strings`) leaves its value. A line doc comment as the pass
+/// writes it: one space at its end trimmed, two kept (a markdown line break).
 pub(super) fn unindented(text: &str) -> std::borrow::Cow<'_, str> {
+  if (text.starts_with("///") || text.starts_with("//!")) && !text.ends_with("  ") {
+    return std::borrow::Cow::Borrowed(text.trim_end());
+  }
   if !text.contains("\\\n")
     || text.starts_with('r')
     || text.starts_with("br")

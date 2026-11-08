@@ -10,10 +10,9 @@ mod cursor;
 mod idents;
 mod literals;
 
-use cursor::Cursor;
-
 use crate::syntax::{Edition, SyntaxKind};
 use crate::text::unicode::is_ident_start;
+use cursor::Cursor;
 
 /// A token's kind and any error found while lexing it.
 type Lexed = (SyntaxKind, Option<LexError>);

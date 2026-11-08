@@ -2,7 +2,7 @@
 //! stable and nightly releases pinned in `records/upstream/rustfmt-surface.txt`; do not edit.
 //!
 //! - stable: rustfmt 1.10.0, rust-lang/rust 58cf8f9c35b355199727627d07ae34a4e2846d67
-//! - nightly: rustfmt 1.11.0-nightly, rust-lang/rust 92b5b8c87c61b20adc9001b41baf587634a74734
+//! - nightly: rustfmt 1.12.0-nightly, rust-lang/rust f5cedb83a788ea9581097abc36a2a8503a7f541c
 
 use super::{Channels, Choice, File, Kind, Setting, Stability};
 

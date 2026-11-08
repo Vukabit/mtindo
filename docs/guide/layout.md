@@ -121,6 +121,9 @@ all off by default, keep that grouping:
   the item it helps. Uses are found by name, without type checking, so
   anything unclear sorts as usual: a name defined twice, an item used by two
   others, or one whose user is in another section or keeps its place.
+  `helper_kinds` names the kinds that move: leave out `ConstDecl` and
+  `StaticDecl` to keep a block of constants at the top of a file together
+  while its functions still go beside their callers.
 * **`cfg_groups`:** items under the same `#[cfg(...)]` move as one, so the
   code for one platform or feature stays in one place:
 
@@ -239,6 +242,9 @@ Some items depend on their position in the file. `mto` keeps them in place:
   written, in its original position; see
   [Leaving code as written](formatting.md#leaving-code-as-written) for the
   rules.
+* **A file whose header says `// mto: ignore`** (or `ignore=layout`) keeps
+  every item where it is; see [Leaving a whole file as
+  written](formatting.md#leaving-a-whole-file-as-written).
 * **A file with syntax errors** is left unchanged, and the run exits with
   code `3`.
 * **A file nesting more than 1024 levels deep** (generated code; hand-written

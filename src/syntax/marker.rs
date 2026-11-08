@@ -2,21 +2,47 @@
 //! code mto leaves exactly as written, `// mto: pin` above an item layout keeps in its
 //! place, `// mto: section`, where a section starts when `sections = "markers"`, and
 //! `// mto: hold` above an item that keeps its neighbours, as a build guard's hold keeps it,
-//! and `// mto: first` or `// mto: last` above an item layout puts at the top or the bottom
-//! of its section.
+//! `// mto: first` or `// mto: last` above an item layout puts at the top or the bottom
+//! of its section, and `// mto: ignore` in a file's header, which leaves the whole file as
+//! written (`ignore=layout`: its items stay where they are; `ignore=format`: its lines stay
+//! as written).
 //!
 //! A directive is a line comment alone on its line whose whole text is the directive, with
 //! nothing after it but whitespace, or ` -- ` and a reason (`// mto: off -- aligned by
 //! hand`). It belongs to no item: comment attachment passes over it, so a comment after it
 //! belongs to the code below. A region runs from `// mto: off` to the next `// mto: on` in
 //! the same block, or to the block's end; one among a statement's or item's parts (list
-//! items, match arms) leaves that whole statement or item as written.
+//! items, match arms) leaves that whole statement or item as written. `// mto: ignore`
+//! counts only in the header, before the first item, among the comments, inner doc comments
+//! and inner attributes (`#![no_std]`) a file opens with; one anywhere else is reported.
 //!
 //! What looks meant as a directive and is not one (`//mto: off`, `// MTO: off`, `// mto:
 //! of`, words after it without `--`, one after code on its line, in a block or doc comment)
 //! is reported, never followed; so are markers without a partner.
 
 use crate::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
+
+/// What `// mto: ignore` keeps mto from doing to a file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ignore {
+  /// `ignore`: anything; the file is left exactly as written.
+  All,
+  /// `ignore=layout`: moving its items; it is still formatted.
+  Layout,
+  /// `ignore=format`: formatting it; its items are still laid out.
+  Format,
+}
+
+impl Ignore {
+  /// The directive's word, as written.
+  pub fn word(self) -> &'static str {
+    match self {
+      Ignore::All => "ignore",
+      Ignore::Layout => "ignore=layout",
+      Ignore::Format => "ignore=format",
+    }
+  }
+}
 
 /// One of mto's directives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +57,8 @@ pub enum Marker {
   First,
   /// `// mto: last`: the item below goes to the bottom of its section.
   Last,
+  /// `// mto: ignore`, in the file's header: what mto leaves alone in the whole file.
+  Ignore(Ignore),
 }
 
 /// What a file's directives say: the regions left as written (byte ranges of the source),
@@ -43,6 +71,8 @@ pub struct Directives {
   pub holds: Vec<usize>,
   /// Where each `// mto: off` stands.
   pub offs: Vec<usize>,
+  /// The file's `// mto: ignore`, in its header, and where it stands.
+  pub ignore: Option<(Ignore, usize)>,
   /// Each problem, at the byte offset of the comment it is about.
   pub warnings: Vec<(usize, String)>,
 }
@@ -52,7 +82,8 @@ pub struct Directives {
 pub struct Exception {
   /// Where it stands in the text.
   pub at: usize,
-  /// `pin`, `hold`, `off` or `rustfmt::skip`.
+  /// `pin`, `hold`, `off`, `ignore` (or `ignore=layout`, `ignore=format`) or
+  /// `rustfmt::skip`.
   pub kind: &'static str,
   pub reason: Option<String>,
 }
@@ -88,6 +119,13 @@ pub fn exceptions(root: &SyntaxNode, text: &str) -> Vec<Exception> {
     })
   })
   .collect();
+  if let Some((ignore, at)) = found.ignore {
+    all.push(Exception {
+      at,
+      kind: ignore.word(),
+      reason: reason(line_at(at)).map(str::to_string),
+    });
+  }
   let mut at = 0;
   for line in text.split_inclusive('\n') {
     let trimmed = line.trim_start();
@@ -104,6 +142,62 @@ pub fn exceptions(root: &SyntaxNode, text: &str) -> Vec<Exception> {
   }
   all.sort_by_key(|e| e.at);
   all
+}
+
+/// Where the header of the file `text` ends: the start of its first line that is not blank,
+/// a comment (`//`, `//!`, `/* */`, `/*! */`, not an outer doc comment), an inner attribute
+/// (`#![no_std]`, over as many lines as it takes) or a first line's `#!` shebang.
+pub fn header_end(text: &str) -> usize {
+  let mut at = 0;
+  let mut lines = text.split_inclusive('\n').peekable();
+  while let Some(line) = lines.next() {
+    let trimmed = line.trim().trim_start_matches('\u{feff}');
+    let outer_doc = (trimmed.starts_with("///") && !trimmed.starts_with("////"))
+      || (trimmed.starts_with("/**") && !trimmed.starts_with("/***") && trimmed != "/**/");
+    let shebang = at == 0 && trimmed.starts_with("#!") && !trimmed.starts_with("#![");
+    let mut taken = line.len();
+    if trimmed.is_empty() || (trimmed.starts_with("//") && !outer_doc) || shebang {
+      // One line of the header.
+    } else if (trimmed.starts_with("/*") && !outer_doc) || trimmed.starts_with("#![") {
+      // Over its lines: to the comment's end, or the attribute's closing bracket.
+      let (open, close) = if trimmed.starts_with("/*") {
+        ("/*", "*/")
+      } else {
+        ("[", "]")
+      };
+      let mut depth = trimmed.matches(open).count() as i64 - trimmed.matches(close).count() as i64;
+      while depth > 0 {
+        let Some(next) = lines.next() else {
+          break;
+        };
+        depth += next.matches(open).count() as i64 - next.matches(close).count() as i64;
+        taken += next.len();
+      }
+    } else {
+      return at;
+    }
+    at += taken;
+  }
+  at
+}
+
+/// The `// mto: ignore` in the header of the file `text`, and where it stands: what mto
+/// leaves alone in it. Read from the text alone, so asked cheaply of every file.
+pub fn ignored(text: &str) -> Option<(Ignore, usize)> {
+  if !mentions(text) {
+    return None;
+  }
+  let end = header_end(text);
+  let mut at = 0;
+  for line in text[..end].split_inclusive('\n') {
+    let written = line.trim_start().trim_start_matches('\u{feff}');
+    let start = at + line.len() - written.len();
+    if let Some(Marker::Ignore(ignore)) = parse(written) {
+      return Some((ignore, start));
+    }
+    at += line.len();
+  }
+  None
 }
 
 /// The directives among an item's leading part: the comments between its doc comments and
@@ -156,6 +250,9 @@ pub fn parse(comment: &str) -> Option<Marker> {
     "hold" => Some(Marker::Hold),
     "first" => Some(Marker::First),
     "last" => Some(Marker::Last),
+    "ignore" => Some(Marker::Ignore(Ignore::All)),
+    "ignore=layout" => Some(Marker::Ignore(Ignore::Layout)),
+    "ignore=format" => Some(Marker::Ignore(Ignore::Format)),
     _ => None,
   }
 }
@@ -175,6 +272,7 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
   if !mentions(text) {
     return found;
   }
+  found.ignore = ignored(text);
   // Regions still open, with the block each started in.
   let mut open: Vec<(SyntaxNode, usize)> = Vec::new();
   for element in root.descendants_with_tokens_iter() {
@@ -214,6 +312,19 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
       (Marker::Pin, _) => found.pins.push(start),
       (Marker::Hold, _) => found.holds.push(start),
       (Marker::Section | Marker::First | Marker::Last, _) => {}
+      (Marker::Ignore(_), _) if found.ignore.is_some_and(|(_, at)| at == start) => {}
+      (Marker::Ignore(ignore), _) => found.warnings.push((
+        start,
+        if found.ignore.is_some() {
+          format!("a second `// mto: {}` does nothing", ignore.word())
+        } else {
+          format!(
+            "`// mto: {}` counts only in the file's header, before its first item: this one \
+             does nothing",
+            ignore.word()
+          )
+        },
+      )),
       (Marker::Off, None) => {
         found.offs.push(start);
         open.push((block, start));
@@ -250,8 +361,8 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
 }
 
 /// The directive a comment's text seems meant as, written loosely: `mto` in any case, an
-/// optional colon, then `off` (or `of`), `on`, `pin`, `section`, `hold`, `first` or `last`,
-/// as a word of its own.
+/// optional colon, then `off` (or `of`), `on`, `pin`, `section`, `hold`, `first`, `last` or
+/// `ignore`, as a word of its own.
 fn directive_word(body: &str) -> Option<&'static str> {
   // Asked of every comment, so nothing is copied: the words are ASCII.
   let rest = body
@@ -263,10 +374,12 @@ fn directive_word(body: &str) -> Option<&'static str> {
     .find(|c: char| !c.is_ascii_alphanumeric())
     .unwrap_or(rest.len());
   let word = &rest[..end];
-  ["off", "of", "on", "pin", "section", "hold", "first", "last"]
-    .into_iter()
-    .find(|w| word.eq_ignore_ascii_case(w))
-    .map(|w| if w == "of" { "off" } else { w })
+  [
+    "off", "of", "on", "pin", "section", "hold", "first", "last", "ignore",
+  ]
+  .into_iter()
+  .find(|w| word.eq_ignore_ascii_case(w))
+  .map(|w| if w == "of" { "off" } else { w })
 }
 
 /// A node whose children stand on lines of their own: items or statements.
@@ -304,6 +417,8 @@ fn near_miss(kind: SyntaxKind, comment: &str) -> Option<String> {
       "a directive after code is not followed; put {} on a line of its own",
       right
     )
+  } else if word == "ignore" && body.starts_with("mto: ignore=") {
+    "not followed: `// mto: ignore=` takes `layout` or `format`".to_string()
   } else if body.starts_with(&format!("mto: {} ", word)) {
     format!(
       "words after {} need ` -- ` before them (`// mto: {} -- why`), so this is not \

@@ -812,11 +812,11 @@ fn test_cli_config_derive_finds_the_written_order() {
   let (code, out, said) = mto(&env, &["config", "derive", "src"]);
   assert_eq!(code, 0, "{}", said);
   let functions_first = |toml: &str| {
-    let line = toml
-      .lines()
-      .find(|l| l.starts_with("type_order = "))
-      .unwrap_or_default();
-    line.find("FnDecl") < line.find("StructDecl")
+    // From `type_order = [` to its `]`: a long array takes a line per item.
+    let from = toml.find("type_order = ").unwrap_or(toml.len());
+    let value = &toml[from..];
+    let value = &value[..value.find(']').unwrap_or(value.len())];
+    value.find("FnDecl") < value.find("StructDecl")
   };
   assert!(functions_first(&out), "{}", out);
   assert!(out.contains("layout = true"), "{}", out);
@@ -831,9 +831,20 @@ fn test_cli_config_derive_finds_the_written_order() {
   assert!(out.contains("wrote"), "{}", out);
   let written = std::fs::read_to_string(env.dir.path().join("src/mto.toml")).unwrap();
   assert!(functions_first(&written), "{}", written);
-  let (code, _, said) = mto(&env, &["config", "derive", "--write", "src"]);
-  assert_eq!(code, 3, "{}", said);
-  assert!(said.contains("exists"), "{}", said);
+  // One there already is never written over: printed instead, with the report.
+  let before = std::fs::read_to_string(env.dir.path().join("src/mto.toml")).unwrap();
+  let (code, out, said) = mto(&env, &["config", "derive", "--write", "src"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(out.contains("layout = true"), "{}", out);
+  assert!(
+    said.contains("is there already, so the mto.toml is printed above, not written"),
+    "{}",
+    said
+  );
+  assert_eq!(
+    std::fs::read_to_string(env.dir.path().join("src/mto.toml")).unwrap(),
+    before
+  );
 }
 
 /// A configuration file named in another case (`Mto.toml`) counts when the file system says
@@ -1022,6 +1033,26 @@ fn test_cli_config_path_uses_the_given_file() {
   assert!(stdout.contains(" fn b() {}\n+\n fn a() {}"), "{}", stdout);
 }
 
+/// `root = true` is no setting, but `config print` shows it, with its file: it decides
+/// which files apply.
+#[test]
+fn test_cli_config_print_shows_root() {
+  let env = TestEnvironment::new();
+  env.write_file("mto.toml", "root = true\ngroup_impls = false\n");
+  env.create_dir("src");
+  for view in ["--current", "--minimal"] {
+    let (code, out, _) = mto(&env, &["config", "print", view, "src"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("\nroot = true  # "), "{}", out);
+    assert!(out.contains("mto.toml:1\n"), "{}", out);
+  }
+  let (_, out, _) = mto(&env, &["config", "print", "--json", "src"]);
+  assert!(out.contains("\"name\":\"root\""), "{}", out);
+  env.write_file("mto.toml", "group_impls = false\n");
+  let (_, out, _) = mto(&env, &["config", "print", "--minimal", "src"]);
+  assert!(!out.contains("root"), "{}", out);
+}
+
 #[test]
 fn test_cli_config_sets_values_and_refuses_a_file() {
   let env = TestEnvironment::new();
@@ -1068,6 +1099,57 @@ fn test_cli_config_sets_values_and_refuses_a_file() {
     "{}",
     stderr
   );
+}
+
+/// `mto config update` adds each setting mto.toml does not set at its default, nothing a
+/// run does changing; `mto config reset` writes it as `mto init` does; history undoes both.
+#[test]
+fn test_cli_config_update_adds_defaults_and_reset_starts_over() {
+  let env = TestEnvironment::new();
+  let mine =
+    "# mine\nlayout = true\n\n# Sort items of the same kind by name\nsort_alphabetically = false\n";
+  env.write_file("mto.toml", mine);
+  let (code, out, said) = mto(&env, &["config", "update", "--dry-run"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(
+    out.starts_with("would update ./mto.toml (") && out.contains("  keep_paragraphs = false\n"),
+    "{}",
+    out
+  );
+  assert_eq!(env.read_file("mto.toml"), mine);
+  let (code, out, said) = mto(&env, &["config", "update"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(out.starts_with("updated ./mto.toml ("), "{}", out);
+  let updated = env.read_file("mto.toml");
+  assert!(
+    updated.starts_with("# mine\nlayout = true\n"),
+    "{}",
+    updated
+  );
+  assert!(
+    updated.contains("\nsort_alphabetically = false\n"),
+    "{}",
+    updated
+  );
+  assert!(
+    updated.contains("\nkeep_paragraphs = false\n"),
+    "{}",
+    updated
+  );
+  let (_, out, _) = mto(&env, &["config", "update"]);
+  assert_eq!(out, "./mto.toml already names every setting\n");
+  let (code, out, said) = mto(&env, &["config", "reset"]);
+  assert_eq!(code, 0, "{}", said);
+  assert!(
+    out.starts_with("reset ./mto.toml (") && out.contains("  keep_paragraphs = true\n"),
+    "{}",
+    out
+  );
+  assert_eq!(env.read_file("mto.toml"), mtindo::init_template());
+  assert_eq!(mto(&env, &["restore", "last"]).0, 0);
+  assert_eq!(env.read_file("mto.toml"), updated);
+  env.create_dir("none");
+  assert_eq!(mto(&env, &["config", "update", "none"]).0, 2);
 }
 
 #[test]
@@ -3103,6 +3185,26 @@ fn test_completions_bash_completes_from_the_tables() {
     assert_eq!(
       unsplit(&["mto", "--emit=j"]),
       ["--emit=json "],
+      "{}",
+      context
+    );
+    // A value after `=` only: offered there, and the flag alone takes none.
+    assert_eq!(
+      offers(&["mto", "--diff", "="]),
+      ["full ", "stat "],
+      "{}",
+      context
+    );
+    assert_eq!(
+      unsplit(&["mto", "--diff=s"]),
+      ["--diff=stat "],
+      "{}",
+      context
+    );
+    assert_eq!(offers(&["mto", "--diff", "sr"]), ["src/"], "{}", context);
+    // `mto debug settle --diff` takes no value.
+    assert!(
+      offers(&["mto", "debug", "settle", "--diff", "="]).is_empty(),
       "{}",
       context
     );

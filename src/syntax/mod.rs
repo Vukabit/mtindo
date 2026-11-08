@@ -298,6 +298,34 @@ mod tests {
     }
   }
 
+  /// As rustc reads them (each checked against it): no operator follows a range at its
+  /// level, and a qualified path's `<...>` is followed by a segment.
+  #[test]
+  fn test_ranges_do_not_chain_and_a_qualified_path_names_a_segment() {
+    for text in [
+      "fn f() { a..b..c; }",
+      "fn f() { ..b..c; }",
+      "fn f() { ..a..; }",
+      "fn f() { a..b + c..d; }",
+      "fn f() { &a..b..c; }",
+      "type X = <T>;",
+      "type X = Vec<<T>>;",
+      "type X = Result<<T>, U>;",
+    ] {
+      assert!(!parse(text, Edition::E2021).errors().is_empty(), "{}", text);
+    }
+    for text in [
+      "fn f() { .. ..; a..=..; .. ..=b; x = a..b..c; a..(b..c); a + ..b; }",
+      "fn f() { |x| a..b..c; |t| t..=.. .fr; x[a..][..b]; }",
+      "type X = <T>::A;",
+      "type X = Vec<<T as Tr>::A>;",
+      "type X = <<T as A>::B as C>::D;",
+      "fn f() { <T>::new(); }",
+    ] {
+      assert!(parse(text, Edition::E2021).errors().is_empty(), "{}", text);
+    }
+  }
+
   #[test]
   fn test_three_dots_are_no_range_in_an_expression() {
     for text in [

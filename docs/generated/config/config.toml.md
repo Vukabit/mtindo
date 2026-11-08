@@ -6,8 +6,8 @@ standard_formatter:
     version: "1.10.0"
     released: "2026-10-15"
   nightly:
-    version: "1.11.0-nightly"
-    released: "2026-10-31"
+    version: "1.12.0-nightly"
+    released: "2026-11-08"
 keys:
   total: 13
 ---

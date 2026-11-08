@@ -225,6 +225,15 @@ impl UseTree {
     read_tree(tree, global_paths, true).normalize(version, true)
   }
 
+  /// The name the tree's path starts with (`arch` in `arch::syscall`), when it is a plain
+  /// name: not `self`, `super`, `crate`, a glob, a list or a `::`-rooted path.
+  pub fn root_name(&self) -> Option<&str> {
+    match self.path.first()? {
+      Segment::Ident(name, _) if !name.starts_with("::") => Some(name),
+      _ => None,
+    }
+  }
+
   /// The standard formatter's ordering of two trees; `version` for style edition 2024 and later.
   pub fn compare(&self, other: &UseTree, version: bool) -> Ordering {
     for (a, b) in self.path.iter().zip(other.path.iter()) {

@@ -47,6 +47,35 @@ fn test_a_comment_between_items_on_one_line_stays_there_in_a_paragraph() {
   assert_eq!(arranged_with(&laid.text, &config), laid.text);
 }
 
+/// A comment sharing its line with the item before and the one after is written with a
+/// blank line after it, so with sections on it starts one already: a second pass agrees.
+#[test]
+fn test_a_comment_between_two_items_on_a_line_settles_with_sections() {
+  for sections in [Sections::Comments, Sections::Headings] {
+    let config = with_sections(sections);
+    for source in [
+      "use s;\nuse a;/**/ use b;\n",
+      "fn s() {}\nfn a() {}/**/ fn b() {}\n",
+    ] {
+      let once = arranged_with(source, &config);
+      assert_eq!(
+        arranged_with(&once, &config),
+        once,
+        "{:?} {}",
+        sections,
+        source
+      );
+    }
+  }
+  assert_eq!(
+    arranged_with(
+      "use s;\nuse a;/**/ use b;\n",
+      &with_sections(Sections::Comments)
+    ),
+    "use a;\nuse s;\n\n/**/\n\nuse b;\n"
+  );
+}
+
 #[test]
 fn test_a_comment_touching_its_item_still_heads_it_with_sections() {
   let config = with_sections(Sections::Comments);
@@ -266,6 +295,24 @@ fn test_a_test_module_goes_last_in_its_section() {
   );
 }
 
+/// A `#[cfg(test)] mod` kept in place among `mod` declarations it is in name order with
+/// stays in their run; one out of order is set apart, or formatting would sort it.
+#[test]
+fn test_a_test_module_in_place_stays_in_a_run_it_is_in_order_with() {
+  let config = LayoutConfig {
+    test_module_in_place: true,
+    ..LayoutConfig::default()
+  };
+  let source =
+    "mod alloc;\nmod boot;\n#[cfg(test)]\nmod harness;\nmod irq;\n#[cfg(test)]\nmod a_late;\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "mod alloc;\nmod boot;\n#[cfg(test)]\nmod harness;\nmod irq;\n\n#[cfg(test)]\nmod a_late;\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
+}
+
 /// An impl for a name two types share goes with the one placed first, whichever was
 /// written first, so a second run leaves it there. Found by the generated-code fuzz target.
 #[test]
@@ -281,6 +328,19 @@ fn test_an_impl_of_a_shared_name_settles() {
     );
     assert_eq!(arranged(&once), once);
   }
+}
+
+/// An import from a module declared beside it is this crate's, in the group after the
+/// external crates', though its path does not start with `crate::`.
+#[test]
+fn test_an_import_from_a_module_declared_beside_it_is_local() {
+  let source = "mod arch;\n\nuse arch::syscall;\nuse alloc_shim::Box;\nuse core::fmt;\n";
+  let once = arranged(source);
+  assert_eq!(
+    once,
+    "mod arch;\n\nuse core::fmt;\n\nuse alloc_shim::Box;\n\nuse arch::syscall;\n"
+  );
+  assert_eq!(arranged(&once), once);
 }
 
 /// `cfg_groups`: items under the same `#[cfg(...)]` move as one: written with no blank
@@ -681,6 +741,29 @@ fn test_held_units_keep_their_places() {
     none.text,
     "struct A;\n\nfn b() {}\n\nmod m {\n    fn z() {}\n\n    struct Y;\n}\n"
   );
+}
+
+/// `helper_kinds` without constants keeps a file's constants together, at the top, while
+/// its functions still go beside their one caller.
+#[test]
+fn test_helper_kinds_leaves_out_what_it_does_not_name() {
+  let source = "const B: u8 = 2;\n\nconst A: u8 = 1;\n\npub fn zeta() -> u8 {\n    zz() + A\n}\n\npub fn mid() -> u8 {\n    B\n}\n\nfn zz() -> u8 {\n    0\n}\n";
+  let mut config = with_helpers();
+  let scattered = arranged_with(source, &config);
+  assert!(
+    !scattered.starts_with("const A: u8 = 1;\n\nconst B"),
+    "{}",
+    scattered
+  );
+  config
+    .helper_kinds
+    .retain(|k| !matches!(k, ItemKind::ConstDecl | ItemKind::StaticDecl));
+  let once = arranged_with(source, &config);
+  assert_eq!(
+    once,
+    "const A: u8 = 1;\n\nconst B: u8 = 2;\n\npub fn mid() -> u8 {\n    B\n}\n\npub fn zeta() -> u8 {\n    zz() + A\n}\n\nfn zz() -> u8 {\n    0\n}\n"
+  );
+  assert_eq!(arranged_with(&once, &config), once);
 }
 
 #[test]
@@ -1202,6 +1285,21 @@ fn test_paragraphs_move_whole_with_keep_paragraphs() {
     arranged(source),
     "fn a() {}\n\nfn b() {}\n\nfn y() {}\n\nfn z() {}\n"
   );
+}
+
+/// With paragraphs kept and no blank lines between items, a blank line still parts two
+/// paragraphs: touching, a second run would read them as one and order them anew.
+#[test]
+fn test_paragraphs_stay_apart_with_no_blank_lines_between_items() {
+  let config = LayoutConfig {
+    keep_paragraphs: true,
+    blank_lines_between_blocks: 0,
+    ..LayoutConfig::default()
+  };
+  let source = "fn d() {}\nfn c() {}\n\nfn b() {}\n\nfn a() {}\n";
+  let once = arranged_with(source, &config);
+  assert_eq!(once, "fn a() {}\n\nfn b() {}\n\nfn d() {}\nfn c() {}\n");
+  assert_eq!(arranged_with(&once, &config), once);
 }
 
 #[test]

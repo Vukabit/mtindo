@@ -45,6 +45,22 @@ mto config options         # every setting a file may hold, by file
 mto config options --toml  # the same, as a commented file
 ```
 
+## Keeping mto.toml current
+
+A new mto version can bring new settings, which an `mto.toml` written before
+it does not name; mto applies their defaults. `mto config update` adds each
+one the file does not set, at its default and with its one-line comment,
+where `mto init` puts it, so nothing a run does changes; what the file holds,
+values and comments alike, stays as it is. `mto config reset` writes the file
+as `mto init` writes it. Both list what they change, `--dry-run` writes
+nothing, and history keeps the file as it was, so `mto restore` undoes either.
+
+```bash
+mto config update --dry-run  # the settings it would add
+mto config update            # add them
+mto config reset             # back to what `mto init` writes
+```
+
 Every setting, the formatting settings and mto's own, is documented with its
 legal values and defaults in the
 [settings reference](../generated/config/README.md), which also has a JSON
@@ -74,6 +90,8 @@ import_grouping = true
 import_sort = "style_edition"
 inherent_method_order = "written"
 keep_helpers_near = false
+helper_kinds = ["FnDecl", "ConstDecl", "StaticDecl", "TypeAlias", "StructDecl",
+    "EnumDecl", "Union"]
 keep_paragraphs = true
 mto_version = "*"
 name_sort = "version"

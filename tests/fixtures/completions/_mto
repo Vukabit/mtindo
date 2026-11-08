@@ -33,9 +33,10 @@ _mto_settings() {
     blank_lines_between_blocks directive_reasons reexports cfg_groups flow
     generated_markers group_impls ignore_dirs impl_method_order
     import_grouping import_sort inherent_method_order keep_helpers_near
-    keep_paragraphs layout format layout_generated_files mto_version name_sort
-    order_keys sections sort_alphabetically sort_imports test_module
-    test_helpers trait_impl_order trait_impl_sort type_order visibility_order
+    helper_kinds keep_paragraphs layout format layout_generated_files
+    mto_version name_sort order_keys sections sort_alphabetically sort_imports
+    test_module test_helpers trait_impl_order trait_impl_sort type_order
+    visibility_order
   )
   compset -P '*,'
   if compset -P '*='; then
@@ -192,6 +193,8 @@ _mto_config_subcommands() {
     'options:List every setting a configuration file may hold'
     'mirror:Write mto.toml'\''s formatting settings into a rustfmt.toml beside it'
     'derive:Find the mto.toml that moves the fewest items in the project as written'
+    'update:Add to mto.toml every setting it does not set, at its default'
+    'reset:Write mto.toml as `mto init` writes it'
   )
   _describe -t subcommands subcommand subcommands
 }
@@ -253,6 +256,18 @@ _mto_config() {
             '(- *)'{-h,--help}'[Show this help and exit]' \
             '--write[Write DIR/mto.toml, rather than print it (never over one there)]' \
             '--json[As JSON, whose shape keeps its version]' \
+            '*: :_files -/' && ret=0
+          ;;
+        (update)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '(-d --dry-run)'{-d,--dry-run}'[List the files that would change, without writing]' \
+            '*: :_files -/' && ret=0
+          ;;
+        (reset)
+          _arguments -s : \
+            '(- *)'{-h,--help}'[Show this help and exit]' \
+            '(-d --dry-run)'{-d,--dry-run}'[List the files that would change, without writing]' \
             '*: :_files -/' && ret=0
           ;;
       esac
@@ -612,7 +627,7 @@ _mto() {
     '(-d --dry-run)'{-d,--dry-run}'[List the files that would change, without writing]'
     '--emit=[Write the files (default), print them, or report changes as JSON]:value:(files stdout json)'
     '(-l --files-with-diff)'{-l,--files-with-diff}'[Name the files that change (or would, with --check) instead of showing how]'
-    '--diff[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]'
+    '--diff=-[Show what changed, line by line; `--diff=stat` gives a line per file with its lines added and removed, then the totals (with `mto debug settle`: what each run changed)]::value:(full stat)'
     '--follow-links[Also follow symlinked files and directories]'
     '(-R --recursive)'{-R,--recursive}'[The same as `mto .`: every .rs file under the current directory]'
     '--skip-children[A file argument is that file alone, not the modules it declares]'

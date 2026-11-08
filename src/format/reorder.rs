@@ -903,8 +903,9 @@ pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -
       }
     }
     // Whitespace, then comments each ending its line, then the `}` on a line of its own.
-    // The first comment may touch the arm (`,//`), as though after no whitespace at all:
-    // the pass puts a space there, so a second run reads it so.
+    // The first comment may touch the arm (`,//`, `x//`), as though after no whitespace at
+    // all: a space goes there, as the standard formatter writes it, so the rest line up
+    // under it as when written with one.
     let touching = after.first().is_some_and(|t| t.kind() != K::Whitespace);
     let after: Vec<Option<SyntaxToken>> = touching
       .then_some(None)
@@ -937,7 +938,11 @@ pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -
     let end = match &after[1] {
       // Up to the space before it, which `under` counts again.
       Some(first) if on_arm_line && !touching => first.text_range().start as usize - 1,
-      Some(first) if on_arm_line => first.text_range().start as usize,
+      Some(first) if on_arm_line => {
+        let at = first.text_range().start as usize;
+        edits.push((at, at, " ".to_string()));
+        at
+      }
       _ => arm.text_range().end as usize,
     };
     let line_start = text[..end].rfind('\n').map_or(0, |i| i + 1);
@@ -950,9 +955,7 @@ pub fn last_arm_comments(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) -
       })
       .collect();
     // In the first comment's column as written, which the pass lines them up under.
-    if !(on_arm_line && touching) {
-      under.push(' ');
-    }
+    under.push(' ');
     for (n, &i) in comments.iter().enumerate() {
       // The first comment's has none to replace when it touches the arm; it stays.
       let Some(space) = &after[i - 1] else {
@@ -1669,7 +1672,7 @@ pub fn strip_semicolons(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) ->
 
 /// `text` with a space before each comment written touching the end of a statement or item
 /// (`x;// c`, `S {}/* c */`, `#[a]// c`), or a line comment touching a block's last
-/// expression (`x// c`), as the standard formatter writes one there: the rest of the
+/// expression (`x// c`) or its `{` (`{// c`), as the standard formatter writes one there: the rest of the
 /// pass then reads it as a second run will. `None` when there is none. Not in a
 /// `// mto: off` region, a skipped item or a macro's arguments.
 pub fn touching_comments(root: &SyntaxNode, text: &str) -> Option<String> {
@@ -1705,10 +1708,11 @@ pub fn touching_comments(root: &SyntaxNode, text: &str) -> Option<String> {
           .parent()
           .is_none_or(|owner| owner.kind() != K::MatchArm),
         K::RBrack => code.parent().kind() == K::Attr,
+        K::LBrace => token.kind() == K::LineComment,
         _ => {
           token.kind() == K::LineComment
             && code.parent().ancestors_iter().any(|a| {
-              crate::format::stmt::is_tail(&a)
+              crate::format::stmt::ends_block(&a)
                 && a
                   .last_token()
                   .is_some_and(|t| t.text_range() == code.text_range())

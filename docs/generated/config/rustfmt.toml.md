@@ -6,8 +6,8 @@ standard_formatter:
     version: "1.10.0"
     released: "2026-10-15"
   nightly:
-    version: "1.11.0-nightly"
-    released: "2026-10-31"
+    version: "1.12.0-nightly"
+    released: "2026-11-08"
 keys:
   total: 90
   hidden: 7
@@ -38,7 +38,7 @@ Maximum width of an array literal before falling back to vertical formatting.
 *   Type: a whole number, zero or more.
 *   Default: `60`; from style edition 2024: `60`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for the statements laid out so far
     (calls, chains, struct literals, arrays, tuples) and attributes.
 
@@ -50,7 +50,7 @@ vertical formatting.
 *   Type: a whole number, zero or more.
 *   Default: `70`; from style edition 2024: `70`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true, for attributes.
 
 ### `binop_separator`
@@ -60,7 +60,7 @@ Where to put a binary operator when a binary expression goes multiline.
 *   Type: one of the values below, as a string.
 *   Default: `"Front"`; from style edition 2024: `"Front"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
     *   `Front`
@@ -74,7 +74,7 @@ fewer blank lines between them, additional blank lines are inserted.
 *   Type: a whole number, zero or more.
 *   Default: `0`; from style edition 2024: `0`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. Layout keeps the blank lines between items within it;
     formatting does not add blank lines yet.
 
@@ -87,7 +87,7 @@ integer.
 *   Type: a whole number, zero or more.
 *   Default: `1`; from style edition 2024: `1`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. Layout keeps the blank lines between items within it; with
     format = true, within blocks too.
 
@@ -99,7 +99,7 @@ Brace style for items
 *   Default: `"SameLineWhere"`; from style edition 2024: `"SameLineWhere"`, the
     same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for item headers and their where
     clauses.
 *   Values:
@@ -115,7 +115,7 @@ Maximum width of a chain to fit on one line.
 *   Type: a whole number, zero or more.
 *   Default: `60`; from style edition 2024: `60`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for the statements laid out so far
     (calls, chains, struct literals, arrays, tuples) and attributes.
 
@@ -126,7 +126,7 @@ Whether to use colored output or not.
 *   Type: one of the values below, as a string.
 *   Default: `"Auto"`; from style edition 2024: `"Auto"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 *   Values:
     *   `Always`: Always use color, whether it is a piped or terminal output.
@@ -140,7 +140,7 @@ Combine control expressions with function calls.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true, an if, for, loop or while alone in a
     call does not overflow when false.
 
@@ -151,7 +151,7 @@ Maximum length of comments. No effect unless `wrap_comments = true`.
 *   Type: a whole number, zero or more.
 *   Default: `80`; from style edition 2024: `80`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `condense_wildcard_suffixes`
@@ -161,7 +161,7 @@ Replace strings of _ wildcards by a single .. in tuple patterns
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `control_brace_style`
@@ -172,7 +172,7 @@ Brace style for control flow constructs
 *   Default: `"AlwaysSameLine"`; from style edition 2024: `"AlwaysSameLine"`,
     the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
     *   `AlwaysSameLine`: K&R style, Rust community default.
@@ -190,7 +190,7 @@ instead when possible.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. Formatting leaves the file as written; layout follows
     mto.toml.
 
@@ -202,7 +202,7 @@ used if `format_code_in_doc_comments` is true.
 *   Type: one of the values below, as a string.
 *   Default: `"Inherit"`; from style edition 2024: `"Inherit"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true; code blocks laid out as mto lays out
     code.
 *   Values:
@@ -219,7 +219,7 @@ Max width for code snippets included in doc comments. Only used if
 *   Type: a whole number, zero or more.
 *   Default: `100`; from style edition 2024: `100`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true; code blocks laid out as mto lays out
     code.
 
@@ -230,7 +230,7 @@ Specifies which edition is used by the parser.
 *   Type: one of the values below, as a string.
 *   Default: `"2015"`; from style edition 2024: `"2015"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. Read from --edition, Cargo.toml and config files; parsing
     still detects the edition itself.
 *   Values:
@@ -246,7 +246,7 @@ Internal option
 *   Type: one of the values below, as a string.
 *   Default: `"Files"`; from style edition 2024: `"Files"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 *   Values:
     *   `Files`: Emits to files.
@@ -268,7 +268,7 @@ Put empty-body functions and impls on a single line
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `enum_discrim_align_threshold`
@@ -283,7 +283,7 @@ variant name that doesn't get ignored when aligning.
 *   Type: a whole number, zero or more.
 *   Default: `0`; from style edition 2024: `0`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `error_on_line_overflow`
@@ -297,7 +297,7 @@ a shorter name.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 
 ### `error_on_unformatted`
@@ -308,7 +308,7 @@ are left with trailing whitespaces.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 
 ### `float_literal_trailing_zero`
@@ -318,7 +318,7 @@ Control the presence of trailing zero in floating-point literal values
 *   Type: one of the values below, as a string.
 *   Default: `"Preserve"`; from style edition 2024: `"Preserve"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
     *   `Preserve`: Leave the literal as-is.
@@ -336,7 +336,7 @@ formatting.
 *   Type: a whole number, zero or more.
 *   Default: `60`; from style edition 2024: `60`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for the statements laid out so far
     (calls, chains, struct literals, arrays, tuples) and attributes.
 
@@ -347,7 +347,7 @@ Control the layout of parameters in function signatures.
 *   Type: one of the values below, as a string.
 *   Default: `"Tall"`; from style edition 2024: `"Tall"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true.
 *   Values:
     *   `Compressed`: Fit as much on one line as possible.
@@ -362,7 +362,7 @@ Put single-expression functions on a single line
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `force_explicit_abi`
@@ -372,7 +372,7 @@ Always print the abi for extern items
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true, `extern` alone written `extern "C"`
     on functions, blocks and function pointer types.
 
@@ -383,7 +383,7 @@ Force multiline closure and match arm bodies to be wrapped in a block
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `format_code_in_doc_comments`
@@ -393,7 +393,7 @@ Format code snippet included in doc comments.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true; code blocks laid out as mto lays out
     code.
 
@@ -410,7 +410,7 @@ ignored.)
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true; also on stdin, which the standard
     formatter does not check.
 
@@ -421,7 +421,7 @@ Format the bodies of declarative macro definitions.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true: rules laid out, transcribers as
     written.
 
@@ -432,7 +432,7 @@ Format the metavariable matching patterns in macros.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 
 ### `format_strings`
@@ -442,7 +442,7 @@ Format string literals where necessary
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true; a string spanning lines in a macro's
     arguments or a match guard is left as written.
 
@@ -455,7 +455,7 @@ When`format_generated_files` is `true`, this option has no effect.
 *   Type: a whole number, zero or more.
 *   Default: `5`; from style edition 2024: `5`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `group_imports`
@@ -469,7 +469,7 @@ but other statements between imports will result in different grouping sets.
 *   Type: one of the values below, as a string.
 *   Default: `"Preserve"`; from style edition 2024: `"Preserve"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true; mto.toml's import_grouping groups at
     layout.
 *   Values:
@@ -487,7 +487,7 @@ Use tab characters for indentation, spaces for alignment
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. Laid out as with spaces, indentation in tabs; differs where
     the standard formatter leaves a statement it cannot fit as written (its
     spaces kept), and where it measures a tab as narrower than tab_spaces.
@@ -499,7 +499,7 @@ Control the case of the letters in hexadecimal literal values
 *   Type: one of the values below, as a string.
 *   Default: `"Preserve"`; from style edition 2024: `"Preserve"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
     *   `Preserve`: Leave the literal as-is.
@@ -516,7 +516,7 @@ with backslashes `\` are not supported.
 *   Type: an array of strings.
 *   Default: `[]`; from style edition 2024: `[]`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. Mto.toml's ignore_dirs skips directories by name; no paths
     or globs.
 
@@ -535,7 +535,7 @@ comments if doing so could potentially lose or misplace said comments.
 *   Type: one of the values below, as a string.
 *   Default: `"Preserve"`; from style edition 2024: `"Preserve"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
     *   `Preserve`: Do not merge imports.
@@ -551,7 +551,7 @@ Indent style of imports
 *   Type: one of the values below, as a string.
 *   Default: `"Block"`; from style edition 2024: `"Block"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 *   Values:
     *   `Visual`: First line on the same line as the opening brace, all lines
@@ -566,7 +566,7 @@ Item layout inside a imports block
 *   Type: one of the values below, as a string.
 *   Default: `"Mixed"`; from style edition 2024: `"Mixed"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for use declarations; Horizontal leaves
     a list too wide for its line as written.
 *   Values:
@@ -585,7 +585,7 @@ Indent on expressions or items.
 *   Type: one of the values below, as a string.
 *   Default: `"Block"`; from style edition 2024: `"Block"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, Block only; Visual is planned future
     work on indentation styles.
 *   Values:
@@ -603,7 +603,7 @@ below a threshold
 *   Type: a whole number, zero or more.
 *   Default: `0`; from style edition 2024: `0`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `make_backup`
@@ -613,7 +613,7 @@ Internal option, use `--backup`
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: not planned. Every run that writes files is recorded in history;
     `mto restore` undoes it.
 
@@ -630,7 +630,7 @@ contains neither multiple statements nor line comments.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `match_arm_indent`
@@ -642,7 +642,7 @@ that match blocks will only be indented once, not twice.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `match_arm_leading_pipes`
@@ -652,7 +652,7 @@ Controls whether to include a leading pipe on match arms
 *   Type: one of the values below, as a string.
 *   Default: `"Never"`; from style edition 2024: `"Never"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true, for arms mto lays out.
 *   Values:
     *   `Always`: Place leading pipes on all match arms.
@@ -667,7 +667,7 @@ affected)
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `max_width`
@@ -677,7 +677,7 @@ Maximum width of each line
 *   Type: a whole number, zero or more.
 *   Default: `100`; from style edition 2024: `100`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true: lines broken and joined for the
     statements laid out so far, and statements too long left as written.
 
@@ -688,7 +688,7 @@ Merge multiple derives into a single one.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true, runs of `#[derive(..)]` with no blank
     line or comment between them merged into one.
 
@@ -699,7 +699,7 @@ Unix or Windows line endings
 *   Type: one of the values below, as a string.
 *   Default: `"Auto"`; from style edition 2024: `"Auto"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 *   Values:
     *   `Auto`: Auto-detect based on the raw source input.
@@ -714,7 +714,7 @@ Convert /* */ comments to // comments where possible
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `normalize_doc_attributes`
@@ -724,7 +724,7 @@ Convert `#![doc]` and `#[doc]` attributes to `//!` and `///` doc comments.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `overflow_delimited_expr`
@@ -736,7 +736,7 @@ instead of being indented on a new line.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `remove_nested_parens`
@@ -746,7 +746,7 @@ Remove nested parens.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true, parentheses directly inside
     parentheses dropped when no comment is among them.
 
@@ -757,7 +757,7 @@ Reorder impl items. `type` and `const` are put first, then macros and methods.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. As the standard formatter nightly applies it.
 
 ### `reorder_imports`
@@ -768,7 +768,7 @@ separated by a newline).
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, runs of use items sorted as the
     standard formatter sorts them; a run holding a comment keeps its order, and
     lists inside an item are not sorted yet.
@@ -780,7 +780,7 @@ Reorder `mod` declarations alphabetically in group.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, runs of `mod name;` sorted by name; a
     run holding a comment keeps its order.
 
@@ -792,7 +792,7 @@ specific version of the formatter is used in your CI, use this option.
 *   Type: a string.
 *   Default: `"1.10.0"`; from style edition 2024: `"1.10.0"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported.
 
 ### `short_array_element_width_threshold`
@@ -808,7 +808,7 @@ elements will have to be formatted vertically.
 *   Type: a whole number, zero or more.
 *   Default: `10`; from style edition 2024: `10`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for the statements laid out so far
     (calls, chains, struct literals, arrays, tuples) and attributes.
 
@@ -819,7 +819,7 @@ Show parse errors if the parser failed to parse files.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 
 ### `single_line_if_else_max_width`
@@ -831,7 +831,7 @@ this occurs when `use_small_heuristics` is set to `Off`.
 *   Type: a whole number, zero or more.
 *   Default: `50`; from style edition 2024: `50`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for an `if` with one-expression
     branches as a value or a block's tail; not yet in match arms.
 
@@ -850,7 +850,7 @@ By default this option is set as a percentage of `max_width` provided by
 *   Type: a whole number, zero or more.
 *   Default: `50`; from style edition 2024: `50`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, a `let ... else` block of one
     expression on the `let`'s line.
 
@@ -861,7 +861,7 @@ Don't reformat out of line modules
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. The files a path's modules reach are left out, as
     --skip-children leaves them.
 
@@ -879,7 +879,7 @@ definitions.
 *   Type: an array of strings.
 *   Default: `[]`; from style edition 2024: `[]`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true, the calls of the macros named, by
     their path as written, or of all for `*`, left as written.
 
@@ -890,7 +890,7 @@ Leave a space after the colon.
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `space_before_colon`
@@ -900,7 +900,7 @@ Leave a space before the colon.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `spaces_around_ranges`
@@ -910,7 +910,7 @@ Put spaces around the .., ..=, and ... range operators
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `struct_field_align_threshold`
@@ -920,7 +920,7 @@ The maximum diff of width between struct fields to be aligned with each other.
 *   Type: a whole number, zero or more.
 *   Default: `0`; from style edition 2024: `0`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `struct_lit_single_line`
@@ -930,7 +930,7 @@ Put small struct literals on a single line
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `struct_lit_width`
@@ -943,7 +943,7 @@ into multiple lines. Note this occurs when `use_small_heuristics` is set to
 *   Type: a whole number, zero or more.
 *   Default: `18`; from style edition 2024: `18`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for the statements laid out so far
     (calls, chains, struct literals, arrays, tuples) and attributes.
 
@@ -957,7 +957,7 @@ into multiple lines. Note this occurs when `use_small_heuristics` is set to
 *   Type: a whole number, zero or more.
 *   Default: `35`; from style edition 2024: `35`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `style_edition`
@@ -967,7 +967,7 @@ Controls the edition of the Rust Style Guide to use for formatting (RFC 3338)
 *   Type: one of the values below, as a string.
 *   Default: `"2015"`; from style edition 2024: `"2024"`.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. Resolved as the standard formatter resolves it and decides
     the defaults; import order follows it.
 *   Values:
@@ -980,7 +980,7 @@ Controls the edition of the Rust Style Guide to use for formatting (RFC 3338)
     *   `2024`: Edition 2024. In mto: supported. Resolved as the standard
         formatter resolves it.
     *   `2027`: Edition 2027. In the standard formatter: unstable in 1.10.0
-        (stable channel), unstable in 1.11.0-nightly (nightly channel). In mto:
+        (stable channel), unstable in 1.12.0-nightly (nightly channel). In mto:
         supported. Resolved as the standard formatter resolves it.
 
 ### `tab_spaces`
@@ -990,7 +990,7 @@ Number of spaces per tab
 *   Type: a whole number, zero or more.
 *   Default: `4`; from style edition 2024: `4`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, the width of one indentation level.
 
 ### `trailing_comma`
@@ -1000,7 +1000,7 @@ How to handle trailing commas for lists
 *   Type: one of the values below, as a string.
 *   Default: `"Vertical"`; from style edition 2024: `"Vertical"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for struct fields and enum variants;
     Never leaves a last one written with a comma as written.
 *   Values:
@@ -1015,7 +1015,7 @@ Add trailing semicolon after break, continue and return
 *   Type: `true` or `false`.
 *   Default: `true`; from style edition 2024: `true`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, a `;` after a block's last `return`,
     `break` or `continue`.
 
@@ -1026,7 +1026,7 @@ Determines if `+` or `=` are wrapped in spaces in the punctuation of types
 *   Type: one of the values below, as a string.
 *   Default: `"Wide"`; from style edition 2024: `"Wide"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, a bound's + and a type parameter's =.
 *   Values:
     *   `Compressed`: No spaces around "=" and "+".
@@ -1040,7 +1040,7 @@ Enable unstable features on the unstable channel.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 
 ### `use_field_init_shorthand`
@@ -1050,7 +1050,7 @@ Use field initialize shorthand if possible.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `use_small_heuristics`
@@ -1068,7 +1068,7 @@ precedence and override the calculated values determined by
 *   Type: one of the values below, as a string.
 *   Default: `"Default"`; from style edition 2024: `"Default"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. With format = true, for the statements laid out so far
     (calls, chains, struct literals, arrays, tuples) and attributes.
 *   Values:
@@ -1083,7 +1083,7 @@ Replace uses of the try! macro by the ? shorthand
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `version`
@@ -1095,7 +1095,7 @@ This option is deprecated and has been replaced by `style_edition`.
 *   Type: one of the values below, as a string.
 *   Default: `"One"`; from style edition 2024: `"Two"`.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: partial. Deprecated in the standard formatter; `Two` means style
     edition 2024, as in the standard formatter.
 *   Values:
@@ -1111,7 +1111,7 @@ Forces the `where` clause to be laid out on a single line.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ### `wrap_comments`
@@ -1125,7 +1125,7 @@ Note that no wrapping will happen if:
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: supported. With format = true.
 
 ## Hidden settings
@@ -1143,7 +1143,7 @@ specified via the --file-lines option
 *   Default: none; the standard formatter sets it itself, and mto ignores the
     value.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: not planned. A flag only, as its ranges change from run to run:
     --file-lines (planned).
 
@@ -1155,7 +1155,7 @@ communicate that it affects the layout of parameters in function signatures.
 *   Type: one of the values below, as a string.
 *   Default: `"Tall"`; from style edition 2024: `"Tall"`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: not planned. Deprecated in the standard formatter in favour of
     fn_params_layout.
 *   Deprecated: use `fn_params_layout`.
@@ -1173,7 +1173,7 @@ confusion around the double negative default of `hide_parse_errors=false`.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: not planned. Deprecated in the standard formatter in favour of
     show_parse_errors.
 
@@ -1184,7 +1184,7 @@ This option is deprecated. Use `imports_granularity = "Crate"` instead.
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: not planned. Deprecated in the standard formatter in favour of
     imports_granularity.
 *   Deprecated: use `imports_granularity`.
@@ -1196,7 +1196,7 @@ Internal option, use `-l` or `--files-with-diff`
 *   Type: `true` or `false`.
 *   Default: `false`; from style edition 2024: `false`, the same.
 *   In the standard formatter: stable in 1.10.0 (stable channel), stable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 
 ### `verbose`
@@ -1206,7 +1206,7 @@ How much to information to emit to the user
 *   Type: one of the values below, as a string.
 *   Default: `"Normal"`; from style edition 2024: `"Normal"`, the same.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.
 *   Values:
     *   `Verbose`: Emit more.
@@ -1221,5 +1221,5 @@ How much to information to emit to the user
 *   Default: none; the standard formatter sets it itself, and mto ignores the
     value.
 *   In the standard formatter: unstable in 1.10.0 (stable channel), unstable in
-    1.11.0-nightly (nightly channel).
+    1.12.0-nightly (nightly channel).
 *   In mto: missing.

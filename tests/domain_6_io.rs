@@ -5,8 +5,9 @@ mod common;
 
 use std::fs;
 
-use common::TestEnvironment;
 use mtindo::write_atomic;
+
+use common::TestEnvironment;
 
 /// A run killed at any point leaves every file whole, as it was or as mto writes it, and
 /// `mto restore last` puts back every file it changed.

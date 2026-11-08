@@ -7,7 +7,7 @@
 source  local          rustfmt 1.10.0-stable (58cf8f9c35 2026-10-13), installed binary
 source  local-nightly  rustfmt 1.11.0-nightly (2822155926 2026-10-04), installed binary
 source  stable         rustfmt 1.10.0, rust-lang/rust 58cf8f9c35b355199727627d07ae34a4e2846d67, released 2026-10-15
-source  nightly        rustfmt 1.11.0-nightly, rust-lang/rust 92b5b8c87c61b20adc9001b41baf587634a74734, released 2026-10-31
+source  nightly        rustfmt 1.12.0-nightly, rust-lang/rust f5cedb83a788ea9581097abc36a2a8503a7f541c, released 2026-11-08
 
 option  array_width                                      in=all stable=all
 option  attr_fn_like_width                               in=all stable=all

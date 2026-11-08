@@ -73,6 +73,10 @@ pub(super) fn path(p: &mut Parser, mode: Mode) {
   let m = p.start();
   if matches!(mode, Mode::Type | Mode::Expr) && p.at(SyntaxKind::Lt) {
     qualified_segment(p);
+    // `<T>` names nothing of its own: a segment follows, as rustc requires.
+    if !p.at(SyntaxKind::Colon2) {
+      p.error("expected `::` after a qualified path's `<...>`");
+    }
   } else {
     p.eat(SyntaxKind::Colon2);
     segment(p, mode);

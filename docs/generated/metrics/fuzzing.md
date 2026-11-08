@@ -2,8 +2,8 @@
 paper: "fuzzing"
 title: "Fuzzing"
 status: "measured"
-generated: "2026-10-31T23:39:02.063Z"
-commit: "a536de7-dirty.e560aa14"
+generated: "2026-11-08T16:24:02.134Z"
+commit: "2dffe7a-dirty.cc6f7305"
 command: "cargo xtask fuzz run TARGET"
 sources:
   - fuzz/fuzz_targets/
@@ -11,7 +11,7 @@ sources:
 seed: "chosen by libFuzzer for each run; not recorded"
 metrics:
   fuzz.targets: 8
-  fuzz.regressions: 178
+  fuzz.regressions: 203
 ---
 
 # Fuzzing
@@ -20,7 +20,7 @@ metrics:
 
 <!-- generated: abstract -->
 8 fuzz targets drive mto's lexer, parser, layout, formatting, meaning check and
-TOML reader with generated inputs. 178 inputs that once failed are kept as
+TOML reader with generated inputs. 203 inputs that once failed are kept as
 regression tests, from 4 of the targets; each still passes its target's checks
 in every test run.
 <!-- end generated -->
@@ -86,9 +86,9 @@ Inputs kept as regression tests, by target:
 <!-- generated: results -->
 | target | kept inputs |
 |---|---:|
-| `comments` | 91 |
-| `format` | 38 |
-| `generated` | 34 |
+| `comments` | 99 |
+| `format` | 53 |
+| `generated` | 36 |
 | `layout` | 15 |
 | `lexer` | 0 |
 | `parser` | 0 |
@@ -105,7 +105,8 @@ repeated.
 <!-- generated: history -->
 | date | commit | kept inputs |
 |---|---|---:|
-| current |  | 178 |
+| current |  | 203 |
+| 2026-10-30 | 1c8e2cb | 178 |
 | 2026-10-24 | 0ac148e | 158 |
 | 2026-10-22 | 44d2edc | 78 |
 | 2026-10-21 | 89c3628 | 27 |
@@ -133,12 +134,12 @@ status:
 
 | kind | open | flaky | fixed | wont-fix |
 |---|---:|---:|---:|---:|
-| `fuzz-crash` | 0 | 0 | 24 | 1 |
+| `fuzz-crash` | 2 | 0 | 39 | 3 |
 | `fuzz-oom` | 0 | 0 | 2 | 0 |
 | `fuzz-timeout` | 0 | 0 | 0 | 0 |
-| `fuzz-slow` | 0 | 0 | 46 | 2 |
+| `fuzz-slow` | 0 | 0 | 48 | 2 |
 | `fuzz-leak` | 0 | 0 | 0 | 0 |
-| `mismatch` | 71 | 0 | 37 | 19 |
+| `mismatch` | 61 | 0 | 38 | 32 |
 <!-- end generated -->
 
 <!-- generated: runs -->
@@ -148,18 +149,18 @@ sanitizer), and the share of src/ lines its corpus reaches.
 
 | target | inputs/s | peak MB | lines reached % |
 |---|---:|---:|---:|
-| `comments` | 291 | 460 | 31.03 |
-| `format` | 243 | 1489 | 43.90 |
-| `generated` | 104 | 1652 | 47.85 |
-| `layout` | 1233 | 439 | 20.17 |
-| `lexer` | 48704 | 197 | 2.55 |
-| `parser` | 1406 | 474 | 15.60 |
-| `toml` | 23073 | 215 | 4.39 |
-| `verify` | 1664 | 446 | 19.63 |
+| `comments` | 82 | 469 | 31.03 |
+| `format` | 116 | 1328 | 43.90 |
+| `generated` | 21 | 863 | 47.85 |
+| `layout` | 242 | 438 | 20.17 |
+| `lexer` | 15115 | 243 | 2.55 |
+| `parser` | 224 | 488 | 15.60 |
+| `toml` | 13711 | 246 | 4.39 |
+| `verify` | 311 | 477 | 19.63 |
 
 Also: every corpus together reaches 63.65% of the lines of src/ (2026-10-12); in
-the last differential run, mto and the standard formatter agreed on 80.00% of
-inputs (2026-10-30).
+the last differential run, mto and the standard formatter agreed on 79.49% of
+inputs (2026-11-05).
 <!-- end generated -->
 
 ## 4 Threats to validity

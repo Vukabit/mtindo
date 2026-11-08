@@ -2,7 +2,8 @@
 //!
 //! Binary operators are parsed by precedence climbing with these binding powers (left, right),
 //! loosest first: assignment (2, 1) and so right-associative; ranges (3, 4) with optional
-//! operands; `||` (5, 6); `&&` (7, 8); comparisons (9, 10); `|` (11, 12); `^` (13, 14);
+//! operands, after which no operator follows at that level (`a..b..c` is an error, as in
+//! rustc); `||` (5, 6); `&&` (7, 8); comparisons (9, 10); `|` (11, 12); `^` (13, 14);
 //! `&` (15, 16); shifts (17, 18); `+ -` (19, 20); `* / %` (21, 22); then `as` (23). Prefix
 //! operators bind tighter still, and postfix calls, indexing, fields, `?` and `.await`
 //! tightest of all.
@@ -421,7 +422,12 @@ fn closure(p: &mut Parser, r: Restrictions) -> CompletedMarker {
 /// An expression whose binary operators all bind at least as tightly as `min_bp`.
 /// Returns the expression and whether it is block-like and ended a statement.
 fn expr_bp(p: &mut Parser, r: Restrictions, min_bp: u8) -> Option<(CompletedMarker, bool)> {
+  let prefix_range = p.at(SyntaxKind::Dot2) || p.at(SyntaxKind::Dot2Eq);
   let (mut lhs, block_like) = unary_expr(p, r)?;
+  // A range begun here is the whole expression: rustc reads no operator after it.
+  if prefix_range {
+    return Some((lhs, false));
+  }
   if r.stmt && block_like {
     return Some((lhs, true));
   }
@@ -458,7 +464,7 @@ fn expr_bp(p: &mut Parser, r: Restrictions, min_bp: u8) -> Option<(CompletedMark
         expr_bp(p, inner, RANGE_RHS_BP);
       }
       lhs = m.complete(p, SyntaxKind::RangeExpr);
-      continue;
+      break;
     }
     if expr_bp(p, inner, right_bp).is_none() {
       p.error("expected an expression");

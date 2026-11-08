@@ -123,6 +123,10 @@ enum ConfigView {
   Mirror(bool),
   /// `derive`, with `--write` when true.
   Derive(bool),
+  /// `update`, with `--dry-run` when true.
+  Update(bool),
+  /// `reset`, with `--dry-run` when true.
+  Reset(bool),
   /// Every setting a file may hold; as a commented file when true.
   Options(bool),
   Default,
@@ -338,6 +342,16 @@ fn config_json(view: ConfigView, config: &Config) -> mtindo::text::json::Json {
         .with("source", source.to_string()),
     );
   }
+  if matches!(view, ConfigView::Current | ConfigView::Minimal)
+    && let Some(source) = config.root()
+  {
+    settings.push(
+      Json::object()
+        .with("name", "root")
+        .with("value", Json::Bool(true))
+        .with("source", source.to_string()),
+    );
+  }
   Json::output("config")
     .with("style_edition", config.style_edition() as u64)
     .with("settings", settings)
@@ -532,13 +546,19 @@ fn flag_row(p: &HelpPalette, spec: &FlagSpec) -> String {
     .map(|s| format!("{}, ", p.short(s)))
     .unwrap_or_else(|| "    ".to_string());
   let text = spec.value_text();
+  // A value after `=` only touches the flag (`--diff[=full|stat]`).
+  let gap = if text.is_empty() || text.starts_with("[=") {
+    ""
+  } else {
+    " "
+  };
   let value = if text.is_empty() {
     String::new()
   } else {
-    format!(" {}", p.value(&text))
+    format!("{}{}", gap, p.value(&text))
   };
   let label = format!("  {}{}{}", short, p.long(spec.long), value);
-  let width = 2 + 4 + spec.long.len() + if text.is_empty() { 0 } else { 1 + text.len() };
+  let width = 2 + 4 + spec.long.len() + gap.len() + text.len();
   p.row(&label, width, HELP_COLUMN, spec.help)
 }
 
@@ -1132,6 +1152,8 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
     Some("print") => ConfigView::Current,
     Some("mirror") => ConfigView::Mirror(false),
     Some("derive") => ConfigView::Derive(false),
+    Some("update") => ConfigView::Update(false),
+    Some("reset") => ConfigView::Reset(false),
     _ => return usage(),
   };
   let mut dir = None;
@@ -1146,11 +1168,17 @@ fn parse_config_args(command: &CommandSpec, args: &[String]) -> Result<CliAction
           config_flag(spec, args.get(i), &mut overrides)?;
         }
         Flag::DryRun if matches!(view, ConfigView::Mirror(_)) => view = ConfigView::Mirror(true),
+        Flag::DryRun if matches!(view, ConfigView::Update(_)) => view = ConfigView::Update(true),
+        Flag::DryRun if matches!(view, ConfigView::Reset(_)) => view = ConfigView::Reset(true),
         Flag::Write if matches!(view, ConfigView::Derive(_)) => view = ConfigView::Derive(true),
         Flag::Default | Flag::Current | Flag::Minimal | Flag::User
           if !matches!(
             view,
-            ConfigView::Path | ConfigView::Mirror(_) | ConfigView::Derive(_)
+            ConfigView::Path
+              | ConfigView::Mirror(_)
+              | ConfigView::Derive(_)
+              | ConfigView::Update(_)
+              | ConfigView::Reset(_)
           ) =>
         {
           view = match spec.flag {
@@ -1727,6 +1755,13 @@ fn render_config(view: ConfigView, config: &Config, env: &Environment) -> String
       };
       lines.push((setting.name, line));
     }
+    // `root = true`, no setting but where the search for mto.toml files stopped.
+    if file == File::Mto
+      && view != ConfigView::Default
+      && let Some(source) = config.root()
+    {
+      lines.push(("root", format!("root = true  # {}", source)));
+    }
     if lines.is_empty() {
       continue;
     }
@@ -2027,6 +2062,72 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides, js
   print_warnings(&mut resolver);
   if let ConfigView::Derive(write) = view {
     return run_derive(dir, &mut resolver, write, json);
+  }
+  if let ConfigView::Update(dry_run) | ConfigView::Reset(dry_run) = view {
+    let reset = matches!(view, ConfigView::Reset(_));
+    let found = if reset {
+      mtindo::cli::update::reset(dir)
+    } else {
+      mtindo::cli::update::update(dir)
+    };
+    let done = match found {
+      Ok(done) => done,
+      Err((why, code)) => {
+        errln!("{}Error: {}{}", c_red(), why, c_reset(true));
+        return code;
+      }
+    };
+    let shown = done.path.display();
+    if done.before == done.after {
+      outln!(
+        "{} {}",
+        shown,
+        if reset {
+          "is already what `mto init` writes"
+        } else {
+          "already names every setting"
+        }
+      );
+      return 0;
+    }
+    outln!(
+      "{} {} ({} setting(s){}):",
+      match (reset, dry_run) {
+        (true, true) => "would reset",
+        (true, false) => "reset",
+        (false, true) => "would update",
+        (false, false) => "updated",
+      },
+      shown,
+      done.lines.len(),
+      if reset {
+        ", as `mto init` writes them"
+      } else {
+        " added, each at its default"
+      }
+    );
+    for line in &done.lines {
+      outln!("  {}", line);
+    }
+    if done.lines.is_empty() {
+      outln!("  (no value changes: its comments and order become `mto init`'s)");
+    }
+    if dry_run {
+      return 0;
+    }
+    return match write_recorded(&resolver, &done.path, &done.before, &done.after) {
+      Ok(()) => 0,
+      Err(e) => {
+        errln!(
+          "{}Error: cannot write {}: {}{}",
+          c_red(),
+          shown,
+          e,
+          c_reset(true)
+        );
+        3
+      }
+    };
   }
   if let ConfigView::Mirror(dry_run) = view {
     return match mtindo::cli::mirror::mirror(&config, dir, dry_run) {
@@ -2418,16 +2519,15 @@ fn run_derive(dir: &Path, resolver: &mut Resolver, write: bool, json: bool) -> i
   let existing = [dir.join("mto.toml"), dir.join(".mto.toml")]
     .into_iter()
     .find(|p| p.exists());
-  if write && let Some(existing) = &existing {
-    errln!(
-      "{}Error: {} exists; `mto config derive` without --write prints the mto.toml it would \
-       write, to compare or copy from{}",
-      c_red(),
-      existing.display(),
-      c_reset(true)
-    );
-    return 3;
-  }
+  // One there already is never written over: the mto.toml is printed instead, to compare.
+  let refused = write && existing.is_some();
+  let write = write && !refused;
+  // What the file there sets, to say where the one derived differs from it.
+  let now: Vec<(String, String)> = existing
+    .as_ref()
+    .and_then(|path| std::fs::read_to_string(path).ok())
+    .map(|text| mtindo::cli::update::top_level(&text))
+    .unwrap_or_default();
   let derived = match mtindo::cli::derive::derive(dir, resolver) {
     Ok(derived) => derived,
     Err(why) => return report_error(&MtoError::Usage(why)),
@@ -2496,18 +2596,46 @@ fn run_derive(dir: &Path, resolver: &mut Resolver, write: bool, json: bool) -> i
        with these, {} in {}",
       derived.files, derived.start.moves, derived.start.files, derived.end.moves, derived.end.files
     ));
+    let now_of = |setting: &str| {
+      now
+        .iter()
+        .find(|(name, _)| name == setting)
+        .map(|(_, value)| value.as_str())
+    };
     for change in &derived.changed {
+      let compared = match now_of(change.setting) {
+        Some(value) if value == change.value => "; as now".to_string(),
+        Some(value) => format!("; now {}", value),
+        None => String::new(),
+      };
       report.push(format!(
-        "  {} = {}  (saves {} move(s){})",
+        "  {} = {}  (saves {} move(s){}{})",
         change.setting,
         change.value,
         change.saved,
+        compared,
         if change.imports {
           "; changes how imports are written: look at it before taking it"
         } else {
           ""
         }
       ));
+    }
+    // The file there sets otherwise what derive leaves as `mto init` writes it.
+    if existing.is_some() {
+      for (name, value) in mtindo::cli::update::top_level(&derived.toml) {
+        if derived.changed.iter().any(|c| c.setting == name) {
+          continue;
+        }
+        if let Some(was) = now_of(&name)
+          && was != value
+        {
+          report.push(format!(
+            "  {} = {}  (now {}; derive keeps `mto init`'s)",
+            name, value, was
+          ));
+        }
+      }
     }
     if derived.changed.is_empty() {
       report.push("  `mto init`'s settings already move the fewest".to_string());
@@ -2530,8 +2658,16 @@ fn run_derive(dir: &Path, resolver: &mut Resolver, write: bool, json: bool) -> i
     }
     if write {
       report.push(format!("wrote {}", target.display()));
-    } else if existing.is_some() {
-      report.push("an mto.toml is there already: compare, or copy what you want".to_string());
+    } else if let Some(existing) = &existing {
+      report.push(format!(
+        "{} is there already, so {}: compare, or copy what you want",
+        existing.display(),
+        if refused {
+          "the mto.toml is printed above, not written"
+        } else {
+          "nothing is written"
+        }
+      ));
     }
     for line in report {
       if write {
@@ -3741,6 +3877,34 @@ fn without_json(args: &[String]) -> (bool, Vec<String>) {
   )
 }
 
+/// Writes `after` over `path`, which held `before`, recorded in history as a run of its own
+/// so that `mto restore` gives it back; with history off, only written.
+fn write_recorded(
+  resolver: &mtindo::config::Resolver,
+  path: &Path,
+  before: &str,
+  after: &str,
+) -> std::io::Result<()> {
+  let settings = history::Settings::read(resolver, false).map_err(std::io::Error::other)?;
+  let mut recorder = settings.history.as_ref().map(|store| {
+    let cwd = env::current_dir().unwrap_or_default();
+    store.recorder(&history::command_line(), &cwd, None)
+  });
+  if let Some(recorder) = recorder.as_mut() {
+    let stored = recorder.history().store(before.as_bytes())?;
+    recorder.record(&mtindo::history::Entry {
+      path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()),
+      before: stored,
+      after: mtindo::history::sha256::hex(after.as_bytes()),
+    })?;
+  }
+  mtindo::write_atomic(path, after)?;
+  if let Some(recorder) = recorder.as_mut() {
+    history::finish_record(recorder, settings.limits, false);
+  }
+  Ok(())
+}
+
 #[cfg(test)]
 mod tests {
   use std::collections::HashSet;
@@ -3852,6 +4016,8 @@ mod tests {
       &["completions", "install", "fish", "--dir", "x", "--dry-run"],
       &["completions", "uninstall", "--dir=x"],
       &["completions", "status", "bash"],
+      &["config", "update", "--dry-run", "src"],
+      &["config", "reset", "--dry-run"],
       &["stats", "--from", "7d", "--by", "day"],
       &["stats", "forget"],
     ];
@@ -3932,8 +4098,10 @@ mod tests {
   fn test_flags_appear_once_in_a_fixed_place() {
     let help = render_help(false);
     for spec in FLAGS {
+      // A value after `=` only touches its flag: `--diff[=full|stat]`.
       let shown = help.matches(&format!(" {} ", spec.long)).count()
-        + help.matches(&format!(" {}\n", spec.long)).count();
+        + help.matches(&format!(" {}\n", spec.long)).count()
+        + help.matches(&format!(" {}[=", spec.long)).count();
       // Command flags are on their command's page; the others once in `mto -h`.
       if spec.group == Group::Command {
         assert!(

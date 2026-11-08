@@ -6,12 +6,12 @@ standard_formatter:
     version: "1.10.0"
     released: "2026-10-15"
   nightly:
-    version: "1.11.0-nightly"
-    released: "2026-10-31"
+    version: "1.12.0-nightly"
+    released: "2026-11-08"
 keys:
-  total: 29
+  total: 30
 in_mto:
-  supported: 28
+  supported: 29
   partial: 1
   missing: 0
   not_planned: 0
@@ -35,7 +35,9 @@ The number of blank lines placed between items. Imports of the same group and
 `mod name;` declarations stay on consecutive lines. It is kept within the
 standard formatter's `blank_lines_lower_bound` and `blank_lines_upper_bound` (0
 and 1 by default), with a warning, so that the standard formatter leaves the
-result alone; imports and declarations get the lower bound.
+result alone; imports and declarations get the lower bound. With
+`keep_paragraphs`, paragraphs are always parted by at least one blank line, at 0
+too: touching, they would read as one.
 
 *   Type: a whole number, zero or more.
 *   Default: `1`, in every style edition.
@@ -52,8 +54,9 @@ exceptions do not pile up unexplained; `mto pins` lists them all.
 *   In mto: supported.
 *   Values:
     *   `optional`: A directive may give its reason after ` -- `, or not.
-    *   `required`: A `// mto: pin`, `// mto: hold` or `// mto: off` without
-        ` -- why` gets a warning, and with --strict fails its file.
+    *   `required`: A `// mto: pin`, `// mto: hold`, `// mto: off` or
+        `// mto: ignore` without ` -- why` gets a warning, and with --strict
+        fails its file.
 
 ### `reexports`
 
@@ -215,11 +218,31 @@ item and moves with it: above it, or below it when written below it. A type
 takes its own impls along, and a helper of a helper stays next to the item it
 helps. Uses are found by name, without type checking, so an item whose name is
 ambiguous (defined twice) sorts as usual, as does one whose user is in another
-section or keeps its place.
+section or keeps its place. `helper_kinds` names the kinds it moves.
 
 *   Type: `true` or `false`.
 *   Default: `false`, in every style edition.
 *   In mto: supported.
+
+### `helper_kinds`
+
+With `keep_helpers_near`, only items of these kinds move to sit beside the one
+item that uses them; the others sort as usual. Leave out `ConstDecl` and
+`StaticDecl` to keep a file's block of constants together, in the order it is
+written, while its functions still go beside their callers.
+
+*   Type: an array of the values below, each at most once.
+*   Default: `["FnDecl", "ConstDecl", "StaticDecl", "TypeAlias", "StructDecl",
+    "EnumDecl", "Union"]`, in every style edition.
+*   In mto: supported.
+*   Values:
+    *   `FnDecl`: Functions.
+    *   `ConstDecl`: Constants: `const`.
+    *   `StaticDecl`: Statics: `static`.
+    *   `TypeAlias`: Type aliases: `type Name = ...;`.
+    *   `StructDecl`: Structs, with their impls.
+    *   `EnumDecl`: Enums, with their impls.
+    *   `Union`: Unions, with their impls.
 
 ### `keep_paragraphs`
 

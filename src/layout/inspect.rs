@@ -329,7 +329,10 @@ fn notes(units: &[Unit], names: &[HashSet<&str>], at: usize, config: &LayoutConf
     ));
   }
   if config.keep_helpers_near {
-    match (unit.caller, helper_verdict(units, names, at)) {
+    match (
+      unit.caller,
+      helper_verdict(units, names, at, &config.helper_kinds),
+    ) {
       (Some(caller), _) => notes.push(format!(
         "helper: stays {} `{}`, its one user",
         if unit.below { "below" } else { "above" },

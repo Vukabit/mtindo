@@ -42,6 +42,17 @@ inherent_method_order = "written"
 # Keep a private item used by one sibling directly next to it
 keep_helpers_near = false
 
+# The kinds of item `keep_helpers_near` keeps beside their one user
+helper_kinds = [
+    "FnDecl",
+    "ConstDecl",
+    "StaticDecl",
+    "TypeAlias",
+    "StructDecl",
+    "EnumDecl",
+    "Union",
+]
+
 # Keep items written with no blank line between them together
 keep_paragraphs = false
 
@@ -86,3 +97,7 @@ type_order = ["ModDecl", "UseDecl", "MacroDecl", "MacroDef", "ConstDecl", "Stati
 
 # The order of visibilities within a kind
 visibility_order = ["Pub", "PubCrate", "PubIn", "PubSuper", "Private"]
+
+# The build guard's check for this project, which `mto doctor trust` lets run here
+[doctor]
+command = ["cargo", "check", "--workspace", "--all-targets", "--keep-going"]

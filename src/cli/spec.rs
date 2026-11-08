@@ -168,7 +168,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     name: "pins",
     args: "[PATH]...",
     summary: "List every place a project keeps code from mto, and why",
-    about: "Lists each `// mto: pin`, `// mto: hold` and `// mto: off` and each \
+    about: "Lists each `// mto: pin`, `// mto: hold`, `// mto: off` and `// mto: ignore` and each \
                 `#[rustfmt::skip]` in the files under PATH (default: the current \
                 directory), with its file, line and the reason given after ` -- `, so a \
                 project's exceptions are seen and none is forgotten. \
@@ -218,7 +218,7 @@ pub const COMMANDS: &[CommandSpec] = &[
   },
   CommandSpec {
     name: "config",
-    args: "path|print|options|mirror|derive [DIR]",
+    args: "path|print|options|mirror|derive|update|reset [DIR]",
     summary: "Show the configuration that applies in a folder, or every setting",
     about: "`path` lists the configuration files that apply in DIR (default: the current \
                 directory), and the history folder. `print` shows every setting in effect with \
@@ -234,17 +234,25 @@ pub const COMMANDS: &[CommandSpec] = &[
                 takes the value that leaves the most where it is, the defaults winning ties, \
                 while the settings the project's formatting decides (its rustfmt.toml) stay \
                 as it asks; it prints that mto.toml, or writes it with --write (never over \
-                one there), and says what each change saves.",
+                one there), and says what each change saves. `update` adds to DIR's mto.toml \
+                every mto setting it does not set, at its default, so nothing a run does \
+                changes, each with its line from `mto init` and where `mto init` puts it; \
+                what the file holds stays as it is. `reset` writes DIR's mto.toml as `mto \
+                init` writes it. Both say what they change, `--dry-run` writes nothing, and \
+                history records the file as it was, so `mto restore` undoes either.",
     usage: &[
       "mto config path [DIR]",
       "mto config print [OPTIONS] [DIR]",
       "mto config options [--toml|--json]",
       "mto config mirror [--dry-run] [DIR]",
       "mto config derive [--write] [--json] [DIR]",
+      "mto config update [--dry-run] [DIR]",
+      "mto config reset [--dry-run] [DIR]",
     ],
     options: &[
       ("views", "mto config options", &[Flag::Toml, Flag::Json]),
       ("derive", "mto config derive", &[Flag::Write, Flag::Json]),
+      ("update", "mto config update|reset", &[Flag::DryRun]),
       (
         "views",
         "mto config path|print",
@@ -294,6 +302,16 @@ pub const COMMANDS: &[CommandSpec] = &[
         summary: "Find the mto.toml that moves the fewest items in the project as written",
         operand: Complete::Dirs,
       },
+      Subcommand {
+        word: "update",
+        summary: "Add to mto.toml every setting it does not set, at its default",
+        operand: Complete::Dirs,
+      },
+      Subcommand {
+        word: "reset",
+        summary: "Write mto.toml as `mto init` writes it",
+        operand: Complete::Dirs,
+      },
     ],
     examples: &[
       "mto config path",
@@ -303,6 +321,7 @@ pub const COMMANDS: &[CommandSpec] = &[
       "mto config options --toml",
       "mto config derive",
       "mto config derive --write",
+      "mto config update --dry-run",
     ],
   },
   CommandSpec {
@@ -1485,10 +1504,22 @@ impl FlagSpec {
     !self.value.is_empty() || !self.values.is_empty()
   }
 
-  /// What follows the flag in help and the manual: `<files|stdout|json>`, `<PATH>`, or
-  /// nothing.
+  /// The values a flag takes only after `=` (`--diff=stat`), as the next word would be a
+  /// path; the flag alone means the first.
+  pub fn inline_values(&self) -> &'static [&'static str] {
+    match self.flag {
+      Flag::Diff => &["full", "stat"],
+      _ => &[],
+    }
+  }
+
+  /// What follows the flag in help and the manual: `<files|stdout|json>`, `<PATH>`,
+  /// `[=full|stat]`, or nothing.
   pub fn value_text(&self) -> String {
-    value_text(self.values, self.value)
+    match self.inline_values() {
+      [] => value_text(self.values, self.value),
+      inline => format!("[={}]", inline.join("|")),
+    }
   }
 }
 
@@ -1528,6 +1559,8 @@ pub fn flag_name(spec: &FlagSpec) -> String {
   };
   if spec.takes_value() {
     name.push(' ');
+    name.push_str(&spec.value_text());
+  } else if !spec.inline_values().is_empty() {
     name.push_str(&spec.value_text());
   }
   name

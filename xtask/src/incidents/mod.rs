@@ -26,13 +26,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-pub use command::run;
-
 use crate::common::files::write_atomic;
 use crate::common::log::timestamp;
 use crate::common::store;
 use crate::common::toml_string::{quote, unquote};
 use crate::sha256;
+pub use command::run;
 
 /// Every kind: (name, what it is, whether an open one fails the suite).
 pub const KINDS: &[(&str, &str, bool)] = &[

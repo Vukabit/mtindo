@@ -134,6 +134,11 @@ const LAYOUT_ROWS: &[(&str, &str, &str)] = &[
     "",
   ),
   (
+    "layout + helper_kinds=no constants",
+    "helper_kinds = [\"FnDecl\", \"TypeAlias\", \"StructDecl\", \"EnumDecl\", \"Union\"]\nkeep_helpers_near = true",
+    "",
+  ),
+  (
     "layout + keep_paragraphs=true",
     "keep_paragraphs = true",
     "",

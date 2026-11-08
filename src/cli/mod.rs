@@ -15,4 +15,5 @@ pub mod replay;
 pub mod report;
 pub mod spec;
 pub mod stats;
+pub mod update;
 pub mod verify;

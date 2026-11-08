@@ -61,6 +61,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::ArgMatches;
+
 use common::color::color_enabled;
 
 const EXIT_CODES: &[(&str, &str)] = &[

@@ -1,0 +1,22 @@
+ª¶âj#![feature(co)]
+
+#[expect(unused)]
+pub    const {  let a = 1;  assert!(true); }
+
+const {
+
+
+  assert!(true)
+                  }
+
+#[cfg(false)] const { assert!(false) }
+
+#[cfg(false)]
+// foo
+ const
+
+ {
+  // bar
+   assert!(false)
+  // baz
+   } // 123

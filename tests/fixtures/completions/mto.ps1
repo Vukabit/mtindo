@@ -19,6 +19,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $flags['config options'] = @('-h', '--help', '--toml', '--json')
     $flags['config mirror'] = @('-h', '--help')
     $flags['config derive'] = @('-h', '--help', '--write', '--json')
+    $flags['config update'] = @('-h', '--help', '-d', '--dry-run')
+    $flags['config reset'] = @('-h', '--help', '-d', '--dry-run')
     $flags['history'] = @('-h', '--help', '--all', '--json')
     $flags['history show'] = @('-h', '--help')
     $flags['history prune'] = @('-h', '--help', '--keep', '--older-than', '--all')
@@ -120,6 +122,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['config options'] = 'List every setting a configuration file may hold'
     $help['config mirror'] = 'Write mto.toml''s formatting settings into a rustfmt.toml beside it'
     $help['config derive'] = 'Find the mto.toml that moves the fewest items in the project as written'
+    $help['config update'] = 'Add to mto.toml every setting it does not set, at its default'
+    $help['config reset'] = 'Write mto.toml as `mto init` writes it'
     $help['history'] = 'List, show or prune the runs that wrote files'
     $help['history show'] = 'List one run''s files and where each stands now'
     $help['history prune'] = 'Remove old runs'
@@ -152,6 +156,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $help['completions status'] = 'Say where each shell''s script is, and whether it is current'
     # The flags followed by a value, and what the value completes to.
     $takesValue = @('--emit', '--since', '--stdin-filepath', '--config', '--config-path', '--edition', '--print-config', '--style-edition', '--from', '--by', '--color', '--keep', '--dir', '--message-format', '--runs', '--under', '--older-than')
+    # The flags whose value comes after `=` only, before any command.
+    $inline = @('--diff')
     # A flag's values, when they are a fixed set.
     $values = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $values['--emit'] = @('files', 'stdout', 'json')
@@ -160,6 +166,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $values['--style-edition'] = @('2015', '2018', '2021', '2024', '2027')
     $values['--color'] = @('always', 'never', 'auto')
     $values['--message-format'] = @('human', 'json')
+    $values['--diff'] = @('full', 'stat')
     # The flags that take a path.
     $paths = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $paths['--stdin-filepath'] = 'files'
@@ -172,7 +179,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     # Each command's subcommands.
     $subcommands = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $subcommands['stats'] = @('forget')
-    $subcommands['config'] = @('path', 'print', 'options', 'mirror', 'derive')
+    $subcommands['config'] = @('path', 'print', 'options', 'mirror', 'derive', 'update', 'reset')
     $subcommands['history'] = @('show', 'prune')
     $subcommands['doctor'] = @('on', 'off', 'holds', 'keep', 'recheck', 'trust', 'release')
     $subcommands['report'] = @('show', 'save', 'send', 'recheck', 'remove', 'prune')
@@ -186,6 +193,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     $operandPaths['config print'] = 'dirs'
     $operandPaths['config mirror'] = 'dirs'
     $operandPaths['config derive'] = 'dirs'
+    $operandPaths['config update'] = 'dirs'
+    $operandPaths['config reset'] = 'dirs'
     $operandPaths['restore'] = 'files'
     $operandPaths['report save'] = 'files'
     $operandPaths['debug tokens'] = 'files'
@@ -308,6 +317,7 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
         'import_sort' = @('style_edition', '2015', '2024')
         'inherent_method_order' = @('written', 'constructors_first', 'by_receiver')
         'keep_helpers_near' = @('true', 'false')
+        'helper_kinds' = @()
         'keep_paragraphs' = @('true', 'false')
         'layout' = @('true', 'false')
         'format' = @('true', 'false')
@@ -390,7 +400,8 @@ Register-ArgumentCompleter -Native -CommandName 'mto', 'mto.exe' -ScriptBlock {
     }
     $valueOf = {
         param($flag, $before, $typed)
-        if ($values.Contains($flag)) {
+        # A value after `=` only (`--diff=stat`) is taken before any command alone.
+        if ($values.Contains($flag) -and -not ($command -and $inline -contains $flag)) {
             foreach ($value in $values[$flag]) { & $result ($before + $value) $value }
         } elseif ($paths.Contains($flag)) {
             & $pathsOf $before $typed $paths[$flag]

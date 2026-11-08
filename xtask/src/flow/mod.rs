@@ -30,9 +30,8 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
-use config::Flow;
-
 use crate::cli;
+use config::Flow;
 
 /// `cargo xtask bootstrap`: the tools flow.toml pins, installed or updated.
 pub fn bootstrap(root: &Path, m: &clap::ArgMatches) -> ExitCode {

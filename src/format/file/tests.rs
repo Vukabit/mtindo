@@ -75,6 +75,24 @@ fn test_a_closure_match_whose_chain_must_break_inside_an_overflowing_chain_takes
   );
 }
 
+/// A closure that a field, an operator or a range end follows takes no block for its body
+/// (`|t| { t..=.. }.fr` would read the `.fr` into the body); one nothing follows still does.
+#[test]
+fn test_a_closure_something_follows_takes_no_block_for_its_body() {
+  let config = FormatConfig {
+    max_width: 60,
+    tab_spaces: 2,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with(
+      "fn f() {\n  s > b || || |t| t * ***..=.. ..=.. .. ..=..=.. & .. ..=.. .fr * o;\n}\n",
+      &config
+    ),
+    "fn f() {\n  s > b\n    || || {\n      |t| t * ***..=.. ..=.. .. ..=..=..& .. ..=.. .fr * o\n    };\n}\n"
+  );
+}
+
 #[test]
 fn test_a_closure_whose_head_leaves_no_room_is_kept_in_a_block() {
   // `|SSSS:f|o` at the width exactly: the standard formatter gives up on it there and
@@ -150,6 +168,14 @@ fn test_a_comment_in_a_let_or_an_items_head_leaves_it_as_written() {
   );
 }
 
+/// A comment between a transcriber's `$` and its metavariable's name leaves the macro's
+/// body as written: renamed, the name would come after the comment, inside it.
+#[test]
+fn test_a_comment_inside_a_metavariable_leaves_the_macro_as_written() {
+  let source = "macro_rules! s {\n    () => {\n        match x { () => () $ //\n        B\n        }\n    };\n}\n";
+  assert_eq!(formatted(source), source);
+}
+
 /// A comment written touching the end of a statement or item, or a block's last
 /// expression, gets one space before it, as one written after a space does; after an
 /// operator it stays touching (and after `{` it goes to the next line).
@@ -162,6 +188,21 @@ fn test_a_comment_touching_a_statement_s_end_is_spaced() {
   assert_eq!(
     formatted("fn f() {// a\n    let x = a +// b\n        c;\n}\n"),
     "fn f() {\n    // a\n    let x = a +// b\n        c;\n}\n"
+  );
+}
+
+/// A comment written touching a `match`'s last arm, moved to the end of its line with the
+/// comments under it, takes a space before it there, as the standard formatter writes it.
+#[test]
+fn test_a_comment_touching_the_last_arm_takes_a_space() {
+  let config = FormatConfig {
+    max_width: 101,
+    tab_spaces: 7,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with("fn f(){match(){_=>{}.o//*\n//\n}}\n", &config),
+    "fn f() {\n       match () {\n              _ => {}.o, //*\n                         //\n       }\n}\n"
   );
 }
 
@@ -195,6 +236,23 @@ fn test_a_generic_default_with_no_room_gives_the_function_header_up() {
     formatted(&format!("{} {{\n      let   x =   1;\n}}\n", header)),
     format!("{}{{\n    let x = 1;\n}}\n", header)
   );
+}
+
+/// A closure's block whose statement is kept as written, its `{` on a line further in than
+/// the statement, keeps its insides one level past that line.
+#[test]
+fn test_a_kept_closure_block_on_a_continuation_line_settles() {
+  let config = FormatConfig {
+    max_width: 47,
+    tab_spaces: 2,
+    ..FormatConfig::default()
+  };
+  let laid = "fn t() {\n  sss\n    & || {\n      n // c\n    = {} / o\n    };\n}\n";
+  assert_eq!(
+    formatted_with("fn t() {\n  sss & || n // c\n    = {} / o;\n}\n", &config),
+    laid
+  );
+  assert_eq!(formatted_with(laid, &config), laid);
 }
 
 /// A chain's last link that fits on the chain's first line but cannot overflow there is
@@ -234,6 +292,20 @@ fn test_a_lazy_static_type_broken_over_lines() {
 fn test_a_link_with_a_line_past_the_width_fails_the_chain_not_the_link() {
   let source = "fn f() {\n    {\n        {\n            {\n                {\n                    _ = ctx.probe_all(method_resolution::Mode::MethodCall, self_ty).try_for_each(\n                        |candidate| {\n                            let id = Function { id: AnyFunctionId::FunctionId(id) };\n                            match candidate.candidate.kind {\n                                method_resolution::CandidateKind::InherentImplCandidate {\n                                    ..\n                                }\n                                | method_resolution::CandidateKind::ObjectCandidate(..)\n                                | method_resolution::CandidateKind::WhereClauseCandidate(..) => {\n                                    callback.on_inherent_method(id)\n                                }\n                                method_resolution::CandidateKind::TraitCandidate(..) => {\n                                    callback.on_trait_method(id)\n                                }\n                            }\n                        },\n                    );\n                }\n            }\n        }\n    }\n}\n";
   assert_eq!(formatted_with(source, &max_heuristics(100)), source);
+}
+
+/// In a braced macro call's arguments, only a `\` that continues a string moves the line
+/// after it: not one in a raw string, nor an escaped one.
+#[test]
+fn test_a_macro_argument_line_after_a_raw_string_backslash_stays() {
+  assert_eq!(
+    formatted("fn s() {\n    l! {[\"\" r\"\\\n\"]\n}\n}\n"),
+    "fn s() {\n    l! {[\"\" r\"\\\n\"]\n    }\n}\n"
+  );
+  assert_eq!(
+    formatted("fn s() {\n    l! {[\"\" \"a\\\\\n  b\"]\n}\n}\n"),
+    "fn s() {\n    l! {[\"\" \"a\\\\\n  b\"]\n    }\n}\n"
+  );
 }
 
 /// `|mut name|` too wide for the parameters' room breaks after `mut`, and a closure whose
@@ -279,6 +351,14 @@ fn test_a_skipped_module_declaration_keeps_its_indentation_at_the_top() {
   );
 }
 
+/// A stray `;` on a line of its own after an item and the comments under it is indented as
+/// the item.
+#[test]
+fn test_a_stray_semicolon_under_an_items_comments_settles() {
+  let source = "fn o() {\n    {\n        mod y; //\n               //\n        ; //\n    }\n}\n";
+  assert_eq!(formatted(source), source);
+}
+
 #[test]
 fn test_a_string_continued_keeps_its_own_whitespace() {
   // In a macro's braces kept as written, the line a `\` continues a string on is
@@ -287,6 +367,27 @@ fn test_a_string_continued_keeps_its_own_whitespace() {
     "fn f() {\n    l = vec!{\n        #[a = \"n\\\n \u{b}   b\"]\n        ,,\n    };\n}\n";
   let once = formatted(source);
   assert!(once.contains("\u{b}   b"), "{}", once);
+}
+
+/// A `macro_rules!` transcriber with a `;` standing alone keeps its imports' order: what
+/// it expands to is compared as written.
+#[test]
+fn test_a_transcriber_with_a_stray_semicolon_keeps_its_imports_order() {
+  let source = "macro_rules! o {\n    () => {\n        use e;\n        use c;;\n    };\n}\n";
+  assert_eq!(formatted(source), source);
+  assert_eq!(
+    formatted("macro_rules! o {\n    () => {\n        use e;\n        use c;\n    };\n}\n"),
+    "macro_rules! o {\n    () => {\n        use c;\n        use e;\n    };\n}\n"
+  );
+}
+
+/// A match arm after a doc comment with a space at its end is laid out as one without it.
+#[test]
+fn test_an_arm_after_a_doc_comment_ending_in_a_space_settles() {
+  assert_eq!(
+    formatted("fn o(){match(){/// \n()=>{//\n}//\n}}\n"),
+    "fn o() {\n    match () {\n        ///\n        () => { //\n        } //\n    }\n}\n"
+  );
 }
 
 #[test]
@@ -681,6 +782,30 @@ fn test_closure_block_where_no_room_is_left() {
     once,
     "fn f() {\n let x: HashMap<\n  u8,\n  char,\n > = get()[|value| {\n  \"with {} braces\"\n }];\n}\n"
   );
+}
+
+/// The comments after a block's last expression line up under the one ending its line, as
+/// after a statement: before style edition 2024, as the standard formatter writes them; and
+/// so after one with a doc comment above it, which stands as a statement without its `;`.
+#[test]
+fn test_comments_after_a_blocks_last_expression_line_up_under_its_own() {
+  assert_eq!(
+    formatted("fn f() {\n    a + b //\n//\n}\n"),
+    "fn f() {\n    a + b //\n          //\n}\n"
+  );
+  assert_eq!(
+    formatted("fn f() {\n    || a //\n//\n}\n"),
+    "fn f() {\n    || a //\n         //\n}\n"
+  );
+  let style_2024 = FormatConfig {
+    style_edition: 2024,
+    ..FormatConfig::default()
+  };
+  assert_eq!(
+    formatted_with("fn f() {\n    a //\n//\n}\n", &style_2024),
+    "fn f() {\n    a //\n    //\n}\n"
+  );
+  formatted("fn f(){{///\n||S//\n|S//\n//\n}}\n");
 }
 
 #[test]
@@ -1764,6 +1889,15 @@ fn test_repeat_arrays_and_vec() {
 fn test_settles_in_one_run() {
   // Each settles where a second run leaves it (`formatted_with` checks that).
   let cases: &[(&str, usize, usize, &str)] = &[
+    // A `static`'s `if` whose condition goes across lines, its `{` at the item's
+    // indentation: the standard formatter lays it out anew on its second run, which runs
+    // now, so one run gives where it settles.
+    (
+      "static LIMIT:usize=if()[a]{c!(\"{}\",ErroA);};\n",
+      20,
+      5,
+      "static LIMIT:\n     usize =\n     if ()[a] {\n          c!(\n          \"{}\",\n          ErroA\n     );\n     };\n",
+    ),
     // An impl in a block, laid out by the whole-file pass from where it was written: the
     // lines it keeps as written (a block in a generic argument) move with its first line,
     // not by the block's indentation again on every run (zerocopy-derive's output tests).

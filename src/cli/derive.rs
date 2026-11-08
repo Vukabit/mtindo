@@ -3,7 +3,11 @@
 //! under candidate settings, starting from what `mto init` writes; each setting in turn
 //! takes the value that moves the fewest items (then changes the fewest files), and the
 //! passes repeat while one finds less to move. A tie keeps the value already chosen, so
-//! the defaults stand unless the project's own order beats them.
+//! the defaults stand unless the project's own order beats them. The kind order is then
+//! refined, two kinds the project holds swapped while that moves fewer; last, a setting the
+//! final choice does not need goes back to what `mto init` writes. Spacing
+//! (`blank_lines_between_blocks`) moves nothing and counts by the files it changes. Files a
+//! run leaves alone (generated ones, unless `layout_generated_files`) count for nothing.
 //!
 //! Derive finds an order, never "no order": `order_keys = []` (every file as written) and
 //! `sort_alphabetically = false` are not tried, as they would win everywhere.
@@ -110,7 +114,8 @@ pub fn derive(dir: &Path, resolver: &mut Resolver) -> Result<Derived, String> {
     .iter()
     .find(|(kind, _)| *kind == crate::config::FileKind::Standard)
     .map(|(_, path)| path.clone());
-  let (table, held) = table(&here, &consensus(&files, &folders)?);
+  let (consensus, present) = consensus(&files, &folders)?;
+  let (table, held) = table(&here, &consensus);
   let score = |chosen: &[(&'static str, String)]| -> Result<Score, String> {
     let pairs: Vec<(&str, &str)> = chosen
       .iter()
@@ -161,6 +166,49 @@ pub fn derive(dir: &Path, resolver: &mut Resolver) -> Result<Derived, String> {
       *saved.entry("sections").or_default() += best.moves - found.moves;
       best = found;
       chosen = trial;
+    }
+  }
+  // The kind order, refined: two kinds the project holds, next to each other among those it
+  // holds, swapped while that moves fewer.
+  if let Some(at) = table.iter().position(|c| c.setting == "type_order") {
+    let mut order = names_in(&chosen[at].1);
+    let held_at: Vec<usize> = (0..order.len())
+      .filter(|&i| present.contains(&order[i]))
+      .collect();
+    for _pass in 0..held_at.len() {
+      let mut better = false;
+      for pair in held_at.windows(2) {
+        let mut trial_order = order.clone();
+        trial_order.swap(pair[0], pair[1]);
+        let mut trial = chosen.clone();
+        trial[at].1 = list(&trial_order.iter().map(String::as_str).collect::<Vec<_>>());
+        let found = score(&trial)?;
+        if found < best {
+          *saved.entry("type_order").or_default() += best.moves.saturating_sub(found.moves);
+          best = found;
+          chosen = trial;
+          order = trial_order;
+          better = true;
+        }
+      }
+      if !better {
+        break;
+      }
+    }
+  }
+  // A setting changed on the way that the final choice does not need goes back to what
+  // `mto init` writes.
+  for at in 0..table.len() {
+    if chosen[at].1 == table[at].values[0] {
+      continue;
+    }
+    let mut trial = chosen.clone();
+    trial[at].1 = table[at].values[0].clone();
+    let found = score(&trial)?;
+    if found <= best {
+      best = found;
+      chosen = trial;
+      saved.remove(table[at].setting);
     }
   }
   let changed: Vec<Changed> = table
@@ -268,10 +316,11 @@ pub fn written_order(files: &[Vec<ItemKind>], default: &[ItemKind]) -> Vec<ItemK
 
 /// The project's own `type_order`, as a TOML array ([`written_order`] of its files' items
 /// as written).
-fn consensus(files: &[File], folders: &[Rc<Config>]) -> Result<String, String> {
+fn consensus(files: &[File], folders: &[Rc<Config>]) -> Result<(String, Vec<String>), String> {
   let configs: Vec<LayoutConfig> = folders.iter().map(|f| f.layout()).collect();
   let written: Vec<Vec<ItemKind>> = files
     .iter()
+    .filter(|file| !left_as_is(file, &configs[file.folder]))
     .filter_map(|file| {
       let laid = crate::layout::layout(&file.source, &configs[file.folder]).ok()?;
       Some(
@@ -286,7 +335,17 @@ fn consensus(files: &[File], folders: &[Rc<Config>]) -> Result<String, String> {
     .collect();
   let order = written_order(&written, &LayoutConfig::default().type_order);
   let names: Vec<String> = order.iter().map(|k| format!("{:?}", k)).collect();
-  Ok(list(&names.iter().map(String::as_str).collect::<Vec<_>>()))
+  let mut present: Vec<String> = written
+    .iter()
+    .flatten()
+    .map(|k| format!("{:?}", k))
+    .collect();
+  present.sort();
+  present.dedup();
+  Ok((
+    list(&names.iter().map(String::as_str).collect::<Vec<_>>()),
+    present,
+  ))
 }
 
 /// The score of laying out each file with the settings of its folder, in memory, the
@@ -303,6 +362,9 @@ fn laid_out(files: &[File], configs: &[LayoutConfig]) -> Score {
     for _ in 0..workers {
       let worker = || {
         while let Some(file) = files.get(next.fetch_add(1, Ordering::Relaxed)) {
+          if left_as_is(file, &configs[file.folder]) {
+            continue;
+          }
           let laid = crate::quietly(false, || {
             crate::layout::layout(&file.source, &configs[file.folder])
           });
@@ -323,6 +385,25 @@ fn laid_out(files: &[File], configs: &[LayoutConfig]) -> Score {
     moves: moves.into_inner(),
     files: changed.into_inner(),
   }
+}
+
+/// Whether a run leaves `file`'s items where they are whatever the order settings say: one
+/// whose header says `// mto: ignore` (or `ignore=layout`), or a generated file, unless
+/// `layout_generated_files`. It counts for no setting.
+fn left_as_is(file: &File, config: &LayoutConfig) -> bool {
+  use crate::syntax::marker::{Ignore, ignored};
+  if matches!(
+    ignored(&file.source),
+    Some((Ignore::All | Ignore::Layout, _))
+  ) {
+    return true;
+  }
+  !config.layout_generated_files
+    && crate::format::file::is_generated(
+      file.source.trim_start_matches('\u{feff}'),
+      &config.generated_markers,
+      config.generated_marker_line_search_limit,
+    )
 }
 
 /// `items` as a TOML array of strings.
@@ -376,13 +457,43 @@ fn table(here: &Config, consensus: &str) -> (Vec<Candidate>, Vec<(&'static str, 
   table.push(boolean("keep_paragraphs", "true"));
   table.push(boolean("group_impls", &default("group_impls")));
   table.push(boolean("keep_helpers_near", &default("keep_helpers_near")));
+  // Helpers but not constants, which a file often keeps together in a block at its top.
+  table.push(Candidate {
+    setting: "helper_kinds",
+    values: vec![
+      default("helper_kinds"),
+      list(&["FnDecl", "TypeAlias", "StructDecl", "EnumDecl", "Union"]),
+    ],
+  });
   if free(
     "sort_imports",
     (formats && flag("reorder_imports", true))
       .then_some("the formatter sorts imports (reorder_imports)"),
   ) {
     table.push(boolean("sort_imports", &default("sort_imports")));
+    // How imports sort, only where the formatter does not sort them its own way.
+    table.push(Candidate {
+      setting: "import_sort",
+      values: vec![
+        default("import_sort"),
+        "\"2015\"".to_string(),
+        "\"2024\"".to_string(),
+      ],
+    });
   }
+  // Spacing moves nothing, but changes files: tried for the fewest changed.
+  table.push(Candidate {
+    setting: "blank_lines_between_blocks",
+    values: vec![
+      default("blank_lines_between_blocks"),
+      if default("blank_lines_between_blocks") == "0" {
+        "1"
+      } else {
+        "0"
+      }
+      .to_string(),
+    ],
+  });
   let groups = here.get("group_imports").and_then(Value::as_text);
   if free(
     "import_grouping",
@@ -398,6 +509,9 @@ fn table(here: &Config, consensus: &str) -> (Vec<Candidate>, Vec<(&'static str, 
     "impl_method_order",
     "trait_impl_sort",
     "test_module",
+    "test_helpers",
+    "reexports",
+    "cfg_groups",
     "name_sort",
   ] {
     let Some(setting) = options::find(name) else {
@@ -449,21 +563,25 @@ fn table(here: &Config, consensus: &str) -> (Vec<Candidate>, Vec<(&'static str, 
   (table, held)
 }
 
-/// `toml` with the line setting `name` set to `value` instead.
+/// `toml` with setting `name` set to `value` instead, its old value's lines (an array across
+/// lines too) replaced by the new one's.
 fn with_line(toml: &str, name: &str, value: &str) -> String {
   let prefix = format!("{} = ", name);
-  toml
-    .lines()
-    .map(|line| {
-      if line.starts_with(&prefix) {
-        format!("{}{}", prefix, value)
-      } else {
-        line.to_string()
-      }
-    })
-    .collect::<Vec<_>>()
-    .join("\n")
-    + "\n"
+  let lines: Vec<&str> = toml.lines().collect();
+  let mut out: Vec<String> = Vec::with_capacity(lines.len());
+  let mut at = 0;
+  while at < lines.len() {
+    if lines[at].starts_with(&prefix) {
+      out.push(crate::setting_line(name, value));
+      at = super::update::value_end(&lines, at) + 1;
+    } else {
+      out.push(lines[at].to_string());
+      at += 1;
+    }
+  }
+  let mut text = out.join("\n");
+  text.push('\n');
+  text
 }
 
 #[cfg(test)]

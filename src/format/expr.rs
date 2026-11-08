@@ -2062,7 +2062,12 @@ fn closure_with_block(body: &SyntaxNode, prefix: &str, shape: Shape) -> Option<S
   // A macro called with nothing the standard formatter puts in no block (found by
   // measuring it). Nor a `let` expression, which in a block would be a statement.
   let binding = left.kind() == SyntaxKind::LetExpr;
-  if vetoed || asynchronous || binding || empty_macro(body) {
+  let closure = body.parent().and_then(|p| {
+    p.ancestors_iter()
+      .find(|a| a.kind() == SyntaxKind::ClosureExpr)
+  });
+  if vetoed || asynchronous || binding || empty_macro(body) || closure.is_some_and(|c| followed(&c))
+  {
     return None;
   }
   let block = super::block::wrapped(body, shape)?;
@@ -2285,6 +2290,40 @@ fn flat_once(node: &SyntaxNode, spacing: Spacing) -> String {
     })
     .collect();
   flat_tokens(&tokens, spacing)
+}
+
+/// Whether code follows `closure` in the expression around it (`(|t| t..).f`, read so
+/// without the parentheses too, or `x = |t| t.. ..y`), which a block for its body would take
+/// into the body: `|t| { t.. }.f` reads as `|t| ({ t.. }.f)`.
+fn followed(closure: &SyntaxNode) -> bool {
+  let mut node = closure.clone();
+  while let Some(parent) = node.parent() {
+    let operation = matches!(
+      parent.kind(),
+      SyntaxKind::BinExpr
+        | SyntaxKind::RangeExpr
+        | SyntaxKind::CastExpr
+        | SyntaxKind::FieldExpr
+        | SyntaxKind::MethodCallExpr
+        | SyntaxKind::CallExpr
+        | SyntaxKind::IndexExpr
+        | SyntaxKind::TryExpr
+        | SyntaxKind::AwaitExpr
+        | SyntaxKind::PrefixExpr
+        | SyntaxKind::RefExpr
+    );
+    // An index's brackets close around what is in them.
+    let index = parent.kind() == SyntaxKind::IndexExpr
+      && node.text_range().start != parent.text_range().start;
+    if !operation || index {
+      return false;
+    }
+    if parent.text_range().end > node.text_range().end {
+      return true;
+    }
+    node = parent;
+  }
+  false
 }
 
 /// Whether `text` fits: its first line in the shape's width, the rest within the line width.

@@ -62,14 +62,15 @@ pub fn release(root: &Path, flow: &Flow, version: &str, go: bool) -> Result<(), 
   let first = last_tag(root).is_none();
   println!("would:");
   println!("  1. set version {} in Cargo.toml and Cargo.lock", version);
-  if first {
+  let changelog = fs::read_to_string(root.join("CHANGELOG.md")).unwrap_or_default();
+  if first || changelog.contains(&format!("## [{}]", version)) {
     println!(
-      "  2. keep CHANGELOG.md's [{}] section, written by hand",
+      "  2. keep CHANGELOG.md's [{}] section, written by hand, dated today",
       version
     );
   } else {
     println!(
-      "  2. name CHANGELOG.md's newest section [{}], dated today",
+      "  2. write CHANGELOG.md's [{}] section from the commits, dated today",
       version
     );
   }
@@ -143,15 +144,18 @@ fn make(root: &Path, version: &str, tag: &str, first: bool) -> Result<(), String
     "cargo",
     &["update", "--workspace", "--offline", "--quiet"],
   )?;
-  if first {
-    let path = root.join("CHANGELOG.md");
-    let changelog = fs::read_to_string(&path).unwrap_or_default();
-    if !changelog.contains(&format!("## [{}]", version)) {
-      return Err(format!(
-        "the first release's section, ## [{}], is written by hand in CHANGELOG.md",
-        version
-      ));
-    }
+  let path = root.join("CHANGELOG.md");
+  let changelog = fs::read_to_string(&path).unwrap_or_default();
+  // A section written by hand (always the first release's) is kept, and only dated; else
+  // it is written from the commits.
+  let by_hand = changelog.contains(&format!("## [{}]", version));
+  if first && !by_hand {
+    return Err(format!(
+      "the first release's section, ## [{}], is written by hand in CHANGELOG.md",
+      version
+    ));
+  }
+  if by_hand {
     // Its date, once it is known.
     let today = crate::common::log::timestamp(std::time::SystemTime::now());
     let dated = changelog.replacen(

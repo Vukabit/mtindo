@@ -26,8 +26,9 @@ pushed and checked by CI like anyone's.
    that the crate builds as crates.io would get it, then says what it would
    do.
 4. **Make it**: `cargo xtask flow release 0.2.0 --go`. It sets the version in
-   `Cargo.toml` and `Cargo.lock`, names `CHANGELOG.md`'s newest section for
-   the release (`cargo xtask changelog --tag v0.2.0`), commits
+   `Cargo.toml` and `Cargo.lock`, dates the section written by hand in
+   `CHANGELOG.md` (`## [0.2.0] - unreleased`), or else writes it from the
+   commits (`cargo xtask changelog --tag v0.2.0`), commits
    `chore(release): v0.2.0`, and tags it. If any step fails, those files are
    put back as they were.
 5. **Push** what it prints: `git push origin HEAD:refs/heads/main

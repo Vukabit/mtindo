@@ -88,14 +88,20 @@ fn file_len(path: &Path) -> u64 {
   fs::metadata(path).map_or(0, |m| m.len())
 }
 
-/// The input an incident is replayed with: the minimized one if any, else its first.
-fn input_of(dir: &Path) -> PathBuf {
-  let minimized = dir.join("minimized");
-  if minimized.exists() {
-    minimized
-  } else {
-    dir.join("input")
-  }
+/// Every input an incident kept, and the minimized one: each showed the failure.
+fn inputs_of(dir: &Path) -> Vec<PathBuf> {
+  let mut inputs: Vec<PathBuf> = fs::read_dir(dir)
+    .into_iter()
+    .flatten()
+    .flatten()
+    .map(|e| e.path())
+    .filter(|p| {
+      p.file_name()
+        .is_some_and(|n| n == "minimized" || n.to_string_lossy().starts_with("input"))
+    })
+    .collect();
+  inputs.sort();
+  inputs
 }
 
 fn list(root: &Path, kinds: &[String], statuses: &[String]) -> ExitCode {
@@ -266,8 +272,7 @@ fn promote(
     println!("only fuzz incidents with a known target can be promoted");
     return ExitCode::from(2);
   }
-  let input = input_of(dir);
-  let (status, _) = replayer(root, &incident.target, &input);
+  let (status, _) = replay_every(root, &incident.target, dir, replayer);
   if status != "no longer fails" {
     println!(
       "{} {} at this tree: fix it first, then promote it",
@@ -279,19 +284,7 @@ fn promote(
   let here = tree::identity(root);
   let stem = incident.signature[..16.min(incident.signature.len())].to_string();
   let folder = root.join(REGRESSIONS).join(&incident.target);
-  // Every input the incident kept, and the minimized one: each showed the failure.
-  let mut inputs: Vec<PathBuf> = fs::read_dir(dir)
-    .into_iter()
-    .flatten()
-    .flatten()
-    .map(|e| e.path())
-    .filter(|p| {
-      p.file_name()
-        .is_some_and(|n| n == "minimized" || n.to_string_lossy().starts_with("input"))
-    })
-    .collect();
-  inputs.sort();
-  for (n, input) in inputs.iter().enumerate() {
+  for (n, input) in inputs_of(dir).iter().enumerate() {
     let name = if n == 0 {
       format!("{}.bin", stem)
     } else {
@@ -337,7 +330,7 @@ fn recheck(root: &Path, only: Option<&str>, log: &Logger, replayer: &Replayer) -
     if only.is_some_and(|id| !incident.id.ends_with(id) && !incident.signature.starts_with(id)) {
       continue;
     }
-    let (status, _) = replayer(root, &incident.target, &input_of(&dir));
+    let (status, _) = replay_every(root, &incident.target, &dir, replayer);
     match status {
       "fails" => {
         fails += 1;
@@ -382,6 +375,25 @@ fn recheck(root: &Path, only: Option<&str>, log: &Logger, replayer: &Replayer) -
   }
 }
 
+/// Replays every input of the incident in `dir`: "no longer fails" only when each of them
+/// no longer fails, else what the first that did not pass said.
+fn replay_every(
+  root: &Path,
+  target: &str,
+  dir: &Path,
+  replayer: &Replayer,
+) -> (&'static str, Vec<String>) {
+  let mut unknown = None;
+  for input in inputs_of(dir) {
+    match replayer(root, target, &input) {
+      ("no longer fails", _) => {}
+      ("fails", said) => return ("fails", said),
+      other => unknown = unknown.or(Some(other)),
+    }
+  }
+  unknown.unwrap_or(("no longer fails", Vec::new()))
+}
+
 fn replay_one(root: &Path, dir: &Path, incident: &Incident) -> ExitCode {
   if !replayable(incident) {
     println!(
@@ -391,7 +403,7 @@ fn replay_one(root: &Path, dir: &Path, incident: &Incident) -> ExitCode {
     );
     return ExitCode::from(2);
   }
-  let (status, said) = fuzz::replay(root, &incident.target, &input_of(dir));
+  let (status, said) = replay_every(root, &incident.target, dir, &fuzz::replay);
   println!("{}", said.join("\n"));
   println!("{}: {}", short(incident), status);
   let mut incident = incident.clone();
@@ -527,5 +539,27 @@ mod tests {
     assert!(!now.fixed_in.is_empty());
     assert_eq!(recheck(root, None, &log, &fails), ExitCode::from(1));
     assert_eq!(find(root, &incident.id).unwrap().1.status, "open");
+  }
+
+  #[test]
+  fn test_recheck_replays_every_input() {
+    let scratch = Scratch::new("every-input");
+    let root = &scratch.0;
+    let log = Logger::new(root, "incidents");
+    let (dir, incident) = filed(root);
+    fs::write(dir.join("input-2"), b"later bytes").unwrap();
+    fn later_fails(_: &Path, _: &str, input: &Path) -> (&'static str, Vec<String>) {
+      if input.ends_with("input-2") {
+        ("fails", Vec::new())
+      } else {
+        ("no longer fails", Vec::new())
+      }
+    }
+    assert_eq!(recheck(root, None, &log, &later_fails), ExitCode::from(1));
+    assert_eq!(find(root, &incident.id).unwrap().1.status, "open");
+    assert_eq!(
+      promote(root, &dir, incident, &log, &later_fails),
+      ExitCode::from(1)
+    );
   }
 }

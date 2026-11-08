@@ -86,8 +86,9 @@ pub fn run(root: &Path, repos: &[(String, PathBuf)], markdown: bool, log: &Logge
   };
   crate::common::conditions::settle(root, "the corpus bench");
   let mto = crate::common::build::mto_path(root);
-  // mto first: rustfmt keeps every core busy for half a minute, and a processor that hot
-  // runs slower for a while after, which would count against whatever came next.
+  // Timing mto before rustfmt: rustfmt keeps every core busy for half a minute, and a
+  // processor that hot runs slower for a while after, which would count against whatever
+  // came next.
   let config = copies.base.join("mto-bench.toml");
   let mut mto_rows = Vec::new();
   for (name, dir) in [

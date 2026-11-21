@@ -372,22 +372,26 @@ pub(super) fn macro_moved_past_user(units: &[Unit]) -> bool {
 /// definition whose names cannot be read (a `#[macro_use] mod name;`, its file out of
 /// sight) may define any macro.
 pub(super) fn macro_shadows_user(units: &[Unit]) -> bool {
+  // What each unit calls, read once whatever number of definitions it moved past.
+  let mut calls: Vec<Option<HashSet<&str>>> = vec![None; units.len()];
   units.iter().enumerate().any(|(at, definer)| {
     if !defines_macros(definer) {
       return false;
     }
     // Only a unit written before the definition and now after it is read: most
     // arrangements move none past one.
-    let mut moved = units[at + 1..]
+    let mut moved = units
       .iter()
-      .filter(|unit| unit.index < definer.index)
+      .enumerate()
+      .skip(at + 1)
+      .filter(|(_, unit)| unit.index < definer.index)
       .peekable();
     if moved.peek().is_none() {
       return false;
     }
     let names = macros_defined(definer);
-    moved.any(|unit| {
-      let called = macros_called(unit);
+    moved.any(|(i, unit)| {
+      let called = calls[i].get_or_insert_with(|| macros_called(unit));
       match &names {
         Some(names) => called.iter().any(|name| names.contains(name)),
         None => !called.is_empty(),

@@ -330,6 +330,17 @@ fn test_a_pattern_field_takes_no_room_for_its_comma() {
 /// A skipped `mod name;` at the top of the file keeps the whitespace before it byte for
 /// byte, unless an item or a comment follows it on its line; inside a module it is indented
 /// as any item.
+/// `#[rustfmt::skip]` on a struct literal's field keeps the field as written after its
+/// attributes, its spacing and line breaks too (diff-fuzz, 2026-11-08).
+#[test]
+fn test_a_skipped_literal_field_is_kept_as_written() {
+  let source = "fn main() {\n    let b = Bar {\n        x: x,\n        #[rustfmt::skip]\n        skipped:   skipped,\n    };\n}\n";
+  assert_eq!(formatted(source), source);
+  let source =
+    "fn main() {\n    let b = Bar {\n        #[rustfmt::skip]\nskipped:\n    skipped,\n    };\n}\n";
+  assert_eq!(formatted(source), source);
+}
+
 #[test]
 fn test_a_skipped_module_declaration_keeps_its_indentation_at_the_top() {
   assert_eq!(

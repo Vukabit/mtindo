@@ -5097,6 +5097,34 @@ fn rewrite_struct(node: &SyntaxNode, shape: Shape) -> Option<String> {
         let (attributes, parts): (Vec<SyntaxNode>, Vec<SyntaxNode>) = n
           .children_iter()
           .partition(|c| c.kind() == SyntaxKind::Attr);
+        // A literal's field under `#[rustfmt::skip]`: its attributes laid out, then the
+        // field from its attributes' end as written, line breaks and spacing alike (the
+        // standard formatter's `rewrite_field` returns the snippet).
+        if n.kind() == SyntaxKind::RecordExprField
+          && attributes
+            .iter()
+            .any(|a| crate::syntax::ast::Attr::cast(a.clone()).is_some_and(|a| a.is_rustfmt_skip()))
+        {
+          let whole = n.text().to_string();
+          let field_start = n.text_range().start;
+          let after = attributes.last()?.text_range().end - field_start;
+          let config = shape.limits.config();
+          let mut out = String::new();
+          for (i, attribute) in attributes.iter().enumerate() {
+            if i > 0 {
+              out.push('\n');
+              out.push_str(&" ".repeat(v_shape.indent));
+            }
+            out.push_str(&super::attrs::rewrite_attr(
+              attribute,
+              v_shape.indent,
+              &config,
+            )?);
+          }
+          out.push_str(whole.get(after as usize..)?.trim_end());
+          fields.push(out);
+          continue;
+        }
         let text = match parts.as_slice() {
           // The value after `name:`; on the next line one level in, with the whole line's
           // width, only when it does not fit there (the standard formatter's

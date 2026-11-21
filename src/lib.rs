@@ -210,7 +210,9 @@ impl Counts {
   fn of(source: &str) -> Counts {
     Counts {
       bytes: source.len(),
-      lines: source.lines().count(),
+      // As `str::lines` counts them, without walking each line: a last line needs no end.
+      lines: source.bytes().filter(|&b| b == b'\n').count()
+        + usize::from(!source.is_empty() && !source.ends_with('\n')),
       ..Counts::default()
     }
   }

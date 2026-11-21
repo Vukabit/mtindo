@@ -57,9 +57,10 @@ pub fn crate_skips(text: &str) -> (Vec<String>, Vec<String>) {
 }
 
 /// Whether `file` may declare a module whose own file starts with `#![macro_use]`: it
-/// declares a module, cheaply told from its text, so most files read no other.
+/// declares one without a body (`mod name;`), cheaply told from its text, so most files
+/// (`mod tests { ... }` among them) are neither parsed again nor read others.
 pub fn declares_macro_use(text: &str) -> bool {
-  text.contains("mod ")
+  !declared_names(text).is_empty()
 }
 
 /// The modules `file` (its text `text`) declares without a body whose own files start
@@ -74,6 +75,48 @@ pub fn macro_use_modules(file: &Path, text: &str) -> Vec<String> {
     Some(stem) if parent.join(stem).is_dir() => parent.join(stem),
     _ => parent.to_path_buf(),
   };
+  // A first look, at the files the declarations name by default: the file is parsed only
+  // when one of them mentions `macro_use` near its start, or a `#[path]` (perhaps in a
+  // `cfg_attr`) may name another.
+  let path_attribute = text.contains("#[path") || text.contains(", path =");
+  // A declaration inside an inline module (`mod a { mod b; }`) names a file under its
+  // folder: one level of those is looked at too.
+  if !path_attribute {
+    let inline = named_before(text, '{');
+    let folders: Vec<PathBuf> = std::iter::once(owned.clone())
+      .chain(inline.iter().map(|i| owned.join(i)))
+      .collect();
+    // Each name's file, the first that is there: each folder is listed once, so a file that
+    // is not there costs no attempt to open it.
+    let listed: Vec<HashSet<std::ffi::OsString>> = folders
+      .iter()
+      .map(|folder| {
+        fs::read_dir(folder)
+          .map(|entries| entries.flatten().map(|e| e.file_name()).collect())
+          .unwrap_or_default()
+      })
+      .collect();
+    let mentioned = declared_names(text).into_iter().any(|name| {
+      folders
+        .iter()
+        .zip(&listed)
+        .flat_map(|(folder, names)| {
+          let file = format!("{}.rs", name);
+          let in_file = names
+            .contains(std::ffi::OsStr::new(&file))
+            .then(|| folder.join(&file));
+          let in_folder = names
+            .contains(std::ffi::OsStr::new(name))
+            .then(|| folder.join(name).join("mod.rs"));
+          in_file.into_iter().chain(in_folder)
+        })
+        .find_map(|path| starts_mentioning_macro_use(&path))
+        .unwrap_or(false)
+    });
+    if !mentioned {
+      return Vec::new();
+    }
+  }
   let (_, parsed) = parse_any_edition(text, Edition::E2021);
   let mut found = Vec::new();
   declared(&parsed.syntax_node(), &owned, parent, &mut found);
@@ -82,7 +125,7 @@ pub fn macro_use_modules(file: &Path, text: &str) -> Vec<String> {
     let Some(text) = candidates
       .iter()
       .find(|c| c.is_file())
-      .and_then(|path| fs::read_to_string(path).ok())
+      .and_then(|path| header_of(path))
     else {
       continue;
     };
@@ -276,6 +319,32 @@ fn declared(
   }
 }
 
+/// The names of the modules `text` declares without a body (`mod name;`), read from its
+/// text alone: `mod` as a word, a name, then `;`.
+fn declared_names(text: &str) -> Vec<&str> {
+  named_before(text, ';')
+}
+
+/// The header of the file at `path` (see [`crate::syntax::marker::header_end`]), where an
+/// inner `#![macro_use]` stands: read only as far as it goes, most often a few lines.
+fn header_of(path: &Path) -> Option<String> {
+  use std::io::Read;
+  const FIRST: u64 = 4096;
+  let mut file = fs::File::open(path).ok()?;
+  let mut bytes = Vec::new();
+  file.by_ref().take(FIRST).read_to_end(&mut bytes).ok()?;
+  let mut text = String::from_utf8_lossy(&bytes).into_owned();
+  let mut end = crate::syntax::marker::header_end(&text);
+  // A header longer than what was read (a long licence): the whole file.
+  if end == text.len() && bytes.len() as u64 == FIRST {
+    file.read_to_end(&mut bytes).ok()?;
+    text = String::from_utf8_lossy(&bytes).into_owned();
+    end = crate::syntax::marker::header_end(&text);
+  }
+  text.truncate(end);
+  Some(text)
+}
+
 /// Whether a macro call is `cfg_if!` or `cfg_select!` (with or without a path), whose
 /// branches hold items.
 fn is_cfg_if(call: &SyntaxNode) -> bool {
@@ -287,6 +356,29 @@ fn is_cfg_if(call: &SyntaxNode) -> bool {
       let name = text.trim().rsplit("::").next().unwrap_or("");
       name == "cfg_if" || name == "cfg_select"
     })
+}
+
+/// The names `mod` (as a word) is followed by in `text`, each then followed by `end`.
+fn named_before(text: &str, end_with: char) -> Vec<&str> {
+  let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+  text
+    .match_indices("mod")
+    .filter_map(|(at, _)| {
+      if at > 0 && word(text.as_bytes()[at - 1]) {
+        return None;
+      }
+      let rest = &text[at + 3..];
+      let name = rest.trim_start();
+      if name.len() == rest.len() {
+        return None;
+      }
+      let name = name.strip_prefix("r#").unwrap_or(name);
+      let end = name
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(name.len());
+      (end > 0 && name[end..].trim_start().starts_with(end_with)).then(|| &name[..end])
+    })
+    .collect()
 }
 
 /// The folder a module file owns: its own for `mod.rs`, otherwise one named after it.
@@ -312,9 +404,50 @@ fn path_attr(item: &Item) -> Option<String> {
     })
 }
 
+/// Whether the start of the file at `path` may hold an inner `#![macro_use]` (or one in a
+/// `#![cfg_attr(...)]`): an inner attribute and `macro_use`, read without parsing. `None`
+/// when there is no such file.
+fn starts_mentioning_macro_use(path: &Path) -> Option<bool> {
+  use std::io::Read;
+  let file = fs::File::open(path).ok()?;
+  let mut bytes = Vec::with_capacity(4096);
+  file.take(4096).read_to_end(&mut bytes).ok()?;
+  Some(bytes.windows(3).any(|w| w == b"#![") && bytes.windows(9).any(|w| w == b"macro_use"))
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  /// The modules made `#[macro_use]` from inside their files are found wherever a
+  /// declaration names them: `name.rs`, `name/mod.rs`, under an inline module, by
+  /// `#[path]`; a file declaring none, or a module whose file does not say so, finds none.
+  #[test]
+  fn test_macro_use_modules_are_found_by_their_files_starts() {
+    let dir = std::env::temp_dir().join(format!("mtindo-macro-use-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let write = |path: &str, text: &str| {
+      let path = dir.join(path);
+      fs::create_dir_all(path.parent().unwrap()).unwrap();
+      fs::write(path, text).unwrap();
+    };
+    let used = "//! Macros.\n#![macro_use]\n\nmacro_rules! m {\n    () => {};\n}\n";
+    write("src/a.rs", used);
+    write("src/b/mod.rs", used);
+    write("src/inline/c.rs", used);
+    write("src/elsewhere/d.rs", used);
+    write("src/plain.rs", "use std::path::Path;\n");
+    let lib = dir.join("src/lib.rs");
+    let found = |text: &str| macro_use_modules(&lib, text);
+    assert_eq!(found("mod a;\nmod plain;\n"), ["a"]);
+    assert_eq!(found("mod b;\n"), ["b"]);
+    assert_eq!(found("mod inline {\n    mod c;\n}\n"), ["c"]);
+    assert_eq!(found("#[path = \"elsewhere/d.rs\"]\nmod d;\n"), ["d"]);
+    assert!(found("mod plain;\n").is_empty());
+    assert!(!declares_macro_use("mod tests {\n    use super::*;\n}\n"));
+    assert!(found("mod tests {\n    use super::*;\n}\n").is_empty());
+    let _ = fs::remove_dir_all(&dir);
+  }
 
   #[test]
   fn test_modules_are_followed_as_rustc_finds_them() {

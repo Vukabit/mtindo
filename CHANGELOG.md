@@ -28,6 +28,9 @@ from the draft `cargo xtask changelog --preview` makes of the commits.
   comments in lists, fields and patterns as the standard formatter does,
   where fuzzing and a bug hunt found mto differed, or needed a second run
   to settle
+- Keep a struct literal's field under `#[rustfmt::skip]` as written, and
+  drop the `;` after a `while`, `loop` or `for` statement, as the standard
+  formatter does
 - Refuse code the compiler rejects, such as `a..b..c`, as a syntax error
   instead of formatting it
 

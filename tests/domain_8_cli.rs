@@ -618,9 +618,8 @@ fn test_cli_a_closed_pipe_ends_quietly() {
   assert!(!stderr.contains("panicked"), "{}", stderr);
 }
 
-/// A file that cannot be read is an error (exit 3), named or reached through `mod`, and
-/// checking does not pass over it.
-#[cfg(unix)]
+/// Only the first word names a command: one after a flag is read as a path, and the error
+/// says so.
 #[test]
 fn test_cli_a_command_after_a_flag_is_named_in_the_error() {
   let env = TestEnvironment::new();
@@ -635,6 +634,9 @@ fn test_cli_a_command_after_a_flag_is_named_in_the_error() {
   assert!(!stderr.contains("is a command"), "{}", stderr);
 }
 
+/// A file that cannot be read is an error (exit 3), named or reached through `mod`, and
+/// checking does not pass over it.
+#[cfg(unix)]
 #[test]
 fn test_cli_a_file_that_cannot_be_read_fails_the_run() {
   use std::os::unix::fs::PermissionsExt;

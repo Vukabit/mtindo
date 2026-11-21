@@ -1816,13 +1816,15 @@ pub(crate) fn quietly<T>(
 }
 
 /// The settings that differ from the defaults, one per line, for a bug report.
+/// `ignore_paths` is left out: it decides only which files a walk takes, never how one is
+/// laid out, and its paths are resolved, so they would name the machine and the user.
 pub(crate) fn settings_text(settings: &Settings) -> String {
   let differing = |name: &str, value: String, default: String| -> String {
-    let defaults: HashSet<&str> = default.lines().collect();
-    value
-      .lines()
-      .filter(|line| !defaults.contains(line))
-      .map(|line| format!("{}: {}\n", name, line.trim().trim_end_matches(',')))
+    let defaults = debug_fields(&default);
+    debug_fields(&value)
+      .into_iter()
+      .filter(|field| !defaults.contains(field) && !field.starts_with("ignore_paths: "))
+      .map(|field| format!("{}: {}\n", name, field))
       .collect()
   };
   let mut out = String::new();
@@ -2241,6 +2243,38 @@ fn commit_batch(
       report.failed(write_failure(&write.shown, &e), &e.to_string());
     }
   }
+}
+
+/// The fields of a struct as `{:#?}` writes it, each `name: value` on one line: a list or
+/// an `Option` spread over lines is written `[A, B]` or `Some(2)`.
+fn debug_fields(dump: &str) -> Vec<String> {
+  let mut fields: Vec<String> = Vec::new();
+  for line in dump.lines() {
+    // A field starts one level in; deeper lines, and the line closing its value, go on the
+    // field above.
+    let piece = line.trim();
+    let closing = piece.starts_with([']', ')', '}']);
+    if line.starts_with("    ") && !line.starts_with("     ") && !closing {
+      fields.push(piece.to_string());
+    } else if line.starts_with("    ")
+      && let Some(field) = fields.last_mut()
+    {
+      if closing {
+        if field.ends_with(',') {
+          field.pop();
+        }
+      } else if !field.ends_with(['[', '(', '{']) {
+        field.push(' ');
+      }
+      field.push_str(piece);
+    }
+  }
+  for field in &mut fields {
+    if field.ends_with(',') {
+      field.pop();
+    }
+  }
+  fields
 }
 
 /// What the terminal shows for `bug`: one line naming the report it is kept as, or the
@@ -3183,6 +3217,29 @@ mod tests {
         (m.line_number, m.line_number_orig, lines)
       })
       .collect()
+  }
+
+  /// A bug report's settings: each on one line, lists and options too, and no path a run
+  /// resolved, which would name the machine.
+  #[test]
+  fn test_a_bug_reports_settings_are_one_line_each_and_name_no_path() {
+    use options::layout::ItemKind;
+    let settings = Settings {
+      layout: Some(LayoutConfig {
+        helper_kinds: vec![ItemKind::FnDecl, ItemKind::ConstDecl],
+        import_sort: Some(2024),
+        trait_impl_order: vec!["a \"b\", ]".into()],
+        ignore_paths: vec![PathBuf::from("/home/someone/project/tests")],
+        ..LayoutConfig::default()
+      }),
+      format: None,
+      edition: syntax::Edition::E2021,
+    };
+    assert_eq!(
+      settings_text(&settings),
+      "layout: helper_kinds: [FnDecl, ConstDecl]\nlayout: import_sort: Some(2024)\n\
+       layout: trait_impl_order: [\"a \\\"b\\\", ]\"]\nformat: off\n"
+    );
   }
 
   /// Two long texts with no line in common diff quickly (the search stops at

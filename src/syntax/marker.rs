@@ -237,10 +237,12 @@ pub fn leading(item: &SyntaxNode, text: &str) -> Vec<(Marker, usize)> {
 
 /// Whether `text` holds `mto` in any case, as every directive and near miss does.
 pub fn mentions(text: &str) -> bool {
+  // `b | 0x20` is the lower case of an ASCII letter, and only `M` and `m` give `m` (`T`, `O`
+  // likewise): a test per byte the compiler can run many bytes at a time.
   text
     .as_bytes()
     .windows(3)
-    .any(|w| w.eq_ignore_ascii_case(b"mto"))
+    .any(|w| w[0] | 0x20 == b'm' && w[1] | 0x20 == b't' && w[2] | 0x20 == b'o')
 }
 
 /// The directive a line comment's text is, when it is one.

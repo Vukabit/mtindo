@@ -1629,6 +1629,25 @@ pub fn strip_semicolons(root: &SyntaxNode, nodes: &mut PassNodes, text: &str) ->
         _ => after_item = false,
       }
     }
+    // A loop's own `;` (`while x {};`), which the standard formatter drops as well
+    // (`semicolon_for_stmt`): after `if`, `match` or a block it stays, and so it does after
+    // a comment.
+    for statement in block.children_iter() {
+      if statement.kind() != K::ExprStmt {
+        continue;
+      }
+      let parts: Vec<_> = statement
+        .child_spans()
+        .filter(|(kind, _, node)| *node || *kind != K::Whitespace)
+        .collect();
+      // One with attributes is left as it is: they may be the loop's or the statement's.
+      if let [(looped, _, true), (K::Semi, semi, false)] = parts.as_slice()
+        && matches!(looped, K::WhileExpr | K::LoopExpr | K::ForExpr)
+        && !statement.subtree_has(|kind| kind == K::Attr)
+      {
+        stray.push((semi.start as usize, semi.end as usize));
+      }
+    }
   }
   if stray.is_empty() {
     return None;

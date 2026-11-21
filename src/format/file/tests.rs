@@ -294,6 +294,16 @@ fn test_a_link_with_a_line_past_the_width_fails_the_chain_not_the_link() {
   assert_eq!(formatted_with(source, &max_heuristics(100)), source);
 }
 
+/// A `;` after a loop statement goes, as the standard formatter drops it; one after an
+/// `if`, a `match` or a block stays, and so does one after a comment (diff-fuzz,
+/// 2026-11-08).
+#[test]
+fn test_a_loops_semicolon_goes_and_an_ifs_stays() {
+  let source = "fn foo() {\n    while true {};\n    loop {};\n    for x in y {};\n    if a {};\n    match a {};\n    while x {} /* c */;\n}\n";
+  let expected = "fn foo() {\n    while true {}\n    loop {}\n    for x in y {}\n    if a {};\n    match a {};\n    while x {} /* c */;\n}\n";
+  assert_eq!(formatted(source), expected);
+}
+
 /// In a braced macro call's arguments, only a `\` that continues a string moves the line
 /// after it: not one in a raw string, nor an escaped one.
 #[test]

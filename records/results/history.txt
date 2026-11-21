@@ -1137,3 +1137,27 @@ set corpus files 9358 9361 lines 2653089 2653185 skipped 6
 set corpus-unformatted files 9275 9348 lines 2774753 2776485 skipped 17
 == 2026-11-08 2dffe7a tests/fuzz_regressions
 files 203
+== 2026-11-21 f651df4 records/results/ratchet.txt
+machine macos aarch64, 10 cores
+limit speed.speedup.stable 16.52 0.15 higher
+limit speed.speedup.nightly 16.66 0.15 higher
+limit speed.mto.laid_out.mb_per_s 154.7 0.15 higher
+limit speed.mto.as_fetched.mb_per_s 152.8 0.15 higher
+limit speed.layout.one_thread.mb_per_s 78.05 0.15 higher
+limit memst.serde.allocs 1202646 0.01 lower
+limit memst.serde.bytes 360736587 0.01 lower
+limit memst.serde.peak_live 40377018 0.25 lower
+limit doctor.held.cost.x 1.082 0.25 lower
+limit doctor.narrow.n10.k1.checks 9.700 0.1 lower
+limit doctor.narrow.n100.k1.checks 13.60 0.1 lower
+limit doctor.narrow.n100.k3.checks 49.50 0.1 lower
+limit doctor.narrow.found_rate 1 0 higher
+limit io.write.batch.history.ms_per_file 0.3530 0.5 lower
+limit io.write.batch.plain.ms_per_file 0.1510 0.5 lower
+limit perf.scaling.one_thread.mb_per_s 8.916 0.15 higher
+limit perf.latency.check.median_ms 2.200 0.5 lower
+limit perf.growth.items.exponent 1.058 0.2 lower
+limit perf.growth.nesting.exponent 1.415 0.2 lower
+limit perf.growth.line.exponent 0.9650 0.2 lower
+limit perf.growth.chain.exponent 0.9640 0.2 lower
+limit perf.growth.match.exponent 1.002 0.2 lower

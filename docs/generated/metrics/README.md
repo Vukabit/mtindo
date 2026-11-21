@@ -40,8 +40,8 @@ on the machine it names).
 | standard outputs changing meaning | 21 listed |
 | answer-key disagreements | 25, 0 to triage |
 | fuzz targets, kept inputs | 8, 203 |
-| speed over stable, at least | 20.28x (macos aarch64, 10 cores) |
-| one thread, at least | 93.43 MB/s (macos aarch64, 10 cores) |
+| speed over stable, at least | 16.52x (macos aarch64, 10 cores) |
+| one thread, at least | 78.05 MB/s (macos aarch64, 10 cores) |
 <!-- end generated -->
 
 ## Papers
@@ -54,7 +54,7 @@ The headline figure of each paper:
 | [compatibility](compatibility.md) | 99.94% of scrambled-corpus lines match |
 | [meaning](meaning.md) | 21 exceptions listed, 5 not modelled yet |
 | [fuzzing](fuzzing.md) | 8 targets, 203 kept regression inputs |
-| [performance](performance.md) | 9.103 MB/s formatting on one thread |
+| [performance](performance.md) | 8.916 MB/s formatting on one thread |
 | [scrambled-pairs](scrambled-pairs.md) | no data recorded yet |
 | [compile-safety](compile-safety.md) | no data recorded yet |
 | [layout](layout.md) | no data recorded yet |

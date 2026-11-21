@@ -569,6 +569,8 @@ pub struct WriteContext<'a> {
   /// The run's committer makes the writes: [`run_file`] prepares each and leaves it in the
   /// report.
   pub committed: bool,
+  /// The starts of the files the run has read, for [`cli::modules::macro_use_modules_known`].
+  pub starts: Option<&'a cli::modules::Starts>,
 }
 
 /// What a run that writes files records and guards.
@@ -936,14 +938,8 @@ pub fn json_messages() -> bool {
 /// sorting moves those, as the macros they export are visible only after them.
 pub fn note_macro_use_modules(settings: &mut Settings, path: &Path, source: &str) {
   let found = cli::modules::macro_use_modules(path, source);
-  if found.is_empty() {
-    return;
-  }
-  if let Some(layout) = settings.layout.as_mut() {
-    layout.macro_use_modules = found.clone();
-  }
-  if let Some(format) = settings.format.as_mut() {
-    format.macro_use_modules = found;
+  if !found.is_empty() {
+    set_macro_use_modules(settings, found);
   }
 }
 
@@ -1232,9 +1228,13 @@ pub fn run_file(
     .unwrap_or_default();
   let mut with_modules;
   let mut settings = settings;
-  if cli::modules::declares_macro_use(&source) {
+  if let Some(starts) = ctx.starts {
+    starts.note(file_path, &source);
+  }
+  let found = cli::modules::macro_use_modules_known(file_path, &source, ctx.starts);
+  if !found.is_empty() {
     with_modules = settings.clone();
-    note_macro_use_modules(&mut with_modules, file_path, &source);
+    set_macro_use_modules(&mut with_modules, found);
     settings = &with_modules;
   }
   // Formatting leaves a file holding a carriage return of its own as written: said, never
@@ -1757,13 +1757,6 @@ pub fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
   })
 }
 
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
-}
-
 /// Replaces `target` atomically: a sibling temp file is written, synced and renamed over it.
 /// A symlinked target keeps its link and its pointee is replaced; permissions are kept. A
 /// read-only target is left as it is, on every system (Windows would refuse to replace it,
@@ -1775,6 +1768,13 @@ pub fn write_atomic(target: &Path, content: &str) -> Result<(), std::io::Error> 
     return Err(e);
   }
   prepared.finish()
+}
+
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
 }
 
 /// Runs `work`; a panic in it is caught and given as what it said and where (and, with
@@ -2810,6 +2810,16 @@ fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
   fs::rename(from, to)
 }
 
+/// `settings` told the modules `found` (see [`note_macro_use_modules`]).
+fn set_macro_use_modules(settings: &mut Settings, found: Vec<String>) {
+  if let Some(layout) = settings.layout.as_mut() {
+    layout.macro_use_modules = found.clone();
+  }
+  if let Some(format) = settings.format.as_mut() {
+    format.macro_use_modules = found;
+  }
+}
+
 /// The note for a file formatted with its items where they are, because layout left it.
 /// Where the first syntax error in `source` is (line and column, from 1) and what it says.
 fn syntax_error_at(source: &str, edition: syntax::Edition) -> (Option<(usize, usize)>, String) {
@@ -3046,6 +3056,7 @@ fn walking<T>(
   let history = writes.recorder.as_ref().map(|r| r.history().clone());
   // Shared by the workers, each adding a file before it replaces it.
   let recorder = writes.recorder.take().map(Mutex::new);
+  let starts = cli::modules::Starts::default();
   let ctx = WriteContext {
     history: history.as_ref(),
     recorder: recorder.as_ref(),
@@ -3054,6 +3065,7 @@ fn walking<T>(
     defer: writes.defer,
     reports: writes.reports.as_ref(),
     committed: true,
+    starts: Some(&starts),
   };
   // The writes workers prepare, made by the committer in batches ([`commit`]).
   let (to_commit, prepared) = mpsc::channel::<(usize, FileReport)>();

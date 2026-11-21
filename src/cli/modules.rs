@@ -22,6 +22,30 @@ use crate::layout::parse_any_edition;
 use crate::syntax::ast::{Item, ItemKind};
 use crate::syntax::{Edition, SyntaxKind, SyntaxNode};
 
+/// How much of a file's start [`starts_mentioning_macro_use`] reads.
+const START: usize = 4096;
+
+/// The run's files read so far, each with whether it may start with `#![macro_use]`
+/// ([`starts_mentioning_macro_use`]), by the path the run reads it by.
+#[derive(Debug, Default)]
+pub struct Starts(std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>);
+
+impl Starts {
+  /// The file at `path` was read, its text `text`.
+  pub fn note(&self, path: &Path, text: &str) {
+    let (path, mentions) = (path.to_path_buf(), mentions_macro_use(text.as_bytes()));
+    self.lock().insert(path, mentions);
+  }
+
+  fn get(&self, path: &Path) -> Option<bool> {
+    self.lock().get(path).copied()
+  }
+
+  fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<PathBuf, bool>> {
+    self.0.lock().unwrap_or_else(|e| e.into_inner())
+  }
+}
+
 /// The macros and the attributes a crate root's own `#![rustfmt::skip::macros(..)]` and
 /// `#![rustfmt::skip::attributes(..)]` name: the standard formatter leaves them as written
 /// in every file the root reaches.
@@ -56,18 +80,28 @@ pub fn crate_skips(text: &str) -> (Vec<String>, Vec<String>) {
   (macros, attributes)
 }
 
-/// Whether `file` may declare a module whose own file starts with `#![macro_use]`: it
-/// declares one without a body (`mod name;`), cheaply told from its text, so most files
-/// (`mod tests { ... }` among them) are neither parsed again nor read others.
-pub fn declares_macro_use(text: &str) -> bool {
-  !declared_names(text).is_empty()
-}
-
 /// The modules `file` (its text `text`) declares without a body whose own files start
 /// with `#![macro_use]`: their macros are visible after the declaration, as a `#[macro_use]`
 /// module's are, which nothing in `file` itself shows.
 pub fn macro_use_modules(file: &Path, text: &str) -> Vec<String> {
-  if !declares_macro_use(text) {
+  macro_use_modules_known(file, text, None)
+}
+
+/// [`macro_use_modules`], told of the files the run has already read (`starts`): a module's
+/// file read by its own worker is not opened again here.
+pub fn macro_use_modules_known(file: &Path, text: &str, starts: Option<&Starts>) -> Vec<String> {
+  // Only a module declared without a body (`mod name;`) has a file of its own, told cheaply
+  // from the text: most files (`mod tests { ... }` among them) are neither parsed again nor
+  // read others.
+  let (mut bodiless, mut inline) = (Vec::new(), Vec::new());
+  for (name, end) in mod_names(text) {
+    if end == ';' {
+      bodiless.push(name);
+    } else {
+      inline.push(name);
+    }
+  }
+  if bodiless.is_empty() {
     return Vec::new();
   }
   let parent = file.parent().unwrap_or(Path::new(""));
@@ -82,7 +116,6 @@ pub fn macro_use_modules(file: &Path, text: &str) -> Vec<String> {
   // A declaration inside an inline module (`mod a { mod b; }`) names a file under its
   // folder: one level of those is looked at too.
   if !path_attribute {
-    let inline = named_before(text, '{');
     let folders: Vec<PathBuf> = std::iter::once(owned.clone())
       .chain(inline.iter().map(|i| owned.join(i)))
       .collect();
@@ -96,7 +129,7 @@ pub fn macro_use_modules(file: &Path, text: &str) -> Vec<String> {
           .unwrap_or_default()
       })
       .collect();
-    let mentioned = declared_names(text).into_iter().any(|name| {
+    let mentioned = bodiless.into_iter().any(|name| {
       folders
         .iter()
         .zip(&listed)
@@ -110,7 +143,11 @@ pub fn macro_use_modules(file: &Path, text: &str) -> Vec<String> {
             .then(|| folder.join(name).join("mod.rs"));
           in_file.into_iter().chain(in_folder)
         })
-        .find_map(|path| starts_mentioning_macro_use(&path))
+        .find_map(|path| {
+          starts
+            .and_then(|starts| starts.get(&path))
+            .or_else(|| starts_mentioning_macro_use(&path))
+        })
         .unwrap_or(false)
     });
     if !mentioned {
@@ -319,12 +356,6 @@ fn declared(
   }
 }
 
-/// The names of the modules `text` declares without a body (`mod name;`), read from its
-/// text alone: `mod` as a word, a name, then `;`.
-fn declared_names(text: &str) -> Vec<&str> {
-  named_before(text, ';')
-}
-
 /// The header of the file at `path` (see [`crate::syntax::marker::header_end`]), where an
 /// inner `#![macro_use]` stands: read only as far as it goes, most often a few lines.
 fn header_of(path: &Path) -> Option<String> {
@@ -358,27 +389,33 @@ fn is_cfg_if(call: &SyntaxNode) -> bool {
     })
 }
 
-/// The names `mod` (as a word) is followed by in `text`, each then followed by `end`.
-fn named_before(text: &str, end_with: char) -> Vec<&str> {
+/// Whether `bytes`, a file, may start with an inner `#![macro_use]`: an inner attribute and
+/// `macro_use` in its first [`START`] bytes, read without parsing.
+fn mentions_macro_use(bytes: &[u8]) -> bool {
+  let text = String::from_utf8_lossy(&bytes[..bytes.len().min(START)]);
+  text.contains("#![") && text.contains("macro_use")
+}
+
+/// The modules `text` names after `mod` (as a word), read from its text alone, each with
+/// what follows the name: `;` for one declared without a body, `{` for an inline one.
+fn mod_names(text: &str) -> impl Iterator<Item = (&str, char)> {
   let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
-  text
-    .match_indices("mod")
-    .filter_map(|(at, _)| {
-      if at > 0 && word(text.as_bytes()[at - 1]) {
-        return None;
-      }
-      let rest = &text[at + 3..];
-      let name = rest.trim_start();
-      if name.len() == rest.len() {
-        return None;
-      }
-      let name = name.strip_prefix("r#").unwrap_or(name);
-      let end = name
-        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .unwrap_or(name.len());
-      (end > 0 && name[end..].trim_start().starts_with(end_with)).then(|| &name[..end])
-    })
-    .collect()
+  text.match_indices("mod").filter_map(move |(at, _)| {
+    if at > 0 && word(text.as_bytes()[at - 1]) {
+      return None;
+    }
+    let rest = &text[at + 3..];
+    let name = rest.trim_start();
+    if name.len() == rest.len() {
+      return None;
+    }
+    let name = name.strip_prefix("r#").unwrap_or(name);
+    let end = name
+      .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+      .unwrap_or(name.len());
+    let after = name[end..].trim_start().chars().next()?;
+    (end > 0 && (after == ';' || after == '{')).then(|| (&name[..end], after))
+  })
 }
 
 /// The folder a module file owns: its own for `mod.rs`, otherwise one named after it.
@@ -405,14 +442,13 @@ fn path_attr(item: &Item) -> Option<String> {
 }
 
 /// Whether the start of the file at `path` may hold an inner `#![macro_use]` (or one in a
-/// `#![cfg_attr(...)]`): an inner attribute and `macro_use`, read without parsing. `None`
-/// when there is no such file.
+/// `#![cfg_attr(...)]`). `None` when there is no such file.
 fn starts_mentioning_macro_use(path: &Path) -> Option<bool> {
   use std::io::Read;
   let file = fs::File::open(path).ok()?;
-  let mut bytes = Vec::with_capacity(4096);
-  file.take(4096).read_to_end(&mut bytes).ok()?;
-  Some(bytes.windows(3).any(|w| w == b"#![") && bytes.windows(9).any(|w| w == b"macro_use"))
+  let mut bytes = Vec::with_capacity(START);
+  file.take(START as u64).read_to_end(&mut bytes).ok()?;
+  Some(mentions_macro_use(&bytes))
 }
 
 #[cfg(test)]
@@ -444,7 +480,6 @@ mod tests {
     assert_eq!(found("mod inline {\n    mod c;\n}\n"), ["c"]);
     assert_eq!(found("#[path = \"elsewhere/d.rs\"]\nmod d;\n"), ["d"]);
     assert!(found("mod plain;\n").is_empty());
-    assert!(!declares_macro_use("mod tests {\n    use super::*;\n}\n"));
     assert!(found("mod tests {\n    use super::*;\n}\n").is_empty());
     let _ = fs::remove_dir_all(&dir);
   }

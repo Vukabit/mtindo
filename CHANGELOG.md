@@ -47,6 +47,8 @@ from the draft `cargo xtask changelog --preview` makes of the commits.
 - `// mto: first` and `// mto: last` put an item at the top or bottom of
   its section, and `// mto: hold` keeps an item and its neighbours as
   written
+- A misspelled directive (`// mto: pinn`) gets a warning instead of doing
+  nothing
 - `mto config derive` finds the layout settings that keep the most of an
   existing project where it is, and `--write` saves them
 
@@ -85,7 +87,8 @@ from the draft `cargo xtask changelog --preview` makes of the commits.
 - `// mto: hold` and `mto doctor keep` keep edits the guard held back, and
   stdin formatting keeps them too
 - A bug report says what kind of machine it came from (the system, whether
-  file names fold case, threads, git), and nothing that names you or it
+  file names fold case, threads, git), and nothing that names you or it;
+  its settings are listed one per line, with no paths
 
 ### Performance
 

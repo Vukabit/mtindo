@@ -52,8 +52,10 @@ it does not name; mto applies their defaults. `mto config update` adds each
 one the file does not set, at its default and with its one-line comment,
 where `mto init` puts it, so nothing a run does changes; what the file holds,
 values and comments alike, stays as it is. `mto config reset` writes the file
-as `mto init` writes it. Both list what they change, `--dry-run` writes
-nothing, and history keeps the file as it was, so `mto restore` undoes either.
+as `mto init` writes it, naming the settings and tables it takes out (the
+standard formatter's settings, `[doctor]`). Both list what they change,
+`--dry-run` writes nothing, and history keeps the file as it was, so
+`mto restore` undoes either.
 
 ```bash
 mto config update --dry-run  # the settings it would add

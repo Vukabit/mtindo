@@ -19,6 +19,9 @@ pub struct Rewritten {
   pub after: String,
   /// The settings added (update), or whose value changes (reset), as `name = value`.
   pub lines: Vec<String>,
+  /// What a reset takes out, as `mto init` does not write it: other settings, as
+  /// `name = value`, and tables, as `[name]`.
+  pub removed: Vec<String>,
 }
 
 /// The mto.toml in `dir`: `mto.toml`, else `.mto.toml`.
@@ -46,11 +49,19 @@ pub fn reset(dir: &Path) -> Result<Rewritten, (String, i32)> {
       (was != Some(value)).then(|| format!("{} = {}", setting.name, value))
     })
     .collect();
+  let written = top_level(&after);
+  let mut removed: Vec<String> = set
+    .iter()
+    .filter(|(name, _)| !written.iter().any(|(kept, _)| kept == name))
+    .map(|(name, value)| format!("{} = {}", name, value))
+    .collect();
+  removed.extend(tables(&before));
   Ok(Rewritten {
     path,
     before,
     after,
     lines,
+    removed,
   })
 }
 
@@ -95,6 +106,7 @@ pub fn update(dir: &Path) -> Result<Rewritten, (String, i32)> {
     before,
     after,
     lines: added,
+    removed: Vec::new(),
   })
 }
 
@@ -210,6 +222,23 @@ fn read(dir: &Path) -> Result<(PathBuf, String), (String, i32)> {
   let text = std::fs::read_to_string(&path)
     .map_err(|e| (format!("cannot read {}: {}", path.display(), e), 3))?;
   Ok((path, text))
+}
+
+/// The tables `text` holds, as their headers are written (`[doctor]`).
+fn tables(text: &str) -> Vec<String> {
+  let lines: Vec<&str> = text.lines().collect();
+  let mut found = Vec::new();
+  let mut at = 0;
+  while at < lines.len() {
+    let trimmed = lines[at].trim();
+    if trimmed.starts_with('[') {
+      found.push(trimmed.split('#').next().unwrap_or("").trim().to_string());
+      at += 1;
+    } else {
+      at = value_end(&lines, at) + 1;
+    }
+  }
+  found
 }
 
 #[cfg(test)]

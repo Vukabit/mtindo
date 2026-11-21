@@ -1164,6 +1164,19 @@ fn test_cli_config_update_adds_defaults_and_reset_starts_over() {
   assert_eq!(env.read_file("mto.toml"), mtindo::init_template());
   assert_eq!(mto(&env, &["restore", "last"]).0, 0);
   assert_eq!(env.read_file("mto.toml"), updated);
+  // What `mto init` does not write is named as it goes: a formatting setting, a table.
+  env.write_file(
+    "mto.toml",
+    "layout = true\nmax_width = 90\n\n[doctor]\ntimeout = 5\n",
+  );
+  let (_, out, _) = mto(&env, &["config", "reset", "--dry-run"]);
+  assert!(
+    out.ends_with(
+      "would take out, as `mto init` does not write them:\n  max_width = 90\n  [doctor]\n"
+    ),
+    "{}",
+    out
+  );
   env.create_dir("none");
   assert_eq!(mto(&env, &["config", "update", "none"]).0, 2);
 }

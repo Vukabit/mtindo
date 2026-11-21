@@ -2109,8 +2109,17 @@ fn run_config(view: ConfigView, dir: &std::path::Path, overrides: &Overrides, js
     for line in &done.lines {
       outln!("  {}", line);
     }
-    if done.lines.is_empty() {
+    if done.lines.is_empty() && done.removed.is_empty() {
       outln!("  (no value changes: its comments and order become `mto init`'s)");
+    }
+    if !done.removed.is_empty() {
+      outln!(
+        "{} out, as `mto init` does not write them:",
+        if dry_run { "would take" } else { "taken" }
+      );
+      for line in &done.removed {
+        outln!("  {}", line);
+      }
     }
     if dry_run {
       return 0;

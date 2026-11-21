@@ -5,6 +5,6 @@ publish = false
 edition = "2024"
 
 [dependencies]
-ra-ap-rustc_lexer = "=0.176.0"
+ra-ap-rustc_lexer = "=0.185.0"
 mtindo = { path = "../.." }
 xtask-core = { path = "../core" }

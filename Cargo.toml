@@ -4,7 +4,7 @@ exclude = ["fuzz"]
 
 [package]
 name = "mtindo"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Formats Rust files as the standard formatter writes them, and lays out their items on request: std only, every write checked"

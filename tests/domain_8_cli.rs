@@ -1406,6 +1406,29 @@ fn test_cli_diff_shows_what_a_run_changes_whole_or_as_a_summary() {
   }
 }
 
+/// Narrowing down a run with a check that already fails writes nothing, as it says: the
+/// files keep what the run wrote, not what they held before it.
+#[test]
+fn test_cli_doctor_a_run_it_cannot_check_is_left_as_written() {
+  let env = TestEnvironment::new();
+  env.write_file(
+    ".home/.config/mtindo/config.toml",
+    "[history]\nkeep_runs = 50\n",
+  );
+  env.write_file("src/lib.rs", "fn  a() {}\n");
+  env.write_file("doctor-check", "always");
+  let (code, _, stderr) = mto(&env, &["."]);
+  assert_eq!(code, 0, "{}", stderr);
+  assert_eq!(env.read_file("src/lib.rs"), "fn a() {}\n");
+  let words = check_words();
+  let mut narrow = vec!["doctor", "last", "--"];
+  narrow.extend(words.iter().map(String::as_str));
+  let (code, _, stderr) = mto(&env, &narrow);
+  assert_eq!(code, 6, "{}", stderr);
+  assert!(stderr.contains("nothing was written"), "{}", stderr);
+  assert_eq!(env.read_file("src/lib.rs"), "fn a() {}\n");
+}
+
 /// The guard builds the project the run writes in, with that project's command, wherever
 /// the run starts; paths in two projects are not guarded by one build (bug hunt,
 /// 2026-11-04).

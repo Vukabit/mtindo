@@ -2867,6 +2867,12 @@ fn run_doctor_run(
     guard.check.line()
   );
   let before = guard.check.run();
+  // What the run wrote, to put back if the check cannot guard it: a check that already
+  // fails writes nothing, so the files must end as they began.
+  let written: Vec<(PathBuf, String, String)> = planned
+    .iter()
+    .map(|f| (f.path.clone(), f.source.clone(), f.text.clone()))
+    .collect();
   let mut holds = holds;
   let ended = guard::finish(
     &guard,
@@ -2876,6 +2882,13 @@ fn run_doctor_run(
     &mut holds,
     &record.command,
   );
+  if ended == Ended::CannotGuard {
+    for (path, source, text) in &written {
+      if let Err(e) = guard::write(path, source, text, &mut recorder) {
+        errln!("{}error: {}{}", c_red(), e, c_reset(true));
+      }
+    }
+  }
   if let Some(recorder) = recorder.as_mut() {
     history::finish_record(recorder, history_settings.limits, false);
   }

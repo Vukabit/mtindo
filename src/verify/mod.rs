@@ -24,7 +24,7 @@ pub mod format;
 pub mod report;
 pub mod rewrites;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::syntax::ast::{Attr, Item, ItemKind};
 use crate::syntax::{Edition, SyntaxElement, SyntaxKind, SyntaxNode, parse_cached};
@@ -296,7 +296,13 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
       ),
     );
   }
-  let moved = moved_above_definitions(&old.sequence, &new.sequence);
+  // Where each item went, read once for both checks of macro definitions.
+  let now = if old.sequence.iter().any(|(_, _, defines)| *defines) {
+    new_positions(&old.sequence, &new.sequence)
+  } else {
+    Vec::new()
+  };
+  let moved = moved_above_definitions(&old.sequence, &now);
   if !moved.is_empty() {
     add(
       Rule::MacroUserMoved,
@@ -307,7 +313,7 @@ pub fn verify_layout(input: &str, output: &str, edition: Edition) -> Vec<Violati
       ),
     );
   }
-  let below = moved_below_definitions(&old.sequence, &new.sequence);
+  let below = moved_below_definitions(&old.sequence, &now);
   if !below.is_empty() {
     add(
       Rule::MacroUserMoved,
@@ -563,40 +569,21 @@ fn module_body(node: &SyntaxNode) -> Option<SyntaxNode> {
 }
 
 /// The items that came after a macro-defining item in the input and come before it in the
-/// output, scope by scope. Items are known by their core text, numbered when it repeats.
-fn moved_above_definitions(
-  old: &[(String, String, bool)],
-  new: &[(String, String, bool)],
-) -> Vec<String> {
-  // Each item as (scope, text, occurrence), with whether it defines macros.
-  fn numbered(sequence: &[(String, String, bool)]) -> Vec<((&str, &str, usize), bool)> {
-    let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
-    sequence
-      .iter()
-      .map(|(scope, text, definer)| {
-        let n = seen.entry((scope.as_str(), text.as_str())).or_default();
-        *n += 1;
-        ((scope.as_str(), text.as_str(), *n), *definer)
-      })
-      .collect()
-  }
+/// output (`now`, from [`new_positions`]), scope by scope.
+fn moved_above_definitions(old: &[(String, String, bool)], now: &[Option<usize>]) -> Vec<String> {
   // Only an item that defines macros can have one moved above it.
   if !old.iter().any(|(_, _, defines)| *defines) {
     return Vec::new();
   }
-  let (old, new) = (numbered(old), numbered(new));
-  let position: HashMap<_, usize> = new.iter().enumerate().map(|(i, (k, _))| (*k, i)).collect();
   let mut moved = Vec::new();
-  for (i, (definer, defines)) in old.iter().enumerate() {
-    let Some(&at) = position.get(definer).filter(|_| *defines) else {
+  let mut named = HashSet::new();
+  for (i, (scope, _, defines)) in old.iter().enumerate() {
+    let Some(at) = now[i].filter(|_| *defines) else {
       continue;
     };
-    for (later, _) in &old[i + 1..] {
-      if later.0 == definer.0
-        && position.get(later).is_some_and(|&p| p < at)
-        && !moved.contains(&later.1.to_string())
-      {
-        moved.push(later.1.to_string());
+    for (later, (later_scope, text, _)) in old.iter().enumerate().skip(i + 1) {
+      if later_scope == scope && now[later].is_some_and(|p| p < at) && named.insert(text.as_str()) {
+        moved.push(text.clone());
       }
     }
   }
@@ -604,60 +591,70 @@ fn moved_above_definitions(
 }
 
 /// The items that came before a macro-defining item in the input, come after it in the
-/// output, and call a macro it may define: their calls would reach that definition instead
+/// output (`now`, from [`new_positions`]), and call a macro it may define: their calls would reach that definition instead
 /// (a `macro_rules! vec` shadowing std's). A definer whose names cannot be read (a
 /// `#[macro_use] mod name;`) may define any macro.
-fn moved_below_definitions(
-  old: &[(String, String, bool)],
-  new: &[(String, String, bool)],
-) -> Vec<String> {
+fn moved_below_definitions(old: &[(String, String, bool)], now: &[Option<usize>]) -> Vec<String> {
   if !old.iter().any(|(_, _, defines)| *defines) {
     return Vec::new();
   }
-  fn numbered(sequence: &[(String, String, bool)]) -> Vec<(&str, &str, usize, bool)> {
-    let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
-    sequence
-      .iter()
-      .map(|(scope, text, definer)| {
-        let n = seen.entry((scope.as_str(), text.as_str())).or_default();
-        *n += 1;
-        (scope.as_str(), text.as_str(), *n, *definer)
-      })
-      .collect()
-  }
-  let (old, new) = (numbered(old), numbered(new));
-  let position: HashMap<(&str, &str, usize), usize> = new
-    .iter()
-    .enumerate()
-    .map(|(i, &(scope, text, n, _))| ((scope, text, n), i))
-    .collect();
-  let at = |item: &(&str, &str, usize, bool)| position.get(&(item.0, item.1, item.2)).copied();
-  let mut moved: Vec<String> = Vec::new();
-  for (i, definer) in old.iter().enumerate() {
-    let Some(definer_at) = at(definer).filter(|_| definer.3) else {
+  // What each item calls, read once, and only for one moved past a definition.
+  let mut calls: Vec<Option<Vec<String>>> = vec![None; old.len()];
+  let mut moved = Vec::new();
+  let mut named = HashSet::new();
+  for (i, (scope, definer, defines)) in old.iter().enumerate() {
+    let Some(definer_at) = now[i].filter(|_| *defines) else {
       continue;
     };
     let mut names = None;
-    for earlier in &old[..i] {
-      // What it calls is read only for one in the definition's scope moved past it.
-      if earlier.0 != definer.0
-        || !at(earlier).is_some_and(|p| p > definer_at)
-        || moved.iter().any(|m| m == earlier.1)
+    for (earlier, (earlier_scope, text, _)) in old[..i].iter().enumerate() {
+      if earlier_scope != scope
+        || !now[earlier].is_some_and(|p| p > definer_at)
+        || named.contains(text.as_str())
       {
         continue;
       }
-      let names = names.get_or_insert_with(|| macros_defined(definer.1));
-      let calls = macros_called(earlier.1);
+      let names = names.get_or_insert_with(|| macros_defined(definer));
+      let calls = calls[earlier].get_or_insert_with(|| macros_called(text));
       let reaches = match names {
         Some(names) => calls.iter().any(|c| names.contains(c)),
         None => !calls.is_empty(),
       };
       if reaches {
-        moved.push(earlier.1.to_string());
+        named.insert(text.as_str());
+        moved.push(text.clone());
       }
     }
   }
   moved
+}
+
+/// Where each item of `old` is in `new`, if it is there: items are known by their scope and
+/// core text, numbered when that repeats.
+fn new_positions(
+  old: &[(String, String, bool)],
+  new: &[(String, String, bool)],
+) -> Vec<Option<usize>> {
+  fn numbered(sequence: &[(String, String, bool)]) -> Vec<(&str, &str, usize)> {
+    let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
+    sequence
+      .iter()
+      .map(|(scope, text, _)| {
+        let n = seen.entry((scope.as_str(), text.as_str())).or_default();
+        *n += 1;
+        (scope.as_str(), text.as_str(), *n)
+      })
+      .collect()
+  }
+  let position: HashMap<(&str, &str, usize), usize> = numbered(new)
+    .into_iter()
+    .enumerate()
+    .map(|(i, key)| (key, i))
+    .collect();
+  numbered(old)
+    .iter()
+    .map(|key| position.get(key).copied())
+    .collect()
 }
 
 /// The parts of a file. Line endings are compared by their own rule, so here every

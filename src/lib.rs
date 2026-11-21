@@ -215,12 +215,10 @@ impl Counts {
     }
   }
 
-  /// With the lines that turn `old` into `new`.
-  fn changed(self, old: &str, new: &str) -> Counts {
-    let a: Vec<&str> = old.split('\n').collect();
-    let b: Vec<&str> = new.split('\n').collect();
+  /// With the lines `diff` puts in and takes out.
+  fn changed(self, diff: &LineDiff) -> Counts {
     let (mut inserted, mut removed) = (0, 0);
-    for op in diff_ops(&a, &b) {
+    for op in &diff.ops {
       match op {
         DiffOp::Equal => {}
         DiffOp::Delete(_) => removed += 1,
@@ -327,6 +325,24 @@ impl FileReport {
   fn with(mut self, outcome: Outcome) -> FileReport {
     self.outcome = outcome;
     self
+  }
+}
+
+/// The line diff from `old` to `new`, made once per changed file and read by its counts,
+/// its `--check` diff and its `--emit json` entry alike. Lines are split as the standard
+/// formatter's diff splits them, so a final line break leaves an empty last line.
+struct LineDiff<'a> {
+  a: Vec<&'a str>,
+  b: Vec<&'a str>,
+  ops: Vec<DiffOp>,
+}
+
+impl<'a> LineDiff<'a> {
+  fn new(old: &'a str, new: &'a str) -> LineDiff<'a> {
+    let a: Vec<&str> = old.split('\n').collect();
+    let b: Vec<&str> = new.split('\n').collect();
+    let ops = diff_ops(&a, &b);
+    LineDiff { a, b, ops }
   }
 }
 
@@ -610,33 +626,7 @@ pub fn c_yellow(is_err: bool) -> &'static str {
 /// FILE:LINE:` for each changed region, then its lines, with three lines of context.
 /// `verbose` marks line ends with `⏎`, as the standard formatter's `-v` does.
 pub fn check_diff(old: &str, new: &str, label: &str, verbose: bool) -> String {
-  use std::fmt::Write as _;
-  let end = if verbose { "⏎" } else { "" };
-  let (green, reset) = (c_green(), c_reset(false));
-  let red = if color_enabled(false) {
-    "\x1b[1;31m"
-  } else {
-    ""
-  };
-  let mut out = String::new();
-  for mismatch in mismatches(old, new, 3) {
-    let _ = writeln!(out, "Diff in {}:{}:", label, mismatch.line_number_orig);
-    for line in mismatch.lines {
-      // Context lines take no colour, so no reset either.
-      let (start, sign, text, stop) = match line {
-        MismatchLine::Context(text) => ("", ' ', text, ""),
-        MismatchLine::Expected(text) => (green, '+', text, reset),
-        MismatchLine::Resulting(text) => (red, '-', text, reset),
-      };
-      out.push_str(start);
-      out.push(sign);
-      out.push_str(text);
-      out.push_str(end);
-      out.push_str(stop);
-      out.push('\n');
-    }
-  }
-  out
+  diff_text(&LineDiff::new(old, new), label, verbose)
 }
 
 /// The files to lay out for `paths`, in order, each once: a folder is walked; a file brings
@@ -1127,16 +1117,17 @@ pub fn process_stdin(
     report.say("error", "bug", None, &bug.title());
     return Ok(unchanged(report, Outcome::VerifierFailed));
   }
-  report.counts = report.counts.changed(&source, &reorganized);
+  let diff = LineDiff::new(&source, &reorganized);
+  report.counts = report.counts.changed(&diff);
   if opts.emit == Emit::Json {
-    report.json = Some(json_report(&shown, &source, &reorganized));
+    report.json = Some(json_report(&shown, &diff));
   } else if opts.check {
     if opts.files_with_diff {
       report.stdout.push_str(&format!("{}\n", shown));
     } else if opts.diff != Some(DiffView::Stat) {
       report
         .stdout
-        .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose));
+        .push_str(&diff_text(&diff, &shown, opts.verbose));
     }
   } else {
     report.stdout.push_str(&code(&reorganized, edition));
@@ -1379,14 +1370,15 @@ pub fn run_file(
     report.say("error", "bug", None, &bug.title());
     return report.with(Outcome::VerifierFailed);
   }
-  report.counts = report.counts.changed(&source, &reorganized);
+  let diff = LineDiff::new(&source, &reorganized);
+  report.counts = report.counts.changed(&diff);
   match opts.emit {
     Emit::Stdout => {
       emit_stdout(&mut report, &shown, &reorganized, opts, edition);
       return report.with(Outcome::Changed);
     }
     Emit::Json => {
-      report.json = Some(json_report(&shown, &source, &reorganized));
+      report.json = Some(json_report(&shown, &diff));
       return report.with(Outcome::Changed);
     }
     Emit::Files => {}
@@ -1397,17 +1389,15 @@ pub fn run_file(
     } else if opts.diff != Some(DiffView::Stat) {
       report
         .stdout
-        .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose));
+        .push_str(&diff_text(&diff, &shown, opts.verbose));
     }
     return report.with(Outcome::Changed);
   }
   if opts.dry_run {
     match opts.diff {
-      Some(DiffView::Full) => {
-        report
-          .stdout
-          .push_str(&check_diff(&source, &reorganized, &shown, opts.verbose))
-      }
+      Some(DiffView::Full) => report
+        .stdout
+        .push_str(&diff_text(&diff, &shown, opts.verbose)),
       Some(DiffView::Stat) => {}
       None => report.stdout.push_str(&format!(
         "{}[DRY RUN]{} Would format: {}\n",
@@ -1419,7 +1409,7 @@ pub fn run_file(
     return report.with(Outcome::Changed);
   }
   if opts.diff == Some(DiffView::Full) {
-    report.diff = Some(check_diff(&source, &reorganized, &shown, opts.verbose));
+    report.diff = Some(diff_text(&diff, &shown, opts.verbose));
   }
   if let Some(dirty) = ctx.dirty {
     let real = real_path(file_path).unwrap_or_else(|_| file_path.to_path_buf());
@@ -1751,13 +1741,6 @@ pub fn walk_directory(
   )
 }
 
-thread_local! {
-  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
-  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
-  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
-    const { std::cell::RefCell::new(None) };
-}
-
 /// Runs `work` on a thread of its own with the stack [`STACK`], and gives what it returns.
 /// A panic in `work` goes on in the caller.
 pub fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
@@ -1770,6 +1753,13 @@ pub fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
       .join()
       .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
   })
+}
+
+thread_local! {
+  /// Set while [`quietly`] runs: a panic is kept here instead of printed, with its
+  /// backtrace when one is asked for (taking one costs: only the first failure needs it).
+  static QUIET: std::cell::RefCell<Option<(String, Option<String>, bool)>> =
+    const { std::cell::RefCell::new(None) };
 }
 
 /// Replaces `target` atomically: a sibling temp file is written, synced and renamed over it.
@@ -2368,6 +2358,37 @@ fn diff_range(
   ops.extend((0..suffix).map(|_| DiffOp::Equal));
 }
 
+/// [`check_diff`] of a diff already made.
+fn diff_text(diff: &LineDiff, label: &str, verbose: bool) -> String {
+  use std::fmt::Write as _;
+  let end = if verbose { "⏎" } else { "" };
+  let (green, reset) = (c_green(), c_reset(false));
+  let red = if color_enabled(false) {
+    "\x1b[1;31m"
+  } else {
+    ""
+  };
+  let mut out = String::new();
+  for mismatch in mismatches(diff, 3) {
+    let _ = writeln!(out, "Diff in {}:{}:", label, mismatch.line_number_orig);
+    for line in mismatch.lines {
+      // Context lines take no colour, so no reset either.
+      let (start, sign, text, stop) = match line {
+        MismatchLine::Context(text) => ("", ' ', text, ""),
+        MismatchLine::Expected(text) => (green, '+', text, reset),
+        MismatchLine::Resulting(text) => (red, '-', text, reset),
+      };
+      out.push_str(start);
+      out.push(sign);
+      out.push_str(text);
+      out.push_str(end);
+      out.push_str(stop);
+      out.push('\n');
+    }
+  }
+  out
+}
+
 /// The warnings for a file's directives, as printed.
 fn directive_notes(shown: &str, problems: &[(usize, String)]) -> String {
   problems
@@ -2454,9 +2475,9 @@ fn items(n: usize) -> String {
 
 /// A file's entry in `--emit json`, as the standard formatter writes it: its name and each
 /// changed block, with line ranges in the original and the new text.
-fn json_report(name: &str, old: &str, new: &str) -> String {
+fn json_report(name: &str, diff: &LineDiff) -> String {
   let mut blocks = Vec::new();
-  for mismatch in mismatches(old, new, 0) {
+  for mismatch in mismatches(diff, 0) {
     let (original_begin, expected_begin) = (mismatch.line_number_orig, mismatch.line_number);
     let (mut original_end, mut expected_end) = (original_begin, expected_begin);
     let (mut original_count, mut expected_count) = (0, 0);
@@ -2524,12 +2545,10 @@ fn layout_minimal(text: &str, edition: syntax::Edition, config: &LayoutConfig) -
   verify::report::minimize(text, edition, &fails)
 }
 
-/// The changed regions between `old` and `new` with `context` lines around each: a port of
-/// The standard formatter's diff regions, over mto's own line diff. Lines are split as its
-/// diff splits them, so a final line break leaves an empty last line.
-fn mismatches<'a>(old: &'a str, new: &'a str, context: usize) -> Vec<Mismatch<'a>> {
-  let a: Vec<&str> = old.split('\n').collect();
-  let b: Vec<&str> = new.split('\n').collect();
+/// The changed regions of `diff` with `context` lines around each: a port of the standard
+/// formatter's diff regions, over mto's own line diff.
+fn mismatches<'a>(diff: &LineDiff<'a>, context: usize) -> Vec<Mismatch<'a>> {
+  let (a, b) = (&diff.a, &diff.b);
   let (mut line_number, mut line_number_orig) = (1u32, 1u32);
   let mut queue: std::collections::VecDeque<&str> = std::collections::VecDeque::new();
   let mut since = context + 1;
@@ -2540,8 +2559,8 @@ fn mismatches<'a>(old: &'a str, new: &'a str, context: usize) -> Vec<Mismatch<'a
     lines: Vec::new(),
   };
   let (mut i, mut j) = (0usize, 0usize);
-  for op in diff_ops(&a, &b) {
-    let change = match op {
+  for op in &diff.ops {
+    let change = match *op {
       DiffOp::Equal => None,
       DiffOp::Delete(at) => Some(MismatchLine::Resulting(a[at])),
       DiffOp::Insert(at) => Some(MismatchLine::Expected(b[at])),
@@ -3149,7 +3168,7 @@ mod tests {
 
   /// (line_number, line_number_orig, lines as " x", "-x", "+x").
   fn shape(old: &str, new: &str, context: usize) -> Vec<(u32, u32, Vec<String>)> {
-    mismatches(old, new, context)
+    mismatches(&LineDiff::new(old, new), context)
       .into_iter()
       .map(|m| {
         let lines = m

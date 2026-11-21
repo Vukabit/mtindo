@@ -173,6 +173,11 @@ fn test_near_misses_are_reported() {
     "fn a() {} // mto: off\n",
     "/* mto: off */\nfn a() {}\n",
     "/// mto: pin\nfn a() {}\n",
+    // Typos after `mto:`: a letter off a short word, two off a longer one.
+    "// mto: pinn\nfn a() {}\n",
+    "// mto: lst -- why\nfn a() {}\n",
+    "// mto: ignor\nfn a() {}\n",
+    "// mto: sectoin\nfn a() {}\n",
   ] {
     let found = directives(text);
     assert!(
@@ -187,6 +192,8 @@ fn test_near_misses_are_reported() {
     "// an `// mto: off` region is kept\nfn a() {}\n",
     "// mtools on the side\nfn a() {}\n",
     "fn a() { let s = \"// mto: off\"; }\n",
+    "// mto: no idea why\nfn a() {}\n",
+    "// mto pinned this once\nfn a() {}\n",
   ] {
     let found = directives(text);
     assert!(

@@ -2519,15 +2519,16 @@ fn test_cli_pins_lists_the_exceptions_and_asks_for_reasons() {
   );
   env.write_file(
     "a.rs",
-    "// mto: pin\nfn a() {}\n\n// mto: hold -- E0433 when moved\nfn b() {}\n\n#[rustfmt::skip]\nfn c() {}\n",
+    "// mto: pin\nfn a() {}\n\n// mto: hold -- E0433 when moved\nfn b() {}\n\n#[rustfmt::skip]\nfn c() {}\n\n// mto: last\nfn z() {}\n",
   );
   let (code, out, _) = mto(&env, &["pins"]);
   assert_eq!(code, 0);
   assert!(out.contains("a.rs:1  pin  (no reason given)"), "{}", out);
   assert!(out.contains("a.rs:4  hold  E0433 when moved"), "{}", out);
   assert!(out.contains("a.rs:7  rustfmt::skip"), "{}", out);
+  assert!(out.contains("a.rs:10  last  (no reason given)"), "{}", out);
   assert!(
-    out.contains("3 exception(s), 2 without a reason"),
+    out.contains("4 exception(s), 3 without a reason"),
     "{}",
     out
   );
@@ -2541,6 +2542,7 @@ fn test_cli_pins_lists_the_exceptions_and_asks_for_reasons() {
   let (code, _, said) = mto(&env, &["--no-history", "--unguarded", "--check", "a.rs"]);
   assert_eq!(code, 0, "{}", said);
   assert!(said.contains("`// mto: pin` gives no reason"), "{}", said);
+  assert!(said.contains("`// mto: last` gives no reason"), "{}", said);
   let (code, _, said) = mto(
     &env,
     &["--no-history", "--unguarded", "--check", "--strict", "a.rs"],

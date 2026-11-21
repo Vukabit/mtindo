@@ -71,6 +71,9 @@ pub struct Directives {
   pub holds: Vec<usize>,
   /// Where each `// mto: off` stands.
   pub offs: Vec<usize>,
+  /// Where each `// mto: first`, `last` or `section` stands, with its word: layout reads
+  /// them itself, and they are listed and asked for a reason like the rest.
+  pub placed: Vec<(usize, &'static str)>,
   /// The file's `// mto: ignore`, in its header, and where it stands.
   pub ignore: Option<(Ignore, usize)>,
   /// Each problem, at the byte offset of the comment it is about.
@@ -82,8 +85,8 @@ pub struct Directives {
 pub struct Exception {
   /// Where it stands in the text.
   pub at: usize,
-  /// `pin`, `hold`, `off`, `ignore` (or `ignore=layout`, `ignore=format`) or
-  /// `rustfmt::skip`.
+  /// `pin`, `hold`, `off`, `first`, `last`, `section`, `ignore` (or `ignore=layout`,
+  /// `ignore=format`) or `rustfmt::skip`.
   pub kind: &'static str,
   pub reason: Option<String>,
 }
@@ -119,6 +122,11 @@ pub fn exceptions(root: &SyntaxNode, text: &str) -> Vec<Exception> {
     })
   })
   .collect();
+  all.extend(found.placed.iter().map(|&(at, kind)| Exception {
+    at,
+    kind,
+    reason: reason(line_at(at)).map(str::to_string),
+  }));
   if let Some((ignore, at)) = found.ignore {
     all.push(Exception {
       at,
@@ -311,7 +319,9 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
     match (marker, here) {
       (Marker::Pin, _) => found.pins.push(start),
       (Marker::Hold, _) => found.holds.push(start),
-      (Marker::Section | Marker::First | Marker::Last, _) => {}
+      (Marker::Section, _) => found.placed.push((start, "section")),
+      (Marker::First, _) => found.placed.push((start, "first")),
+      (Marker::Last, _) => found.placed.push((start, "last")),
       (Marker::Ignore(_), _) if found.ignore.is_some_and(|(_, at)| at == start) => {}
       (Marker::Ignore(ignore), _) => found.warnings.push((
         start,
@@ -362,24 +372,57 @@ pub fn scan(root: &SyntaxNode, text: &str) -> Directives {
 
 /// The directive a comment's text seems meant as, written loosely: `mto` in any case, an
 /// optional colon, then `off` (or `of`), `on`, `pin`, `section`, `hold`, `first`, `last` or
-/// `ignore`, as a word of its own.
+/// `ignore`, as a word of its own; after `mto:`, also a word a letter or two off one
+/// (`pinn`, `lst`), as a typo would be.
 fn directive_word(body: &str) -> Option<&'static str> {
+  const WORDS: [&str; 8] = [
+    "off", "on", "pin", "section", "hold", "first", "last", "ignore",
+  ];
   // Asked of every comment, so nothing is copied: the words are ASCII.
   let rest = body
     .get(..3)
     .filter(|start| start.eq_ignore_ascii_case("mto"))
     .map(|_| &body[3..])?;
+  let colon = rest.starts_with(':');
   let rest = rest.strip_prefix(':').unwrap_or(rest).trim_start();
   let end = rest
     .find(|c: char| !c.is_ascii_alphanumeric())
     .unwrap_or(rest.len());
   let word = &rest[..end];
-  [
-    "off", "of", "on", "pin", "section", "hold", "first", "last", "ignore",
-  ]
-  .into_iter()
-  .find(|w| word.eq_ignore_ascii_case(w))
-  .map(|w| if w == "of" { "off" } else { w })
+  if word.eq_ignore_ascii_case("of") {
+    return Some("off");
+  }
+  if let Some(found) = WORDS.into_iter().find(|w| word.eq_ignore_ascii_case(w)) {
+    return Some(found);
+  }
+  // A typo, only where the colon says a directive was meant: a short word may be one
+  // letter off, a longer one two.
+  let most = if word.len() >= 5 { 2 } else { 1 };
+  WORDS
+    .into_iter()
+    .filter(|_| colon && !word.is_empty())
+    .map(|w| (edits(&word.to_ascii_lowercase(), w), w))
+    .filter(|(n, _)| *n <= most)
+    .min_by_key(|(n, _)| *n)
+    .map(|(_, w)| w)
+}
+
+/// How many letters to put in, take out or change to turn `a` into `b`.
+fn edits(a: &str, b: &str) -> usize {
+  let b: Vec<u8> = b.bytes().collect();
+  let mut row: Vec<usize> = (0..=b.len()).collect();
+  for (i, x) in a.bytes().enumerate() {
+    let mut diagonal = row[0];
+    row[0] = i + 1;
+    for (j, &y) in b.iter().enumerate() {
+      let above = row[j + 1];
+      row[j + 1] = (diagonal + usize::from(x != y))
+        .min(row[j] + 1)
+        .min(above + 1);
+      diagonal = above;
+    }
+  }
+  row[b.len()]
 }
 
 /// A node whose children stand on lines of their own: items or statements.
